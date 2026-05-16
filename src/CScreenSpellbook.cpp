@@ -511,6 +511,14 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         m_nClassIndex = 0;
     } else {
         if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
+        // If divine caster (field_1670) exists and has spells at current level, default to it
+        if (field_1670 >= 0 && field_1670 < m_nNumberOfSpellClasses) {
+            BYTE nDivClass = static_cast<BYTE>(field_1654[field_1670]);
+            CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nDivClass, m_nSpellLevel);
+            if (pList != NULL && !pList->m_List.empty()) {
+                m_nClassIndex = static_cast<BYTE>(field_1670);
+            }
+        }
     }
 
     // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
