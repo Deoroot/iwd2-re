@@ -2164,7 +2164,15 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
 
     // TODO: Load non-party characters
     // TODO: Load global variables
-    // TODO: Load journal
+
+    // Load journal entries
+    DWORD nJournalCount = pData[0x11];  // header offset 0x44
+    DWORD nJournalOffset = pData[0x12]; // header offset 0x48
+    if (nJournalCount > 0 && nJournalOffset > 0 && nJournalOffset + nJournalCount * 12 <= (DWORD)nGame) {
+        m_cJournal.ClearAllEntries();
+        m_cJournal.Unmarshal(reinterpret_cast<CSavedGameJournalEntry*>(pGame + nJournalOffset), nJournalCount);
+    }
+
     // TODO: Load inventory
 
     DBG("Unmarshal: done (partial)");
