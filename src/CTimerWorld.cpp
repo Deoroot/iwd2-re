@@ -244,39 +244,11 @@ void CTimerWorld::CheckForTriggerEventPast()
 // 0x54F1D0
 void CTimerWorld::GetCurrentTimeString(ULONG nFromTime, STRREF strTimeFormat, CString& sTime)
 {
-    // Convert game time (AI ticks, 15/sec) to seconds, then to days/hours
-    ULONG nSeconds = nFromTime / 15;
-    ULONG nTotalHours = nSeconds / 3600;
-    ULONG nDay = nTotalHours / 24;
-    ULONG nHour = nTotalHours % 24;
-
-    // Calculate calendar date (Forgotten Realms Harptos calendar)
-    static const char* sMonths[] = {
-        "Hammer", "Alturiak", "Ches", "Tarsakh",
-        "Mirtul", "Kythorn", "Flamerule", "Eleasias",
-        "Eleint", "Marpenoth", "Uktar", "Nightal"
-    };
-    static const int nDaysInMonth[] = { 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30 };
-
-    int nYear = 1368 + nDay / 365;
-    int nRemainingDays = nDay % 365;
-    int nMonth = 0;
-    int nDayOfMonth = 0;
-
-    for (int m = 0; m < 12; m++) {
-        if (nRemainingDays < nDaysInMonth[m]) {
-            nMonth = m;
-            nDayOfMonth = nRemainingDays + 1;
-            break;
-        }
-        nRemainingDays -= nDaysInMonth[m];
-    }
-
-    // Fetch format string from TLK
-    STR_RES strRes;
-    g_pBaldurChitin->GetTlkTable().Fetch(strTimeFormat, strRes);
-    CString sFormat = strRes.szText;
-    sTime.Format(sFormat, nDay, nHour, nDayOfMonth, sMonths[nMonth], nYear);
+    // TODO: Incomplete — Ghidra decomp not yet fully translated
+    // See 0x54F8F0: uses MONTHS.2DA + YEARS.2DA via C2DArray::GetAt
+    // Constants: 108000 ticks/day, 4500 ticks/hour, 900 ticks/game-minute
+    // YEARS.2DA: STARTTIME=878400, STARTYEAR=1312, NORMALDAYMONTHFORMAT=15981, SPECIALDAYMONTHFORMAT=16001
+    // MONTHS.2DA: alternating 30-day months and 1-day festivals, month name STRREFs
 }
 
 // 0x54F970
