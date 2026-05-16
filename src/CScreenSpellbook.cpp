@@ -570,7 +570,8 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             if (nStartTab + i < (DWORD)m_nNumberOfSpellClasses) {
                 pBtn->SetEnabled(TRUE);
                 BYTE nCls = static_cast<BYTE>(field_1654[nStartTab + i]);
-                if (nCls >= 7) nCls = 0;
+                // Clamp invalid class values that GetClassStringMixed doesn't handle
+                if (nCls < 2 || nCls > 11) nCls = 2; // fallback to Bard
                 if (nStartTab + i == (DWORD)m_nClassIndex) {
                     STR_RES strRes;
                     g_pBaldurChitin->GetTlkTable().Fetch(0x9B2A, strRes);
