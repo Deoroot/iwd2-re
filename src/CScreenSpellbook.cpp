@@ -482,12 +482,10 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
     if (rc != CGameObjectArray::SUCCESS) return;
 
-    DBG("sub_669830: sprite=%ld classes=%d", nCharId, pSprite->GetNumSpells());
 
     // Clamp spell level (comp: local_b0+0x3D39 = m_nLastSpellbookSpellLevel)
     m_nSpellLevel = pSprite->m_nLastSpellbookSpellLevel;
     if (m_nSpellLevel >= 9) m_nSpellLevel = 0;
-    DBG("sub_669830: spellLevel=%d", m_nSpellLevel);
 
     // Iterate 7 classes, find valid ones with spells (comp: local_a4=0..6)
     BOOL bHasSpells = FALSE;
@@ -496,7 +494,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     for (UINT nIdx = 0; nIdx < 7; nIdx++) {
         BYTE nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nIdx);
         if (nClass < 7 && pSprite->GetSpells(nClass) != NULL && pSprite->GetNumSpells() != 0) {
-            DBG("sub_669830: class idx=%d type=%d added", nIdx, nClass);
             field_1654[m_nNumberOfSpellClasses] = nClass;
             m_nNumberOfSpellClasses++;
             if (nIdx == 1) { // divine caster index → also add universal (7)
@@ -508,7 +505,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         }
     }
 
-    DBG("sub_669830: numClasses=%d classIdx=%d mage=%d", m_nNumberOfSpellClasses, (int)m_nClassIndex, field_1670);
 
     if (m_nNumberOfSpellClasses == 0) {
         m_nClassIndex = 0;
@@ -527,17 +523,13 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     // Populate known spells (comp: spell loop with bit 0 check)
     if (bHasSpells) {
         BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
-        DBG("sub_669830: populating spells nCurClass=%d classIdx=%d mage=%d", nCurClass, (int)m_nClassIndex, field_1670);
         if (m_nClassIndex == field_1670) {
             // Divine caster: use domain/grouped spells
             CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
-            DBG("sub_669830: divine path nCurClass=%d grouped=%p", nCurClass, pGrouped);
             if (pGrouped != NULL && m_nSpellLevel < 9) {
                 CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
-                DBG("sub_669830: list size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
-                    DBG("sub_669830: spell[%d] id=%d max=%d current=%d (bit0=%d)", s, entry.m_nID, entry.m_nMax, entry.m_nCurrent, entry.m_nCurrent & 1);
                     if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
                             field_154C[field_1488] = entry.m_nID;
@@ -550,14 +542,10 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             }
         } else {
             // Arcane caster: use class spells at level
-            DBG("sub_669830: arcane path nCurClass=%d nSpellLevel=%d", nCurClass, m_nSpellLevel);
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
-            DBG("sub_669830: arcane list=%p", pList);
             if (pList != NULL) {
-                DBG("sub_669830: arcane list size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
-                    DBG("sub_669830: spell[%d] id=%d max=%d cur=%d bit0=%d", s, entry.m_nID, entry.m_nMax, entry.m_nCurrent, entry.m_nCurrent & 1);
                     if ((entry.m_nCurrent & 1) == 0) {
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
                             field_154C[field_1488] = entry.m_nID;
@@ -571,7 +559,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         }
     }
 
-    DBG("sub_669830: knownSpells=%d", field_1488);
 
     // Update class tab buttons (controls 88-91)
     CString sText;
