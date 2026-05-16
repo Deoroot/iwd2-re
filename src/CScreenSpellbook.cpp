@@ -931,6 +931,7 @@ void CScreenSpellbook::UpdateMainPanel()
 
     // Update known spell buttons (controls 30-37) and labels (controls 38-45)
     // field_148C[] = CResRef of known spells, populated by sub_669830
+    DBG("UpdateMainPanel: top=%d num=%d", m_nTopKnownSpell, m_nNumKnownSpells);
     for (int i = 0; i < 8; i++) {
         int nIdx = m_nTopKnownSpell + i;
 
