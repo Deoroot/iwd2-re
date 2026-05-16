@@ -550,7 +550,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             }
         } else {
             // Arcane caster: use class spells at level
-            DBG("sub_669830: arcane path");
+            DBG("sub_669830: arcane path nCurClass=%d nSpellLevel=%d", nCurClass, m_nSpellLevel);
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
             DBG("sub_669830: arcane list=%p", pList);
             if (pList != NULL) {
