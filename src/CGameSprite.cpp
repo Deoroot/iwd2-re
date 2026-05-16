@@ -7141,7 +7141,20 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     for (nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
         for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
             nOffset = offsets->m_spellListOffset[nClass][nLevel];
-            DWORD nCount = offsets->m_spellListCount[nClass][nLevel];
+            // Compute count from difference with next offset (original game logic)
+            // Count array at struct+0x132 is not populated — derive from offset deltas
+            DWORD nNextOffset;
+            if (nLevel < 8) {
+                nNextOffset = offsets->m_spellListOffset[nClass][nLevel + 1];
+            } else if (nClass < 6) {
+                nNextOffset = offsets->m_spellListOffset[nClass + 1][0];
+            } else {
+                nNextOffset = offsets->m_domainListOffset[0];
+            }
+            DWORD nCount = 0;
+            if (nNextOffset > nOffset) {
+                nCount = (nNextOffset - nOffset) / sizeof(CCreatureFileSpell);
+            }
             DBG("Unmarshal: spells class=%d level=%d offset=0x%X count=%d", nClass, nLevel, nOffset, nCount);
             for (nIndex = 0; nIndex < offsets->m_spellListCount[nClass][nLevel]; nIndex++) {
                 *pSpell = *reinterpret_cast<CCreatureFileSpell*>(pCreature + nOffset);
