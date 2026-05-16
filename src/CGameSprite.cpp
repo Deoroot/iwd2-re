@@ -1,5 +1,6 @@
 #include "CGameSprite.h"
 
+#include "debuglog.h"
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
@@ -7140,6 +7141,8 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     for (nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
         for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
             nOffset = offsets->m_spellListOffset[nClass][nLevel];
+            DWORD nCount = offsets->m_spellListCount[nClass][nLevel];
+            DBG("Unmarshal: spells class=%d level=%d offset=0x%X count=%d", nClass, nLevel, nOffset, nCount);
             for (nIndex = 0; nIndex < offsets->m_spellListCount[nClass][nLevel]; nIndex++) {
                 *pSpell = *reinterpret_cast<CCreatureFileSpell*>(pCreature + nOffset);
                 nOffset += sizeof(CCreatureFileSpell);
