@@ -554,8 +554,10 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
             DBG("sub_669830: arcane list=%p", pList);
             if (pList != NULL) {
+                DBG("sub_669830: arcane list size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
+                    DBG("sub_669830: spell[%d] id=%d max=%d cur=%d bit0=%d", s, entry.m_nID, entry.m_nMax, entry.m_nCurrent, entry.m_nCurrent & 1);
                     if ((entry.m_nCurrent & 1) == 0) {
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
                             field_154C[field_1488] = entry.m_nID;
