@@ -7140,16 +7140,16 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
 
     for (nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
         for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
-            // Read from CRE header directly (offsets at 0x5DE, counts at 0x6DA)
-            // The 900-byte offset table is derived later, not available during Unmarshal
-            nOffset = *reinterpret_cast<DWORD*>(pCreature + 0x5DE + (nClass * 9 + nLevel) * 4);
+            nOffset = offsets->m_spellListOffset[nClass][nLevel];
+            // Compute count from difference with next offset (original game logic)
+            // Count array at struct+0x132 is not populated — derive from offset deltas
             DWORD nNextOffset;
             if (nLevel < 8) {
-                nNextOffset = *reinterpret_cast<DWORD*>(pCreature + 0x5DE + (nClass * 9 + nLevel + 1) * 4);
+                nNextOffset = offsets->m_spellListOffset[nClass][nLevel + 1];
             } else if (nClass < 6) {
-                nNextOffset = *reinterpret_cast<DWORD*>(pCreature + 0x5DE + ((nClass + 1) * 9) * 4);
+                nNextOffset = offsets->m_spellListOffset[nClass + 1][0];
             } else {
-                nNextOffset = *reinterpret_cast<DWORD*>(pCreature + 0x5DE + 63 * 4); // domain start
+                nNextOffset = offsets->m_domainListOffset[0];
             }
             DWORD nCount = 0;
             if (nNextOffset > nOffset) {
