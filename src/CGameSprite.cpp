@@ -7144,8 +7144,8 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
             DWORD* pOffsets = &offsets->m_classMask;
             nOffset = pOffsets[nClass * 9 + nLevel + 1];
 
-            // Spell counts at CRE+0x4DA
-            DWORD* pCounts = reinterpret_cast<DWORD*>(pCreature + 0x4DA);
+            // Spell counts at CRE+0x4B6 (Bard spells 1 count = 1st entry)
+            DWORD* pCounts = reinterpret_cast<DWORD*>(pCreature + 0x4B6);
             DWORD nCount = pCounts[nClass * 9 + nLevel];
 
             DBG("Unmarshal: spells class=%d level=%d offset=0x%X count=%d", nClass, nLevel, nOffset, nCount);
