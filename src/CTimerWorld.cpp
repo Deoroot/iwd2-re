@@ -244,11 +244,107 @@ void CTimerWorld::CheckForTriggerEventPast()
 // 0x54F1D0
 void CTimerWorld::GetCurrentTimeString(ULONG nFromTime, STRREF strTimeFormat, CString& sTime)
 {
-    // TODO: Incomplete — Ghidra decomp not yet fully translated
-    // See 0x54F8F0: uses MONTHS.2DA + YEARS.2DA via C2DArray::GetAt
-    // Constants: 108000 ticks/day, 4500 ticks/hour, 900 ticks/game-minute
-    // YEARS.2DA: STARTTIME=878400, STARTYEAR=1312, NORMALDAYMONTHFORMAT=15981, SPECIALDAYMONTHFORMAT=16001
-    // MONTHS.2DA: alternating 30-day months and 1-day festivals, month name STRREFs
+    // Based on Ghidra decomp 0x54F8F0
+    // Constants from decomp: 0x1A5E0=108000 ticks/day, 0x1194=4500 ticks/hour, 0x900=900 ticks/game-minute
+
+    const CRuleTables& rule = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+    const C2DArray& tMonths = rule.m_tMonths;  // DAT_008de98c
+    const C2DArray& tYears = rule.m_tYears;     // DAT_008df2c0
+
+    // Count months/year and days/year from MONTHS.2DA (comp: the while loop)
+    DWORD dwMonthIdx = 0;
+    DWORD dwDaysPerYear = 0;
+    DWORD dwMonthsPerYear = 0;
+    while (TRUE) {
+        CString sKey;
+        sKey.Format("%d", dwMonthIdx);  // FUN_007faee8 + DAT_008a64c4 ("%d")
+        LONG nDays = atol(tMonths.GetAt(CString("DAYS"), sKey));  // FUN_007e7b03 + C2DArray__GetAt
+        if (nDays == 0) break;
+        dwDaysPerYear += nDays;
+        dwMonthsPerYear++;
+        dwMonthIdx++;
+    }
+
+    if (dwMonthsPerYear == 0 || dwDaysPerYear == 0) return;
+
+    // Read YEARS.2DA values (comp: C2DArray__GetAt calls with DAT_008dee64/DAT_008df0f8/etc)
+    LONG nStartTime = atol(tYears.GetAt(CString("VALUE"), CString("STARTTIME")));
+    LONG nStartYear = atol(tYears.GetAt(CString("VALUE"), CString("STARTYEAR")));
+    LONG nNormalMonthFmt = atol(tYears.GetAt(CString("VALUE"), CString("NORMALDAYMONTHFORMAT")));
+    LONG nSpecialMonthFmt = atol(tYears.GetAt(CString("VALUE"), CString("SPECIALDAYMONTHFORMAT")));
+
+    // Compute game time (comp: uVar6 = iVar3 * 0xf + param_1)
+    ULONG nTicks = nStartTime * 15 + nFromTime;
+    ULONG nTotalDays = nTicks / 108000;
+    ULONG nHours = (nTicks % 108000) / 4500;
+    ULONG nDayMinutes = (nTicks % 4500) / 900;
+    LONG nYear = nStartYear + nTotalDays / dwDaysPerYear;
+    ULONG nRemainingDays = nTotalDays % dwDaysPerYear;
+
+    // Find current month from MONTHS.2DA (comp: the do-while loop)
+    DWORD dwMonth = 0;
+    DWORD dwDayOfMonth = 0;
+    LONG nMonthDays = 0;
+    for (DWORD m = 0; m < dwMonthsPerYear; m++) {
+        CString sKey;
+        sKey.Format("%d", m);
+        nMonthDays = atol(tMonths.GetAt(CString("DAYS"), sKey));
+        if (nRemainingDays < (DWORD)nMonthDays) {
+            dwMonth = m;
+            dwDayOfMonth = nRemainingDays;
+            break;
+        }
+        nRemainingDays -= nMonthDays;
+    }
+
+    if (dwMonth >= dwMonthsPerYear) return;
+
+    // Get month name STRREF from MONTHS.2DA (comp: C2DArray__GetAt + CTlkTable__Fetch)
+    CString sKey;
+    sKey.Format("%d", dwMonth);
+    LONG nMonthStrRef = atol(tMonths.GetAt(CString("NAME"), sKey));
+    STR_RES strMonthName;
+    g_pBaldurChitin->GetTlkTable().Fetch(nMonthStrRef, strMonthName);
+
+    // Get month format STRREF (special for 1-day months, normal otherwise)
+    LONG nMonthFmtStrRef = (nMonthDays == 1) ? nSpecialMonthFmt : nNormalMonthFmt;
+    STR_RES strMonthFmt;
+    g_pBaldurChitin->GetTlkTable().Fetch(nMonthFmtStrRef, strMonthFmt);
+
+    // Format month name using the month format (e.g., "%d %s" or "%s")
+    CString sMonthFormatted;
+    sMonthFormatted.Format(strMonthFmt.szText, dwDayOfMonth + 1, strMonthName.szText);
+
+    // Singular/plural for "day" (comp: TLK 0x29c9-0x29cd checks)
+    STRREF strDayWord;
+    if (nTotalDays == 0) {
+        strDayWord = 0x29ca;  // "0 days" special case
+    } else if (nTotalDays == 1) {
+        strDayWord = 0x29c9;  // singular "day"
+    } else {
+        strDayWord = 0x29cb;  // plural "days"
+    }
+    STR_RES strDay;
+    g_pBaldurChitin->GetTlkTable().Fetch(strDayWord, strDay);
+
+    // Singular/plural for "hour" (comp: TLK 0x29cc-0x29cd)
+    STRREF strHourWord;
+    if (nHours == 1) {
+        strHourWord = 0x29cc;  // singular "hour"
+    } else {
+        strHourWord = 0x29cd;  // plural "hours"
+    }
+    STR_RES strHour;
+    g_pBaldurChitin->GetTlkTable().Fetch(strHourWord, strHour);
+
+    // Fetch the caller's format STRREF and format final string
+    STR_RES strFormat;
+    g_pBaldurChitin->GetTlkTable().Fetch(strTimeFormat, strFormat);
+
+    sTime.Format(strFormat.szText,
+        nTotalDays, strDay.szText,
+        nHours, strHour.szText,
+        dwDayOfMonth + 1, (LPCSTR)strMonthName.szText, nYear);
 }
 
 // 0x54F970
