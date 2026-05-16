@@ -1,5 +1,6 @@
 #include "CScreenSpellbook.h"
 
+#include "debuglog.h"
 #include "CBaldurChitin.h"
 #include "CGameSprite.h"
 #include "CInfCursor.h"
@@ -481,9 +482,12 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
     if (rc != CGameObjectArray::SUCCESS) return;
 
+    DBG("sub_669830: sprite=%ld classes=%d", nCharId, pSprite->GetNumSpells());
+
     // Clamp spell level (comp: local_b0+0x3D39 = m_nLastSpellbookSpellLevel)
     m_nSpellLevel = pSprite->m_nLastSpellbookSpellLevel;
     if (m_nSpellLevel >= 9) m_nSpellLevel = 0;
+    DBG("sub_669830: spellLevel=%d", m_nSpellLevel);
 
     // Iterate 7 classes, find valid ones with spells (comp: local_a4=0..6)
     BOOL bHasSpells = FALSE;
@@ -492,6 +496,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     for (UINT nIdx = 0; nIdx < 7; nIdx++) {
         BYTE nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nIdx);
         if (nClass < 7 && pSprite->GetSpells(nClass) != NULL && pSprite->GetNumSpells() != 0) {
+            DBG("sub_669830: class idx=%d type=%d added", nIdx, nClass);
             field_1654[m_nNumberOfSpellClasses] = nClass;
             m_nNumberOfSpellClasses++;
             if (nIdx == 1) { // divine caster index → also add universal (7)
@@ -502,6 +507,8 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             bHasSpells = TRUE;
         }
     }
+
+    DBG("sub_669830: numClasses=%d classIdx=%d mage=%d", m_nNumberOfSpellClasses, (int)m_nClassIndex, field_1670);
 
     if (m_nNumberOfSpellClasses == 0) {
         m_nClassIndex = 0;
@@ -556,7 +563,9 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         }
     }
 
-    // Update class tab buttons (controls 88-91) (comp: GetControl(0x58 + uVar10))
+    DBG("sub_669830: knownSpells=%d", field_1488);
+
+    // Update class tab buttons (controls 88-91)
     CString sText;
     sText = "";
     DWORD nStartTab = 0;
