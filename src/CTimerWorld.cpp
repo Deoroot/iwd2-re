@@ -1,5 +1,6 @@
 #include "CTimerWorld.h"
 
+#include "debuglog.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CInfGame.h"
@@ -296,11 +297,13 @@ void CTimerWorld::GetCurrentTimeString(ULONG nFromTime, STRREF strTimeFormat, CS
 
     STR_RES strFormat;
     g_pBaldurChitin->GetTlkTable().Fetch(strTimeFormat, strFormat);
+    DBG("GetCurrentTimeString: format='%s' tokens: day=%s hour=%s daymon=%s year=%s", strFormat.szText, (LPCSTR)sGameDay, (LPCSTR)sHourStr, (LPCSTR)sDayAndMonth, (LPCSTR)sYearStr);
     sTime = strFormat.szText;
     sTime.Replace(CString("<GAMEDAY>"), sGameDay);
     sTime.Replace(CString("<HOUR>"), sHourStr);
     sTime.Replace(CString("<DAYANDMONTH>"), sDayAndMonth);
     sTime.Replace(CString("<YEAR>"), sYearStr);
+    DBG("GetCurrentTimeString: result='%s'", (LPCSTR)sTime);
 }
 
 
