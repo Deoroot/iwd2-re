@@ -7140,22 +7140,15 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
 
     for (nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
         for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
-            nOffset = offsets->m_spellListOffset[nClass][nLevel];
-            // Compute count from difference with next offset (original game logic)
-            // Count array at struct+0x132 is not populated — derive from offset deltas
-            DWORD nNextOffset;
-            if (nLevel < 8) {
-                nNextOffset = offsets->m_spellListOffset[nClass][nLevel + 1];
-            } else if (nClass < 6) {
-                nNextOffset = offsets->m_spellListOffset[nClass + 1][0];
-            } else {
-                nNextOffset = offsets->m_domainListOffset[0];
-            }
-            DWORD nCount = 0;
-            if (nNextOffset > nOffset) {
-                nCount = (nNextOffset - nOffset) / sizeof(CCreatureFileSpell);
-            }
-            for (nIndex = 0; nIndex < offsets->m_spellListCount[nClass][nLevel]; nIndex++) {
+            // Spell offsets start at struct+0x32 (&m_classMask = 1st entry)
+            DWORD* pOffsets = &offsets->m_classMask;
+            nOffset = pOffsets[nClass * 9 + nLevel];
+
+            // Spell counts at CRE+0x4DA (not in 900-byte struct)
+            DWORD* pCounts = reinterpret_cast<DWORD*>(pCreature + 0x4DA);
+            DWORD nCount = pCounts[nClass * 9 + nLevel];
+
+            for (nIndex = 0; nIndex < nCount; nIndex++) {
                 *pSpell = *reinterpret_cast<CCreatureFileSpell*>(pCreature + nOffset);
                 nOffset += sizeof(CCreatureFileSpell);
 
@@ -7174,7 +7167,7 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
                         pSpell->field_C);
                 }
             }
-            creatureSize -= sizeof(CCreatureFileSpell) * offsets->m_spellListCount[nClass][nLevel];
+            creatureSize -= sizeof(CCreatureFileSpell) * nCount;
 
             // NOTE: There are some inlining.
 
