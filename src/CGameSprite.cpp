@@ -7140,13 +7140,15 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
 
     for (nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
         for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
-            // Spell offsets start at struct+0x32 (&m_classMask = 1st entry)
+            // Spell offsets start at struct+0x36 (index 0 = class mask, skip it)
             DWORD* pOffsets = &offsets->m_classMask;
-            nOffset = pOffsets[nClass * 9 + nLevel];
+            nOffset = pOffsets[nClass * 9 + nLevel + 1];
 
-            // Spell counts at CRE+0x4DA (not in 900-byte struct)
+            // Spell counts at CRE+0x4DA
             DWORD* pCounts = reinterpret_cast<DWORD*>(pCreature + 0x4DA);
             DWORD nCount = pCounts[nClass * 9 + nLevel];
+
+            DBG("Unmarshal: spells class=%d level=%d offset=0x%X count=%d", nClass, nLevel, nOffset, nCount);
 
             for (nIndex = 0; nIndex < nCount; nIndex++) {
                 *pSpell = *reinterpret_cast<CCreatureFileSpell*>(pCreature + nOffset);
