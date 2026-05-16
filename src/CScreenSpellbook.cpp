@@ -5,6 +5,7 @@
 #include "CGameSprite.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
+#include "CUIControlLabel.h"
 #include "CScreenWorld.h"
 #include "CSpell.h"
 #include "CUIControlTextDisplay.h"
@@ -908,7 +909,70 @@ void CScreenSpellbook::EnableMainPanel(BOOL bEnable)
 // 0x66A980
 void CScreenSpellbook::UpdateMainPanel()
 {
-    // TODO: Incomplete.
+    // Based on Ghidra decomp 0x66A980 — simplified implementation
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CUIPanel* pPanel = m_cUIManager.GetPanel(2);
+    if (pPanel == NULL) return;
+
+    // Get character sprite
+    LONG nCharId = pGame->GetCharacterId(m_nSelectedCharacter);
+    if (nCharId == CGameObjectArray::INVALID_INDEX) return;
+
+    CGameSprite* pSprite;
+    BYTE rc = pGame->GetObjectArray()->GetShare(nCharId, CGameObjectArray::THREAD_ASYNCH,
+        reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
+    if (rc != CGameObjectArray::SUCCESS) return;
+
+    // Update scrollbar
+    CUIControlScrollBar* pScroll = static_cast<CUIControlScrollBar*>(pPanel->GetControl(54));
+    if (pScroll != NULL) {
+        pScroll->AdjustScrollBar(m_nTopKnownSpell, m_nNumKnownSpells, 8);
+    }
+
+    // Update known spell buttons (controls 30-37) and labels (controls 38-45)
+    // field_148C[] = CResRef of known spells, populated by sub_669830
+    for (int i = 0; i < 8; i++) {
+        int nIdx = m_nTopKnownSpell + i;
+
+        CUIControlButtonSpellbookSpell* pIconBtn = static_cast<CUIControlButtonSpellbookSpell*>(pPanel->GetControl(30 + i));
+        CUIControlButton* pLabelBtn = static_cast<CUIControlButton*>(pPanel->GetControl(46 + i));
+        CUIControlLabel* pLabel = static_cast<CUIControlLabel*>(pPanel->GetControl(38 + i));
+
+        if (nIdx < m_nNumKnownSpells && field_148C[nIdx] != CResRef("")) {
+            // Set spell icon
+            if (pIconBtn != NULL) {
+                pIconBtn->SetSpell(field_148C[nIdx]);
+                pIconBtn->SetEnabled(TRUE);
+            }
+            // Show spell name
+            if (pLabel != NULL) {
+                CSpell cSpell;
+                cSpell.SetResRef(field_148C[nIdx], TRUE, TRUE);
+                cSpell.Demand();
+                STRREF strName = cSpell.GetGenericName();
+                STR_RES strRes;
+                g_pBaldurChitin->GetTlkTable().Fetch(strName, strRes);
+                pLabel->SetText(CString(strRes.szText));
+                cSpell.Release();
+            }
+            if (pLabelBtn != NULL) {
+                pLabelBtn->SetEnabled(TRUE);
+            }
+        } else {
+            if (pIconBtn != NULL) {
+                pIconBtn->SetSpell(CResRef(""));
+                pIconBtn->SetEnabled(FALSE);
+            }
+            if (pLabel != NULL) {
+                pLabel->SetText(CString(""));
+            }
+            if (pLabelBtn != NULL) {
+                pLabelBtn->SetEnabled(FALSE);
+            }
+        }
+    }
+
+    pGame->GetObjectArray()->ReleaseShare(nCharId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
 
 // NOTE: Inlined.
