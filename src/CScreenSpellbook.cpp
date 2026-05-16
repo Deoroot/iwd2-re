@@ -468,7 +468,144 @@ BYTE* CScreenSpellbook::GetVirtualKeysFlags()
 // 0x669830
 void CScreenSpellbook::sub_669830(DWORD nPortrait)
 {
-    // TODO: Incomplete.
+    // Based on Ghidra decomp 0x669830
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CUIPanel* pPanel = m_cUIManager.GetPanel(2);
+
+    // Get character from portrait (comp: in_ECX+0x28 = m_nSelectedCharacter)
+    LONG nCharId = pGame->GetCharacterId(m_nSelectedCharacter);
+    if (nCharId == CGameObjectArray::INVALID_INDEX) return;
+
+    CGameSprite* pSprite;
+    BYTE rc = pGame->GetObjectArray()->GetShare(nCharId, CGameObjectArray::THREAD_ASYNCH,
+        reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
+    if (rc != CGameObjectArray::SUCCESS) return;
+
+    // Clamp spell level (comp: local_b0+0x3D39 = m_nLastSpellbookSpellLevel)
+    m_nSpellLevel = pSprite->m_nLastSpellbookSpellLevel;
+    if (m_nSpellLevel >= 9) m_nSpellLevel = 0;
+
+    // Iterate 7 classes, find valid ones with spells (comp: local_a4=0..6)
+    BOOL bHasSpells = FALSE;
+    m_nNumberOfSpellClasses = 0;
+    field_1670 = -1;
+    for (UINT nIdx = 0; nIdx < 7; nIdx++) {
+        BYTE nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nIdx);
+        if (nClass < 7 && pSprite->GetSpells(nClass) != NULL && pSprite->GetNumSpells() != 0) {
+            field_1654[m_nNumberOfSpellClasses] = nClass;
+            m_nNumberOfSpellClasses++;
+            if (nIdx == 1) { // divine caster index → also add universal (7)
+                field_1670 = m_nNumberOfSpellClasses - 1;
+                field_1654[m_nNumberOfSpellClasses] = 7;
+                m_nNumberOfSpellClasses++;
+            }
+            bHasSpells = TRUE;
+        }
+    }
+
+    if (m_nNumberOfSpellClasses == 0) {
+        m_nClassIndex = 0;
+    } else {
+        if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
+    }
+
+    // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
+    field_1488 = 0;
+    for (int i = 0; i < 24; i++) {
+        field_148C[i] = CResRef("");
+        field_154C[i] = 0;
+        field_15AC[i] = 0;
+    }
+
+    // Populate known spells (comp: spell loop with bit 0 check)
+    if (bHasSpells) {
+        BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
+        if (m_nClassIndex == field_1670) {
+            // Divine caster: use domain/grouped spells
+            CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
+            if (pGrouped != NULL && m_nSpellLevel < 9) {
+                CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
+                for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
+                    CGameSpriteSpellListEntry& entry = pList->m_List[s];
+                    if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
+                        if (entry.m_nID < pGame->m_spells.m_nCount) {
+                            field_154C[field_1488] = entry.m_nID;
+                            field_15AC[field_1488] = entry.m_nMax;
+                            field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
+                            field_1488++;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Arcane caster: use class spells at level
+            CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
+            if (pList != NULL) {
+                for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
+                    CGameSpriteSpellListEntry& entry = pList->m_List[s];
+                    if ((entry.m_nCurrent & 1) == 0) {
+                        if (entry.m_nID < pGame->m_spells.m_nCount) {
+                            field_154C[field_1488] = entry.m_nID;
+                            field_15AC[field_1488] = entry.m_nMax;
+                            field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
+                            field_1488++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Update class tab buttons (controls 88-91) (comp: GetControl(0x58 + uVar10))
+    CString sText;
+    sText = "";
+    DWORD nStartTab = 0;
+    if (m_nClassIndex >= 4) nStartTab = m_nClassIndex - 3;
+    if (nStartTab + 4 > (DWORD)m_nNumberOfSpellClasses) nStartTab = (DWORD)m_nNumberOfSpellClasses > 4 ? m_nNumberOfSpellClasses - 4 : 0;
+
+    for (DWORD i = 0; i < 4; i++) {
+        CUIControlButton3State* pBtn = static_cast<CUIControlButton3State*>(pPanel->GetControl(88 + i));
+        if (pBtn != NULL) {
+            pBtn->SetSelected(FALSE);
+            if (nStartTab + i < (DWORD)m_nNumberOfSpellClasses) {
+                pBtn->SetEnabled(TRUE);
+                BYTE nCls = static_cast<BYTE>(field_1654[nStartTab + i]);
+                if (nCls >= 7) nCls = 0;
+                if (nStartTab + i == (DWORD)m_nClassIndex) {
+                    STR_RES strRes;
+                    g_pBaldurChitin->GetTlkTable().Fetch(0x9B2A, strRes);
+                    sText = strRes.szText;
+                } else {
+                    g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassStringMixed(nCls, 0, 0, sText, 1);
+                }
+                pBtn->SetText(sText);
+            } else {
+                pBtn->SetEnabled(FALSE);
+            }
+        }
+    }
+
+    // Update level buttons (controls 55-63) (comp: GetControl(uVar10 + 0x37))
+    for (int i = 0; i < 9; i++) {
+        CUIControlButton3State* pBtn = static_cast<CUIControlButton3State*>(pPanel->GetControl(55 + i));
+        if (pBtn != NULL) {
+            pBtn->SetEnabled(m_nNumberOfSpellClasses != 0);
+            pBtn->SetSelected(FALSE);
+        }
+    }
+    CUIControlButton3State* pLevelBtn = static_cast<CUIControlButton3State*>(pPanel->GetControl(55 + m_nSpellLevel));
+    if (pLevelBtn != NULL) {
+        pLevelBtn->SetSelected(m_nNumberOfSpellClasses != 0);
+    }
+
+    // Update scroll bar (control 54) (comp: AdjustScrollBar)
+    m_nTopKnownSpell = 0;
+    CUIControlScrollBar* pScroll = static_cast<CUIControlScrollBar*>(pPanel->GetControl(54));
+    if (pScroll != NULL) {
+        pScroll->AdjustScrollBar(m_nTopKnownSpell, field_1488, 8);
+    }
+
+    pGame->GetObjectArray()->ReleaseShare(nCharId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
 
 // 0x66A010
