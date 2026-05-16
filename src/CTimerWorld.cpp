@@ -309,7 +309,8 @@ void CTimerWorld::GetCurrentTimeString(ULONG nFromTime, STRREF strTimeFormat, CS
     //   ...same for Hour, DayOfMonth, Month, Year...
     sTime = "Day ";
     CString sTemp;
-    sTemp.Format("%d", nTotalDays);
+    // Day count uses nFromTime directly (comp: param_1 / 0x1a5e0)
+    sTemp.Format("%d", nFromTime / 108000);
     sTime += sTemp;          // FUN_007fcfe6
 
     sTime += ", Hour ";       // FUN_007fc1a5(DAT_008e0774)
