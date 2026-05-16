@@ -527,6 +527,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     // Populate known spells (comp: spell loop with bit 0 check)
     if (bHasSpells) {
         BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
+        DBG("sub_669830: populating spells nCurClass=%d classIdx=%d mage=%d", nCurClass, (int)m_nClassIndex, field_1670);
         if (m_nClassIndex == field_1670) {
             // Divine caster: use domain/grouped spells
             CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
@@ -549,7 +550,9 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             }
         } else {
             // Arcane caster: use class spells at level
+            DBG("sub_669830: arcane path");
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
+            DBG("sub_669830: arcane list=%p", pList);
             if (pList != NULL) {
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
