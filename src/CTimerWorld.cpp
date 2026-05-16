@@ -244,7 +244,39 @@ void CTimerWorld::CheckForTriggerEventPast()
 // 0x54F1D0
 void CTimerWorld::GetCurrentTimeString(ULONG nFromTime, STRREF strTimeFormat, CString& sTime)
 {
-    // TODO: Incomplete.
+    // Convert game time (AI ticks, 15/sec) to seconds, then to days/hours
+    ULONG nSeconds = nFromTime / 15;
+    ULONG nTotalHours = nSeconds / 3600;
+    ULONG nDay = nTotalHours / 24;
+    ULONG nHour = nTotalHours % 24;
+
+    // Calculate calendar date (Forgotten Realms Harptos calendar)
+    static const char* sMonths[] = {
+        "Hammer", "Alturiak", "Ches", "Tarsakh",
+        "Mirtul", "Kythorn", "Flamerule", "Eleasias",
+        "Eleint", "Marpenoth", "Uktar", "Nightal"
+    };
+    static const int nDaysInMonth[] = { 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30 };
+
+    int nYear = 1368 + nDay / 365;
+    int nRemainingDays = nDay % 365;
+    int nMonth = 0;
+    int nDayOfMonth = 0;
+
+    for (int m = 0; m < 12; m++) {
+        if (nRemainingDays < nDaysInMonth[m]) {
+            nMonth = m;
+            nDayOfMonth = nRemainingDays + 1;
+            break;
+        }
+        nRemainingDays -= nDaysInMonth[m];
+    }
+
+    // Fetch format string from TLK
+    STR_RES strRes;
+    g_pBaldurChitin->GetTlkTable().Fetch(strTimeFormat, strRes);
+    CString sFormat = strRes.szText;
+    sTime.Format(sFormat, nDay, nHour, nDayOfMonth, sMonths[nMonth], nYear);
 }
 
 // 0x54F970
