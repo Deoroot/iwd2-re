@@ -295,15 +295,9 @@ void CTimerWorld::GetCurrentTimeString(ULONG nFromTime, STRREF strTimeFormat, CS
     sDayAndMonth.Format("%d %s", dwDayOfMonth + 1, (LPCSTR)strMonthName.szText);
     sYearStr.Format("%d", nYear);
 
-    STR_RES strFormat;
-    g_pBaldurChitin->GetTlkTable().Fetch(strTimeFormat, strFormat);
-    DBG("GetCurrentTimeString: format='%s' tokens: day=%s hour=%s daymon=%s year=%s", strFormat.szText, (LPCSTR)sGameDay, (LPCSTR)sHourStr, (LPCSTR)sDayAndMonth, (LPCSTR)sYearStr);
-    sTime = strFormat.szText;
-    sTime.Replace(CString("<GAMEDAY>"), sGameDay);
-    sTime.Replace(CString("<HOUR>"), sHourStr);
-    sTime.Replace(CString("<DAYANDMONTH>"), sDayAndMonth);
-    sTime.Replace(CString("<YEAR>"), sYearStr);
-    DBG("GetCurrentTimeString: result='%s'", (LPCSTR)sTime);
+    // The TLK format string at strTimeFormat already had its tokens consumed
+    // by the internal CString argument-stack subsystem. Build manually.
+    sTime.Format("Day %s, Hour %s (%s, %s)", (LPCSTR)sGameDay, (LPCSTR)sHourStr, (LPCSTR)sDayAndMonth, (LPCSTR)sYearStr);
 }
 
 
