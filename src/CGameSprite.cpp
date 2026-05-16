@@ -7148,7 +7148,6 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
             DWORD* pCounts = reinterpret_cast<DWORD*>(pCreature + 0x4B6);
             DWORD nCount = pCounts[nClass * 9 + nLevel];
 
-            DBG("Unmarshal: spells class=%d level=%d offset=0x%X count=%d", nClass, nLevel, nOffset, nCount);
 
             for (nIndex = 0; nIndex < nCount; nIndex++) {
                 *pSpell = *reinterpret_cast<CCreatureFileSpell*>(pCreature + nOffset);
