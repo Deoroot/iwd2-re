@@ -7004,10 +7004,12 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
         m_baseStats.m_subrace = 0;
     }
 
+    DWORD dwClassMask = 0; // class mask from header, not in file struct
+
     if (offsets->m_class == 0 || offsets->m_class == -1) {
         offsets->m_class = CAIOBJECTTYPE_C_FIGHTER;
         offsets->m_avClass = CAIOBJECTTYPE_C_FIGHTER;
-        offsets->m_classMask = CLASSMASK_FIGHTER;
+        dwClassMask = CLASSMASK_FIGHTER;
     }
 
     m_derivedStats.m_classMask = 0;
@@ -7030,7 +7032,7 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
                   offsets->m_specialCase,
                   CString(offsets->m_name),
                   offsets->m_avClass,
-                  offsets->m_classMask),
+                  dwClassMask),
         TRUE, TRUE);
 
     if ((m_baseStats.m_generalState & STATE_DEAD) != 0) {
