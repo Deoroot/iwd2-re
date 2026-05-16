@@ -530,10 +530,13 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         if (m_nClassIndex == field_1670) {
             // Divine caster: use domain/grouped spells
             CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
+            DBG("sub_669830: divine path nCurClass=%d grouped=%p", nCurClass, pGrouped);
             if (pGrouped != NULL && m_nSpellLevel < 9) {
                 CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
+                DBG("sub_669830: list size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
+                    DBG("sub_669830: spell[%d] id=%d max=%d current=%d (bit0=%d)", s, entry.m_nID, entry.m_nMax, entry.m_nCurrent, entry.m_nCurrent & 1);
                     if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
                             field_154C[field_1488] = entry.m_nID;
