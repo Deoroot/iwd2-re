@@ -934,7 +934,9 @@ void CScreenSpellbook::EnableMainPanel(BOOL bEnable)
 // 0x66A980
 void CScreenSpellbook::UpdateMainPanel()
 {
-    // Based on Ghidra decomp 0x66A980 — simplified implementation
+    DBG("UpdateMainPanel: ENTER top=%d num=%d", m_nTopKnownSpell, m_nNumKnownSpells);
+    // Simplified implementation — uses field_1488 as spell count
+    INT nSpellCount = field_1488;
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CUIPanel* pPanel = m_cUIManager.GetPanel(2);
     if (pPanel == NULL) return;
@@ -951,7 +953,7 @@ void CScreenSpellbook::UpdateMainPanel()
     // Update scrollbar
     CUIControlScrollBar* pScroll = static_cast<CUIControlScrollBar*>(pPanel->GetControl(54));
     if (pScroll != NULL) {
-        pScroll->AdjustScrollBar(m_nTopKnownSpell, m_nNumKnownSpells, 8);
+        pScroll->AdjustScrollBar(m_nTopKnownSpell, nSpellCount, 8);
     }
 
     // Update known spell buttons (controls 30-37) and labels (controls 38-45)
@@ -963,7 +965,7 @@ void CScreenSpellbook::UpdateMainPanel()
         CUIControlButton* pLabelBtn = static_cast<CUIControlButton*>(pPanel->GetControl(46 + i));
         CUIControlLabel* pLabel = static_cast<CUIControlLabel*>(pPanel->GetControl(38 + i));
 
-        if (nIdx < m_nNumKnownSpells && field_148C[nIdx] != CResRef("")) {
+        if (nIdx < nSpellCount && field_148C[nIdx] != CResRef("")) {
             // Set spell icon
             if (pIconBtn != NULL) {
                 pIconBtn->SetSpell(field_148C[nIdx]);
