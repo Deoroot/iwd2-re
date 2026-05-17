@@ -960,16 +960,20 @@ void CScreenSpellbook::UpdateMainPanel()
     // field_148C[] = CResRef of known spells, populated by sub_669830
     for (int i = 0; i < 8; i++) {
         int nIdx = m_nTopKnownSpell + i;
+        DBG("UpdateMainPanel: button[%d] idx=%d", i, nIdx);
 
         CUIControlButtonSpellbookSpell* pIconBtn = static_cast<CUIControlButtonSpellbookSpell*>(pPanel->GetControl(30 + i));
+        DBG("UpdateMainPanel: iconBtn[%d]=%p", i, pIconBtn);
         CUIControlButton* pLabelBtn = static_cast<CUIControlButton*>(pPanel->GetControl(46 + i));
         CUIControlLabel* pLabel = static_cast<CUIControlLabel*>(pPanel->GetControl(38 + i));
 
         if (nIdx < nSpellCount && field_148C[nIdx] != CResRef("")) {
+            DBG("UpdateMainPanel: setting spell idx=%d resref=%s", nIdx, (LPCSTR)field_148C[nIdx].GetResRefStr());
             // Set spell icon
             if (pIconBtn != NULL) {
                 pIconBtn->SetSpell(field_148C[nIdx]);
                 pIconBtn->SetEnabled(TRUE);
+                DBG("UpdateMainPanel: SetSpell done");
             }
             // Show spell name
             if (pLabel != NULL) {
