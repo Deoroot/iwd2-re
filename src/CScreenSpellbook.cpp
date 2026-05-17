@@ -514,6 +514,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         // Clamp class index to valid range (comp: sprite field_F4E logic)
         if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
     }
+    DBG("sub_669830: after clamp classIdx=%d numClasses=%d", (int)m_nClassIndex, m_nNumberOfSpellClasses);
 
     // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
     field_1488 = 0;
@@ -525,6 +526,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
 
     // Populate known spells (comp: spell loop with bit 0 check)
     if (bHasSpells) {
+        DBG("sub_669830: bHasSpells=TRUE classIdx=%d numClasses=%d", (int)m_nClassIndex, m_nNumberOfSpellClasses);
         DBG("sub_669830: bHasSpells=TRUE classIdx=%d nCurClass=%d field1670=%d", (int)m_nClassIndex, (int)field_1654[m_nClassIndex], field_1670);
     {
         UINT _dbg_idx = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(field_1654[m_nClassIndex]);
@@ -536,6 +538,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
             if (pGrouped != NULL && m_nSpellLevel < 9) {
                 CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
+                DBG("sub_669830: DIVINE list size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
@@ -551,7 +554,9 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         } else {
             // Arcane caster: use class spells at level
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
+            DBG("sub_669830: ARCANE list=%p", pList);
             if (pList != NULL) {
+                DBG("sub_669830: ARCANE list size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) {
