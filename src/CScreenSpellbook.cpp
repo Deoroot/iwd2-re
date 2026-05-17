@@ -1003,6 +1003,8 @@ void CScreenSpellbook::UpdateMainPanel()
         }
     }
 
+    pPanel->InvalidateRect(NULL);
+
     pGame->GetObjectArray()->ReleaseShare(nCharId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
 
