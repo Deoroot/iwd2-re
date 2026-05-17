@@ -566,6 +566,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     }
 
 
+    m_nNumKnownSpells = field_1488;
     // Update class tab buttons (controls 88-91)
     CString sText;
     sText = "";
