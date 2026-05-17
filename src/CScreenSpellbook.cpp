@@ -583,6 +583,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     }
 
 
+    DBG("sub_669830: after spell loop, field_1488=%d", field_1488);
     // Update class tab buttons (controls 88-91)
     CString sText;
     sText = "";
