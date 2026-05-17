@@ -471,6 +471,7 @@ BYTE* CScreenSpellbook::GetVirtualKeysFlags()
 void CScreenSpellbook::sub_669830(DWORD nPortrait)
 {
     // Based on Ghidra decomp 0x669830
+    DBG("sub_669830: ENTER char=%d", (int)m_nSelectedCharacter);
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CUIPanel* pPanel = m_cUIManager.GetPanel(2);
 
