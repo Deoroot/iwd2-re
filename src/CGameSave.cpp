@@ -6,7 +6,9 @@ CGameSave::CGameSave()
     m_nCurrentWorldLink = 0;
     m_nPartyGold = 0;
     m_curFormation = 0;
-    memset(m_quickFormations, 0, sizeof(m_quickFormations));
+    for (SHORT nFormation = 0; nFormation < 5; nFormation++) {
+        m_quickFormations[nFormation] = nFormation;
+    }
     memset(m_groupInventory, 0, sizeof(m_groupInventory));
     m_bSequenceMode = 0;
     field_1B0 = 0;

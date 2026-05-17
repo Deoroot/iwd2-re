@@ -3602,6 +3602,25 @@ void CInfGame::SelectToolbar()
     }
 
     if (IcewindMisc::IsPC(pSprite)) {
+        BOOL bHasCustomButtons = FALSE;
+        for (BYTE nButton = 0; nButton < 9; nButton++) {
+            if (pSprite->GetCustomButtonValue(nButton) != 0) {
+                bHasCustomButtons = TRUE;
+                break;
+            }
+        }
+
+        if (!bHasCustomButtons) {
+            pSprite->ResetQuickSlots();
+        }
+
+        INT customButtons[9];
+        for (BYTE nButton = 0; nButton < 9; nButton++) {
+            customButtons[nButton] = pSprite->GetCustomButtonValue(nButton);
+        }
+
+        m_cButtonArray.SetCustomButtonTypes(customButtons);
+        m_cButtonArray.SetQuickWeaponSlot(pSprite->m_nWeaponSet);
         m_cButtonArray.SetState(0x72, 0);
     } else {
         m_cButtonArray.SetState(0x6E, 0);

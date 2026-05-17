@@ -4255,6 +4255,26 @@ CUIControlButtonAction::~CUIControlButtonAction()
 {
 }
 
+// 0x5950F0 / 0x5957C0
+BOOL CUIControlButtonAction::Render(BOOL bForce)
+{
+    BOOL bResult = CUIControlButton::Render(bForce);
+
+    if (m_bActive || m_bInactiveRender) {
+        CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
+        CRect rControlFrame(pt, m_size);
+        CRect rClip;
+        rClip.IntersectRect(rControlFrame, m_rDirty);
+
+        g_pBaldurChitin->GetObjectGame()->GetButtonArray()->RenderButton(pt,
+            rClip,
+            m_bPressed,
+            m_nID - 6);
+    }
+
+    return bResult;
+}
+
 // 0x77A2F0
 void CUIControlButtonAction::OnLButtonClick(CPoint pt)
 {
