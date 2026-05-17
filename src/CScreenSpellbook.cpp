@@ -484,6 +484,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
     if (rc != CGameObjectArray::SUCCESS) return;
 
+    DBG("sub_669830: sprite=%ld numSpells=%d", nCharId, pSprite->GetNumSpells());
 
     // Clamp spell level (comp: local_b0+0x3D39 = m_nLastSpellbookSpellLevel)
     m_nSpellLevel = pSprite->m_nLastSpellbookSpellLevel;
@@ -504,6 +505,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                 m_nNumberOfSpellClasses++;
             }
             bHasSpells = TRUE;
+            DBG("sub_669830: found class idx=%d type=%d", nIdx, nClass);
         }
     }
 
@@ -514,6 +516,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         // Clamp class index to valid range (comp: sprite field_F4E logic)
         if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
     }
+    DBG("sub_669830: BEFORE clamp classIdx=%d numClasses=%d", (int)m_nClassIndex, m_nNumberOfSpellClasses);
     DBG("sub_669830: after clamp classIdx=%d numClasses=%d", (int)m_nClassIndex, m_nNumberOfSpellClasses);
 
     // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
