@@ -179,7 +179,6 @@ void CScreenSpellbook::EngineActivated()
     m_preLoadFontTool.SetResRef(CResRef("TOOLFONT"), FALSE, TRUE);
     m_preLoadFontTool.RegisterFont();
 
-    sub_669830(m_nSelectedCharacter);
     UpdateMainPanel();
     UpdateCursorShape(0);
     CheckEnablePortaits(1);
@@ -513,7 +512,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     } else {
         // Clamp class index to valid range (comp: sprite field_F4E logic)
         if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
-        if (field_1670 >= 0 && field_1670 < m_nNumberOfSpellClasses) m_nClassIndex = (BYTE)field_1670;
     }
 
     // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
@@ -568,7 +566,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     }
 
 
-    m_nNumKnownSpells = field_1488;
     // Update class tab buttons (controls 88-91)
     CString sText;
     sText = "";
@@ -950,7 +947,6 @@ void CScreenSpellbook::UpdateMainPanel()
             // Set spell icon
             if (pIconBtn != NULL) {
                 pIconBtn->SetSpell(field_148C[nIdx]);
-                pIconBtn->InvalidateRect();
                 pIconBtn->SetEnabled(TRUE);
             }
             // Show spell name
