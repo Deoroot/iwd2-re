@@ -939,7 +939,10 @@ void CScreenSpellbook::UpdateMainPanel()
     INT nSpellCount = field_1488;
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CUIPanel* pPanel = m_cUIManager.GetPanel(2);
+    DBG("UpdateMainPanel: panel=%p active=%d", pPanel, pPanel ? pPanel->m_bActive : -1);
     if (pPanel == NULL) return;
+
+    pPanel->SetActive(TRUE);
 
     // Get character sprite
     LONG nCharId = pGame->GetCharacterId(m_nSelectedCharacter);
