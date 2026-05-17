@@ -729,6 +729,7 @@ void CScreenSpellbook::SetClassIndex(DWORD nNewClassIndex)
         UTIL_ASSERT(nNewClassIndex < nNumberOfSpellClasses);
 
         pSprite->m_nLastSpellbookClassIndex = static_cast<BYTE>(nNewClassIndex);
+    DBG("SetClassIndex: new=%d", (int)nNewClassIndex);
         m_nClassIndex = static_cast<BYTE>(nNewClassIndex);
 
         pGame->GetObjectArray()->ReleaseShare(nCharacterId,
