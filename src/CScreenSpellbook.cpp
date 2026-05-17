@@ -179,6 +179,7 @@ void CScreenSpellbook::EngineActivated()
     m_preLoadFontTool.SetResRef(CResRef("TOOLFONT"), FALSE, TRUE);
     m_preLoadFontTool.RegisterFont();
 
+    sub_669830(m_nSelectedCharacter);
     UpdateMainPanel();
     UpdateCursorShape(0);
     CheckEnablePortaits(1);
