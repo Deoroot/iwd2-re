@@ -525,6 +525,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
 
     // Populate known spells (comp: spell loop with bit 0 check)
     if (bHasSpells) {
+        DBG("sub_669830: bHasSpells=TRUE classIdx=%d nCurClass=%d field1670=%d", (int)m_nClassIndex, (int)field_1654[m_nClassIndex], field_1670);
     {
         UINT _dbg_idx = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(field_1654[m_nClassIndex]);
         CGameSpriteSpellList* _dbg_list = &pSprite->m_spells.m_spellsByClass[_dbg_idx].m_lists[m_nSpellLevel];
