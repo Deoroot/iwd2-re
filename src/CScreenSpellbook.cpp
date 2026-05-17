@@ -512,6 +512,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     } else {
         // Clamp class index to valid range (comp: sprite field_F4E logic)
         if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
+        if (field_1670 >= 0 && field_1670 < m_nNumberOfSpellClasses) m_nClassIndex = (BYTE)field_1670;
     }
 
     // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
