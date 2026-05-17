@@ -508,7 +508,7 @@ void CInfButtonArray::UpdateButtons()
         case 0x42:
         case 0x43: {
             CButtonData buttonData;
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickWeapon(static_cast<BYTE>(m_buttonTypes[nButton] - 0x3C), buttonData);
             }
             if (buttonData.m_icon != "") {
@@ -533,7 +533,7 @@ void CInfButtonArray::UpdateButtons()
         case 0x4D:
         case 0x4E: {
             CButtonData buttonData;
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickSpell(static_cast<BYTE>(m_buttonTypes[nButton] - 0x46), buttonData);
             }
             if (buttonData.m_icon != "") {
@@ -552,7 +552,7 @@ void CInfButtonArray::UpdateButtons()
         case 0x51:
         case 0x52: {
             CButtonData buttonData;
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickItem(static_cast<BYTE>(m_buttonTypes[nButton] - 0x50), buttonData);
             }
             if (buttonData.m_icon != "") {
@@ -577,7 +577,7 @@ void CInfButtonArray::UpdateButtons()
         case 0x61:
         case 0x62: {
             CButtonData buttonData;
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickAbility(static_cast<BYTE>(m_buttonTypes[nButton] - 0x5A), buttonData);
             }
             if (buttonData.m_icon != "") {
@@ -602,7 +602,7 @@ void CInfButtonArray::UpdateButtons()
         case 0x75:
         case 0x76: {
             CButtonData buttonData;
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickSong(static_cast<BYTE>(m_buttonTypes[nButton] - 0x6E), buttonData);
             }
             if (buttonData.m_icon != "") {
