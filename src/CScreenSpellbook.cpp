@@ -534,6 +534,11 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
 
     // Populate known spells (comp: spell loop with bit 0 check)
     if (bHasSpells) {
+    {
+        UINT _dbg_idx = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(field_1654[m_nClassIndex]);
+        CGameSpriteSpellList* _dbg_list = &pSprite->m_spells.m_spellsByClass[_dbg_idx].m_lists[m_nSpellLevel];
+        DBG("sub_669830: DIRECT spellsByClass[%d][%d] size=%d", _dbg_idx, m_nSpellLevel, _dbg_list->m_List.size());
+    }
         BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
     DBG("sub_669830: about to populate, nCurClass=%d level=%d", field_1654[m_nClassIndex], m_nSpellLevel);
         if (m_nClassIndex == field_1670) {
