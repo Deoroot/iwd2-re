@@ -471,7 +471,6 @@ BYTE* CScreenSpellbook::GetVirtualKeysFlags()
 void CScreenSpellbook::sub_669830(DWORD nPortrait)
 {
     // Based on Ghidra decomp 0x669830
-    DBG("sub_669830: ENTER char=%d", (int)m_nSelectedCharacter);
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CUIPanel* pPanel = m_cUIManager.GetPanel(2);
 
@@ -484,7 +483,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
     if (rc != CGameObjectArray::SUCCESS) return;
 
-    DBG("sub_669830: sprite=%ld numSpells=%d", nCharId, pSprite->GetNumSpells());
 
     // Clamp spell level (comp: local_b0+0x3D39 = m_nLastSpellbookSpellLevel)
     m_nSpellLevel = pSprite->m_nLastSpellbookSpellLevel;
@@ -505,7 +503,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                 m_nNumberOfSpellClasses++;
             }
             bHasSpells = TRUE;
-            DBG("sub_669830: found class idx=%d type=%d", nIdx, nClass);
         }
     }
 
@@ -516,8 +513,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         // Clamp class index to valid range (comp: sprite field_F4E logic)
         if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
     }
-    DBG("sub_669830: BEFORE clamp classIdx=%d numClasses=%d", (int)m_nClassIndex, m_nNumberOfSpellClasses);
-    DBG("sub_669830: after clamp classIdx=%d numClasses=%d", (int)m_nClassIndex, m_nNumberOfSpellClasses);
 
     // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
     field_1488 = 0;
@@ -529,8 +524,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
 
     // Populate known spells (comp: spell loop with bit 0 check)
     if (bHasSpells) {
-        DBG("sub_669830: bHasSpells=TRUE classIdx=%d numClasses=%d", (int)m_nClassIndex, m_nNumberOfSpellClasses);
-        DBG("sub_669830: bHasSpells=TRUE classIdx=%d nCurClass=%d field1670=%d", (int)m_nClassIndex, (int)field_1654[m_nClassIndex], field_1670);
     {
         UINT _dbg_idx = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(field_1654[m_nClassIndex]);
         CGameSpriteSpellList* _dbg_list = &pSprite->m_spells.m_spellsByClass[_dbg_idx].m_lists[m_nSpellLevel];
@@ -541,17 +534,12 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
             if (pGrouped != NULL && m_nSpellLevel < 9) {
                 CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
-                DBG("sub_669830: DIVINE list size=%d", pList->m_List.size());
-                DBG("sub_669830: DIVINE loop start, size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
-                    if (s == 0) DBG("sub_669830: DIVINE first entry id=%d cur=%d", pList->m_List[s].m_nID, pList->m_List[s].m_nCurrent);
-                    DBG("sub_669830: m_spells.m_nCount=%d", pGame->m_spells.m_nCount);
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
                             field_154C[field_1488] = entry.m_nID;
                             field_15AC[field_1488] = entry.m_nMax;
-                        DBG("sub_669830: about to Get spell id=%d m_nCount=%d", entry.m_nID, pGame->m_spells.m_nCount);
                             field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
                             field_1488++;
                         }
@@ -561,18 +549,13 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         } else {
             // Arcane caster: use class spells at level
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
-            DBG("sub_669830: ARCANE list=%p", pList);
             if (pList != NULL) {
-                DBG("sub_669830: ARCANE list size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
-                    if (s == 0) DBG("sub_669830: DIVINE first entry id=%d cur=%d", pList->m_List[s].m_nID, pList->m_List[s].m_nCurrent);
-                    DBG("sub_669830: m_spells.m_nCount=%d", pGame->m_spells.m_nCount);
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) {
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
                             field_154C[field_1488] = entry.m_nID;
                             field_15AC[field_1488] = entry.m_nMax;
-                        DBG("sub_669830: about to Get spell id=%d m_nCount=%d", entry.m_nID, pGame->m_spells.m_nCount);
                             field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
                             field_1488++;
                         }
@@ -583,8 +566,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     }
 
 
-    DBG("sub_669830: after spell loop, field_1488=%d", field_1488);
-    m_nNumKnownSpells = field_1488;
     // Update class tab buttons (controls 88-91)
     CString sText;
     sText = "";
@@ -747,7 +728,6 @@ void CScreenSpellbook::SetClassIndex(DWORD nNewClassIndex)
         UTIL_ASSERT(nNewClassIndex < nNumberOfSpellClasses);
 
         pSprite->m_nLastSpellbookClassIndex = static_cast<BYTE>(nNewClassIndex);
-    DBG("SetClassIndex: new=%d", (int)nNewClassIndex);
         m_nClassIndex = static_cast<BYTE>(nNewClassIndex);
 
         pGame->GetObjectArray()->ReleaseShare(nCharacterId,
@@ -934,15 +914,10 @@ void CScreenSpellbook::EnableMainPanel(BOOL bEnable)
 // 0x66A980
 void CScreenSpellbook::UpdateMainPanel()
 {
-    DBG("UpdateMainPanel: ENTER top=%d num=%d", m_nTopKnownSpell, m_nNumKnownSpells);
-    // Simplified implementation — uses field_1488 as spell count
-    INT nSpellCount = field_1488;
+    // Based on Ghidra decomp 0x66A980 — simplified implementation
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CUIPanel* pPanel = m_cUIManager.GetPanel(2);
-    DBG("UpdateMainPanel: panel=%p active=%d", pPanel, pPanel ? pPanel->m_bActive : -1);
     if (pPanel == NULL) return;
-
-    pPanel->SetActive(TRUE);
 
     // Get character sprite
     LONG nCharId = pGame->GetCharacterId(m_nSelectedCharacter);
@@ -956,27 +931,23 @@ void CScreenSpellbook::UpdateMainPanel()
     // Update scrollbar
     CUIControlScrollBar* pScroll = static_cast<CUIControlScrollBar*>(pPanel->GetControl(54));
     if (pScroll != NULL) {
-        pScroll->AdjustScrollBar(m_nTopKnownSpell, nSpellCount, 8);
+        pScroll->AdjustScrollBar(m_nTopKnownSpell, m_nNumKnownSpells, 8);
     }
 
     // Update known spell buttons (controls 30-37) and labels (controls 38-45)
     // field_148C[] = CResRef of known spells, populated by sub_669830
     for (int i = 0; i < 8; i++) {
         int nIdx = m_nTopKnownSpell + i;
-        DBG("UpdateMainPanel: button[%d] idx=%d", i, nIdx);
 
         CUIControlButtonSpellbookSpell* pIconBtn = static_cast<CUIControlButtonSpellbookSpell*>(pPanel->GetControl(30 + i));
-        DBG("UpdateMainPanel: iconBtn[%d]=%p", i, pIconBtn);
         CUIControlButton* pLabelBtn = static_cast<CUIControlButton*>(pPanel->GetControl(46 + i));
         CUIControlLabel* pLabel = static_cast<CUIControlLabel*>(pPanel->GetControl(38 + i));
 
-        if (nIdx < nSpellCount && field_148C[nIdx] != CResRef("")) {
-            DBG("UpdateMainPanel: setting spell idx=%d resref=%s", nIdx, (LPCSTR)field_148C[nIdx].GetResRefStr());
+        if (nIdx < m_nNumKnownSpells && field_148C[nIdx] != CResRef("")) {
             // Set spell icon
             if (pIconBtn != NULL) {
                 pIconBtn->SetSpell(field_148C[nIdx]);
                 pIconBtn->SetEnabled(TRUE);
-                DBG("UpdateMainPanel: SetSpell done");
             }
             // Show spell name
             if (pLabel != NULL) {
@@ -1005,8 +976,6 @@ void CScreenSpellbook::UpdateMainPanel()
             }
         }
     }
-
-    pPanel->InvalidateRect(NULL);
 
     pGame->GetObjectArray()->ReleaseShare(nCharId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
