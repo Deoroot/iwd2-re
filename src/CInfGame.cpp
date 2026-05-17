@@ -38,6 +38,7 @@
 #include "CUIPanel.h"
 #include "CUtil.h"
 #include "Icewind586B70.h"
+#include "IcewindMisc.h"
 
 #define FIFTY_THREE 53
 
@@ -3562,6 +3563,53 @@ void CInfGame::SelectToolbar()
 {
     DBG("SelectToolbar: enter");
     // TODO: Incomplete.
+
+    m_nState = 0;
+    m_cButtonArray.SetSelectedButton(100);
+
+    BYTE nGroupCount = m_group.GetCount();
+    if (nGroupCount == 0) {
+        m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
+        return;
+    }
+
+    if (nGroupCount > 1) {
+        m_cButtonArray.SetState(0x6E, 0);
+        return;
+    }
+
+    LONG* pGroupList = m_group.GetGroupList();
+    if (pGroupList == NULL) {
+        m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
+        return;
+    }
+
+    LONG nCharacterId = pGroupList[0];
+    delete[] pGroupList;
+
+    CGameSprite* pSprite = NULL;
+    BYTE rc;
+    do {
+        rc = m_cObjectArray.GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS || pSprite == NULL) {
+        m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
+        return;
+    }
+
+    if (IcewindMisc::IsPC(pSprite)) {
+        m_cButtonArray.SetState(0x72, 0);
+    } else {
+        m_cButtonArray.SetState(0x6E, 0);
+    }
+
+    m_cObjectArray.ReleaseShare(nCharacterId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
 // 0x5ADC90
