@@ -483,11 +483,9 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
     if (rc != CGameObjectArray::SUCCESS) return;
 
-    DBG("sub_669830: sprite id=%ld classes=%d", nCharId, pSprite->GetNumSpells());
 
     // Clamp spell level (comp: local_b0+0x3D39 = m_nLastSpellbookSpellLevel)
     m_nSpellLevel = pSprite->m_nLastSpellbookSpellLevel;
-    DBG("sub_669830: sprite=%ld numSpells=%d", nCharId, pSprite->GetNumSpells());
     if (m_nSpellLevel >= 9) m_nSpellLevel = 0;
 
     // Iterate 7 classes, find valid ones with spells (comp: local_a4=0..6)
@@ -509,19 +507,11 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     }
 
 
-    DBG("sub_669830: numClasses=%d classIdx=%d mage=%d", m_nNumberOfSpellClasses, (int)m_nClassIndex, field_1670);
     if (m_nNumberOfSpellClasses == 0) {
         m_nClassIndex = 0;
     } else {
+        // Clamp class index to valid range (comp: sprite field_F4E logic)
         if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
-        // If divine caster (field_1670) exists and has spells at current level, default to it
-        if (field_1670 >= 0 && field_1670 < m_nNumberOfSpellClasses) {
-            BYTE nDivClass = static_cast<BYTE>(field_1654[field_1670]);
-            CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nDivClass, m_nSpellLevel);
-            if (pList != NULL && !pList->m_List.empty()) {
-                m_nClassIndex = static_cast<BYTE>(field_1670);
-            }
-        }
     }
 
     // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
@@ -537,17 +527,14 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     {
         UINT _dbg_idx = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(field_1654[m_nClassIndex]);
         CGameSpriteSpellList* _dbg_list = &pSprite->m_spells.m_spellsByClass[_dbg_idx].m_lists[m_nSpellLevel];
-        DBG("sub_669830: DIRECT spellsByClass[%d][%d] size=%d", _dbg_idx, m_nSpellLevel, _dbg_list->m_List.size());
     }
         BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
-    DBG("sub_669830: about to populate, nCurClass=%d level=%d", field_1654[m_nClassIndex], m_nSpellLevel);
         if (m_nClassIndex == field_1670) {
             // Divine caster: use domain/grouped spells
             CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
             if (pGrouped != NULL && m_nSpellLevel < 9) {
                 CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
-                    DBG("sub_669830: loop entry s=%d size=%d", s, pList->m_List.size());
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
@@ -564,7 +551,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
             if (pList != NULL) {
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
-                    DBG("sub_669830: loop entry s=%d size=%d", s, pList->m_List.size());
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) {
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
@@ -575,7 +561,6 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                         }
                     }
                 }
-    DBG("sub_669830: done, knownSpells=%d", field_1488);
             }
         }
     }
