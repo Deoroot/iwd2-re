@@ -949,6 +949,7 @@ void CScreenSpellbook::UpdateMainPanel()
             // Set spell icon
             if (pIconBtn != NULL) {
                 pIconBtn->SetSpell(field_148C[nIdx]);
+                pIconBtn->InvalidateRect();
                 pIconBtn->SetEnabled(TRUE);
             }
             // Show spell name
