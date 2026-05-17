@@ -3615,8 +3615,38 @@ void CInfGame::SelectToolbar()
         }
 
         INT customButtons[9];
+        BOOL bAllCustomButtonsEmpty = TRUE;
         for (BYTE nButton = 0; nButton < 9; nButton++) {
             customButtons[nButton] = pSprite->GetCustomButtonValue(nButton);
+            if (customButtons[nButton] != 0) {
+                bAllCustomButtonsEmpty = FALSE;
+            }
+        }
+
+        if (bAllCustomButtonsEmpty) {
+            // Fallback copied from QSLOTS.2DA (NearInfinity export).  The
+            // original path is ResetQuickSlots(), but imported saves can carry
+            // all-zero custom slots before that table has populated them.
+            static const INT DEFAULT_QUICK_SLOTS[11][9] = {
+                { 5, 11, 4, 93, 94, 80, 81, 82, 10 }, // BARBARIAN
+                { 5, 11, 4, 2, 94, 3, 81, 82, 10 }, // BARD
+                { 5, 3, 72, 73, 94, 80, 81, 82, 10 }, // CLERIC
+                { 5, 3, 72, 73, 94, 80, 81, 82, 10 }, // DRUID
+                { 5, 11, 4, 93, 94, 80, 81, 82, 10 }, // FIGHTER
+                { 5, 11, 4, 93, 94, 80, 81, 82, 10 }, // MONK
+                { 5, 91, 92, 93, 94, 80, 81, 82, 10 }, // PALADIN
+                { 5, 11, 4, 93, 94, 80, 81, 82, 10 }, // RANGER
+                { 5, 11, 4, 12, 94, 80, 81, 82, 10 }, // ROGUE
+                { 5, 3, 72, 73, 74, 80, 81, 82, 10 }, // SORCERER
+                { 5, 3, 72, 73, 74, 80, 81, 82, 10 }, // WIZARD
+            };
+
+            INT nClass = pSprite->m_derivedStats.GetBestClass() - 1;
+            if (nClass >= 0 && nClass < 11) {
+                for (BYTE nButton = 0; nButton < 9; nButton++) {
+                    customButtons[nButton] = DEFAULT_QUICK_SLOTS[nClass][nButton];
+                }
+            }
         }
 
         m_cButtonArray.SetCustomButtonTypes(customButtons);

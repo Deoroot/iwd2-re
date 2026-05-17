@@ -313,6 +313,20 @@ void CInfButtonArray::UpdateButtons()
         return;
     }
 
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CGameSprite* pSprite = NULL;
+    LONG nLeaderId = CGameObjectArray::INVALID_INDEX;
+    BYTE rc = CGameObjectArray::INVALID_INDEX;
+    if (pGame->GetGroup()->GetCount() != 0) {
+        nLeaderId = pGame->GetGroup()->GetGroupLeader();
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nLeaderId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    }
+
     for (INT nButton = 0; nButton < 12; nButton++) {
         CUIControlBase* pControl = pPanel->GetControl(nButton + 6);
         if (pControl == NULL) {
@@ -329,6 +343,7 @@ void CInfButtonArray::UpdateButtons()
         USHORT nHotKey = 0xFFFF;
         BOOL bEnabled = TRUE;
         BOOL bActive = TRUE;
+        BOOL bGreyOut = FALSE;
 
         settings.field_1CC = m_nSelectedButton == m_buttonTypes[nButton];
         settings.m_bGreyOut = FALSE;
@@ -491,7 +506,23 @@ void CInfButtonArray::UpdateButtons()
         case 0x40:
         case 0x41:
         case 0x42:
-        case 0x43:
+        case 0x43: {
+            CButtonData buttonData;
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->GetQuickWeapon(static_cast<BYTE>(m_buttonTypes[nButton] - 0x3C), buttonData);
+            }
+            if (buttonData.m_icon != "") {
+                cIconResRef = buttonData.m_icon;
+                nIconNormalFrame = 0;
+                nIconSelectedFrame = 0;
+                nToolTip = buttonData.m_name;
+                bGreyOut = buttonData.m_bDisabled;
+            } else {
+                nIconNormalFrame = 0x68;
+                nIconSelectedFrame = 0x6A;
+            }
+            break;
+        }
         case 0x46:
         case 0x47:
         case 0x48:
@@ -500,10 +531,42 @@ void CInfButtonArray::UpdateButtons()
         case 0x4B:
         case 0x4C:
         case 0x4D:
-        case 0x4E:
+        case 0x4E: {
+            CButtonData buttonData;
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->GetQuickSpell(static_cast<BYTE>(m_buttonTypes[nButton] - 0x46), buttonData);
+            }
+            if (buttonData.m_icon != "") {
+                cIconResRef = buttonData.m_icon;
+                nIconNormalFrame = 0;
+                nIconSelectedFrame = 0;
+                nToolTip = buttonData.m_name;
+                bGreyOut = buttonData.m_bDisabled;
+            } else {
+                bActive = FALSE;
+                cIconResRef = CResRef("");
+            }
+            break;
+        }
         case 0x50:
         case 0x51:
-        case 0x52:
+        case 0x52: {
+            CButtonData buttonData;
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->GetQuickItem(static_cast<BYTE>(m_buttonTypes[nButton] - 0x50), buttonData);
+            }
+            if (buttonData.m_icon != "") {
+                cIconResRef = buttonData.m_icon;
+                nIconNormalFrame = 0;
+                nIconSelectedFrame = 0;
+                nToolTip = buttonData.m_name;
+                bGreyOut = buttonData.m_bDisabled;
+            } else {
+                bActive = FALSE;
+                cIconResRef = CResRef("");
+            }
+            break;
+        }
         case 0x5A:
         case 0x5B:
         case 0x5C:
@@ -512,11 +575,48 @@ void CInfButtonArray::UpdateButtons()
         case 0x5F:
         case 0x60:
         case 0x61:
-        case 0x62:
-            // TODO: original pulls per-slot icons from CButtonData.
-            nIconNormalFrame = 0x68;
-            nIconSelectedFrame = 0x6A;
+        case 0x62: {
+            CButtonData buttonData;
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->GetQuickAbility(static_cast<BYTE>(m_buttonTypes[nButton] - 0x5A), buttonData);
+            }
+            if (buttonData.m_icon != "") {
+                cIconResRef = buttonData.m_icon;
+                nIconNormalFrame = 0;
+                nIconSelectedFrame = 0;
+                nToolTip = buttonData.m_name;
+                bGreyOut = buttonData.m_bDisabled;
+            } else {
+                bActive = FALSE;
+                cIconResRef = CResRef("");
+            }
             break;
+        }
+        case 0x6E:
+        case 0x6F:
+        case 0x70:
+        case 0x71:
+        case 0x72:
+        case 0x73:
+        case 0x74:
+        case 0x75:
+        case 0x76: {
+            CButtonData buttonData;
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->GetQuickSong(static_cast<BYTE>(m_buttonTypes[nButton] - 0x6E), buttonData);
+            }
+            if (buttonData.m_icon != "") {
+                cIconResRef = buttonData.m_icon;
+                nIconNormalFrame = 0;
+                nIconSelectedFrame = 0;
+                nToolTip = buttonData.m_name;
+                bGreyOut = buttonData.m_bDisabled;
+            } else {
+                nIconNormalFrame = 0x14;
+                nIconSelectedFrame = 0x16;
+            }
+            break;
+        }
         case 100:
         default:
             bActive = FALSE;
@@ -533,7 +633,7 @@ void CInfButtonArray::UpdateButtons()
         settings.field_1C8 = 0;
         settings.field_1D0 = 0;
         settings.field_1D8 = 0;
-        settings.m_bGreyOut = !bEnabled;
+        settings.m_bGreyOut = !bEnabled || bGreyOut;
         settings.field_14.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
         settings.field_14.SequenceSet(0);
         if (nIconNormalFrame >= 0) {
@@ -550,8 +650,16 @@ void CInfButtonArray::UpdateButtons()
         pButton->m_cVidCell.FrameSet(pButton->m_nNormalFrame);
         pButton->SetToolTipStrRef(nToolTip, -1, -1);
         pButton->SetToolTipHotKey(nHotKey, 0xFFFF, CString(""));
-        pButton->SetEnabled(bEnabled);
+        // Keep empty/custom slots mouse-active: original permits right-click
+        // customization even when no action icon is assigned.
+        pButton->SetEnabled(TRUE);
         pButton->InvalidateRect();
+    }
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        pGame->GetObjectArray()->ReleaseShare(nLeaderId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
     }
 
     pPanel->InvalidateRect(NULL);
@@ -578,7 +686,7 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
     if (settings.field_1CC != 0 && settings.field_10 >= 0) {
         nFrame = settings.field_10;
     }
-    if (bPressed && nFrame >= 0) {
+    if (bPressed && nFrame >= 0 && settings.field_C != settings.field_10) {
         nFrame++;
     }
 

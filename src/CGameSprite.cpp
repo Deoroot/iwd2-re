@@ -859,6 +859,10 @@ CGameSprite::CGameSprite(BYTE* pCreature, LONG creatureSize, int a3, WORD type, 
         m_quickSongs[index] = buttonData;
     }
 
+    for (index = 0; index < 9; index++) {
+        field_3D14[index] = 0;
+    }
+
     field_70F6 = rand() % 20 + 1;
     field_70F7 = rand() % 20 + 1;
     field_70F8 = rand() % 20 + 1;
