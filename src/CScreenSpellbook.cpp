@@ -551,6 +551,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
                             field_154C[field_1488] = entry.m_nID;
                             field_15AC[field_1488] = entry.m_nMax;
+                        DBG("sub_669830: about to Get spell id=%d m_nCount=%d", entry.m_nID, pGame->m_spells.m_nCount);
                             field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
                             field_1488++;
                         }
@@ -571,6 +572,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
                             field_154C[field_1488] = entry.m_nID;
                             field_15AC[field_1488] = entry.m_nMax;
+                        DBG("sub_669830: about to Get spell id=%d m_nCount=%d", entry.m_nID, pGame->m_spells.m_nCount);
                             field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
                             field_1488++;
                         }
