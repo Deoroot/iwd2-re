@@ -547,6 +547,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             if (pGrouped != NULL && m_nSpellLevel < 9) {
                 CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
+                    DBG("sub_669830: loop entry s=%d size=%d", s, pList->m_List.size());
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
@@ -563,6 +564,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
             if (pList != NULL) {
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
+                    DBG("sub_669830: loop entry s=%d size=%d", s, pList->m_List.size());
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) {
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
