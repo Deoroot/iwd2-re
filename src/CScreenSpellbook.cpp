@@ -545,6 +545,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                 DBG("sub_669830: DIVINE loop start, size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     if (s == 0) DBG("sub_669830: DIVINE first entry id=%d cur=%d", pList->m_List[s].m_nID, pList->m_List[s].m_nCurrent);
+                    DBG("sub_669830: m_spells.m_nCount=%d", pGame->m_spells.m_nCount);
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
@@ -564,6 +565,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                 DBG("sub_669830: ARCANE list size=%d", pList->m_List.size());
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     if (s == 0) DBG("sub_669830: DIVINE first entry id=%d cur=%d", pList->m_List[s].m_nID, pList->m_List[s].m_nCurrent);
+                    DBG("sub_669830: m_spells.m_nCount=%d", pGame->m_spells.m_nCount);
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
                     if ((entry.m_nCurrent & 1) == 0) {
                         if (entry.m_nID < pGame->m_spells.m_nCount) {
