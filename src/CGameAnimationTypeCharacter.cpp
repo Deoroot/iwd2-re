@@ -1041,7 +1041,7 @@ void CGameAnimationTypeCharacter::EquipWeapon(const CString& resRef, BYTE* color
             return;
         }
 
-        if ((itemFlags & 0x2) != 0) {
+        if ((itemFlags & ITEM_FLAGS_TWOHANDED) == 0) {
             Equip1HWeapon(resRef, colorRangeValues);
             return;
         }
