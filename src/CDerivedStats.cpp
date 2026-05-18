@@ -35,7 +35,7 @@ void CDerivedStats::Reload(CGameSprite* pSprite, CCreatureFileHeader* pCreature,
     m_nACArmorBonus = 0;
     m_nACNaturalBonus = 0;
     m_nACDeflectionBonus = 0;
-    m_nACDodgeBonus = pCreature->field_3E;
+    m_nACDodgeBonus = pCreature->field_3E - 10;
     m_nACCrushingMod = pCreature->m_armorClassCrushingAdjustment;
     m_nACMissileMod = pCreature->m_armorClassMissileAdjustment;
     m_nACPiercingMod = pCreature->m_armorClassPiercingAdjustment;
