@@ -8696,7 +8696,7 @@ void CGameSprite::UnequipAll(BOOL animationOnly)
     }
 
     if (m_equipment.m_items[m_equipment.m_selectedWeapon] != NULL) {
-        m_equipment.m_items[m_equipment.m_selectedWeapon]->Unequip(this, nIndex, TRUE, animationOnly);
+        m_equipment.m_items[m_equipment.m_selectedWeapon]->Unequip(this, m_equipment.m_selectedWeapon, TRUE, animationOnly);
 
         m_equipment.m_items[m_equipment.m_selectedWeapon]->Demand();
         ITEM_ABILITY* pAbility = m_equipment.m_items[m_equipment.m_selectedWeapon]->GetAbility(m_equipment.m_selectedWeaponAbility);
