@@ -23,13 +23,68 @@ CItem::CItem()
 // 0x4E7900
 CItem::CItem(const CItem& item)
 {
-    // TODO: Incomplete.
+    m_flags = 0;
+    m_nAbilities = 0;
+    m_numSounds = 0;
+    m_wear = 0;
+    m_useCount1 = 0;
+    m_useCount2 = 0;
+    m_useCount3 = 0;
+
+    *this = item;
+    GetAbilityCount();
+
+    if (GetLoreValue() == 0) {
+        m_flags |= 0x1;
+    }
 }
 
 // 0x4E7B60
 CItem::CItem(const CCreatureFileItem& item)
 {
-    // TODO: Incomplete.
+    CString sResRef(CResRef(const_cast<BYTE*>(item.m_itemId)).GetResRefStr());
+    sResRef.MakeUpper();
+
+    m_flags = 0;
+    m_nAbilities = 0;
+    m_numSounds = 0;
+    m_wear = item.m_wear;
+    m_useCount1 = item.m_usageCount[0];
+    m_useCount2 = item.m_usageCount[1];
+    m_useCount3 = item.m_usageCount[2];
+
+    if (sResRef.CompareNoCase("NO_DROP") == 0) {
+        sResRef = "";
+    }
+
+    if (sResRef.CompareNoCase("MISC07") == 0) {
+        if (m_useCount1 == 0) {
+            m_useCount1 = 1;
+        } else if (m_useCount2 != 0) {
+            m_useCount1 = static_cast<WORD>(m_useCount1 + rand() % m_useCount2);
+        }
+        m_useCount2 = 0;
+    }
+
+    SetResRef(CResRef(sResRef), TRUE);
+
+    if (GetMaxStackable() > 1) {
+        m_useCount1 = max(m_useCount1, 1);
+        m_useCount2 = max(m_useCount2, 1);
+        m_useCount3 = max(m_useCount3, 1);
+    }
+
+    m_flags = item.m_dynamicFlags;
+
+    GetAbilityCount();
+
+    if (GetLoreValue() == 0) {
+        m_flags |= 0x1;
+    }
+
+    if ((m_flags & 0x1) == 0) {
+        m_flags |= 0x8;
+    }
 }
 
 // FIXME: `id` should be reference.
@@ -45,7 +100,24 @@ CItem::CItem(CResRef id, WORD useCount1, WORD useCount2, WORD useCount3, int wea
     m_useCount2 = useCount2;
     m_useCount3 = useCount3;
 
-    // TODO: Incomplete.
+    if (sResRef.CompareNoCase("NO_DROP") == 0) {
+        sResRef = "";
+    }
+
+    if (sResRef.CompareNoCase("MISC07") == 0) {
+        if (m_useCount1 == 0) {
+            m_useCount1 = 1;
+        } else if (m_useCount2 != 0) {
+            m_useCount1 = static_cast<WORD>(m_useCount1 + rand() % m_useCount2);
+        }
+        m_useCount2 = 0;
+    }
+
+    // Ghidra 0x4E7E90: constructor must bind the ITM resource before
+    // querying stack size/lore/abilities.  Without this, imported CRE/CHR
+    // equipment exists but has empty cResRef, so inventory/action-bar icons
+    // and weight all disappear.
+    SetResRef(CResRef(sResRef), TRUE);
 
     // NOTE: Uninline.
     if (GetMaxStackable() > 1) {
@@ -659,6 +731,32 @@ WORD CItem::GetLoreValue()
     pRes->Release();
 
     return nLoreValue;
+}
+
+INT CItem::GetEquippedACBonus()
+{
+    // FIXME: Temporary fallback until equipped effects/AddEffect are fully
+    // reconstructed.  ITM equipped effect opcode 0 is the AC bonus used by
+    // starter armor such as 00LEAT01.
+    if (cResRef == "" || pRes == NULL) {
+        return 0;
+    }
+
+    UTIL_ASSERT(pRes->Demand());
+
+    INT nBonus = 0;
+    WORD nStart = pRes->m_pHeader->equipedStartingEffect;
+    WORD nCount = pRes->m_pHeader->equipedEffectCount;
+    for (WORD nEffect = 0; nEffect < nCount; nEffect++) {
+        ITEM_EFFECT* pEffect = &(pRes->m_pEffects[nStart + nEffect]);
+        if (pEffect->effectID == 0) {
+            nBonus += pEffect->effectAmount;
+        }
+    }
+
+    pRes->Release();
+
+    return nBonus;
 }
 
 // 0x4E9FD0

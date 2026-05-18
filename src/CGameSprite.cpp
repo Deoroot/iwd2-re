@@ -10206,17 +10206,54 @@ void CGameSprite::SetHideState(BOOLEAN a1, BOOLEAN a2)
 // 0x723CC0
 INT CGameSprite::GetAC()
 {
-    // TODO: Incomplete.
+    const CRuleTables& ruleTables = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
 
-    return 0;
+    INT nDexBonus = GetMaxDexterityBonus(ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nDEX));
+    if ((m_derivedStats.m_generalState & STATE_BLIND) != 0
+        && nDexBonus > 0
+        && !HasFeat(6)) {
+        nDexBonus = 0;
+    }
+
+    INT nArmorBonus = m_derivedStats.m_nACArmorBonus;
+    if (nArmorBonus == 0 && m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
+        nArmorBonus += m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetEquippedACBonus();
+    }
+
+    return 10
+        + nArmorBonus
+        + m_derivedStats.m_nACNaturalBonus
+        + m_derivedStats.m_nACDeflectionBonus
+        + m_derivedStats.m_nACDodgeBonus
+        + nDexBonus
+        + GetAttacksPerRound();
 }
 
 // 0x723F60
 INT CGameSprite::GetAttacksPerRound()
 {
-    // TODO: Incomplete.
+    if (GetClassLevel(CAIOBJECTTYPE_C_MONK) == 0) {
+        return 0;
+    }
 
-    return 0;
+    if (m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
+        return 0;
+    }
+
+    BYTE nWeaponSlot = static_cast<BYTE>((m_nWeaponSet + 0x16) * 2);
+    if (m_equipment.m_items[nWeaponSlot] != NULL) {
+        WORD nItemType = m_equipment.m_items[nWeaponSlot]->GetItemType();
+        if (nItemType == 47 || nItemType == 53 || nItemType == 49 || nItemType == 41) {
+            return 0;
+        }
+    }
+
+    INT nWisBonus = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nWIS);
+    if (nWisBonus < 1) {
+        return 0;
+    }
+
+    return nWisBonus;
 }
 
 // 0x72DE60

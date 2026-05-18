@@ -49,6 +49,7 @@ public:
     WORD GetMaxStackable();
     DWORD GetBaseValue();
     WORD GetLoreValue();
+    INT GetEquippedACBonus();
     STRREF GetDescription();
     CResRef GetDescriptionPicture();
     void LoadWeaponIdentification(CWeaponIdentification& weaponId);

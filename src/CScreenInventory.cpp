@@ -4105,7 +4105,72 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
 {
     // TODO: Incomplete.
 
-    return FALSE;
+    if (!m_bActive && !m_bInactiveRender) {
+        return FALSE;
+    }
+
+    if (m_nRenderCount == 0 && !bForce) {
+        return FALSE;
+    }
+
+    if (!CUIControlButton::Render(bForce)) {
+        return FALSE;
+    }
+
+    CScreenInventory* pInventory = g_pBaldurChitin->m_pEngineInventory;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 6826
+    UTIL_ASSERT(pInventory != NULL);
+
+    CItem* pItem = NULL;
+    STRREF description;
+    CResRef cResIcon;
+    CResRef cResItem;
+    WORD wCount;
+
+    if (!pInventory->MapButtonIdToItemInfo(m_nID,
+            pItem,
+            description,
+            cResIcon,
+            cResItem,
+            wCount)) {
+        InvalidateRect();
+        return TRUE;
+    }
+
+    if (cResIcon == "") {
+        InvalidateRect();
+        return TRUE;
+    }
+
+    CRect rControlFrame(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
+    if (m_bPressed) {
+        rControlFrame.OffsetRect(field_63E, field_642);
+    }
+
+    CPoint pos = rControlFrame.TopLeft();
+
+    CRect rClip;
+    rClip.IntersectRect(rControlFrame, m_rDirty);
+
+    DWORD dwFlags = m_bEnabled ? 0 : 0x1;
+
+    CIcon::RenderIcon(0,
+        pos,
+        m_size,
+        rClip,
+        cResIcon,
+        m_pPanel->m_pManager->m_bDoubleSize,
+        dwFlags,
+        wCount,
+        FALSE,
+        0,
+        FALSE,
+        0);
+
+    InvalidateRect();
+    return TRUE;
 }
 
 // -----------------------------------------------------------------------------
