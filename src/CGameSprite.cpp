@@ -12783,6 +12783,32 @@ const CAIObjectType& CGameSprite::GetLiveAIType()
     return m_liveTypeAI;
 }
 
+// 0x75E890 (virtual)
+BOOLEAN CGameSprite::CanSaveGame(STRREF& strError)
+{
+    if (!m_baseStats.m_bStealthMode
+        && m_typeAI.GetEnemyAlly() >= CAIObjectType::EA_EVILCUTOFF
+        && m_canBeSeen > 0
+        && (m_derivedStats.m_generalState & STATE_DEAD) == 0
+        && (m_baseStats.m_flags & 0x8000) == 0) {
+        strError = 16501;
+        return FALSE;
+    }
+
+    if (CanAct()) {
+        if (m_curAction.m_actionID != CAIAction::DIALOGUE
+            && m_curAction.m_actionID != CAIAction::STARTDIALOG
+            && m_currentActionId != CAIAction::DIALOGUE
+            && m_currentActionId != CAIAction::STARTDIALOG) {
+            strError = -1;
+            return TRUE;
+        }
+    }
+
+    strError = 16502;
+    return FALSE;
+}
+
 // 0x75E940
 SHORT CGameSprite::GetCasterLevel(CSpell* pSpell, BYTE nClass, DWORD nSpecialization)
 {
