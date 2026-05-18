@@ -811,15 +811,15 @@ void CGameAnimationTypeCharacter::ChangeDirection(SHORT nDirection)
     }
 
     if (m_currentVidCellHelmet != NULL) {
-        m_currentVidCellShield = m_currentVidCellShieldBase;
+        m_currentVidCellHelmet = m_currentVidCellHelmetBase;
 
         if (m_currentBamDirection > m_extendDirectionTest) {
-            m_currentVidCellShield->SequenceSet(9 * m_currentBamSequence - m_currentBamDirection + 16);
+            m_currentVidCellHelmet->SequenceSet(9 * m_currentBamSequence - m_currentBamDirection + 16);
         } else {
-            m_currentVidCellShield->SequenceSet(9 * m_currentBamSequence + m_currentBamDirection);
+            m_currentVidCellHelmet->SequenceSet(9 * m_currentBamSequence + m_currentBamDirection);
         }
 
-        m_currentVidCellShield->FrameSet(nFrame);
+        m_currentVidCellHelmet->FrameSet(nFrame);
     }
 }
 
@@ -899,6 +899,7 @@ void CGameAnimationTypeCharacter::EquipHelmet(const CString& resRef, BYTE* color
         UTIL_ASSERT(colorRangeValues != NULL);
 
         m_currentVidCellHelmetBase = &m_g1VidCellHelmetBase;
+        m_currentVidCellHelmet = m_currentVidCellHelmetBase;
 
         m_g1VidCellHelmetBase.SetResRef(CResRef(m_heightCodeHelmet + m_helmetResRef + "G1"), field_1444, TRUE, TRUE);
         m_caVidCellHelmetBase.SetResRef(CResRef(m_heightCodeHelmet + m_helmetResRef + "CA"), field_1444, TRUE, TRUE);

@@ -1,9 +1,199 @@
 #include "CItem.h"
 
+#include "CBaldurChitin.h"
+#include "CGameAnimationType.h"
 #include "CGameEffect.h"
+#include "CGameEffectList.h"
 #include "CGameSprite.h"
 #include "CImmunities.h"
+#include "CInfGame.h"
 #include "CUtil.h"
+
+namespace {
+
+const BYTE ITEM_ANIMATION_NONE = 0;
+const BYTE ITEM_ANIMATION_ARMOR = 1;
+const BYTE ITEM_ANIMATION_HELMET = 2;
+const BYTE ITEM_ANIMATION_SHIELD = 3;
+const BYTE ITEM_ANIMATION_WEAPON = 4;
+
+BYTE g_emptyColorRangeValues[7] = { 0, 0, 0, 0, 0, 0, 0 };
+const WORD g_defaultAttackProbability[6] = { 0x22, 0x21, 0x21, 0, 0, 0 };
+
+CString GetItemAnimationString(const ITEM_HEADER* pHeader)
+{
+    char szAnimation[3];
+    szAnimation[0] = static_cast<char>(pHeader->animationType[0]);
+    szAnimation[1] = static_cast<char>(pHeader->animationType[1]);
+    szAnimation[2] = '\0';
+
+    return CString(szAnimation);
+}
+
+BOOL IsSpecialWeaponAnimation(const CString& sAnimation)
+{
+    static const char* SPECIAL_WEAPON_ANIMATIONS[] = {
+        "S1",
+        "FS",
+        "S2",
+        "AX",
+        "BW",
+        "CL",
+        "FL",
+        "WH",
+        "HB",
+        "MC",
+        "MS",
+        "SP",
+        "SL",
+        "CB",
+        "DD",
+        "QS",
+        "SS",
+    };
+
+    for (INT index = 0; index < sizeof(SPECIAL_WEAPON_ANIMATIONS) / sizeof(SPECIAL_WEAPON_ANIMATIONS[0]); index++) {
+        if (sAnimation.CompareNoCase(SPECIAL_WEAPON_ANIMATIONS[index]) == 0) {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+BYTE GetItemAnimationType(CItem* pItem, CString& sAnimation, CGameSprite* pSprite)
+{
+    BYTE nAnimationType = ITEM_ANIMATION_NONE;
+
+    sAnimation = "";
+
+    ITEM_HEADER* pHeader = pItem->pRes->m_pHeader;
+    switch (pHeader->itemType) {
+    case 0:
+        sAnimation = GetItemAnimationString(pHeader);
+        if (IsSpecialWeaponAnimation(sAnimation)) {
+            nAnimationType = ITEM_ANIMATION_WEAPON;
+        }
+        break;
+    case 1:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 31:
+    case 32:
+    case 33:
+    case 34:
+    case 35:
+    case 36:
+    case 37:
+    case 38:
+    case 40:
+    case 42:
+    case 43:
+    case 45:
+    case 46:
+    case 48:
+    case 50:
+    case 51:
+    case 52:
+    case 54:
+    case 55:
+    case 56:
+    case 58:
+    case 59:
+    case 70:
+    case 71:
+    case 73:
+        break;
+    default:
+        UTIL_ASSERT(FALSE);
+        break;
+    case 7:
+    case 72:
+        nAnimationType = ITEM_ANIMATION_HELMET;
+        sAnimation = GetItemAnimationString(pHeader);
+        break;
+    case 15:
+    case 16:
+    case 17:
+    case 18:
+    case 19:
+    case 20:
+    case 21:
+    case 22:
+    case 23:
+    case 25:
+    case 26:
+    case 27:
+    case 29:
+    case 30:
+    case 44:
+    case 57:
+    case 69:
+        nAnimationType = ITEM_ANIMATION_WEAPON;
+        sAnimation = GetItemAnimationString(pHeader);
+        break;
+    case 24:
+    case 28:
+        nAnimationType = ITEM_ANIMATION_WEAPON;
+        break;
+    case 41:
+    case 47:
+    case 49:
+    case 53:
+        nAnimationType = ITEM_ANIMATION_SHIELD;
+        sAnimation = GetItemAnimationString(pHeader);
+        break;
+    case 60:
+    case 61:
+    case 62:
+    case 63:
+    case 64:
+    case 65:
+    case 66:
+    case 67:
+    case 68:
+        nAnimationType = ITEM_ANIMATION_ARMOR;
+        if (((pHeader->animationType[1] == 'W') && ((pSprite->m_baseStats.m_animationType & 0xF00) != 0x200))
+            || ((pHeader->animationType[1] != 'W') && ((pSprite->m_baseStats.m_animationType & 0xF00) == 0x200))) {
+            sAnimation = "1";
+        } else {
+            sAnimation = CString(static_cast<char>(pHeader->animationType[0]), 1);
+        }
+        break;
+    }
+
+    sAnimation.TrimRight();
+    sAnimation.TrimLeft();
+
+    return nAnimationType;
+}
+
+BOOL RemoveEffectFromList(CGameEffectList* pList, CGameEffect* pEffect)
+{
+    POSITION pos = pList->GetHeadPosition();
+    while (pos != NULL) {
+        POSITION posOld = pos;
+        CGameEffect* pListEffect = pList->GetNext(pos);
+        if (pListEffect != NULL && pListEffect->Compare(*pEffect)) {
+            pList->RemoveAt(posOld);
+            delete pListEffect;
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+}
 
 // 0x8D828C
 const CString CItem::VALUE("VALUE");
@@ -326,8 +516,112 @@ void CItem::SetUsageCount(INT nAbility, WORD nUseCount)
 // 0x4E8860
 void CItem::Equip(CGameSprite* pSprite, LONG slotNum, BOOL animationOnly)
 {
-    // TODO: Incomplete.  Ghidra shows this also updates paperdoll/world
-    // animation for armor, shields, and selected weapon slots.
+    if (pSprite == NULL || cResRef == "") {
+        return;
+    }
+
+    BOOL bInEquip = pSprite->field_7544;
+    if (!bInEquip) {
+        pSprite->field_7540 = 0;
+        pSprite->field_7544 = 1;
+    }
+
+    if (pRes != NULL) {
+        UTIL_ASSERT(pRes->Demand());
+
+        CString sAnimation;
+        if (pSprite->GetAnimation()->m_animation != NULL) {
+            switch (GetItemAnimationType(this, sAnimation, pSprite)) {
+            case ITEM_ANIMATION_ARMOR:
+                if (sAnimation == "") {
+                    pSprite->GetAnimation()->m_animation->EquipArmor('1', pSprite->m_baseStats.m_colors);
+                } else {
+                    pSprite->GetAnimation()->m_animation->EquipArmor(sAnimation[0], pSprite->m_baseStats.m_colors);
+                }
+                break;
+            case ITEM_ANIMATION_HELMET:
+                pSprite->GetAnimation()->m_animation->EquipHelmet(sAnimation, pSprite->m_baseStats.m_colors);
+                break;
+            case ITEM_ANIMATION_SHIELD:
+                pSprite->GetAnimation()->m_animation->EquipShield(sAnimation, pSprite->m_baseStats.m_colors);
+                break;
+            case ITEM_ANIMATION_WEAPON:
+                if (slotNum == 43 || slotNum == 45 || slotNum == 47 || slotNum == 49 || slotNum == 42) {
+                    WORD nAbility = pSprite->m_equipment.m_selectedWeaponAbility;
+                    ITEM_ABILITY* pAbility = pRes->GetAbility(nAbility);
+                    if (pAbility != NULL && pAbility->type != 0) {
+                        pSprite->GetAnimation()->m_animation->EquipWeapon(sAnimation,
+                            pSprite->m_baseStats.m_colors,
+                            pRes->m_pHeader->itemFlags,
+                            pAbility->attackProbability);
+                    } else {
+                        UTIL_ASSERT(FALSE);
+                    }
+                } else if (slotNum == 44 || slotNum == 46 || slotNum == 48 || slotNum == 50) {
+                    sAnimation = "O";
+
+                    GetAbilityCount();
+
+                    WORD nAbility = pSprite->m_equipment.m_selectedWeaponAbility;
+                    ITEM_ABILITY* pAbility;
+                    if (nAbility < m_nAbilities) {
+                        pAbility = pRes->GetAbility(nAbility);
+                    } else {
+                        pAbility = pRes->GetAbility(0);
+                    }
+
+                    if (pAbility != NULL && pAbility->type != 0) {
+                        pSprite->GetAnimation()->m_animation->EquipWeapon(sAnimation,
+                            pSprite->m_baseStats.m_colors,
+                            pRes->m_pHeader->itemFlags | 0x400,
+                            pAbility->attackProbability);
+                    } else {
+                        UTIL_ASSERT(FALSE);
+                    }
+                }
+                break;
+            }
+        }
+
+        if (!animationOnly) {
+            WORD nStart = pRes->m_pHeader->equipedStartingEffect;
+            WORD nCount = pRes->m_pHeader->equipedEffectCount;
+            for (WORD nEffect = 0; nEffect < nCount; nEffect++) {
+                ITEM_EFFECT* pItemEffect = &(pRes->m_pEffects[nStart + nEffect]);
+                CGameEffect* pEffect = CGameEffect::DecodeEffect(pItemEffect,
+                    CPoint(-1, -1),
+                    pSprite->GetId(),
+                    CPoint(-1, -1));
+                if (pEffect != NULL) {
+                    pEffect->field_188 = 1;
+                    pEffect->m_sourceID = pSprite->GetId();
+                    pEffect->m_flags |= 0x2;
+                    pEffect->m_casterLevel = 10;
+                    pEffect->m_sourceRes = cResRef;
+                    pEffect->m_sourceType = 2;
+
+                    BYTE list = pEffect->m_durationType == 2
+                        ? CGameAIBase::EFFECT_LIST_EQUIPED
+                        : CGameAIBase::EFFECT_LIST_TIMED;
+                    pSprite->AddEffect(pEffect, list, FALSE, TRUE);
+                }
+            }
+        }
+
+        pRes->Release();
+    }
+
+    if (!bInEquip) {
+        if (pSprite->field_7540 != 0) {
+            Equip(pSprite, slotNum, TRUE);
+        }
+        pSprite->field_7544 = 0;
+    }
+}
+
+// 0x4E8DF0
+void CItem::Unequip(CGameSprite* pSprite, LONG slotNum, BOOL recalculateEffects, BOOL animationOnly)
+{
     if (pSprite == NULL || cResRef == "" || pRes == NULL) {
         return;
     }
@@ -341,31 +635,62 @@ void CItem::Equip(CGameSprite* pSprite, LONG slotNum, BOOL animationOnly)
             ITEM_EFFECT* pItemEffect = &(pRes->m_pEffects[nStart + nEffect]);
             CGameEffect* pEffect = CGameEffect::DecodeEffect(pItemEffect,
                 CPoint(-1, -1),
-                pSprite->GetId(),
+                -1,
                 CPoint(-1, -1));
             if (pEffect != NULL) {
-                pEffect->field_188 = 1;
                 pEffect->m_sourceID = pSprite->GetId();
-                pEffect->m_flags |= 0x2;
-                pEffect->m_casterLevel = 10;
                 pEffect->m_sourceRes = cResRef;
-                pEffect->m_sourceType = 2;
+                if (pEffect->m_durationType == 2) {
+                    RemoveEffectFromList(pSprite->GetEquipedEffectList(), pEffect);
+                }
+                delete pEffect;
+            }
+        }
 
-                BYTE list = pEffect->m_durationType == 2
-                    ? CGameAIBase::EFFECT_LIST_EQUIPED
-                    : CGameAIBase::EFFECT_LIST_TIMED;
-                pSprite->AddEffect(pEffect, list, FALSE, TRUE);
+        if (nCount > 0) {
+            pSprite->field_562C = 1;
+            if (recalculateEffects
+                && g_pBaldurChitin != NULL
+                && g_pBaldurChitin->GetObjectGame() != NULL
+                && !g_pBaldurChitin->GetObjectGame()->m_bInLoadGame) {
+                pSprite->sub_72DE60();
             }
         }
     }
 
-    pRes->Release();
-}
+    CString sAnimation;
+    if (pSprite->GetAnimation()->m_animation != NULL) {
+        switch (GetItemAnimationType(this, sAnimation, pSprite)) {
+        case ITEM_ANIMATION_ARMOR:
+            pSprite->GetAnimation()->m_animation->EquipArmor('1', pSprite->m_baseStats.m_colors);
+            break;
+        case ITEM_ANIMATION_HELMET:
+            sAnimation = "";
+            pSprite->GetAnimation()->m_animation->EquipHelmet(sAnimation, g_emptyColorRangeValues);
+            break;
+        case ITEM_ANIMATION_SHIELD:
+            sAnimation = "";
+            pSprite->GetAnimation()->m_animation->EquipShield(sAnimation, g_emptyColorRangeValues);
+            break;
+        case ITEM_ANIMATION_WEAPON:
+            sAnimation = "";
+            if (slotNum == (pSprite->GetWeaponSlot() & 0xFF)) {
+                pSprite->GetAnimation()->m_animation->EquipWeapon(sAnimation,
+                    g_emptyColorRangeValues,
+                    0x400,
+                    g_defaultAttackProbability);
+                pSprite->GetAnimation()->m_animation->EquipShield(sAnimation, g_emptyColorRangeValues);
+            } else {
+                pSprite->GetAnimation()->m_animation->EquipWeapon(sAnimation,
+                    g_emptyColorRangeValues,
+                    0,
+                    g_defaultAttackProbability);
+            }
+            break;
+        }
+    }
 
-// 0x4E8DF0
-void CItem::Unequip(CGameSprite* pSprite, LONG slotNum, BOOL recalculateEffects, BOOL animationOnly)
-{
-    // TODO: Incomplete.
+    pRes->Release();
 }
 
 // 0x4E91F0
