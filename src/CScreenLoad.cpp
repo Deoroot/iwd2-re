@@ -1,5 +1,7 @@
 #include "CScreenLoad.h"
 
+#include "debuglog.h"
+
 #include "CBaldurChitin.h"
 #include "CCreatureFile.h"
 #include "CInfCursor.h"
@@ -506,6 +508,7 @@ void CScreenLoad::LoadGame(INT nSlot)
                 }
 
                 pGame->LoadGame(TRUE, FALSE);
+                DBG("CScreenLoad::LoadGame: CInfGame::LoadGame returned save=%s", static_cast<LPCSTR>(sFileName));
                 FreeGameSlots();
                 m_aGameSlots.SetSize(0);
 
@@ -514,7 +517,9 @@ void CScreenLoad::LoadGame(INT nSlot)
                 }
 
                 pGame->MultiplayerSetCharacterCreationLocation();
+                DBG("CScreenLoad::LoadGame: before SetupCharacters");
                 pGame->SetupCharacters(FALSE);
+                DBG("CScreenLoad::LoadGame: after SetupCharacters");
 
                 for (INT nCharacterSlot = 0; nCharacterSlot < CINFGAME_MAXCHARACTERS; nCharacterSlot++) {
                     if (pGame->GetCharacterSlot(nCharacterSlot) != CGameObjectArray::INVALID_INDEX) {
@@ -533,7 +538,9 @@ void CScreenLoad::LoadGame(INT nSlot)
                 pGame->GetMultiplayerSettings()->SetArbitrationLockAllowInput(TRUE);
                 pGame->GetMultiplayerSettings()->SetArbitrationLockStatus(FALSE, 0);
 
+                DBG("CScreenLoad::LoadGame: selecting world engine");
                 SelectEngine(g_pBaldurChitin->m_pEngineWorld);
+                DBG("CScreenLoad::LoadGame: world engine selected");
 
                 return;
             }

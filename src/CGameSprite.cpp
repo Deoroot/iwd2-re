@@ -8715,39 +8715,39 @@ void CGameSprite::UnequipAll(BOOL animationOnly)
 void CGameSprite::EquipAll(BOOL animationOnly)
 {
     if (m_equipment.m_items[6] != NULL) {
-        m_equipment.m_items[6]->Unequip(this, 6, TRUE, animationOnly);
+        m_equipment.m_items[6]->Equip(this, 6, animationOnly);
     }
 
     if (m_equipment.m_items[1] != NULL) {
-        m_equipment.m_items[1]->Unequip(this, 1, TRUE, animationOnly);
+        m_equipment.m_items[1]->Equip(this, 1, animationOnly);
     }
 
     if (m_equipment.m_items[5] != NULL) {
-        m_equipment.m_items[5]->Unequip(this, 5, TRUE, animationOnly);
+        m_equipment.m_items[5]->Equip(this, 5, animationOnly);
     }
 
     if (m_equipment.m_items[7] != NULL) {
-        m_equipment.m_items[7]->Unequip(this, 7, TRUE, animationOnly);
+        m_equipment.m_items[7]->Equip(this, 7, animationOnly);
     }
 
     if (m_equipment.m_items[8] != NULL) {
-        m_equipment.m_items[8]->Unequip(this, 8, TRUE, animationOnly);
+        m_equipment.m_items[8]->Equip(this, 8, animationOnly);
     }
 
     if (m_equipment.m_items[0] != NULL) {
-        m_equipment.m_items[0]->Unequip(this, 0, TRUE, animationOnly);
+        m_equipment.m_items[0]->Equip(this, 0, animationOnly);
     }
 
     if (m_equipment.m_items[2] != NULL) {
-        m_equipment.m_items[2]->Unequip(this, 2, TRUE, animationOnly);
+        m_equipment.m_items[2]->Equip(this, 2, animationOnly);
     }
 
     if (m_equipment.m_items[3] != NULL) {
-        m_equipment.m_items[3]->Unequip(this, 3, TRUE, animationOnly);
+        m_equipment.m_items[3]->Equip(this, 3, animationOnly);
     }
 
     if (m_equipment.m_items[4] != NULL) {
-        m_equipment.m_items[4]->Unequip(this, 4, TRUE, animationOnly);
+        m_equipment.m_items[4]->Equip(this, 4, animationOnly);
     }
 
     BOOL v1 = FALSE;

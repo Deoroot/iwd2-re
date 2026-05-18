@@ -2096,6 +2096,8 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     memcpy(areaResRef, pGame + 0x40, 8);
     areaResRef[8] = 0;
     DBG("Unmarshal: worldArea=%s", areaResRef);
+    m_gameSave.m_cResCurrentWorldArea = CResRef(areaResRef);
+    m_gameSave.m_nCurrentWorldLink = static_cast<DWORD>(pData[0x12]);
 
     // Reputation (offset 0x54)
     m_nReputation = static_cast<SHORT>(pData[21]); // offset 0x54 / 4 = 21
@@ -3147,6 +3149,8 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     SelectAll(FALSE);
 
     g_pBaldurChitin->GetObjectGame()->m_cButtonArray.UpdateState();
+
+    DBG("LoadGame: end save=%s characters=%d worldTime=%lu", static_cast<LPCSTR>(m_sSaveGame), m_nCharacters, m_worldTime.m_gameTime);
 }
 
 // 0x5ABA20

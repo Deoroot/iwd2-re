@@ -1256,14 +1256,24 @@ void CScreenInventory::UpdateMainPanel(BOOL bClearError)
             && !s_loggedInventoryStats[m_nSelectedCharacter]) {
             CString sArmor("");
             CString sShield("");
+            INT nOffhandSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * pSprite->m_nWeaponSet + 1;
             if (pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
                 sArmor = pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetResRef().GetResRefStr();
             }
-            if (pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_SHIELD] != NULL) {
+            if (nOffhandSlot >= 0 && nOffhandSlot < CGameSpriteEquipment::NUM_SLOT) {
+                CItem* pOffhand = pSprite->GetEquipment()->m_items[nOffhandSlot];
+                if (pOffhand != NULL) {
+                    WORD nItemType = pOffhand->GetItemType();
+                    if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
+                        sShield = pOffhand->GetResRef().GetResRefStr();
+                    }
+                }
+            }
+            if (sShield == "" && pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_SHIELD] != NULL) {
                 sShield = pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_SHIELD]->GetResRef().GetResRefStr();
             }
 
-            DBG("INVSTAT slot=%d name=%s AC=%d HP=%d/%d baseHP=%d/%d STR=%d INT=%d WIS=%d DEX=%d CON=%d CHR=%d acParts armor=%d natural=%d deflect=%d dodge=%d dexMod=%d apr=%d armorItem=%s shieldItem=%s weight=%d/%d",
+            DBG("INVSTAT slot=%d name=%s AC=%d HP=%d/%d baseHP=%d/%d STR=%d INT=%d WIS=%d DEX=%d CON=%d CHR=%d acParts armor=%d natural=%d deflect=%d dodge=%d dexMod=%d apr=%d weaponSet=%d offhandSlot=%d armorItem=%s shieldItem=%s weight=%d/%d",
                 m_nSelectedCharacter,
                 (LPCSTR)pSprite->GetName(),
                 pSprite->GetAC(),
@@ -1283,6 +1293,8 @@ void CScreenInventory::UpdateMainPanel(BOOL bClearError)
                 DStats.m_nACDodgeBonus,
                 pGame->GetRuleTables().GetAbilityScoreModifier(DStats.m_nDEX),
                 pSprite->GetAttacksPerRound(),
+                pSprite->m_nWeaponSet,
+                nOffhandSlot,
                 (LPCSTR)sArmor,
                 (LPCSTR)sShield,
                 nCurrentWeight,
