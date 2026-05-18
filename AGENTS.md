@@ -14,6 +14,7 @@ Repo: `github.com/WillScarlettOhara/iwd2-re` (fork of alexbatalov)
 - Functions: `sub_NNNNNN` placeholder → `ClassName::methodName`.
 - Fields: `field_XX` placeholder → `m_typeName` (Hungarian, no type prefix on placeholder).
 - Addresses: `// 0x7D14F0` above each function.
+- If function is virtual, mark address comment as virtual, e.g. `// 0x7D14F0 (virtual)`, so agents know Ghidra direct decompile by concrete address may not find an owning thunk/body.
 
 ## Rename Workflow (functions)
 1. `UPDATE funcs SET name = 'NewName' WHERE address = 0xNNNNNN;`
