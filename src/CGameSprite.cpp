@@ -9043,11 +9043,18 @@ void CGameSprite::GetQuickWeapon(BYTE buttonNum, CButtonData& buttonData)
                 if (buttonData.m_abilityId.m_itemNum == -1
                     || buttonData.m_abilityId.m_itemNum == 10) {
                     CGameButtonList* buttons = GetItemUsages(10, 1, 0);
-                    CButtonData* node = buttons->RemoveHead();
-                    if (node != NULL) {
-                        buttonData = *node;
-                        m_quickWeapons[buttonNum] = *node;
-                        delete node;
+                    // Original 0x71D4B0 calls RemoveHead unconditionally here,
+                    // assuming the fist slot always yields a usage.  In the
+                    // reconstructed debug build MFC asserts when that list is
+                    // empty, so keep original behavior when present but guard
+                    // the empty-list case.
+                    if (!buttons->IsEmpty()) {
+                        CButtonData* node = buttons->RemoveHead();
+                        if (node != NULL) {
+                            buttonData = *node;
+                            m_quickWeapons[buttonNum] = *node;
+                            delete node;
+                        }
                     }
                     while (!buttons->IsEmpty()) {
                         delete buttons->RemoveHead();
@@ -9059,11 +9066,18 @@ void CGameSprite::GetQuickWeapon(BYTE buttonNum, CButtonData& buttonData)
             if (buttonData.m_abilityId.m_itemNum == -1
                 || buttonData.m_abilityId.m_itemNum == 10) {
                 CGameButtonList* buttons = GetItemUsages(10, 1, 0);
-                CButtonData* node = buttons->RemoveHead();
-                if (node != NULL) {
-                    buttonData = *node;
-                    m_quickWeapons[buttonNum] = *node;
-                    delete node;
+                // Original 0x71D4B0 calls RemoveHead unconditionally here,
+                // assuming the fist slot always yields a usage.  In the
+                // reconstructed debug build MFC asserts when that list is
+                // empty, so keep original behavior when present but guard
+                // the empty-list case.
+                if (!buttons->IsEmpty()) {
+                    CButtonData* node = buttons->RemoveHead();
+                    if (node != NULL) {
+                        buttonData = *node;
+                        m_quickWeapons[buttonNum] = *node;
+                        delete node;
+                    }
                 }
                 while (!buttons->IsEmpty()) {
                     delete buttons->RemoveHead();
