@@ -1,6 +1,7 @@
 #include "CItem.h"
 
 #include "CGameEffect.h"
+#include "CGameAnimationType.h"
 #include "CGameSprite.h"
 #include "CImmunities.h"
 #include "CUtil.h"
@@ -333,6 +334,42 @@ void CItem::Equip(CGameSprite* pSprite, LONG slotNum, BOOL animationOnly)
     }
 
     UTIL_ASSERT(pRes->Demand());
+
+    if (pSprite->GetAnimation()->m_animation != NULL) {
+        char szAnimation[3];
+        szAnimation[0] = static_cast<char>(pRes->m_pHeader->animationType[0]);
+        szAnimation[1] = static_cast<char>(pRes->m_pHeader->animationType[1]);
+        szAnimation[2] = '\0';
+
+        CString sAnimation(szAnimation);
+        sAnimation.TrimLeft();
+        sAnimation.TrimRight();
+
+        WORD nItemType = pRes->m_pHeader->itemType;
+        if (nItemType >= 60 && nItemType <= 68) {
+            CHAR armorLevel = szAnimation[0] != '\0' && szAnimation[0] != ' '
+                ? szAnimation[0]
+                : '1';
+            pSprite->GetAnimation()->m_animation->EquipArmor(armorLevel, pSprite->m_baseStats.m_colors);
+        } else if ((nItemType == 7 || nItemType == 72) && sAnimation != "") {
+            pSprite->GetAnimation()->m_animation->EquipHelmet(sAnimation, pSprite->m_baseStats.m_colors);
+        } else if ((nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) && sAnimation != "") {
+            pSprite->GetAnimation()->m_animation->EquipShield(sAnimation, pSprite->m_baseStats.m_colors);
+        } else if (((nItemType >= 15 && nItemType <= 30) || nItemType == 44 || nItemType == 57 || nItemType == 69) && sAnimation != "") {
+            WORD nAbility = pSprite->GetEquipment()->m_selectedWeaponAbility;
+            if (nAbility >= pRes->GetAbilityNo()) {
+                nAbility = 0;
+            }
+
+            ITEM_ABILITY* pAbility = pRes->GetAbility(nAbility);
+            if (pAbility != NULL && pAbility->type != 0) {
+                pSprite->GetAnimation()->m_animation->EquipWeapon(sAnimation,
+                    pSprite->m_baseStats.m_colors,
+                    pRes->m_pHeader->itemFlags,
+                    pAbility->attackProbability);
+            }
+        }
+    }
 
     if (!animationOnly) {
         WORD nStart = pRes->m_pHeader->equipedStartingEffect;

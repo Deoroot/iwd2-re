@@ -1236,7 +1236,9 @@ void CScreenInventory::UpdateMainPanel(BOOL bClearError)
         if (nCurrentWeight == 0) {
             pLabel->SetForegroundColor(RGB(255, 255, 255));
         } else {
-            float fRatio = static_cast<float>(nCurrentWeight) / static_cast<float>(nTotalSlots);
+            float fRatio = nTotalWeight != 0
+                ? static_cast<float>(nCurrentWeight) / static_cast<float>(nTotalWeight)
+                : 0.0f;
             if (fRatio < 0.33f) {
                 pLabel->SetForegroundColor(RGB(0, 255, 0));
             } else if (fRatio < 0.66f) {

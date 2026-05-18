@@ -2058,8 +2058,15 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     DBG("Unmarshal: gameTime=%d seconds -> %d ticks", pData[2], m_worldTime.m_gameTime);
 
     // Selected formation (offset 0x0C, word)
+    m_gameSave.m_curFormation = *reinterpret_cast<SHORT*>(pGame + 0x0C);
+
     // Formation buttons 1-5 (offset 0x0E-0x16)
+    memcpy(m_gameSave.m_quickFormations, pGame + 0x0E, sizeof(m_gameSave.m_quickFormations));
+
     // Party gold (offset 0x18)
+    m_gameSave.m_nPartyGold = *reinterpret_cast<DWORD*>(pGame + 0x18);
+    DBG("Unmarshal: partyGold=%lu", m_gameSave.m_nPartyGold);
+
     // View area of party member (offset 0x1C)
 
     // Weather (offset 0x1E)
@@ -2146,6 +2153,11 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
 
                     if (pSprite != NULL && pSprite->m_id != CGameObjectArray::INVALID_INDEX) {
                         pSprite->SetResRef(CResRef(reinterpret_cast<char*>(pCreData + 0x280)));
+
+                        char szName[SCRIPTNAME_SIZE + 1];
+                        memcpy(szName, pMember + 0x1BE, SCRIPTNAME_SIZE);
+                        szName[SCRIPTNAME_SIZE] = '\0';
+                        pSprite->m_sName = szName;
 
                         LONG nIndex = pSprite->m_id;
                         if (slotIndex >= 0 && slotIndex < 6) {
