@@ -8814,6 +8814,7 @@ void CGameSprite::Unequip(SHORT slotNum)
             case 13:
             case 14:
             case 43:
+            case 44:
             case 45:
             case 46:
             case 47:
@@ -8830,7 +8831,7 @@ void CGameSprite::Unequip(SHORT slotNum)
                     SHORT lSlot;
                     CItem* pLauncher = GetLauncher(pAbility, lSlot);
                     if (pLauncher != NULL) {
-                        pLauncher->Unequip(this, slotNum, TRUE, FALSE);
+                        pLauncher->Unequip(this, lSlot, TRUE, FALSE);
                     }
 
                     m_equipment.m_items[slotNum]->Release();
