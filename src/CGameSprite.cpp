@@ -12679,6 +12679,11 @@ void CGameSprite::SelectWeaponAbility(unsigned char slotNum, unsigned char abili
 
     CMessage* pMessage = new CMessageSpriteEquipment(this, m_id, m_id);
     g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+
+    if ((GetActiveStats()->m_generalState & STATE_DEAD) == 0) {
+        CMessage* pSequenceMessage = new CMessageSetSequence(static_cast<BYTE>(GetIdleSequence()), m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pSequenceMessage, FALSE);
+    }
 }
 
 // 0x756930
