@@ -96,10 +96,10 @@ def click_client(hwnd: int, x: int, y: int, pause: float = 0.08) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-launch", action="store_true", help="attach to an already launched process is not implemented")
-    ap.add_argument("--menu-wait", type=float, default=5.0)
-    ap.add_argument("--load-wait", type=float, default=2.0)
-    ap.add_argument("--load-menu", default="620,357", help="client x,y for Load Game on main menu")
-    ap.add_argument("--slot", default="720,231", help="client x,y for first load slot")
+    ap.add_argument("--menu-wait", type=float, default=2.0)
+    ap.add_argument("--load-wait", type=float, default=1.0)
+    ap.add_argument("--load-menu", default="620,287", help="client x,y for Load Game on main menu")
+    ap.add_argument("--slot", default="720,211", help="client x,y for first load slot")
     args = ap.parse_args()
 
     if args.no_launch:

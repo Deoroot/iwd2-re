@@ -10220,10 +10220,31 @@ INT CGameSprite::GetAC()
         nArmorBonus += m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetEquippedACBonus();
     }
 
+    INT nShieldBonus = m_derivedStats.m_nACDeflectionBonus;
+    INT nOffhandSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet + 1;
+    CItem* pShield = NULL;
+    if (nOffhandSlot >= 0 && nOffhandSlot < CGameSpriteEquipment::NUM_SLOT) {
+        CItem* pItem = m_equipment.m_items[nOffhandSlot];
+        if (pItem != NULL) {
+            WORD nItemType = pItem->GetItemType();
+            if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
+                pShield = pItem;
+            }
+        }
+    }
+
+    if (pShield == NULL && m_equipment.m_items[CGameSpriteEquipment::SLOT_SHIELD] != NULL) {
+        pShield = m_equipment.m_items[CGameSpriteEquipment::SLOT_SHIELD];
+    }
+
+    if (pShield != NULL) {
+        nShieldBonus = max(nShieldBonus, pShield->GetEquippedACBonus());
+    }
+
     return 10
         + nArmorBonus
         + m_derivedStats.m_nACNaturalBonus
-        + m_derivedStats.m_nACDeflectionBonus
+        + nShieldBonus
         + m_derivedStats.m_nACDodgeBonus
         + nDexBonus
         + GetAttacksPerRound();
