@@ -16006,46 +16006,7 @@ INT CGameSprite::GetWeaponSlot()
 // 0x726810
 void CGameSprite::SetWeaponSet(BYTE nWeaponSet)
 {
-    // TODO: Incomplete.  Original also resolves launchers/ammo, off-hand
-    // compatibility, quick-weapon metadata, and sends equipment messages.
-    UTIL_ASSERT(nWeaponSet < CCREATUREFILEEQUIPMENT21_WEAPON_NUM_SETS);
-
-    m_nWeaponSet = nWeaponSet;
-
-    BYTE nPrimarySlot = static_cast<BYTE>(CGameSpriteEquipment::SLOT_WEAPON + 2 * nWeaponSet);
-    BYTE nOffhandSlot = static_cast<BYTE>(nPrimarySlot + 1);
-
-    if (m_animation.m_animation != NULL) {
-        CString sEmpty;
-        WORD attackProbability[6] = { 0x22, 0x21, 0x21, 0, 0, 0 };
-        m_animation.m_animation->EquipWeapon(sEmpty, m_baseStats.m_colors, 0, attackProbability);
-        m_animation.m_animation->EquipShield(sEmpty, m_baseStats.m_colors);
-    }
-
-    CItem* pPrimary = m_equipment.m_items[nPrimarySlot];
-    if (pPrimary != NULL) {
-        WORD nAbility = m_equipment.m_selectedWeapon == nPrimarySlot
-            ? m_equipment.m_selectedWeaponAbility
-            : 0;
-        if (nAbility >= pPrimary->GetAbilityCount()) {
-            nAbility = 0;
-        }
-
-        m_equipment.m_selectedWeapon = nPrimarySlot;
-        m_equipment.m_selectedWeaponAbility = nAbility;
-        pPrimary->Equip(this, nPrimarySlot, TRUE);
-    } else {
-        m_equipment.m_selectedWeapon = CGameSpriteEquipment::SLOT_FIST;
-        m_equipment.m_selectedWeaponAbility = 0;
-    }
-
-    CItem* pOffhand = m_equipment.m_items[nOffhandSlot];
-    if (pOffhand != NULL) {
-        WORD nItemType = pOffhand->GetItemType();
-        if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
-            pOffhand->Equip(this, nOffhandSlot, TRUE);
-        }
-    }
+    // TODO: Incomplete.
 }
 
 // 0x58FEE0
