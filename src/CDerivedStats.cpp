@@ -171,6 +171,10 @@ void CDerivedStats::Reload(CGameSprite* pSprite, CCreatureFileHeader* pCreature,
     if (pSprite != NULL) {
         CAIObjectType typeAI(pSprite->GetAIType());
 
+        if (pSprite->HasFeat(CGAMESPRITE_FEAT_DODGE)) {
+            m_nACDodgeBonus++;
+        }
+
         if (typeAI.m_nRace == CAIOBJECTTYPE_R_ELF
             || typeAI.m_nRace == CAIOBJECTTYPE_R_HALF_ELF) {
             m_naturalImmunities.insert(CGAMEEFFECT_SLEEP);

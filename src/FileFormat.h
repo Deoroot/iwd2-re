@@ -546,10 +546,10 @@ public:
     /* 025C */ unsigned char field_25C;
     /* 025D */ BYTE m_sex;
     /* 025E */ BYTE m_STRBase;
-    /* 025F */ BYTE m_DEXBase;
-    /* 0260 */ BYTE m_CONBase;
-    /* 0261 */ BYTE m_INTBase;
-    /* 0262 */ BYTE m_WISBase;
+    /* 025F */ BYTE m_INTBase;
+    /* 0260 */ BYTE m_WISBase;
+    /* 0261 */ BYTE m_DEXBase;
+    /* 0262 */ BYTE m_CONBase;
     /* 0263 */ BYTE m_CHRBase;
     /* 0264 */ BYTE m_morale;
     /* 0265 */ BYTE m_moraleBreak;

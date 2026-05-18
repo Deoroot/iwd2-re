@@ -1,5 +1,7 @@
 #include "CScreenInventory.h"
 
+#include "debuglog.h"
+
 #include "CBaldurChitin.h"
 #include "CGameAnimationTypeCharacter.h"
 #include "CGameArea.h"
@@ -1246,6 +1248,46 @@ void CScreenInventory::UpdateMainPanel(BOOL bClearError)
             } else {
                 pLabel->SetForegroundColor(RGB(255, 0, 0));
             }
+        }
+
+        static BOOL s_loggedInventoryStats[CINFGAME_MAXCHARACTERS] = { FALSE };
+        if (m_nSelectedCharacter >= 0
+            && m_nSelectedCharacter < CINFGAME_MAXCHARACTERS
+            && !s_loggedInventoryStats[m_nSelectedCharacter]) {
+            CString sArmor("");
+            CString sShield("");
+            if (pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
+                sArmor = pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetResRef().GetResRefStr();
+            }
+            if (pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_SHIELD] != NULL) {
+                sShield = pSprite->GetEquipment()->m_items[CGameSpriteEquipment::SLOT_SHIELD]->GetResRef().GetResRefStr();
+            }
+
+            DBG("INVSTAT slot=%d name=%s AC=%d HP=%d/%d baseHP=%d/%d STR=%d INT=%d WIS=%d DEX=%d CON=%d CHR=%d acParts armor=%d natural=%d deflect=%d dodge=%d dexMod=%d apr=%d armorItem=%s shieldItem=%s weight=%d/%d",
+                m_nSelectedCharacter,
+                (LPCSTR)pSprite->GetName(),
+                pSprite->GetAC(),
+                pBStats->m_hitPoints,
+                DStats.m_nMaxHitPoints,
+                pBStats->m_hitPoints,
+                pBStats->m_maxHitPointsBase,
+                DStats.m_nSTR,
+                DStats.m_nINT,
+                DStats.m_nWIS,
+                DStats.m_nDEX,
+                DStats.m_nCON,
+                DStats.m_nCHR,
+                DStats.m_nACArmorBonus,
+                DStats.m_nACNaturalBonus,
+                DStats.m_nACDeflectionBonus,
+                DStats.m_nACDodgeBonus,
+                pGame->GetRuleTables().GetAbilityScoreModifier(DStats.m_nDEX),
+                pSprite->GetAttacksPerRound(),
+                (LPCSTR)sArmor,
+                (LPCSTR)sShield,
+                nCurrentWeight,
+                nTotalWeight);
+            s_loggedInventoryStats[m_nSelectedCharacter] = TRUE;
         }
 
         CUIControlButtonCharacterPortrait* pPortrait = static_cast<CUIControlButtonCharacterPortrait*>(pPanel->GetControl(84));
