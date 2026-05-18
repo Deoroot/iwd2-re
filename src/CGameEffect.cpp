@@ -1142,15 +1142,28 @@ CGameEffect* CGameEffect::Copy()
 // 0x452E40
 BOOL CGameEffect::ApplyEffect(CGameSprite* pSprite)
 {
-    // __FILE__: .\Include\CGameEffect.h
-    // __LINE__: 565
-    UTIL_ASSERT(FALSE);
+    // TODO: Incomplete.  Original base implementation asserts; many decoded
+    // effect classes in the reconstruction still have no ApplyEffect override.
+    // Treat those as no-op so effect-list processing can safely handle item
+    // equipped effects while missing opcodes are recovered incrementally.
+    return TRUE;
 }
 
 // 0x4A3030
 BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
 {
-    return FALSE;
+    // TODO: Incomplete.  Original also handles probability, saves, target
+    // modes, dispel/resistance, duration bookkeeping, and feedback.
+    if (m_durationType != 0 && CheckExpiration()) {
+        m_done = TRUE;
+        return TRUE;
+    }
+
+    BOOL bResult = ApplyEffect(pSprite);
+    if (m_durationType == 0 || m_durationType == 1) {
+        m_done = TRUE;
+    }
+    return bResult;
 }
 
 // 0x799E60

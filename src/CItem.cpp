@@ -326,7 +326,40 @@ void CItem::SetUsageCount(INT nAbility, WORD nUseCount)
 // 0x4E8860
 void CItem::Equip(CGameSprite* pSprite, LONG slotNum, BOOL animationOnly)
 {
-    // TODO: Incomplete.
+    // TODO: Incomplete.  Ghidra shows this also updates paperdoll/world
+    // animation for armor, shields, and selected weapon slots.
+    if (pSprite == NULL || cResRef == "" || pRes == NULL) {
+        return;
+    }
+
+    UTIL_ASSERT(pRes->Demand());
+
+    if (!animationOnly) {
+        WORD nStart = pRes->m_pHeader->equipedStartingEffect;
+        WORD nCount = pRes->m_pHeader->equipedEffectCount;
+        for (WORD nEffect = 0; nEffect < nCount; nEffect++) {
+            ITEM_EFFECT* pItemEffect = &(pRes->m_pEffects[nStart + nEffect]);
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(pItemEffect,
+                CPoint(-1, -1),
+                pSprite->GetId(),
+                CPoint(-1, -1));
+            if (pEffect != NULL) {
+                pEffect->field_188 = 1;
+                pEffect->m_sourceID = pSprite->GetId();
+                pEffect->m_flags |= 0x2;
+                pEffect->m_casterLevel = 10;
+                pEffect->m_sourceRes = cResRef;
+                pEffect->m_sourceType = 2;
+
+                BYTE list = pEffect->m_durationType == 2
+                    ? CGameAIBase::EFFECT_LIST_EQUIPED
+                    : CGameAIBase::EFFECT_LIST_TIMED;
+                pSprite->AddEffect(pEffect, list, FALSE, TRUE);
+            }
+        }
+    }
+
+    pRes->Release();
 }
 
 // 0x4E8DF0

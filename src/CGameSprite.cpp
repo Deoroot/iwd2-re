@@ -7365,7 +7365,7 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     // __LINE__: 13227
     UTIL_ASSERT(creatureSize == 0);
 
-    m_derivedStats.Reload(this, &m_baseStats, &m_spells, &m_domainSpells);
+    HandleEffects();
     m_tempStats = m_derivedStats;
     m_bonusStats.BonusInit();
 
@@ -10705,9 +10705,11 @@ BOOL CGameSprite::HandleEffects()
 
         m_activeImprisonment = TRUE;
 
-        // TODO: Incomplete.
-        v1 = FALSE;
-        v2 = FALSE;
+        // TODO: Incomplete.  Original handles many more passes and status
+        // side-effects; this restores the core equipped/timed list pass.
+        v1 = m_equipedEffectList.HandleList(this);
+        v2 = m_timedEffectList.HandleList(this);
+        bRetry = m_equipedEffectList.m_retry || m_timedEffectList.m_retry;
     } while (bRetry);
 
     return v1 && v2;

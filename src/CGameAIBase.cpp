@@ -400,8 +400,35 @@ void CGameAIBase::AddAction(const CAIAction& action)
 // 0x44CE20
 void CGameAIBase::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
 {
-    if (pEffect != NULL) {
+    // TODO: Incomplete.  Reconstructed minimum for CGameSprite/item effects.
+    if (pEffect == NULL) {
+        return;
+    }
+
+    if ((GetObjectType() & CGameObject::TYPE_SPRITE) == 0) {
         delete pEffect;
+        return;
+    }
+
+    CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+    CGameEffectList* pList = NULL;
+    switch (list) {
+    case EFFECT_LIST_TIMED:
+        pList = pSprite->GetTimedEffectList();
+        break;
+    case EFFECT_LIST_EQUIPED:
+        pList = pSprite->GetEquipedEffectList();
+        break;
+    default:
+        delete pEffect;
+        return;
+    }
+
+    pList->AddTail(pEffect);
+    pList->m_newEffect = TRUE;
+
+    if (immediateApply) {
+        pEffect->ResolveEffect(pSprite);
     }
 }
 
