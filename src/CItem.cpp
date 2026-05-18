@@ -558,7 +558,7 @@ void CItem::Equip(CGameSprite* pSprite, LONG slotNum, BOOL animationOnly)
                         UTIL_ASSERT(FALSE);
                     }
                 } else if (slotNum == 44 || slotNum == 46 || slotNum == 48 || slotNum == 50) {
-                    sAnimation = "O";
+                    sAnimation += "O";
 
                     GetAbilityCount();
 
