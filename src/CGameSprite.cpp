@@ -15076,7 +15076,7 @@ INT CGameSprite::GetMaxDexterityBonus(INT a1)
 {
     CItem* pItem = m_equipment.m_items[1];
     if (pItem == NULL) {
-        return 1;
+        return a1;
     }
 
     switch (pItem->GetItemType()) {
