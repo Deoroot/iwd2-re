@@ -1781,62 +1781,93 @@ void CScreenSpellbook::CheckMultiPlayerViewable()
 // 0x66CAF0
 void CScreenSpellbook::UnmemorizeSpell(CGameSprite* pSprite, int a2)
 {
-    if (a2 < 0 || a2 >= 24) {
+    UINT nClassIndex = m_nClassIndex;
+    UINT nDomainIndex = field_1670;
+    UINT nLevel = m_nSpellLevel;
+
+    UTIL_ASSERT(nClassIndex < CSPELLLIST_NUM_CLASSES);
+    BYTE nClass = static_cast<BYTE>(GetClassSpellCount(nClassIndex));
+
+    CResRef spellResRef = field_148C[a2];
+    if (spellResRef == CResRef("")) {
         return;
     }
 
-    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-    if (pGame == NULL) {
-        return;
+    BOOLEAN bRemoved;
+    UINT bErase = 0, nMaxToRemove = 1, nCurrentToRemove = 0;
+    if (nDomainIndex == nClassIndex) {
+        bRemoved = pSprite->RemoveDomainSpell(nLevel, spellResRef, bErase, nMaxToRemove, nCurrentToRemove);
+    } else {
+        bRemoved = pSprite->RemoveKnownSpell(nClass, nLevel, spellResRef, bErase, nMaxToRemove, nCurrentToRemove);
     }
 
-    if (field_148C[a2] == CResRef("")) {
-        return;
-    }
-
-    UINT nSpellId = 0;
-    if (pGame->m_spells.Find(field_148C[a2], nSpellId) != TRUE) {
+    if (!bRemoved) {
         return;
     }
 
     CGameSpriteSpellList* pList;
-    if (m_nClassIndex == field_1670) {
-        pList = pSprite->m_domainSpells.GetSpellsAtLevel(m_nSpellLevel);
+    if (nDomainIndex == nClassIndex) {
+        pList = pSprite->m_domainSpells.GetSpellsAtLevel(nLevel);
     } else {
-        BYTE nClass = static_cast<BYTE>(GetClassSpellCount(m_nClassIndex));
-        pList = pSprite->GetSpellsAtLevel(nClass, m_nSpellLevel);
+        pList = pSprite->GetSpellsAtLevel(nClass, nLevel);
     }
 
-    if (pList == NULL) {
-        return;
+    // Look up the still-present pList entry so the count for partial removals
+    // can be refreshed.  When the entry's m_nMax is 0 the spell is gone and
+    // the display array must be compacted.
+    CGameSpriteSpellListEntry* pListEntry = NULL;
+    if (pList != NULL) {
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        for (UINT i = 0; i < pList->m_List.size(); i++) {
+            UINT nEntryId = pList->m_List[i].m_nID;
+            if (nEntryId < pGame->m_spells.m_nCount) {
+                CResRef entryRef = pGame->m_spells.Get(nEntryId);
+                if (entryRef == spellResRef) {
+                    pListEntry = &pList->m_List[i];
+                    break;
+                }
+            }
+        }
     }
 
-    UINT nIndex = 0;
-    if (!pList->Find(nSpellId, nIndex)) {
-        return;
+    if (pListEntry != NULL && pListEntry->m_nMax > 0) {
+        // Partial removal: update count for the matching display slot.
+        for (int i = 0; i < field_1488 && i < 24; i++) {
+            if (field_148C[i] == spellResRef) {
+                field_154C[i] = pListEntry->m_nCurrent;
+                field_15AC[i] = pListEntry->m_nMax;
+                break;
+            }
+        }
+    } else {
+        // Full removal: compact entries above a2 down by one, clear trailing.
+        for (int i = a2; i < field_1488 - 1 && i < 23; i++) {
+            field_148C[i] = field_148C[i + 1];
+            field_154C[i] = field_154C[i + 1];
+            field_15AC[i] = field_15AC[i + 1];
+        }
+        if (field_1488 > 0 && field_1488 <= 24) {
+            field_148C[field_1488 - 1] = CResRef("");
+            field_154C[field_1488 - 1] = 0;
+            field_15AC[field_1488 - 1] = 0;
+            field_1488--;
+        }
     }
 
-    CGameSpriteSpellListEntry* pEntry = pList->Get(nIndex);
-    if (pEntry == NULL) {
-        return;
-    }
-
-    UINT nRemoveCurrent = 0;
-    if (pEntry->m_nCurrent != 0 && pEntry->m_nCurrent == pEntry->m_nMax) {
-        nRemoveCurrent = 1;
-    }
-
-    pList->Remove(nSpellId, FALSE, 1, nRemoveCurrent);
+    CUIControlButtonSpellbookSpell* pSlot = static_cast<CUIControlButtonSpellbookSpell*>(
+        m_cUIManager.GetPanel(2)->GetControl(a2 + 6));
 
     m_bFlashUnmemorize = TRUE;
     m_bFlash = TRUE;
-    m_pFlashCurrentSpell = static_cast<CUIControlButtonSpellbookSpell*>(m_cUIManager.GetPanel(2)->GetControl(a2 + 6));
-    m_pFlashMemorizeDestSpell = m_pFlashCurrentSpell;
+    m_pFlashCurrentSpell = pSlot;
+    m_pFlashMemorizeDestSpell = pSlot;
     m_vcFlash.FrameSet(0);
 
     if (m_pFlashCurrentSpell != NULL) {
         m_pFlashCurrentSpell->InvalidateRect();
     }
+
+    PlayGUISound(CResRef("GAM_24"));
 }
 
 // -----------------------------------------------------------------------------
@@ -2081,12 +2112,9 @@ BOOL CUIControlButtonSpellbookSpell::Render(BOOL bForce)
 
     vcIcon.Render(0, x, y, rClip, NULL, 0, 0, -1);
 
-    // Draw selection border if this is the active memorization target
-    if (field_676) {
-        CScreenSpellbook* pSpellbook = g_pBaldurChitin->m_pEngineSpellbook;
-        if (pSpellbook != NULL && pSpellbook->m_pFlashMemorizeDestSpell == this) {
-            pSpellbook->DrawFlash();
-        }
+    CScreenSpellbook* pSpellbook = g_pBaldurChitin->m_pEngineSpellbook;
+    if (pSpellbook != NULL && pSpellbook->m_bFlash && pSpellbook->m_pFlashCurrentSpell == this) {
+        pSpellbook->DrawFlash();
     }
 
     return TRUE;
