@@ -8,6 +8,7 @@ class CGameSpawning : public CGameObject {
 public:
     CGameSpawning(CGameArea* pArea, CAreaFileRandomMonsterSpawningPoint* pSpawningObject);
     /* 0000 */ ~CGameSpawning() override;
+    /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
     /* 0048 */ void RemoveFromArea() override;
 

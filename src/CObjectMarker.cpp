@@ -15,6 +15,13 @@ CObjectMarker::~CObjectMarker()
 {
 }
 
+// 0x47C830
+BOOLEAN CObjectMarker::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
+}
+
 // 0x766660
 BOOLEAN CObjectMarker::CompressTime(DWORD deltaTime)
 {

@@ -140,6 +140,13 @@ void CGameText::RemoveFromArea()
     delete this;
 }
 
+// 0x47C830
+BOOLEAN CGameText::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
+}
+
 // 0x4CC0D0
 CGameText::~CGameText()
 {

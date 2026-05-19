@@ -9,6 +9,7 @@ class CGameSound : public CGameObject {
 public:
     CGameSound(CGameArea* pArea, CAreaFileSoundObject* pSoundObject);
     /* 0000 */ ~CGameSound() override;
+    /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
     /* 0048 */ void RemoveFromArea() override;
 

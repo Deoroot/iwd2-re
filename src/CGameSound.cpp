@@ -105,6 +105,13 @@ CGameSound::~CGameSound()
     }
 }
 
+// 0x47C830
+BOOLEAN CGameSound::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
+}
+
 // 0x766660
 BOOLEAN CGameSound::CompressTime(DWORD deltaTime)
 {

@@ -10,6 +10,7 @@ public:
     CGameStatic(CGameArea* pArea, CAreaFileStaticObject* pStaticObject);
     /* 0000 */ ~CGameStatic() override;
     /* 000C */ void AIUpdate() override;
+    /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
     /* 0048 */ void RemoveFromArea() override;
     /* 004C */ void Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface) override;

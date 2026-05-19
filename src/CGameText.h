@@ -14,6 +14,7 @@ public:
     CGameText(CGameArea* pArea, const CPoint& pt, BYTE nDuration, BYTE nBeginFade, const CString& sText);
     /* 0000 */ ~CGameText() override;
     /* 000C */ virtual void AIUpdate();
+    /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 0048 */ virtual void RemoveFromArea();
     /* 0050 */ virtual BOOLEAN DoAIUpdate(BOOLEAN active, LONG counter);
 

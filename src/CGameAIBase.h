@@ -38,6 +38,7 @@ public:
 
     CGameAIBase();
     /* 0000 */ ~CGameAIBase() override;
+    /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
     /* 0048 */ void RemoveFromArea() override;
     /* 006C */ virtual void ClearActions(BOOL a1);

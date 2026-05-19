@@ -186,6 +186,13 @@ const BYTE* CGameAIBase::GetTerrainTable()
     return CGameObject::DEFAULT_TERRAIN_TABLE;
 }
 
+// 0x47C830
+BOOLEAN CGameAIBase::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
+}
+
 // 0x44D120
 BOOLEAN CGameAIBase::CompressTime(DWORD deltaTime)
 {
