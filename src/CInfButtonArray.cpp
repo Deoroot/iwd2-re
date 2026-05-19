@@ -346,6 +346,14 @@ void CInfButtonArray::UpdateButtons()
         BOOL bActive = TRUE;
         BOOL bGreyOut = FALSE;
         BOOL bActiveWeaponSet = FALSE;
+        // field_8 selects the render path in CUIControlButtonAction::Render:
+        //   1 = GUIBTACT-style overlay (Protect/Attack/Cast etc.) — the BAM
+        //       bakes its own stone bezel, so CUIControlButton::Render base
+        //       must be skipped.
+        //   0 = STON*-style icon (small silhouette over a regular GUIBTBUT
+        //       bezel) — base GUIBTBUT must be painted underneath.
+        // Original UpdateButtons at 0x58A340 sets field_8 per case.
+        BOOL bHasOverlay = TRUE;
 
         settings.field_1CC = m_nSelectedButton == m_buttonTypes[nButton];
         settings.m_bGreyOut = FALSE;
@@ -392,20 +400,74 @@ void CInfButtonArray::UpdateButtons()
             nHotKey = static_cast<USHORT>(0x20 + nFormationButton);
             break;
         }
+        case 2:
+            // Bard song.  Ghidra UpdateButtons case 2 sets field_1C8 (=
+            // settings.field_1C8) and may set field_1CC if currently in song
+            // modal. Tooltip 0x1336, hotkey 0xA.
+            nIconNormalFrame = 0x14;
+            nIconSelectedFrame = 0x16;
+            nToolTip = 0x1336;
+            nHotKey = 0xA;
+            break;
         case 3:
             nIconNormalFrame = 8;
             nIconSelectedFrame = 10;
             nToolTip = 0x1250;
+            nHotKey = 0xB;
+            break;
+        case 4:
+            // Berserk modal — Ghidra case 4 frames 0x24/0x26, tooltip 0x133F.
+            nIconNormalFrame = 0x24;
+            nIconSelectedFrame = 0x26;
+            nToolTip = 0x133F;
+            nHotKey = 0x10;
             break;
         case 5:
+            // Bard alternate ?  Ghidra case 5 frame 0x60/0x62.
             nIconNormalFrame = 0x60;
             nIconSelectedFrame = 0x62;
+            nToolTip = 0x1345;
+            nHotKey = 0xD;
+            break;
+        case 9:
+            // Shapeshift — frame 0x28, tooltip 0x135E.
+            nIconNormalFrame = 0x28;
+            nIconSelectedFrame = 0x28;
+            nToolTip = 0x135E;
             break;
         case 10:
             nIconNormalFrame = 0x28;
             nIconSelectedFrame = 0x2A;
             nToolTip = 0x135A;
             nHotKey = 0x13;
+            break;
+        case 0x0B:
+            // Stealth / Cleric class spell tab — frame 0x1C/0x1E.
+            nIconNormalFrame = 0x1C;
+            nIconSelectedFrame = 0x1E;
+            nToolTip = 0x1368;
+            nHotKey = 0xF;
+            break;
+        case 0x0C:
+            // Turn Undead / Mage class spell tab — frame 0x18/0x1A.
+            nIconNormalFrame = 0x18;
+            nIconSelectedFrame = 0x1A;
+            nToolTip = 0x136B;
+            nHotKey = 0xE;
+            break;
+        case 0x0D:
+            // Trapfinding / Druid class spell tab — frame 0x7C/0x7E.
+            nIconNormalFrame = 0x7C;
+            nIconSelectedFrame = 0x7E;
+            nToolTip = 0x136E;
+            nHotKey = 0x9;
+            break;
+        case 0x0E:
+            // Quick-spell tab — frame 0x10/0x12.
+            nIconNormalFrame = 0x10;
+            nIconSelectedFrame = 0x12;
+            nToolTip = 0x1372;
+            nHotKey = 0xC;
             break;
         case 0x15:
         case 0x16:
@@ -469,6 +531,16 @@ void CInfButtonArray::UpdateButtons()
             nIconNormalFrame = 0x78;
             nIconSelectedFrame = 0x7A;
             break;
+        case 0x21:
+            // Page-up arrow (submenu paging) — frame 0x30.
+            nIconNormalFrame = 0x30;
+            nIconSelectedFrame = 0x30;
+            break;
+        case 0x22:
+            // Page-down arrow — frame 0x34.
+            nIconNormalFrame = 0x34;
+            nIconSelectedFrame = 0x34;
+            break;
         case 0x32:
             nIconNormalFrame = 0x38;
             nIconSelectedFrame = 0x3A;
@@ -500,6 +572,14 @@ void CInfButtonArray::UpdateButtons()
         case 0x39:
             nIconNormalFrame = 0x54;
             nIconSelectedFrame = 0x56;
+            break;
+        case 0x77:
+            // Quick-weapon flip / "swap weapon set" — frame 0x5C/0x5E, tooltip
+            // 0x7DBA, hotkey 0x36 ('6').
+            nIconNormalFrame = 0x5C;
+            nIconSelectedFrame = 0x5E;
+            nToolTip = 0x7DBA;
+            nHotKey = 0x36;
             break;
         case 0x3C:
         case 0x3D:
@@ -535,6 +615,7 @@ void CInfButtonArray::UpdateButtons()
                 && static_cast<BYTE>(nWeaponSlot >> 1) == pSprite->m_nWeaponSet) {
                 bActiveWeaponSet = TRUE;
             }
+            bHasOverlay = FALSE;
             break;
         }
         case 0x46:
@@ -564,6 +645,7 @@ void CInfButtonArray::UpdateButtons()
             }
             nIconNormalFrame = 0;
             nIconSelectedFrame = 0;
+            bHasOverlay = FALSE;
             break;
         }
         case 0x50:
@@ -585,6 +667,7 @@ void CInfButtonArray::UpdateButtons()
             nIconNormalFrame = 0;
             nIconSelectedFrame = 0;
             nHotKey = static_cast<USHORT>(0x2D + (m_buttonTypes[nButton] - 0x50));
+            bHasOverlay = FALSE;
             break;
         }
         case 0x5A:
@@ -612,6 +695,7 @@ void CInfButtonArray::UpdateButtons()
             }
             nIconNormalFrame = 0;
             nIconSelectedFrame = 0;
+            bHasOverlay = FALSE;
             break;
         }
         case 0x6E:
@@ -638,6 +722,7 @@ void CInfButtonArray::UpdateButtons()
             }
             nIconNormalFrame = 0;
             nIconSelectedFrame = 0;
+            bHasOverlay = FALSE;
             break;
         }
         case 100:
@@ -650,7 +735,7 @@ void CInfButtonArray::UpdateButtons()
 
         settings.field_0 = bActive ? 1 : 0;
         settings.field_4 = bActive ? 1 : 0;
-        settings.field_8 = 1;
+        settings.field_8 = bHasOverlay ? 1 : 0;
         settings.field_C = nIconNormalFrame;
         settings.field_10 = nIconSelectedFrame;
         settings.field_1C8 = 0;
