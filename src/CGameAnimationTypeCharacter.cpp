@@ -2334,7 +2334,7 @@ SHORT CGameAnimationTypeCharacter::SetSequence(SHORT nSequence)
                     m_g1VidCellBase.SetResRef(CResRef(m_resRef + m_armorCode + "G1" + CString((char)field_144C, 1)), field_1444, TRUE, TRUE);
                 }
             } else {
-                m_currentBamSequence = 0;
+                m_currentBamSequence = 8;
 
                 if (field_1448 != 0) {
                     field_144C = '8';
