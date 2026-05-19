@@ -160,6 +160,73 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
     // TODO: Incomplete.
 
     switch (nState) {
+    case 0x65:
+    case 0x66:
+    case 0x67:
+    case 0x68:
+    case 0x69:
+    case 0x6A:
+    case 0x6B:
+    case 0x70:
+    case 0x71:
+    case 0x7A:
+    case 0x7B:
+        // Picker states (weapon / spell / item / ability / song).  Per Ghidra
+        // SetState (0x589110) these all funnel through a single fallback
+        // layout that fills the bar with formation submenu buttons 0x15-0x20
+        // (the small-rune frame).  The original additionally tries to build
+        // a dynamic list via FUN_00587c20 and switches to paging buttons
+        // (0x21 / 0x15-0x1F / 0x22) when the list is large.  We do not have
+        // the dynamic list yet; ship the fallback so the bar at least shows
+        // valid sub-menu slots and the user can right-click out.
+        for (INT nButton = 0; nButton < 12; nButton++) {
+            m_buttonTypes[nButton] = 0x15 + nButton;
+        }
+        m_nState = nState;
+        UpdateButtons();
+        return TRUE;
+    case 0x73:
+    case 0x74:
+        // Action submenu (Stealth / Berserk / Turn / Weapon flip / Trapfind).
+        m_buttonTypes[0] = 0x0B;
+        m_buttonTypes[1] = 4;
+        m_buttonTypes[2] = 0x0C;
+        m_buttonTypes[3] = 0x77;
+        m_buttonTypes[4] = 0x0D;
+        for (INT nButton = 5; nButton < 12; nButton++) {
+            m_buttonTypes[nButton] = 100;
+        }
+        m_nState = nState;
+        UpdateButtons();
+        return TRUE;
+    case 0x78:
+        // Quick-item picker (3 slots + empty).
+        m_buttonTypes[0] = 0x50;
+        m_buttonTypes[1] = 0x51;
+        m_buttonTypes[2] = 0x52;
+        for (INT nButton = 3; nButton < 12; nButton++) {
+            m_buttonTypes[nButton] = 100;
+        }
+        m_nState = nState;
+        UpdateButtons();
+        return TRUE;
+    case 0x79:
+        // Quick-weapon picker — 4 weapon-set rows, each (main, off, empty).
+        m_buttonTypes[0] = 0x3C;
+        m_buttonTypes[1] = 0x3D;
+        m_buttonTypes[2] = 100;
+        m_buttonTypes[3] = 0x3E;
+        m_buttonTypes[4] = 0x3F;
+        m_buttonTypes[5] = 100;
+        m_buttonTypes[6] = 0x40;
+        m_buttonTypes[7] = 0x41;
+        m_buttonTypes[8] = 100;
+        m_buttonTypes[9] = 0x42;
+        m_buttonTypes[10] = 0x43;
+        m_buttonTypes[11] = 100;
+        m_nState = nState;
+        UpdateButtons();
+        return TRUE;
     case 0x6E:
         // Group / generic creature action bar.
         m_buttonTypes[0] = 7;
@@ -174,6 +241,14 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
         m_buttonTypes[9] = 100;
         m_buttonTypes[10] = 100;
         m_buttonTypes[11] = 100;
+        m_nState = nState;
+        UpdateButtons();
+        return TRUE;
+    case 0x6F:
+        // Empty action bar (used while certain modes are transitioning).
+        for (INT nButton = 0; nButton < 12; nButton++) {
+            m_buttonTypes[nButton] = 100;
+        }
         m_nState = nState;
         UpdateButtons();
         return TRUE;
@@ -1022,6 +1097,169 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         }
+        case 2:
+            // Bard song toggle.  Per Ghidra 0x58FF20 default case 2: read
+            // sprite's modal state, if already singing (state 1) clear it,
+            // otherwise enter song-select state 0x7A.  Simplified: toggle
+            // modal state directly.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    if (pSprite->GetModalState() == 1) {
+                        pSprite->SetModalState(0, 0);
+                        SetSelectedButton(100);
+                    } else {
+                        pGame->SetState(0);
+                        UpdateButtons();
+                        SetState(0x7A, 1);
+                    }
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                UpdateButtons();
+            }
+            return;
+        case 4:
+            // Berserk modal toggle.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    pSprite->SetModalState(pSprite->GetModalState() == 2 ? 0 : 2, 0);
+                    SetSelectedButton(pSprite->GetModalState() == 2 ? 5 : 100);
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                UpdateButtons();
+            }
+            return;
+        case 0xB:
+            // Stealth modal toggle.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    if (pSprite->GetModalState() == 3) {
+                        pSprite->SetModalState(0, 0);
+                        SetSelectedButton(100);
+                    } else {
+                        pSprite->SetModalState(3, 0);
+                        SetSelectedButton(5);
+                    }
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                UpdateButtons();
+            }
+            return;
+        case 0xC:
+            // Turn Undead modal — Ghidra default case 0xC: SetState(2) and
+            // IconIndex 0x24 (turn) or toggle off when already in that mode.
+            if (pGame->GetState() == 2
+                && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
+                pGame->SetState(0);
+                SetSelectedButton(100);
+            } else {
+                pGame->SetState(2);
+                pGame->SetIconIndex(0x24);
+                SetSelectedButton(0xC);
+            }
+            UpdateButtons();
+            return;
+        case 0x46:
+        case 0x47:
+        case 0x48:
+        case 0x49:
+        case 0x4A:
+        case 0x4B:
+        case 0x4C:
+        case 0x4D:
+        case 0x4E: {
+            // Quick spell cast.  Ghidra default case 0x46 (line 858) calls
+            // FUN_00588570(slot, 2) which itself invokes ReadySpell(slot, 2, 0)
+            // on the leader sprite, then LAB_00592e59: SetState(0) +
+            // SetSelectedButton(100).
+            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+            CGameSprite* pSprite = NULL;
+            BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->ReadySpell(static_cast<SHORT>(nButtonType - 0x46), 2, 0);
+                pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+            pGame->SetState(0);
+            SetSelectedButton(100);
+            UpdateButtons();
+            return;
+        }
+        case 0x50:
+        case 0x51:
+        case 0x52: {
+            // Quick item use — FUN_00588570(slot, 3) → ReadyItem.
+            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+            CGameSprite* pSprite = NULL;
+            BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->ReadyItem(static_cast<SHORT>(nButtonType - 0x50), 0);
+                pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+            pGame->SetState(0);
+            SetSelectedButton(100);
+            UpdateButtons();
+            return;
+        }
+        case 0x5A:
+        case 0x5B:
+        case 0x5C:
+        case 0x5D:
+        case 0x5E:
+        case 0x5F:
+        case 0x60:
+        case 0x61:
+        case 0x62: {
+            // Quick ability use — FUN_00588570(slot, 4) → ReadySpell type 4.
+            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+            CGameSprite* pSprite = NULL;
+            BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->ReadySpell(static_cast<SHORT>(nButtonType - 0x5A), 4, 0);
+                pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+            pGame->SetState(0);
+            SetSelectedButton(100);
+            UpdateButtons();
+            return;
+        }
         case 0x32:
             m_nCurrentSelectedSpellClass = 2;
             SetState(0x67, 1);
@@ -1061,25 +1299,168 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
 // 0x594720
 void CInfButtonArray::OnRButtonPressed(int buttonID)
 {
-    // TODO: Incomplete.
+    // TODO: Incomplete — picker states (0x66/0x71/0x78/0x79) need SetState
+    // helpers that build the per-class spell / item / ability lists.  When a
+    // sub-list cannot be built, the right-click is currently silent.
 
     if (buttonID < 0 || buttonID >= 12) {
+        return;
+    }
+    if (m_buttonArray[buttonID].m_bGreyOut) {
         return;
     }
 
     INT nButtonType = m_buttonTypes[buttonID];
 
-    if (m_nState == 0x6E && nButtonType >= 0x10 && nButtonType <= 0x14) {
-        // Configure quick formations.
-        SetState(0x6C, 1);
+    switch (m_nState) {
+    case 0x6E:
+        if (nButtonType >= 0x10 && nButtonType <= 0x14) {
+            m_nCurrentSelectedSpellLevel = nButtonType - 0x10;
+            SetState(0x6C, 1);
+        }
         return;
-    }
-
-    if (m_nState == 0x72 && buttonID >= 3) {
-        // Main PC custom slot menu.  The follow-up per-choice assignment is
-        // still TODO, but this restores the first Ghidra-visible right-click
-        // transition to state 0x75.
-        SetState(0x75, 1);
+    case 0x72:
+        switch (nButtonType) {
+        case 0x3C:
+        case 0x3D:
+        case 0x3E:
+        case 0x3F:
+        case 0x40:
+        case 0x41:
+        case 0x42:
+        case 0x43:
+            // Ghidra also calls CheckWeaponUsability() + sprite[0x4B80] check
+            // first.  Both denials produce a feedback string then no state
+            // change.  We skip the check and unconditionally enter state 0x79
+            // (the quick-weapon picker); the picker itself isn't built yet so
+            // this is a no-op until SetState(0x79) lands.
+            m_nCurrentSelectedSpellLevel = nButtonType - 0x3C;
+            SetState(0x79, 1);
+            return;
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+        case 10:
+        case 0xB:
+        case 0xC:
+        case 0xD:
+        case 0xE:
+        case 0x32:
+        case 0x33:
+        case 0x34:
+        case 0x35:
+        case 0x36:
+        case 0x37:
+        case 0x38:
+        case 0x39:
+        case 0x46:
+        case 0x47:
+        case 0x48:
+        case 0x49:
+        case 0x4A:
+        case 0x4B:
+        case 0x4C:
+        case 0x4D:
+        case 0x4E:
+        case 0x50:
+        case 0x51:
+        case 0x52:
+        case 0x5A:
+        case 0x5B:
+        case 0x5C:
+        case 0x5D:
+        case 0x5E:
+        case 0x5F:
+        case 0x60:
+        case 0x61:
+        case 0x62:
+        case 100:
+        case 0x6E:
+        case 0x6F:
+        case 0x70:
+        case 0x71:
+        case 0x72:
+        case 0x73:
+        case 0x74:
+        case 0x75:
+        case 0x76:
+        case 0x77:
+            // Customize the slot.  Ghidra stores (buttonID - 3) in
+            // field_1976 so the picker (state 0x75) can write back to the
+            // right m_customButtonTypes entry.
+            m_nCurrentSelectedSpellLevel = buttonID - 3;
+            SetState(0x75, 1);
+            return;
+        }
+        return;
+    case 0x75:
+        switch (nButtonType) {
+        case 0x23:
+            SetState(0x74, 1);
+            return;
+        case 0x26:
+            SetState(0x78, 1);
+            return;
+        case 0x27:
+            // Ghidra additionally checks sprite[0x4A94] != 0 first.  Skipped.
+            SetState(0x6B, 1);
+            return;
+        case 0x28:
+            // Ghidra checks the song list pointer; skipped here.
+            SetState(0x71, 1);
+            return;
+        case 0x24:
+            // Cast Spell submenu — chooses between class picker (0x77) and
+            // direct spellbook (0x66) based on how many classes have spells.
+            // We pick 0x77 (class picker) unconditionally as a starting
+            // point; SetState(0x77) is already implemented.
+            SetState(0x77, 1);
+            return;
+        }
+        return;
+    case 0x77:
+        switch (nButtonType) {
+        case 0x32:
+            m_nCurrentSelectedSpellClass = 2;
+            m_nCurrentSelectedSpellLevel = 0;
+            SetState(0x66, 1);
+            return;
+        case 0x33:
+            m_nCurrentSelectedSpellClass = 3;
+            m_nCurrentSelectedSpellLevel = 0;
+            SetState(0x66, 1);
+            return;
+        case 0x34:
+            m_nCurrentSelectedSpellClass = 4;
+            m_nCurrentSelectedSpellLevel = 0;
+            SetState(0x66, 1);
+            return;
+        case 0x35:
+            m_nCurrentSelectedSpellClass = 7;
+            m_nCurrentSelectedSpellLevel = 0;
+            SetState(0x66, 1);
+            return;
+        case 0x36:
+            m_nCurrentSelectedSpellClass = 8;
+            m_nCurrentSelectedSpellLevel = 0;
+            SetState(0x66, 1);
+            return;
+        case 0x37:
+            m_nCurrentSelectedSpellClass = 10;
+            m_nCurrentSelectedSpellLevel = 0;
+            SetState(0x66, 1);
+            return;
+        case 0x38:
+            m_nCurrentSelectedSpellClass = 11;
+            m_nCurrentSelectedSpellLevel = 0;
+            SetState(0x66, 1);
+            return;
+        case 0x39:
+            m_nCurrentSelectedSpellClass = 3;
+            SetState(0x66, 1);
+            return;
+        }
         return;
     }
 }
