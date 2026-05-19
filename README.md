@@ -93,6 +93,22 @@ cmake --build build --config Debug
 
 ---
 
+## Known Limitations & Optimization Opportunities
+
+### CPU usage at idle (~6-7% in windowed mode)
+
+The original `IWD2.exe` exhibits identical CPU usage on the same hardware — this is not a regression in this codebase.
+
+**Root cause:** `CChitin::WinMain` (0x7926B0) uses a `PeekMessage` spin loop between AI ticks (~33 ms apart). In windowed mode there is no vsync throttle, so the inner loop burns CPU continuously.
+
+**Potential improvements (not implemented — would deviate from Ghidra original):**
+- Replace `PeekMessage` spin with `MsgWaitForMultipleObjects` to sleep until a message or timer fires
+- Enable fullscreen mode: `CChitin::FullScreenFlip` passes `DDFLIP_WAIT` to DirectDraw, providing vsync throttle
+
+Both changes would reduce idle CPU to near 0% but diverge from the original binary behavior.
+
+---
+
 ## Contributing
 
 We need help! Here's how you can contribute:
