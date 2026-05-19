@@ -179,6 +179,10 @@ void CScreenSpellbook::EngineActivated()
     m_preLoadFontTool.SetResRef(CResRef("TOOLFONT"), FALSE, TRUE);
     m_preLoadFontTool.RegisterFont();
 
+    if (m_nSelectedCharacter != -1) {
+        sub_669830(m_nSelectedCharacter);
+    }
+
     UpdateMainPanel();
     UpdateCursorShape(0);
     CheckEnablePortaits(1);
@@ -487,6 +491,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     // Clamp spell level (comp: local_b0+0x3D39 = m_nLastSpellbookSpellLevel)
     m_nSpellLevel = pSprite->m_nLastSpellbookSpellLevel;
     if (m_nSpellLevel >= 9) m_nSpellLevel = 0;
+    pSprite->m_nLastSpellbookSpellLevel = static_cast<BYTE>(m_nSpellLevel);
 
     // Iterate 7 classes, find valid ones with spells (comp: local_a4=0..6)
     BOOL bHasSpells = FALSE;
@@ -494,16 +499,15 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     field_1670 = -1;
     for (UINT nIdx = 0; nIdx < 7; nIdx++) {
         BYTE nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nIdx);
-        CGameSpriteSpellList* pTestList = pSprite->GetSpellsAtLevel(nClass, 0);
-        UINT nNumSpells = pSprite->GetNumSpells();
         static int s_subLog = 0;
         if (s_subLog < 15) {
-            DBG("SPELLBOOK_sub669830: idx=%d class=%d spellsAt0=%p numSpells=%d getSpells=%p",
-                (int)nIdx, (int)nClass, (void*)pTestList, (int)nNumSpells,
-                (void*)pSprite->GetSpells(nClass));
+            int lvl = pSprite->GetClassLevel(nClass);
+            int totalSpells = pSprite->GetNumSpells();
+            DBG("SPELLBOOK_sub: idx=%d class=%d level=%d totalSpells=%d",
+                (int)nIdx, (int)nClass, lvl, totalSpells);
             s_subLog++;
         }
-        if (nClass < 7 && pSprite->GetSpells(nClass) != NULL && pSprite->GetNumSpells() != 0) {
+        if (nClass < 7 && pSprite->GetClassLevel(nClass) > 0 && pSprite->GetNumSpells() > 0) {
             field_1654[m_nNumberOfSpellClasses] = nClass;
             m_nNumberOfSpellClasses++;
             if (nIdx == 1) { // divine caster index → also add universal (7)
@@ -518,9 +522,12 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
 
     if (m_nNumberOfSpellClasses == 0) {
         m_nClassIndex = 0;
+        pSprite->m_nLastSpellbookClassIndex = 0;
     } else {
-        // Clamp class index to valid range (comp: sprite field_F4E logic)
-        if (m_nClassIndex >= m_nNumberOfSpellClasses) m_nClassIndex = 0;
+        BYTE nStoredClassIdx = pSprite->m_nLastSpellbookClassIndex;
+        if (nStoredClassIdx >= m_nNumberOfSpellClasses) nStoredClassIdx = 0;
+        pSprite->m_nLastSpellbookClassIndex = nStoredClassIdx;
+        m_nClassIndex = nStoredClassIdx;
     }
 
     // Clear arrays (comp: 24 iterations through field_154C/field_15AC)
@@ -537,22 +544,19 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
         BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
         CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
         UINT listSize = pList ? pList->m_List.size() : 0;
-        DBG("SPELLBOOK_pop: classIdx=%d curClass=%d level=%d field_1670=%d listSize=%d",
-            (int)m_nClassIndex, (int)nCurClass, (int)m_nSpellLevel, (int)field_1670, (int)listSize);
+        DBG("SPELLBOOK_pop: classIdx=%d curClass=%d level=%d field_1670=%d listSize=%d field1488=%d",
+            (int)m_nClassIndex, (int)nCurClass, (int)m_nSpellLevel, (int)field_1670, (int)listSize, (int)field_1488);
         if (pList) {
-            for (UINT s = 0; s < min(listSize, 5u); s++) {
+            for (UINT s = 0; s < min(listSize, 10u); s++) {
                 CGameSpriteSpellListEntry& entry = pList->m_List[s];
-                DBG("SPELLBOOK_pop:   [%d] id=%d max=%d cur=%d (cur&1)=%d",
-                    (int)s, (int)entry.m_nID, (int)entry.m_nMax, (int)entry.m_nCurrent, (int)(entry.m_nCurrent & 1));
+                int passes = (entry.m_nID != 0) && ((entry.m_nCurrent & 1) == 0);
+                DBG("SPELLBOOK_pop:   [%d] id=%d max=%d cur=%d passes=%d",
+                    (int)s, (int)entry.m_nID, (int)entry.m_nMax, (int)entry.m_nCurrent, passes);
             }
         }
         s_popLog++;
     }
     if (bHasSpells) {
-    {
-        UINT _dbg_idx = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(field_1654[m_nClassIndex]);
-        CGameSpriteSpellList* _dbg_list = &pSprite->m_spells.m_spellsByClass[_dbg_idx].m_lists[m_nSpellLevel];
-    }
         BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
         if (m_nClassIndex == field_1670) {
             CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
@@ -560,11 +564,13 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                 CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
-                    if (entry.m_nID < pGame->m_spells.m_nCount) {
-                        field_154C[field_1488] = entry.m_nID;
-                        field_15AC[field_1488] = entry.m_nMax;
-                        field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
-                        field_1488++;
+                    if (entry.m_nID != 0 && (entry.m_nCurrent & 1) == 0) {
+                        if (entry.m_nID < pGame->m_spells.m_nCount) {
+                            field_154C[field_1488] = entry.m_nID;
+                            field_15AC[field_1488] = entry.m_nMax;
+                            field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
+                            field_1488++;
+                        }
                     }
                 }
             }
@@ -573,11 +579,13 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
             if (pList != NULL) {
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
-                    if (entry.m_nID < pGame->m_spells.m_nCount) {
-                        field_154C[field_1488] = entry.m_nID;
-                        field_15AC[field_1488] = entry.m_nMax;
-                        field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
-                        field_1488++;
+                    if (entry.m_nID != 0 && (entry.m_nCurrent & 1) == 0) {
+                        if (entry.m_nID < pGame->m_spells.m_nCount) {
+                            field_154C[field_1488] = entry.m_nID;
+                            field_15AC[field_1488] = entry.m_nMax;
+                            field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
+                            field_1488++;
+                        }
                     }
                 }
             }
@@ -1575,6 +1583,12 @@ void CUIControlButtonSpellbookSpell::SetSpell(const CResRef& cNewResRef)
     m_spellResRef = cNewResRef;
     m_iconResRef = "";
 
+    static int s_setLog = 0;
+    if (s_setLog < 20) {
+        DBG("SPELLBOOK_SetSpell: input=%s", (LPCSTR)cNewResRef.GetResRefStr());
+        s_setLog++;
+    }
+
     if (m_spellResRef != "") {
         CSpell cSpell;
         cSpell.SetResRef(m_spellResRef, TRUE, TRUE);
@@ -1590,6 +1604,14 @@ void CUIControlButtonSpellbookSpell::SetSpell(const CResRef& cNewResRef)
             m_iconResRef = sIconResRef;
 
             SetToolTipStrRef(cSpell.GetGenericName(), -1, -1);
+
+            if (s_setLog < 20) {
+                DBG("SPELLBOOK_SetSpell: icon=%s", (LPCSTR)m_iconResRef.GetResRefStr());
+            }
+        } else {
+            if (s_setLog < 20) {
+                DBG("SPELLBOOK_SetSpell: cSpell.pRes=NULL demand failed");
+            }
         }
 
         cSpell.Release();
