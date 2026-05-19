@@ -875,7 +875,13 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
     }
 
     INT nScale = g_pBaldurChitin->field_4A2C != 0 ? 2 : 1;
-    CPoint ptIcon(pt.x + 3 * nScale, pt.y + 3 * nScale);
+    // Two render origins per Ghidra:
+    //   - FUN_005957C0 (GUIBTACT overlay, field_8 != 0): draws at pt+0 with
+    //     full 38x38 (scaled) button rect — the action BAM bakes its bezel.
+    //   - FUN_005950F0 (STON*/item BG, field_8 == 0): draws at pt+3 (scaled)
+    //     with 32x32 frames that sit inside the GUIBTBUT bezel.
+    BOOL bOverlay = settings.field_8 != 0;
+    CPoint ptIcon = bOverlay ? pt : CPoint(pt.x + 3 * nScale, pt.y + 3 * nScale);
 
     // Active-weapon-set green ring overlay.  Original FUN_005950F0 loads BAM
     // "HIGHLGHT" inline when settings.field_1D0 != 0 && settings.field_1CC == 0
@@ -887,7 +893,7 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
         cHighlight.SetResRef(CResRef("HIGHLGHT"), nScale == 2, TRUE, FALSE);
         cHighlight.SequenceSet(0);
         cHighlight.FrameSet(0);
-        cHighlight.Render(0, pt.x, pt.y, rClip, NULL, 0, 0, -1);
+        cHighlight.Render(0, pt.x + 3 * nScale, pt.y + 3 * nScale, rClip, NULL, 0, 0, -1);
     }
 
     SHORT nFrame = settings.field_C;

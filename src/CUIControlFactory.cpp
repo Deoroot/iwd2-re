@@ -4269,31 +4269,28 @@ BOOL CUIControlButtonAction::Render(BOOL bForce)
     BOOL bIsActionSlot = nButton >= 0 && nButton < 12;
     CInfButtonSettings* pSettings = bIsActionSlot ? &pArray->m_buttonArray[nButton] : NULL;
 
-    // Inactive slot (settings.field_0 == 0): both FUN_005957C0 and
-    // FUN_005950F0 no-op in the original, leaving the GACTN008.MOS BG
-    // untouched. Reproduce by skipping every paint path here.
-    if (pSettings != NULL && pSettings->field_0 == 0) {
-        return 1;
-    }
-
-    // Active slot with an icon (settings.field_8 != 0 AND field_C >= 0):
-    // Ghidra's FUN_005957C0 paints settings.field_14 at the FULL button
-    // rect — that BAM is GUIBTACT for action icons, FORMx for formations,
-    // or an item icon for quick weapons/items. Each of those already bakes
-    // the stone bezel into the frame, so CUIControlButton::Render (which
-    // would draw GUIBTBUT underneath) MUST be skipped or you get two
-    // nested bezels.
-    //
-    // Active slot without an icon (field_8 == 0 OR field_C < 0): original
-    // returns 0 → caller falls back to CUIControlButton::Render which paints
-    // the plain GUIBTBUT stone. We do the same.
-    BOOL bHasIcon = pSettings != NULL
+    // Active slot whose icon BAM covers the whole 38x38 button rect:
+    // Ghidra's FUN_005957C0 paints settings.field_14 at pt+0 with the full
+    // button size, and that BAM (GUIBTACT / FORMx) bakes the stone bezel in
+    // its frame.  Painting CUIControlButton::Render first would just be
+    // overwritten, but it's harmless.  We skip the base only in that case
+    // for parity; every other code path (STON*, inactive type 100, etc.)
+    // wants the plain GUIBTBUT bezel underneath so the panel BG (GACTN008's
+    // continuous strip) doesn't show through.
+    BOOL bIconCoversBezel = pSettings != NULL
+        && pSettings->field_0 != 0
         && pSettings->field_8 != 0
         && pSettings->field_C >= 0;
 
     BOOL bResult = TRUE;
-    if (!bHasIcon) {
+    if (!bIconCoversBezel) {
         bResult = CUIControlButton::Render(bForce);
+    }
+
+    // Inactive slot (settings.field_0 == 0): base already drawn above; the
+    // icon overlay/BG passes both no-op in the original, so stop here.
+    if (pSettings != NULL && pSettings->field_0 == 0) {
+        return bResult;
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
