@@ -500,7 +500,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     for (UINT nIdx = 0; nIdx < 7; nIdx++) {
         BYTE nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nIdx);
         static int s_subLog = 0;
-        if (s_subLog < 15) {
+        if (s_subLog < 200) {
             int lvl = pSprite->GetClassLevel(nClass);
             int totalSpells = pSprite->GetNumSpells();
             DBG("SPELLBOOK_sub: idx=%d class=%d level=%d totalSpells=%d",
@@ -540,7 +540,7 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
 
     // Populate known spells (comp: spell loop with bit 0 check)
     static int s_popLog = 0;
-    if (bHasSpells && s_popLog < 15) {
+    if (bHasSpells && s_popLog < 200) {
         BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
         CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
         UINT listSize = pList ? pList->m_List.size() : 0;
@@ -609,10 +609,14 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
                 BYTE nCls = static_cast<BYTE>(field_1654[nStartTab + i]);
                 // Clamp invalid class values that GetClassStringMixed doesn't handle
                 if (nCls < 2 || nCls > 11) nCls = 2; // fallback to Bard
-                if (nStartTab + i == (DWORD)m_nClassIndex) {
+                if (nStartTab + i == (DWORD)field_1670) {
+                    // Domain tab always shows "Domain"
                     STR_RES strRes;
                     g_pBaldurChitin->GetTlkTable().Fetch(0x9B2A, strRes);
                     sText = strRes.szText;
+                } else if (nStartTab + i == (DWORD)m_nClassIndex) {
+                    // Selected non-domain tab shows class name
+                    g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassStringMixed(nCls, 0, 0, sText, 1);
                 } else {
                     g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassStringMixed(nCls, 0, 0, sText, 1);
                 }
@@ -955,7 +959,7 @@ void CScreenSpellbook::UpdateMainPanel()
 
     // Debug: log spell data
     static int s_spellLogCount = 0;
-    if (s_spellLogCount < 20) {
+    if (s_spellLogCount < 200) {
         DBG("SPELLBOOK: UpdateMainPanel char=%d classes=%d known=%d top=%d level=%d",
             (int)m_nSelectedCharacter, (int)m_nNumberOfSpellClasses, (int)field_1488,
             (int)m_nTopKnownSpell, (int)m_nSpellLevel);
@@ -1584,7 +1588,7 @@ void CUIControlButtonSpellbookSpell::SetSpell(const CResRef& cNewResRef)
     m_iconResRef = "";
 
     static int s_setLog = 0;
-    if (s_setLog < 20) {
+    if (s_setLog < 200) {
         DBG("SPELLBOOK_SetSpell: input=%s", (LPCSTR)cNewResRef.GetResRefStr());
         s_setLog++;
     }
@@ -1605,11 +1609,11 @@ void CUIControlButtonSpellbookSpell::SetSpell(const CResRef& cNewResRef)
 
             SetToolTipStrRef(cSpell.GetGenericName(), -1, -1);
 
-            if (s_setLog < 20) {
+            if (s_setLog < 200) {
                 DBG("SPELLBOOK_SetSpell: icon=%s", (LPCSTR)m_iconResRef.GetResRefStr());
             }
         } else {
-            if (s_setLog < 20) {
+            if (s_setLog < 200) {
                 DBG("SPELLBOOK_SetSpell: cSpell.pRes=NULL demand failed");
             }
         }
@@ -1688,9 +1692,8 @@ BOOL CUIControlButtonSpellbookSpell::Render(BOOL bForce)
         lock.Unlock();
     }
 
-    // Debug
     static int s_renderLog = 0;
-    if (s_renderLog < 15) {
+    if (s_renderLog < 200) {
         DBG("SPELLBOOK_RENDER: spell=%s icon=%s active=%d count=%d force=%d",
             (LPCSTR)m_spellResRef.GetResRefStr(), (LPCSTR)m_iconResRef.GetResRefStr(),
             (int)m_bActive, (int)m_nRenderCount, (int)bForce);
