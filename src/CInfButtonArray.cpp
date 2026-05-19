@@ -5,6 +5,7 @@
 #include "CGameSave.h"
 #include "CGameSprite.h"
 #include "CInfGame.h"
+#include "CItem.h"
 #include "CScreenWorld.h"
 #include "CUIControlBase.h"
 #include "CUIControlButton.h"
@@ -344,6 +345,7 @@ void CInfButtonArray::UpdateButtons()
         BOOL bEnabled = TRUE;
         BOOL bActive = TRUE;
         BOOL bGreyOut = FALSE;
+        BOOL bActiveWeaponSet = FALSE;
 
         settings.field_1CC = m_nSelectedButton == m_buttonTypes[nButton];
         settings.m_bGreyOut = FALSE;
@@ -508,8 +510,9 @@ void CInfButtonArray::UpdateButtons()
         case 0x42:
         case 0x43: {
             CButtonData buttonData;
+            BYTE nWeaponSlot = static_cast<BYTE>(m_buttonTypes[nButton] - 0x3C);
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
-                pSprite->GetQuickWeapon(static_cast<BYTE>(m_buttonTypes[nButton] - 0x3C), buttonData);
+                pSprite->GetQuickWeapon(nWeaponSlot, buttonData);
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
@@ -518,8 +521,19 @@ void CInfButtonArray::UpdateButtons()
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
-                nIconNormalFrame = 0x68;
-                nIconSelectedFrame = 0x6A;
+                // Off-hand slot (odd index) → STONSHIL.  Main hand → STONWEAP.
+                cIconResRef = (m_buttonTypes[nButton] & 1) ? CResRef("STONSHIL") : CResRef("STONWEAP");
+                nIconNormalFrame = 0;
+                nIconSelectedFrame = 0;
+                nToolTip = 0x1356;
+            }
+            nHotKey = static_cast<USHORT>(0x19 + (m_buttonTypes[nButton] - 0x3C));
+            // Green border: this slot matches the sprite's currently-active
+            // weapon set (sprite.m_quickWeaponSet stores the set index, each
+            // set occupies a main+off pair).  Drives settings.field_1D0.
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
+                && static_cast<BYTE>(nWeaponSlot >> 1) == pSprite->m_nWeaponSet) {
+                bActiveWeaponSet = TRUE;
             }
             break;
         }
@@ -532,39 +546,45 @@ void CInfButtonArray::UpdateButtons()
         case 0x4C:
         case 0x4D:
         case 0x4E: {
+            // Quick spell.  Empty slot keeps STONSPEL stone visible so the user
+            // can right-click to assign — original UpdateButtons at 0x58A340
+            // never marks these inactive.  Ghidra default tooltip 0x1250 ("Cast
+            // Spell").
             CButtonData buttonData;
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickSpell(static_cast<BYTE>(m_buttonTypes[nButton] - 0x46), buttonData);
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconNormalFrame = 0;
-                nIconSelectedFrame = 0;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
-                bActive = FALSE;
-                cIconResRef = CResRef("");
+                cIconResRef = CResRef("STONSPEL");
+                nToolTip = 0x1250;
             }
+            nIconNormalFrame = 0;
+            nIconSelectedFrame = 0;
             break;
         }
         case 0x50:
         case 0x51:
         case 0x52: {
+            // Quick item.  STONITEM fallback; tooltip 0x1372.
             CButtonData buttonData;
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickItem(static_cast<BYTE>(m_buttonTypes[nButton] - 0x50), buttonData);
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconNormalFrame = 0;
-                nIconSelectedFrame = 0;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
-                bActive = FALSE;
-                cIconResRef = CResRef("");
+                cIconResRef = CResRef("STONITEM");
+                nToolTip = 0x1372;
             }
+            nIconNormalFrame = 0;
+            nIconSelectedFrame = 0;
+            nHotKey = static_cast<USHORT>(0x2D + (m_buttonTypes[nButton] - 0x50));
             break;
         }
         case 0x5A:
@@ -576,20 +596,22 @@ void CInfButtonArray::UpdateButtons()
         case 0x60:
         case 0x61:
         case 0x62: {
+            // Quick ability (innate / feat / special).  STONSPEC fallback;
+            // tooltip 0x135A ("Special Abilities").
             CButtonData buttonData;
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickAbility(static_cast<BYTE>(m_buttonTypes[nButton] - 0x5A), buttonData);
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconNormalFrame = 0;
-                nIconSelectedFrame = 0;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
-                bActive = FALSE;
-                cIconResRef = CResRef("");
+                cIconResRef = CResRef("STONSPEC");
+                nToolTip = 0x135A;
             }
+            nIconNormalFrame = 0;
+            nIconSelectedFrame = 0;
             break;
         }
         case 0x6E:
@@ -601,20 +623,21 @@ void CInfButtonArray::UpdateButtons()
         case 0x74:
         case 0x75:
         case 0x76: {
+            // Quick song (bard).  STONSONG fallback; tooltip 0x923C.
             CButtonData buttonData;
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickSong(static_cast<BYTE>(m_buttonTypes[nButton] - 0x6E), buttonData);
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconNormalFrame = 0;
-                nIconSelectedFrame = 0;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
-                nIconNormalFrame = 0x14;
-                nIconSelectedFrame = 0x16;
+                cIconResRef = CResRef("STONSONG");
+                nToolTip = 0x923C;
             }
+            nIconNormalFrame = 0;
+            nIconSelectedFrame = 0;
             break;
         }
         case 100:
@@ -631,7 +654,7 @@ void CInfButtonArray::UpdateButtons()
         settings.field_C = nIconNormalFrame;
         settings.field_10 = nIconSelectedFrame;
         settings.field_1C8 = 0;
-        settings.field_1D0 = 0;
+        settings.field_1D0 = bActiveWeaponSet ? 1 : 0;
         settings.field_1D8 = 0;
         settings.m_bGreyOut = !bEnabled || bGreyOut;
         settings.field_14.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
@@ -693,6 +716,19 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
 
     INT nScale = g_pBaldurChitin->field_4A2C != 0 ? 2 : 1;
     CPoint ptIcon(pt.x + 3 * nScale, pt.y + 3 * nScale);
+
+    // Active-weapon-set green ring overlay.  Original FUN_005950F0 loads BAM
+    // "HIGHLGHT" inline when settings.field_1D0 != 0 && settings.field_1CC == 0
+    // (the selection-highlight always takes precedence).  We construct the
+    // CVidCell inline here too — this is a UI render path called only when the
+    // bar is visible, so the cost is amortized.
+    if (settings.field_1D0 != 0 && settings.field_1CC == 0) {
+        CVidCell cHighlight;
+        cHighlight.SetResRef(CResRef("HIGHLGHT"), nScale == 2, TRUE, FALSE);
+        cHighlight.SequenceSet(0);
+        cHighlight.FrameSet(0);
+        cHighlight.Render(0, pt.x, pt.y, rClip, NULL, 0, 0, -1);
+    }
 
     SHORT nFrame = settings.field_C;
     if (settings.field_1CC != 0 && settings.field_10 >= 0) {
@@ -846,6 +882,61 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             pGame->GetGroup()->ClearActions();
             UpdateButtons();
             return;
+        case 0x3C:
+        case 0x3D:
+        case 0x3E:
+        case 0x3F:
+        case 0x40:
+        case 0x41:
+        case 0x42:
+        case 0x43: {
+            // Quick weapon click — Ghidra 0x58FF20 default + button-type fall-
+            // through.  Two behaviors: full picker (state 0x65) if the active
+            // engine reports "weapon swap allowed", otherwise just select the
+            // weapon set and call the equip helper.  We approximate by always
+            // doing the lightweight path: if a different button is clicked,
+            // make it the selected one; clicking the active one clears the
+            // selection.
+            INT nEffective = nButtonType;
+            // Off-hand collapses to its main when the main is empty or holds a
+            // 2H/ranged/sling/crossbow (ITEMTYPE 0x29/0x2F/0x31/0x35).  Ghidra
+            // address calc: m_equipment.m_items[(button - 0x3C) + 43] for the
+            // odd off-hand slot resolves to the same offset as the main slot.
+            if ((nButtonType & 1) != 0) {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    INT nProbeSlot = (nButtonType - 0x3C) + 43;
+                    CItem* pMain = pSprite->m_equipment.m_items[nProbeSlot];
+                    if (pMain == NULL) {
+                        nEffective = nButtonType - 1;
+                    } else {
+                        WORD itemType = pMain->GetItemType();
+                        if (itemType == 0x2F || itemType == 0x35
+                            || itemType == 0x31 || itemType == 0x29) {
+                            nEffective = nButtonType - 1;
+                        }
+                    }
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+            }
+            if (m_nSelectedButton != nEffective) {
+                pGame->SetState(0);
+                SetSelectedButton(nEffective);
+                UpdateButtons();
+            } else {
+                pGame->SetState(0);
+                SetSelectedButton(100);
+                UpdateButtons();
+            }
+            return;
+        }
         case 0x32:
             m_nCurrentSelectedSpellClass = 2;
             SetState(0x67, 1);
