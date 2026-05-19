@@ -31,7 +31,7 @@ Save Ghidra project. Sync source in one commit.
 
 ## GhidraMCP (`:8089`)
 
-Installed at `C:\ghidra-mcp`. Replaces GhidraSQL.
+Installed at `C:\ghidra-mcp`.
 
 **Launch:**
 ```powershell
@@ -74,9 +74,6 @@ import pefile; pe = pefile.PE(r'C:\GOG Games\Icewind Dale 2\IWD2.exe', fast_load
 ```
 
 Mutations commit immediately. Save project after rename batches.
-
-## Legacy GhidraSQL (`:8081`)
-Deprecated. `query_worker_busy` stalls, locks project. Use only for SQL joins GhidraMCP lacks. Never run both at once — same `.lock` files.
 
 ## After Session
 Save in Ghidra GUI. `bash scripts/ghidra_save.sh` for zip backup.
