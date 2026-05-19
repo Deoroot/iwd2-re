@@ -494,6 +494,15 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     field_1670 = -1;
     for (UINT nIdx = 0; nIdx < 7; nIdx++) {
         BYTE nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nIdx);
+        CGameSpriteSpellList* pTestList = pSprite->GetSpellsAtLevel(nClass, 0);
+        UINT nNumSpells = pSprite->GetNumSpells();
+        static int s_subLog = 0;
+        if (s_subLog < 15) {
+            DBG("SPELLBOOK_sub669830: idx=%d class=%d spellsAt0=%p numSpells=%d getSpells=%p",
+                (int)nIdx, (int)nClass, (void*)pTestList, (int)nNumSpells,
+                (void*)pSprite->GetSpells(nClass));
+            s_subLog++;
+        }
         if (nClass < 7 && pSprite->GetSpells(nClass) != NULL && pSprite->GetNumSpells() != 0) {
             field_1654[m_nNumberOfSpellClasses] = nClass;
             m_nNumberOfSpellClasses++;
@@ -523,6 +532,22 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     }
 
     // Populate known spells (comp: spell loop with bit 0 check)
+    static int s_popLog = 0;
+    if (bHasSpells && s_popLog < 15) {
+        BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
+        CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
+        UINT listSize = pList ? pList->m_List.size() : 0;
+        DBG("SPELLBOOK_pop: classIdx=%d curClass=%d level=%d field_1670=%d listSize=%d",
+            (int)m_nClassIndex, (int)nCurClass, (int)m_nSpellLevel, (int)field_1670, (int)listSize);
+        if (pList) {
+            for (UINT s = 0; s < min(listSize, 5u); s++) {
+                CGameSpriteSpellListEntry& entry = pList->m_List[s];
+                DBG("SPELLBOOK_pop:   [%d] id=%d max=%d cur=%d (cur&1)=%d",
+                    (int)s, (int)entry.m_nID, (int)entry.m_nMax, (int)entry.m_nCurrent, (int)(entry.m_nCurrent & 1));
+            }
+        }
+        s_popLog++;
+    }
     if (bHasSpells) {
     {
         UINT _dbg_idx = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(field_1654[m_nClassIndex]);
@@ -530,35 +555,29 @@ void CScreenSpellbook::sub_669830(DWORD nPortrait)
     }
         BYTE nCurClass = static_cast<BYTE>(field_1654[m_nClassIndex]);
         if (m_nClassIndex == field_1670) {
-            // Divine caster: use domain/grouped spells
             CGameSpriteGroupedSpellList* pGrouped = pSprite->GetSpells(nCurClass);
             if (pGrouped != NULL && m_nSpellLevel < 9) {
                 CGameSpriteSpellList* pList = &pGrouped->m_lists[m_nSpellLevel];
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
-                    if ((entry.m_nCurrent & 1) == 0) { // not memorized → known
-                        if (entry.m_nID < pGame->m_spells.m_nCount) {
-                            field_154C[field_1488] = entry.m_nID;
-                            field_15AC[field_1488] = entry.m_nMax;
-                            field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
-                            field_1488++;
-                        }
+                    if (entry.m_nID < pGame->m_spells.m_nCount) {
+                        field_154C[field_1488] = entry.m_nID;
+                        field_15AC[field_1488] = entry.m_nMax;
+                        field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
+                        field_1488++;
                     }
                 }
             }
         } else {
-            // Arcane caster: use class spells at level
             CGameSpriteSpellList* pList = pSprite->GetSpellsAtLevel(nCurClass, m_nSpellLevel);
             if (pList != NULL) {
                 for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                     CGameSpriteSpellListEntry& entry = pList->m_List[s];
-                    if ((entry.m_nCurrent & 1) == 0) {
-                        if (entry.m_nID < pGame->m_spells.m_nCount) {
-                            field_154C[field_1488] = entry.m_nID;
-                            field_15AC[field_1488] = entry.m_nMax;
-                            field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
-                            field_1488++;
-                        }
+                    if (entry.m_nID < pGame->m_spells.m_nCount) {
+                        field_154C[field_1488] = entry.m_nID;
+                        field_15AC[field_1488] = entry.m_nMax;
+                        field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
+                        field_1488++;
                     }
                 }
             }
@@ -914,12 +933,10 @@ void CScreenSpellbook::EnableMainPanel(BOOL bEnable)
 // 0x66A980
 void CScreenSpellbook::UpdateMainPanel()
 {
-    // Based on Ghidra decomp 0x66A980 — simplified implementation
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CUIPanel* pPanel = m_cUIManager.GetPanel(2);
     if (pPanel == NULL) return;
 
-    // Get character sprite
     LONG nCharId = pGame->GetCharacterId(m_nSelectedCharacter);
     if (nCharId == CGameObjectArray::INVALID_INDEX) return;
 
@@ -927,6 +944,18 @@ void CScreenSpellbook::UpdateMainPanel()
     BYTE rc = pGame->GetObjectArray()->GetShare(nCharId, CGameObjectArray::THREAD_ASYNCH,
         reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
     if (rc != CGameObjectArray::SUCCESS) return;
+
+    // Debug: log spell data
+    static int s_spellLogCount = 0;
+    if (s_spellLogCount < 20) {
+        DBG("SPELLBOOK: UpdateMainPanel char=%d classes=%d known=%d top=%d level=%d",
+            (int)m_nSelectedCharacter, (int)m_nNumberOfSpellClasses, (int)field_1488,
+            (int)m_nTopKnownSpell, (int)m_nSpellLevel);
+        for (int d = 0; d < min(5, field_1488); d++) {
+            DBG("SPELLBOOK:   field_148C[%d]=%s", d, (LPCSTR)field_148C[d].GetResRefStr());
+        }
+        s_spellLogCount++;
+    }
 
     // Update scrollbar
     CUIControlScrollBar* pScroll = static_cast<CUIControlScrollBar*>(pPanel->GetControl(54));
@@ -1622,9 +1651,71 @@ void CUIControlButtonSpellbookSpell::OnRButtonClick(CPoint pt)
 // 0x66DC30
 BOOL CUIControlButtonSpellbookSpell::Render(BOOL bForce)
 {
-    // TODO: Incomplete.
+    if (!m_bActive && !m_bInactiveRender) {
+        return FALSE;
+    }
 
-    return FALSE;
+    if (m_nRenderCount == 0 && !bForce) {
+        return FALSE;
+    }
+
+    if (m_nRenderCount != 0) {
+        CSingleLock lock(&(m_pPanel->m_pManager->field_56), FALSE);
+        lock.Lock(INFINITE);
+        m_nRenderCount--;
+        lock.Unlock();
+    }
+
+    // Debug
+    static int s_renderLog = 0;
+    if (s_renderLog < 15) {
+        DBG("SPELLBOOK_RENDER: spell=%s icon=%s active=%d count=%d force=%d",
+            (LPCSTR)m_spellResRef.GetResRefStr(), (LPCSTR)m_iconResRef.GetResRefStr(),
+            (int)m_bActive, (int)m_nRenderCount, (int)bForce);
+        s_renderLog++;
+    }
+
+    CRect rControlFrame(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
+    CRect rClip;
+    rClip.IntersectRect(rControlFrame, m_rDirty);
+
+    if (rClip.Width() <= 0 || rClip.Height() <= 0) {
+        return FALSE;
+    }
+
+    if (m_spellResRef == "") {
+        return TRUE;
+    }
+
+    // Render icon
+    CVidCell vcIcon;
+    vcIcon.SetResRef(m_iconResRef, m_pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
+
+    if (vcIcon.pRes == NULL) {
+        return TRUE;
+    }
+
+    CSize iconSize;
+    vcIcon.GetCurrentFrameSize(iconSize, FALSE);
+
+    INT x = m_size.cx > iconSize.cx
+        ? rControlFrame.left + (m_size.cx - iconSize.cx) / 2
+        : rControlFrame.left;
+    INT y = m_size.cy > iconSize.cy
+        ? rControlFrame.top + (m_size.cy - iconSize.cy) / 2
+        : rControlFrame.top;
+
+    vcIcon.Render(0, x, y, rClip, NULL, 0, 0, -1);
+
+    // Draw selection border if this is the active memorization target
+    if (field_676) {
+        CScreenSpellbook* pSpellbook = g_pBaldurChitin->m_pEngineSpellbook;
+        if (pSpellbook != NULL && pSpellbook->m_pFlashMemorizeDestSpell == this) {
+            pSpellbook->DrawFlash();
+        }
+    }
+
+    return TRUE;
 }
 
 // -----------------------------------------------------------------------------
