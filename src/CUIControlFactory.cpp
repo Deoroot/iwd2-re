@@ -5,6 +5,7 @@
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
 #include "CGameSprite.h"
+#include "CInfButtonArray.h"
 #include "CInfGame.h"
 #include "CScreenChapter.h"
 #include "CScreenCharacter.h"
@@ -4255,22 +4256,55 @@ CUIControlButtonAction::~CUIControlButtonAction()
 {
 }
 
-// 0x5950F0 / 0x5957C0
+// 0x77B530
 BOOL CUIControlButtonAction::Render(BOOL bForce)
 {
-    BOOL bResult = CUIControlButton::Render(bForce);
-
-    if (m_bActive || m_bInactiveRender) {
-        CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
-        CRect rControlFrame(pt, m_size);
-        CRect rClip;
-        rClip.IntersectRect(rControlFrame, m_rDirty);
-
-        g_pBaldurChitin->GetObjectGame()->GetButtonArray()->RenderButton(pt,
-            rClip,
-            m_bPressed,
-            m_nID - 6);
+    if (!m_bActive && !m_bInactiveRender) {
+        return 0;
     }
+
+    INT nButton = m_nID - 6;
+    CInfButtonArray* pArray = g_pBaldurChitin->GetObjectGame()->GetButtonArray();
+
+    BOOL bIsActionSlot = nButton >= 0 && nButton < 12;
+    CInfButtonSettings* pSettings = bIsActionSlot ? &pArray->m_buttonArray[nButton] : NULL;
+
+    // Inactive slot (settings.field_0 == 0): both FUN_005957C0 and
+    // FUN_005950F0 no-op in the original, leaving the GACTN008.MOS BG
+    // untouched. Reproduce by skipping every paint path here.
+    if (pSettings != NULL && pSettings->field_0 == 0) {
+        return 1;
+    }
+
+    // Active slot with an icon (settings.field_8 != 0 AND field_C >= 0):
+    // Ghidra's FUN_005957C0 paints settings.field_14 at the FULL button
+    // rect — that BAM is GUIBTACT for action icons, FORMx for formations,
+    // or an item icon for quick weapons/items. Each of those already bakes
+    // the stone bezel into the frame, so CUIControlButton::Render (which
+    // would draw GUIBTBUT underneath) MUST be skipped or you get two
+    // nested bezels.
+    //
+    // Active slot without an icon (field_8 == 0 OR field_C < 0): original
+    // returns 0 → caller falls back to CUIControlButton::Render which paints
+    // the plain GUIBTBUT stone. We do the same.
+    BOOL bHasIcon = pSettings != NULL
+        && pSettings->field_8 != 0
+        && pSettings->field_C >= 0;
+
+    BOOL bResult = TRUE;
+    if (!bHasIcon) {
+        bResult = CUIControlButton::Render(bForce);
+    }
+
+    CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
+    CRect rControlFrame(pt, m_size);
+    CRect rClip;
+    rClip.IntersectRect(rControlFrame, m_rDirty);
+
+    pArray->RenderButton(pt,
+        rClip,
+        m_bPressed,
+        nButton);
 
     return bResult;
 }

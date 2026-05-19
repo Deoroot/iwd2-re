@@ -641,17 +641,29 @@ void CInfButtonArray::UpdateButtons()
         }
         settings.field_EE.SetResRef(CResRef(""), pPanel->m_pManager->m_bDoubleSize, FALSE, FALSE);
 
-        // CHUI draws the stone slot.  RenderButton overlays the action icon.
-        pButton->m_nNormalFrame = static_cast<SHORT>(nButton * 2);
-        pButton->m_nPressedFrame = static_cast<SHORT>(nButton * 2 + 1);
+        // Selection highlight: GUIBTBUT cycle entries 0x18+ map to frame 2
+        // (red border) per the BAM lookup table.  Original RenderButton at
+        // 0x5957C0 swaps to these frames when settings.field_1CC is set
+        // (m_nSelectedButton matches this button's type).
+        SHORT nNormalFrame = static_cast<SHORT>(nButton * 2);
+        SHORT nPressedFrame = static_cast<SHORT>(nButton * 2 + 1);
+        if (settings.field_1CC != 0) {
+            nNormalFrame = static_cast<SHORT>(nButton * 2 + 0x18);
+            nPressedFrame = static_cast<SHORT>(nButton * 2 + 0x19);
+        }
+
+        pButton->m_nNormalFrame = nNormalFrame;
+        pButton->m_nPressedFrame = nPressedFrame;
         pButton->m_nDisabledFrame = static_cast<SHORT>(nButton * 2);
         pButton->m_cVidCell.SetResRef(CResRef("GUIBTBUT"), pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
         pButton->m_cVidCell.SequenceSet(0);
         pButton->m_cVidCell.FrameSet(pButton->m_nNormalFrame);
         pButton->SetToolTipStrRef(nToolTip, -1, -1);
         pButton->SetToolTipHotKey(nHotKey, 0xFFFF, CString(""));
-        // Keep empty/custom slots mouse-active: original permits right-click
-        // customization even when no action icon is assigned.
+        // Visibility is driven by settings.field_0: when 0 the original
+        // FUN_005957C0 + FUN_005950F0 both no-op, so CUIControlButtonAction::
+        // Render checks that to short-circuit. Keep m_bEnabled = TRUE so
+        // right-click customization works on slots the user could populate.
         pButton->SetEnabled(TRUE);
         pButton->InvalidateRect();
     }

@@ -31,13 +31,13 @@ The `// 0xADDR` comment above each function is best-effort and **can be stale or
 
 If a function's `// 0xADDR` isn't found in Ghidra's `funcs` table, the function may be a virtual method that Ghidra never auto-detected — look for a `DATA` xref from a vtable pointing at that address to confirm the entry point exists, then probe instructions directly.
 
-## GhidraMCP workflow (preferred — replaces GhidraSQL)
+## GhidraMCP workflow
 
-GhidraMCP is installed at `C:\ghidra-mcp`. It exposes ~195 REST endpoints from a Ghidra plugin (or standalone headless server) at **`http://127.0.0.1:8089`** and a thin MCP bridge for AI clients. Stable under load — no `query_worker_busy` stalls.
+GhidraMCP is installed at `C:\ghidra-mcp`. It exposes ~195 REST endpoints from a Ghidra plugin at **`http://127.0.0.1:8089`** and a thin MCP bridge for AI clients.
 
 ### Launch
 
-GUI mode (recommended — full plugin set, lock-free reattach to the saved project):
+GUI mode:
 
 ```powershell
 # One-time install + first launch
@@ -46,16 +46,6 @@ python -m tools.setup deploy --ghidra-path "C:\ghidra_dist\ghidra_12.0.4_PUBLIC"
 
 # Subsequent launches: just open Ghidra and load the IWD2 project
 & "C:\ghidra_dist\ghidra_12.0.4_PUBLIC\ghidraRun.bat"
-```
-
-Headless server alternative (no GUI; uses the existing saved project at `C:\ghidra_projects\IWD2`):
-
-```bash
-java -Xmx4g -Dghidra.home="C:/ghidra_dist/ghidra_12.0.4_PUBLIC" \
-     -Dapplication.name=GhidraMCP \
-     -classpath "C:/ghidra-mcp/target/GhidraMCP-5.10.0.jar;<Ghidra/Framework/*/lib/*.jar>;<Ghidra/Features/*/lib/*.jar>;..." \
-     com.xebyte.headless.GhidraMCPHeadlessServer \
-     --port 8089 --bind 127.0.0.1 --project "C:/ghidra_projects/IWD2"
 ```
 
 ### Sanity gate
@@ -67,7 +57,7 @@ curl -s http://127.0.0.1:8089/list_open_programs
 curl -s http://127.0.0.1:8089/get_metadata
 ```
 
-If the program isn't bound, open IWD2.exe in Ghidra (GUI) or pass `--project` to the headless server.
+If the program isn't bound, open IWD2.exe in Ghidra (GUI)
 
 ### Schema discovery
 
@@ -123,8 +113,7 @@ Mutations commit immediately to the running Ghidra project. After a batch of ren
 
 ```bash
 cd C:\ghidra-mcp
-python bridge_mcp_ghidra.py            # stdio (default — for Claude Code, Continue, etc.)
-python bridge_mcp_ghidra.py --transport sse --port 9090   # SSE for web clients
+python bridge_mcp_ghidra.py            # stdio
 ```
 
 The bridge auto-connects to `127.0.0.1:8089` and registers all 195 tools. Wire it into `.mcp.json` to call endpoints directly as MCP tools rather than `curl`.
@@ -140,21 +129,23 @@ ib = pe.OPTIONAL_HEADER.ImageBase
 print(pe.get_data(0x8ABCA4 - ib, 16))   # bytes at .rdata 0x8ABCA4
 ```
 
-### Legacy: GhidraSQL (`:8081`)
+## Game asset export (`data/near_infinity_export/`)
 
-The old GhidraSQL workflow is deprecated for everyday work — it suffers `query_worker_busy` stalls on `memory_bytes` / wide `instructions` ranges and locks the project. Only fall back to it for SQL joins across tables that GhidraMCP doesn't expose. Same project dir, same `.lock` files — never run both at once. See git history for the legacy `scripts/ghidra_re.py` patterns.
+All IWD2 game files extracted via NearInfinity. Inspect assets without launching the game.
 
-## Renaming workflow
+```
+data/near_infinity_export/
+├── BAM/        # raw BAM (use BAM_DECOMP for parsable headers)
+├── BAM_DECOMP/ # decompressed BAMv1 — read frames with struct.unpack
+├── ITM/        # items
+├── CRE/        # creatures
+├── ARE/        # areas
+├── CHU/        # UI panels (button frames, hotkeys, positions)
+├── 2DA/        # rule tables (QSLOTS.2DA, etc.)
+└── ...
+```
 
-Functions:
-
-1. `UPDATE funcs SET name = 'NewName' WHERE address = 0xNNNNNN;`
-2. `SELECT save_database();`
-3. Sync to the matching `.h` + `.cpp` + every call site in one commit.
-
-Fields (`field_XX` placeholders): match the class in `C:/projects/bg2-symbols/bg2_pdb_types.txt` (BG2EE PDB — offsets differ but names match), then update `.h` + every `.cpp` referent atomically and build before push.
-
-Never prefix a placeholder `field_XXX` with a type letter (`nm_`, etc.). Speculative names go to `FUN_<addr>` plus a `bookmark category=Analysis` until verified.
+Use for: frame indices, BAM cycle counts, CHU button IDs, weapon item types, spell resrefs.
 
 ## Reference paths (outside the repo)
 
