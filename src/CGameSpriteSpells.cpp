@@ -209,9 +209,9 @@ BOOLEAN CGameSpriteSpellList::Find(const UINT& nID, UINT& nIndex)
     std::vector<CGameSpriteSpellListEntry>::iterator it = m_List.begin();
     while (it != m_List.end()) {
         if (it->m_nID == nID) {
-            nIndex++;
             return TRUE;
         }
+        nIndex++;
         it++;
     }
 
