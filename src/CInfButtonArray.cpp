@@ -483,6 +483,11 @@ void CInfButtonArray::UpdateButtons()
             nToolTip = 0x1347;
             nHotKey = static_cast<USHORT>(0x20 + nFormationButton);
             bHasOverlay = FALSE;
+            // Ghidra `piVar8[0x73] = (uint)(piStack_51c == apiStack_4e8[0])`:
+            // formation slot's selection highlight is driven by whether its
+            // configured formation matches CGameSave::m_curFormation (NOT the
+            // generic m_nSelectedButton match).  Override here.
+            settings.m_bSelected = (nFormation == g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_curFormation) ? 1 : 0;
             break;
         }
         case 2:
