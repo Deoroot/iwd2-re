@@ -1210,14 +1210,40 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         INFINITE);
                 } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    if (m_nState == 0x68 || m_nState == 0x69) {
+                    // States 0x66 / 0x68 / 0x71 are "customise" variants — the
+                    // user picked a target to ASSIGN to a quick slot rather
+                    // than to fire.  Ghidra calls FUN_00588cb0 in those
+                    // states to copy buttonData into m_quickSpells/Items/Songs
+                    // and update m_customButtonTypes.  TODO: port the full
+                    // save+update path; for now record the resref so the
+                    // settings round-trip and skip the dispatch.
+                    BOOL bCustomize = (m_nState == 0x66 || m_nState == 0x68 || m_nState == 0x71);
+                    if (bCustomize) {
+                        INT nSlot = m_nCurrentSelectedSpellLevel;
+                        if (nSlot >= 0 && nSlot < 9) {
+                            switch (m_nState) {
+                            case 0x66:
+                                pSprite->SetQuickSpell(static_cast<BYTE>(nSlot), *pEntry);
+                                m_customButtonTypes[nSlot] = nSlot + 0x46;
+                                break;
+                            case 0x68:
+                                pSprite->SetQuickItem(static_cast<BYTE>(nSlot), *pEntry);
+                                m_customButtonTypes[nSlot] = nSlot + 0x50;
+                                break;
+                            case 0x71:
+                                pSprite->SetQuickSong(static_cast<BYTE>(nSlot), *pEntry);
+                                m_customButtonTypes[nSlot] = nSlot + 0x6E;
+                                break;
+                            }
+                        }
+                    } else if (m_nState == 0x68 || m_nState == 0x69) {
                         pSprite->ReadyOffInternalList(*pEntry, 0);
                     } else if (m_nState == 0x6A || m_nState == 0x6B) {
                         pSprite->UseButtonItem(*pEntry, 0);
                     } else {
-                        // Spells (0x66/0x67), songs (0x70/0x71/0x7A) and the
-                        // 0x7B catch-all all funnel into the generic AI
-                        // action dispatcher.
+                        // Spells (0x67), songs (0x70/0x7A) and the 0x7B
+                        // catch-all all funnel into the generic AI action
+                        // dispatcher.
                         pSprite->UseButtonAction(*pEntry, 0);
                     }
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
