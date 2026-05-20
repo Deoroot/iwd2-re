@@ -802,7 +802,7 @@ SHORT CGameAIBase::MoveView(CPoint dest, int speed)
             field_594 = TRUE;
         }
 
-        if (x != dest.x && y != dest.y) {
+        if (x != dest.x || y != dest.y) {
             return ACTION_NORMAL;
         }
 
