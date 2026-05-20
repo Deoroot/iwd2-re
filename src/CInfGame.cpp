@@ -3270,6 +3270,7 @@ void CInfGame::SelectAll(BOOLEAN bPlaySound)
                         m_cObjectArray.ReleaseDeny(iSprite,
                             CGameObjectArray::THREAD_ASYNCH,
                             INFINITE);
+                        UpdatePortrait(cnt, 1);
                     }
                 }
                 if (pSprite->Orderable(FALSE) && bPlaySound) {
@@ -3296,7 +3297,6 @@ void CInfGame::SelectAll(BOOLEAN bPlaySound)
                 CGameObjectArray::THREAD_ASYNCH,
                 INFINITE);
         }
-        break;
     }
 
     pos = m_familiars.GetHeadPosition();
