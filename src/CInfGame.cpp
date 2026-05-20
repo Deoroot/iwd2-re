@@ -5771,7 +5771,7 @@ void CInfGame::UpdateCharacterSlots()
 {
     for (SHORT nPortrait = 0; nPortrait < CINFGAME_MAXCHARACTERS; nPortrait++) {
         if (m_characterPortraits[nPortrait] != -1) {
-            EnablePortrait(nPortrait, FALSE);
+            EnablePortrait(static_cast<BYTE>(nPortrait), FALSE);
             m_characterPortraits[nPortrait] = -1;
         }
     }

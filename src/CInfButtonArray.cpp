@@ -686,7 +686,7 @@ void CInfButtonArray::UpdateButtons()
             }
             break;
         case 0x0E:
-            // Quick-spell tab â€” frame 0x10/0x12.
+            // Use Item. Ghidra case 0x0E frames 0x10/0x12, tooltip 0x1372.
             nIconNormalFrame = 0x10;
             nIconSelectedFrame = 0x12;
             nToolTip = 0x1372;
@@ -761,36 +761,57 @@ void CInfButtonArray::UpdateButtons()
             break;
         }
         case 0x23:
+            // Customize: Skills.
             nIconNormalFrame = 0x60;
             nIconSelectedFrame = 0x62;
+            nToolTip = 0x1345;
             break;
         case 0x24:
+            // Customize: Cast Spell. Original greys it and shows "No Spells"
+            // when the leader is not a caster.
             nIconNormalFrame = 8;
             nIconSelectedFrame = 10;
+            nToolTip = 0x1250;
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && !pSprite->IsSpellcaster()) {
+                nToolTip = 0x924A;
+                bGreyOut = TRUE;
+            }
             break;
         case 0x25:
+            // Customize: Use Item.
             nIconNormalFrame = 0x10;
             nIconSelectedFrame = 0x12;
+            nToolTip = 0x1372;
             break;
         case 0x26:
+            // Customize: Quick Item.
             nIconNormalFrame = 0x70;
             nIconSelectedFrame = 0x72;
+            nToolTip = 0x1349;
             break;
         case 0x27:
+            // Customize: Special Abilities.
             nIconNormalFrame = 0x28;
             nIconSelectedFrame = 0x2A;
+            nToolTip = 0x135A;
             break;
         case 0x28:
+            // Customize: Battle Song.
             nIconNormalFrame = 0x14;
             nIconSelectedFrame = 0x16;
+            nToolTip = 0x1336;
             break;
         case 0x29:
+            // Customize: Clear Button.
             nIconNormalFrame = 0x74;
             nIconSelectedFrame = 0x76;
+            nToolTip = 0x9B2B;
             break;
         case 0x2A:
+            // Customize: Restore Default Buttons.
             nIconNormalFrame = 0x78;
             nIconSelectedFrame = 0x7A;
+            nToolTip = 0x9B2C;
             break;
         case 0x21:
             // Page-up arrow (submenu paging) â€” frame 0x30.
@@ -803,36 +824,60 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x34;
             break;
         case 0x32:
+            // Class picker: Bard Spell.
             nIconNormalFrame = 0x38;
             nIconSelectedFrame = 0x3A;
+            nToolTip = 0x9B1D;
+            nHotKey = 0xB;
             break;
         case 0x33:
+            // Class picker: Cleric Spell.
             nIconNormalFrame = 0x3C;
             nIconSelectedFrame = 0x3E;
+            nToolTip = 0x9B1E;
+            nHotKey = 0xB;
             break;
         case 0x34:
+            // Class picker: Druid Spell.
             nIconNormalFrame = 0x40;
             nIconSelectedFrame = 0x42;
+            nToolTip = 0x9B1F;
+            nHotKey = 0xB;
             break;
         case 0x35:
+            // Class picker: Paladin Spell.
             nIconNormalFrame = 0x44;
             nIconSelectedFrame = 0x46;
+            nToolTip = 0x9B20;
+            nHotKey = 0xB;
             break;
         case 0x36:
+            // Class picker: Ranger Spell.
             nIconNormalFrame = 0x48;
             nIconSelectedFrame = 0x4A;
+            nToolTip = 0x9B21;
+            nHotKey = 0xB;
             break;
         case 0x37:
+            // Class picker: Sorcerer Spell.
             nIconNormalFrame = 0x4C;
             nIconSelectedFrame = 0x4E;
+            nToolTip = 0x9B22;
+            nHotKey = 0xB;
             break;
         case 0x38:
+            // Class picker: Wizard Spell.
             nIconNormalFrame = 0x50;
             nIconSelectedFrame = 0x52;
+            nToolTip = 0x9B23;
+            nHotKey = 0xB;
             break;
         case 0x39:
+            // Class picker: Domain Spell.
             nIconNormalFrame = 0x54;
             nIconSelectedFrame = 0x56;
+            nToolTip = 0x9C04;
+            nHotKey = 0xB;
             break;
         case 0x77:
             // Wilderness Lore. Ghidra case 0x77 frames 0x5C/0x5E, tooltip
@@ -1918,7 +1963,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             SetState(0x6A, 1);
             return;
         case 0xE:
-            // Quick-spell tab â€” Ghidra FUN_00594280(0xE): SetState 0x69.
+            // Use Item. Ghidra FUN_00594280(0xE): SetState 0x69.
             pGame->SetState(0);
             SetSelectedButton(0xE);
             UpdateButtons();

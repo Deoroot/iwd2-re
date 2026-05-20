@@ -183,13 +183,13 @@ void CTimerWorld::CheckForTriggerEventAbsolute()
         }
 
         if (time >= TIME_DUSK && time < TIME_NIGHT) {
-            BYTE nNewPercentage = -1 - ((time + 16682716) << 8) / TIMESCALE_MSEC_PER_HOUR;
+            BYTE nNewPercentage = static_cast<BYTE>(-1 - ((time + 16682716) << 8) / TIMESCALE_MSEC_PER_HOUR);
             if (nNewPercentage != m_nLastPercentage) {
                 pActiveArea->SetDusk(nNewPercentage, TRUE);
                 m_nLastPercentage = nNewPercentage;
             }
         } else if (time >= TIME_DAWN && time < TIME_DAY) {
-            BYTE nNewPercentage = ((time + 16750216) << 8) / TIMESCALE_MSEC_PER_HOUR;
+            BYTE nNewPercentage = static_cast<BYTE>(((time + 16750216) << 8) / TIMESCALE_MSEC_PER_HOUR);
             if (nNewPercentage != m_nLastPercentage) {
                 pActiveArea->SetDawn(nNewPercentage, TRUE);
                 m_nLastPercentage = nNewPercentage;
@@ -224,14 +224,14 @@ void CTimerWorld::CheckForTriggerEventPast()
                 }
             } else if (time >= TIME_DAY) {
                 // TODO: Figure out constants, math should be simpler.
-                BYTE nNewPercentage = -1 - ((time + 16682716) << 8) / TIMESCALE_MSEC_PER_HOUR;
+                BYTE nNewPercentage = static_cast<BYTE>(-1 - ((time + 16682716) << 8) / TIMESCALE_MSEC_PER_HOUR);
                 if (nNewPercentage != m_nLastPercentage) {
                     pActiveArea->SetDusk(nNewPercentage, TRUE);
                     m_nLastPercentage = nNewPercentage;
                 }
             } else {
                 // TODO: Figure out constants, math should be simpler.
-                BYTE nNewPercentage = -1 - ((time + 16750216) << 8) / TIMESCALE_MSEC_PER_HOUR;
+                BYTE nNewPercentage = static_cast<BYTE>(-1 - ((time + 16750216) << 8) / TIMESCALE_MSEC_PER_HOUR);
                 if (nNewPercentage != m_nLastPercentage) {
                     pActiveArea->SetDawn(nNewPercentage, TRUE);
                     m_nLastPercentage = nNewPercentage;
@@ -393,7 +393,7 @@ BOOLEAN CTimerWorld::IsDusk()
 // 0x45B500
 BYTE CTimerWorld::GetCurrentHour()
 {
-    return m_gameTime % TIMESCALE_MSEC_PER_DAY / TIMESCALE_MSEC_PER_SEC / TIMESCALE_SEC_PER_MIN / TIMESCALE_MIN_PER_HOUR;
+    return static_cast<BYTE>(m_gameTime % TIMESCALE_MSEC_PER_DAY / TIMESCALE_MSEC_PER_SEC / TIMESCALE_SEC_PER_MIN / TIMESCALE_MIN_PER_HOUR);
 }
 
 // NOTE: Inlined.
