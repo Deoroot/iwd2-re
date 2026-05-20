@@ -860,7 +860,7 @@ SHORT CGameAIBase::MoveViewObject(CGameObject* target)
 
     CPoint dest(target->GetPos());
 
-    CRect viewPort(target->GetArea()->GetInfinity()->rViewPort);
+    CRect viewPort(GetArea()->GetInfinity()->rViewPort);
     dest.x -= viewPort.Width() / 2;
     dest.y -= viewPort.Height() / 2;
 
