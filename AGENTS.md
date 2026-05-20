@@ -81,9 +81,17 @@ Mutations commit immediately. Save project after rename batches. `bash scripts/g
 
 ## Build & Run
 ```powershell
+# Kill running instance (PowerShell)
+Get-Process | Where-Object { $_.ProcessName -like '*iwd2*' -or $_.Path -like '*iwd2-re.exe' } | Stop-Process -Force
+
+# Build
 cmake --build build --config Debug
+
+# Deploy
 Copy-Item build/Debug/iwd2-re.exe "C:\GOG Games\Icewind Dale 2\" -Force
-python scripts/click_load_original.py  # smoke test
+
+# Smoke test
+python scripts/click_load_original.py
 ```
 
 ## Refs
