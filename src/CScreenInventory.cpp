@@ -4196,7 +4196,56 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
         return TRUE;
     }
 
+    // Empty-slot fallback.  When no item icon is set, the original paints a
+    // type-specific STON* placeholder (STONHELM for helmet, STONWEAP for
+    // main weapon, STONSHIL for off-hand, STONQUIV for ammo, STONITEM for
+    // quick items, etc.).  Map button ID → STON* resref via the inverse
+    // of MapButtonIdToInventoryId.
     if (cResIcon == "") {
+        CResRef cStone;
+        switch (m_nID) {
+        case 14:                          // amulet
+            cStone = CResRef("STONAMUL"); break;
+        case 11:                          // armor
+            cStone = CResRef("STONARM"); break;
+        case 21:                          // belt
+            cStone = CResRef("STONBELT"); break;
+        case 25:                          // boots
+            cStone = CResRef("STONBOOT"); break;
+        case 24:                          // cloak
+            cStone = CResRef("STONCLOK"); break;
+        case 12:                          // gauntlets
+            cStone = CResRef("STONGLET"); break;
+        case 13:                          // helmet
+            cStone = CResRef("STONHELM"); break;
+        case 22: case 23:                 // rings
+            cStone = CResRef("STONRING"); break;
+        case 15: case 16: case 17:        // ammo / quiver
+            cStone = CResRef("STONQUIV"); break;
+        case 5: case 6: case 7:           // quick items
+            cStone = CResRef("STONITEM"); break;
+        case 101: case 103: case 105: case 107:
+            cStone = CResRef("STONWEAP"); break;
+        case 102: case 104: case 106: case 108:
+            cStone = CResRef("STONSHIL"); break;
+        }
+        if (cStone != "") {
+            CRect rControlFrameSt(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
+            CRect rClipSt;
+            rClipSt.IntersectRect(rControlFrameSt, m_rDirty);
+            CIcon::RenderIcon(0,
+                rControlFrameSt.TopLeft(),
+                m_size,
+                rClipSt,
+                cStone,
+                m_pPanel->m_pManager->m_bDoubleSize,
+                0,
+                0,
+                FALSE,
+                0,
+                FALSE,
+                0);
+        }
         InvalidateRect();
         return TRUE;
     }
@@ -4255,13 +4304,11 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
                 m_pPanel->m_pManager->m_bDoubleSize, TRUE, FALSE);
             if (cBorder.pRes != NULL) {
                 cBorder.SequenceSet(0);
-                // Cycle-0 lookup index 2 (main) / 3 (off-hand) → STONSLOT
-                // frames 4 / 22.  Frame 22 is the green ring used for the
-                // active off-hand; frame 4 is the red main-hand selection
-                // outline.  Original IWD2 distinguishes the two; we keep
-                // the same split.
-                BOOL bOffhand = ((m_nID - 101) & 1) != 0;
-                cBorder.FrameSet(bOffhand ? 22 : 4);
+                // STONSLOT frame 22 = green ring overlay used by the
+                // original for both slots of the active weapon set.  The
+                // red-bordered variants (frames 4/5) are reserved for
+                // mouse-over / drag-source feedback elsewhere.
+                cBorder.FrameSet(22);
                 cBorder.Render(0, pos.x, pos.y, rClip, NULL, 0, 0, -1);
             }
         }
