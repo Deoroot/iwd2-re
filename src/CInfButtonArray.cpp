@@ -255,24 +255,34 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
     case 0x7B: {
         // Picker states (weapon / spell / item / ability / song).  Per Ghidra
         // SetState (0x589110) + FUN_00587c20: build the dynamic list of
-        // available entries, populate slots 0..N-1 with formation-submenu
-        // types 0x15..0x20 (paging at 0x21/0x22 when N > 12).  Slot icons
-        // are overridden in UpdateButtons via m_pPickerList[nButton].
+        // available entries.  When N ≤ 12 the slots use formation-submenu
+        // types 0x15..0x20 (entry = buttonType - 0x15).  When N > 12 the
+        // layout switches to paging buttons: slot 0 = 0x21 (page-up arrow),
+        // slots 1..10 = 0x15..0x1E (entries), slot 11 = 0x22 (page-down).
+        // m_nPickerPage holds the current page offset (in units of 10
+        // entries).
         m_nState = nState;
         RebuildPickerList();
-        INT nEntries = 0;
-        if (m_pPickerList != NULL) {
-            nEntries = static_cast<INT>(m_pPickerList->GetCount());
-        }
-        // Cap at 12 for now — paging (0x21/0x22) not yet implemented.
+        m_nPickerPage = 0;
+        INT nEntries = (m_pPickerList != NULL)
+            ? static_cast<INT>(m_pPickerList->GetCount())
+            : 0;
         if (nEntries > 12) {
-            nEntries = 12;
-        }
-        for (INT nButton = 0; nButton < 12; nButton++) {
-            if (nButton < nEntries) {
-                m_buttonTypes[nButton] = 0x15 + nButton;
-            } else {
-                m_buttonTypes[nButton] = 100;
+            // Paging layout — slot 0 = page up, slots 1-10 = entries
+            // (filled by UpdateButtons via m_nPickerPage), slot 11 = page
+            // down.  Type 0x21 / 0x22 already in UpdateButtons.
+            m_buttonTypes[0] = 0x21;
+            for (INT nButton = 1; nButton < 11; nButton++) {
+                m_buttonTypes[nButton] = 0x15 + (nButton - 1);
+            }
+            m_buttonTypes[11] = 0x22;
+        } else {
+            for (INT nButton = 0; nButton < 12; nButton++) {
+                if (nButton < nEntries) {
+                    m_buttonTypes[nButton] = 0x15 + nButton;
+                } else {
+                    m_buttonTypes[nButton] = 100;
+                }
             }
         }
         UpdateButtons();
@@ -680,16 +690,28 @@ void CInfButtonArray::UpdateButtons()
                 bHasOverlay = FALSE;
             } else if (m_pPickerList != NULL) {
                 // Picker list entry — pull icon + tooltip from the
-                // CGameButtonList built in RebuildPickerList.  The entry
-                // index equals the formation submenu offset (button type -
-                // 0x15) so the first list entry sits at slot 0.
-                INT nEntry = m_buttonTypes[nButton] - 0x15;
-                POSITION pos = m_pPickerList->FindIndex(nEntry);
+                // CGameButtonList built in RebuildPickerList.  Two layouts:
+                //   * ≤ 12 entries: nEntry = buttonType - 0x15 (slot maps
+                //     directly to list index).
+                //   * > 12 entries (paging): nEntry = page * 10 + (buttonType
+                //     - 0x15); slots 0 + 11 hold the 0x21/0x22 arrows and
+                //     fall through to their own UpdateButtons cases.
+                INT nListCount = static_cast<INT>(m_pPickerList->GetCount());
+                INT nEntry;
+                if (nListCount > 12) {
+                    nEntry = m_nPickerPage * 10 + (m_buttonTypes[nButton] - 0x15);
+                } else {
+                    nEntry = m_buttonTypes[nButton] - 0x15;
+                }
+                POSITION pos = (nEntry >= 0 && nEntry < nListCount)
+                    ? m_pPickerList->FindIndex(nEntry)
+                    : NULL;
                 CButtonData* pEntry = (pos != NULL) ? m_pPickerList->GetAt(pos) : NULL;
                 if (pEntry != NULL && pEntry->m_icon != "") {
                     cIconResRef = pEntry->m_icon;
                     nIconNormalFrame = 0;
                     nIconSelectedFrame = 0;
+                    nIconSequence = 1;  // item-style icon BAM
                     nToolTip = pEntry->m_name;
                     bGreyOut = pEntry->m_bDisabled;
                     bHasOverlay = FALSE;
@@ -1115,14 +1137,39 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     case 0x71:
     case 0x7A:
     case 0x7B:
+        // Page-up / page-down clicks — adjust m_nPickerPage and re-render
+        // without changing the state.  Ghidra OnLButton state 0x66/0x67
+        // case 0x21 / 0x22 do the same bounds-checked increment.
+        if (nButtonType == 0x21) {
+            if (m_nPickerPage > 0) {
+                m_nPickerPage--;
+                UpdateButtons();
+            }
+            return;
+        }
+        if (nButtonType == 0x22) {
+            INT nMax = (m_pPickerList != NULL)
+                ? (static_cast<INT>(m_pPickerList->GetCount()) - 10) / 10 + 1
+                : 0;
+            if (m_nPickerPage + 1 <= nMax) {
+                m_nPickerPage++;
+                UpdateButtons();
+            }
+            return;
+        }
         // Picker click — look up the selected entry in m_pPickerList and
         // dispatch via CGameSprite::UseButtonAction.  Matches Ghidra
         // FUN_005886a0 (used by states 0x66/0x67 and 0x68/0x69 in the
         // original): copy the CButtonData onto the stack, then call
         // sprite->UseButtonAction(data, 0).
         if (nButtonType >= 0x15 && nButtonType <= 0x20 && m_pPickerList != NULL) {
-            INT nEntry = nButtonType - 0x15;
-            POSITION pos = m_pPickerList->FindIndex(nEntry);
+            INT nListCount = static_cast<INT>(m_pPickerList->GetCount());
+            INT nEntry = (nListCount > 12)
+                ? (m_nPickerPage * 10 + (nButtonType - 0x15))
+                : (nButtonType - 0x15);
+            POSITION pos = (nEntry >= 0 && nEntry < nListCount)
+                ? m_pPickerList->FindIndex(nEntry)
+                : NULL;
             CButtonData* pEntry = (pos != NULL) ? m_pPickerList->GetAt(pos) : NULL;
             if (pEntry != NULL && !pEntry->m_bDisabled) {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
