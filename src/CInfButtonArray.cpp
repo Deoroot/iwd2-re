@@ -1212,7 +1212,12 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
                     if (m_nState == 0x68 || m_nState == 0x69) {
                         pSprite->ReadyOffInternalList(*pEntry, 0);
+                    } else if (m_nState == 0x6A || m_nState == 0x6B) {
+                        pSprite->UseButtonItem(*pEntry, 0);
                     } else {
+                        // Spells (0x66/0x67), songs (0x70/0x71/0x7A) and the
+                        // 0x7B catch-all all funnel into the generic AI
+                        // action dispatcher.
                         pSprite->UseButtonAction(*pEntry, 0);
                     }
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
