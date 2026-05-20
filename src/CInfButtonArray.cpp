@@ -1530,6 +1530,34 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         }
         SetState(0x72, 0);
         return;
+    case 0x77:
+        // Customize class picker — entered from state 0x75 case 0x24 via
+        // OnRButtonPressed.  Per Ghidra OnLButtonPressed state 0x77: each
+        // class button (0x32-0x39) writes its own type into the customize
+        // slot's m_customButtonTypes entry + sprite mirror, so the action
+        // bar slot becomes a "per-class quick spell" launcher.  Other
+        // clicks (empty slot, etc.) just pop back to 0x72.
+        if (nButtonType >= 0x32 && nButtonType <= 0x39
+            && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
+            m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
+            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+            CGameSprite* pSprite = NULL;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+                pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+        SetState(0x72, 0);
+        return;
     case 0x79:
         // Quick-weapon picker (entered from state 0x72 right-click on a
         // weapon slot).  Per Ghidra OnLButtonPressed state 0x79: a click
