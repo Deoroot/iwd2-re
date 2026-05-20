@@ -1536,47 +1536,57 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x74:
         case 0x75:
         case 0x76:
-            // Quick song click.  Ghidra default case 0x6E-0x76: GetDeny
-            // leader, FUN_00587f80(slot - 0x6E, &cButtonData, 6) to fetch the
-            // song's button-data, then FUN_00588820(buttonData, 1) to play.
-            // Simplified: route through the song selection state when the
-            // slot is empty (no data), otherwise toggle modal state 1 and let
-            // CGameSprite handle the rest.
+            // Quick song click.  Ghidra default case 0x6E-0x76 reads the
+            // assigned CButtonData via GetQuickSong, then calls
+            // FUN_00588820(buttonData, 1) which dispatches through the AI
+            // action table.  UseButtonAction is our generic equivalent — it
+            // handles spell / item / ability / song uniformly.
             {
+                CButtonData buttonData;
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        reinterpret_cast<CGameObject**>(&pSprite),
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    if (pSprite->GetModalState() == 1) {
+                    pSprite->GetQuickSong(static_cast<BYTE>(nButtonType - 0x6E), buttonData);
+                    if (buttonData.m_icon != "") {
+                        pSprite->UseButtonAction(buttonData, 0);
+                    } else if (pSprite->GetModalState() == 1) {
+                        // No assigned song — toggle out of song-modal mode.
                         pSprite->SetModalState(0, 0);
-                        SetSelectedButton(100);
-                    } else {
-                        pSprite->SetModalState(1, 0);
-                        SetSelectedButton(2);
                     }
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
                 }
+                pGame->SetState(0);
+                SetSelectedButton(100);
                 UpdateButtons();
             }
             return;
         case 0x77:
-            // Weapon flip — cycle to next quick-weapon set.  Ghidra calls
-            // CGameSprite::SwitchWeaponSet; simplified inline increment.
+            // Weapon flip — cycle to next quick-weapon set.  Uses
+            // CGameSprite::SetWeaponSet which also updates the sprite's
+            // m_selectedWeapon equipment slot and emits the equip animation.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        reinterpret_cast<CGameObject**>(&pSprite),
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    pSprite->m_nWeaponSet = (pSprite->m_nWeaponSet + 1) & 0x3;
-                    m_nQuickWeaponSlot = pSprite->m_nWeaponSet;
+                    BYTE nNext = static_cast<BYTE>((pSprite->m_nWeaponSet + 1) & 0x3);
+                    pSprite->SetWeaponSet(nNext);
+                    m_nQuickWeaponSlot = nNext;
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
