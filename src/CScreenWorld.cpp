@@ -445,10 +445,6 @@ void CScreenWorld::EngineActivated()
                     m_nChatMessageCount);
             }
 
-            DBG("WORLD_READY characters=%d selected=%d area=%s",
-                g_pBaldurChitin->GetObjectGame()->m_nCharacters,
-                g_pBaldurChitin->GetObjectGame()->m_nCharacters > 0 ? g_pBaldurChitin->GetObjectGame()->GetCharacterId(0) : -1,
-                (LPCSTR)g_pBaldurChitin->GetObjectGame()->m_gameSave.m_cResCurrentWorldArea.GetResRefStr());
         }
     }
 }
