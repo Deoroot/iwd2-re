@@ -19,15 +19,15 @@ const BYTE CInfButtonArray::STATE_NONE = 0;
 CInfButtonSettings::CInfButtonSettings()
 {
     field_1C8 = 0;
-    field_1CC = 0;
-    field_1D8 = 0;
+    m_bSelected = 0;
+    m_nCount = 0;
     field_0 = 0;
-    field_4 = 0;
-    field_8 = 0;
-    field_1D0 = 0;
+    m_bActive = 0;
+    m_bHasOverlay = 0;
+    m_bActiveWeaponSet = 0;
     m_bGreyOut = FALSE;
-    field_C = -1;
-    field_10 = -1;
+    m_nIconNormalFrame = -1;
+    m_nIconSelectedFrame = -1;
 }
 
 // 0x587B80
@@ -415,22 +415,28 @@ void CInfButtonArray::UpdateButtons()
         CResRef cIconResRef("GUIBTACT");
         SHORT nIconNormalFrame = -1;
         SHORT nIconSelectedFrame = -1;
+        SHORT nIconSequence = 0;
         STRREF nToolTip = -1;
         USHORT nHotKey = 0xFFFF;
         BOOL bEnabled = TRUE;
         BOOL bActive = TRUE;
         BOOL bGreyOut = FALSE;
         BOOL bActiveWeaponSet = FALSE;
-        // field_8 selects the render path in CUIControlButtonAction::Render:
+        // m_bHasOverlay selects the render path in CUIControlButtonAction::Render:
         //   1 = GUIBTACT-style overlay (Protect/Attack/Cast etc.) — the BAM
         //       bakes its own stone bezel, so CUIControlButton::Render base
         //       must be skipped.
         //   0 = STON*-style icon (small silhouette over a regular GUIBTBUT
         //       bezel) — base GUIBTBUT must be painted underneath.
-        // Original UpdateButtons at 0x58A340 sets field_8 per case.
+        // Original UpdateButtons at 0x58A340 sets m_bHasOverlay per case.
         BOOL bHasOverlay = TRUE;
+        // Item icon BAMs (IBLUN/ISHD/SW1H/IPOTN...) carry two cycles:
+        //   cycle 0 = inventory icon (large, e.g. 53x43)
+        //   cycle 1 = action-bar icon (small, e.g. 26x27)
+        // STON*/FORMx/GUIBTACT have one cycle so 0 is the safe default.
+        // Item-icon cases below override to 1.
 
-        settings.field_1CC = m_nSelectedButton == m_buttonTypes[nButton];
+        settings.m_bSelected = m_nSelectedButton == m_buttonTypes[nButton];
         settings.m_bGreyOut = FALSE;
 
         switch (m_buttonTypes[nButton]) {
@@ -456,6 +462,9 @@ void CInfButtonArray::UpdateButtons()
         case 0x12:
         case 0x13:
         case 0x14: {
+            // Quick formation slot.  Per Ghidra UpdateButtons (case 0x10-0x14
+            // at 0x58A340) m_bHasOverlay = 0: FORMx is a small ~24x22 icon
+            // that sits inside a GUIBTBUT bezel, not a full-button overlay.
             INT nFormationButton = m_buttonTypes[nButton] - 0x10;
             SHORT nFormation = g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_quickFormations[nFormationButton];
             if (nFormation < 0) {
@@ -473,11 +482,12 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0;
             nToolTip = 0x1347;
             nHotKey = static_cast<USHORT>(0x20 + nFormationButton);
+            bHasOverlay = FALSE;
             break;
         }
         case 2:
             // Bard song.  Ghidra UpdateButtons case 2 sets field_1C8 (=
-            // settings.field_1C8) and may set field_1CC if currently in song
+            // settings.field_1C8) and may set m_bSelected if currently in song
             // modal. Tooltip 0x1336, hotkey 0xA.
             nIconNormalFrame = 0x14;
             nIconSelectedFrame = 0x16;
@@ -556,6 +566,8 @@ void CInfButtonArray::UpdateButtons()
         case 0x1E:
         case 0x1F:
         case 0x20: {
+            // Formation picker sub-grid (state 0x6C / 0x6D) — Ghidra sets
+            // m_bHasOverlay = 0 here too: small FORMx icon over GUIBTBUT.
             if (m_nState == 0x6C || m_nState == 0x6D) {
                 INT nFormation = m_buttonTypes[nButton] - 0x15;
                 CString sResRef;
@@ -567,6 +579,7 @@ void CInfButtonArray::UpdateButtons()
                 cIconResRef = CResRef(sResRef);
                 nIconNormalFrame = 0;
                 nIconSelectedFrame = 0;
+                bHasOverlay = FALSE;
             } else {
                 bActive = FALSE;
                 bEnabled = FALSE;
@@ -673,6 +686,7 @@ void CInfButtonArray::UpdateButtons()
                 cIconResRef = buttonData.m_icon;
                 nIconNormalFrame = 0;
                 nIconSelectedFrame = 0;
+                nIconSequence = 1;  // small action-bar cycle
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
@@ -685,7 +699,7 @@ void CInfButtonArray::UpdateButtons()
             nHotKey = static_cast<USHORT>(0x19 + (m_buttonTypes[nButton] - 0x3C));
             // Green border: this slot matches the sprite's currently-active
             // weapon set (sprite.m_quickWeaponSet stores the set index, each
-            // set occupies a main+off pair).  Drives settings.field_1D0.
+            // set occupies a main+off pair).  Drives settings.m_bActiveWeaponSet.
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
                 && static_cast<BYTE>(nWeaponSlot >> 1) == pSprite->m_nWeaponSet) {
                 bActiveWeaponSet = TRUE;
@@ -712,6 +726,7 @@ void CInfButtonArray::UpdateButtons()
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
+                nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
@@ -733,6 +748,7 @@ void CInfButtonArray::UpdateButtons()
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
+                nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
@@ -762,6 +778,7 @@ void CInfButtonArray::UpdateButtons()
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
+                nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
@@ -789,6 +806,7 @@ void CInfButtonArray::UpdateButtons()
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
+                nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
@@ -809,28 +827,30 @@ void CInfButtonArray::UpdateButtons()
         }
 
         settings.field_0 = bActive ? 1 : 0;
-        settings.field_4 = bActive ? 1 : 0;
-        settings.field_8 = bHasOverlay ? 1 : 0;
-        settings.field_C = nIconNormalFrame;
-        settings.field_10 = nIconSelectedFrame;
-        settings.field_1C8 = 0;
-        settings.field_1D0 = bActiveWeaponSet ? 1 : 0;
-        settings.field_1D8 = 0;
+        settings.m_bActive = bActive ? 1 : 0;
+        settings.m_bHasOverlay = bHasOverlay ? 1 : 0;
+        settings.m_nIconNormalFrame = nIconNormalFrame;
+        settings.m_nIconSelectedFrame = nIconSelectedFrame;
+        settings.m_bActiveWeaponSet = bActiveWeaponSet ? 1 : 0;
+        settings.m_nCount = 0;
         settings.m_bGreyOut = !bEnabled || bGreyOut;
         settings.field_14.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
-        settings.field_14.SequenceSet(0);
+        settings.field_14.SequenceSet(nIconSequence);
         if (nIconNormalFrame >= 0) {
             settings.field_14.FrameSet(nIconNormalFrame);
         }
+        // Stash sequence in field_1C8 so RenderButton can re-apply it when
+        // swapping between normal/selected frames without resetting to 0.
+        settings.field_1C8 = nIconSequence;
         settings.field_EE.SetResRef(CResRef(""), pPanel->m_pManager->m_bDoubleSize, FALSE, FALSE);
 
         // Selection highlight: GUIBTBUT cycle entries 0x18+ map to frame 2
         // (red border) per the BAM lookup table.  Original RenderButton at
-        // 0x5957C0 swaps to these frames when settings.field_1CC is set
+        // 0x5957C0 swaps to these frames when settings.m_bSelected is set
         // (m_nSelectedButton matches this button's type).
         SHORT nNormalFrame = static_cast<SHORT>(nButton * 2);
         SHORT nPressedFrame = static_cast<SHORT>(nButton * 2 + 1);
-        if (settings.field_1CC != 0) {
+        if (settings.m_bSelected != 0) {
             nNormalFrame = static_cast<SHORT>(nButton * 2 + 0x18);
             nPressedFrame = static_cast<SHORT>(nButton * 2 + 0x19);
         }
@@ -876,19 +896,19 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
 
     INT nScale = g_pBaldurChitin->field_4A2C != 0 ? 2 : 1;
     // Two render origins per Ghidra:
-    //   - FUN_005957C0 (GUIBTACT overlay, field_8 != 0): draws at pt+0 with
+    //   - FUN_005957C0 (GUIBTACT overlay, m_bHasOverlay != 0): draws at pt+0 with
     //     full 38x38 (scaled) button rect — the action BAM bakes its bezel.
-    //   - FUN_005950F0 (STON*/item BG, field_8 == 0): draws at pt+3 (scaled)
+    //   - FUN_005950F0 (STON*/item BG, m_bHasOverlay == 0): draws at pt+3 (scaled)
     //     with 32x32 frames that sit inside the GUIBTBUT bezel.
-    BOOL bOverlay = settings.field_8 != 0;
+    BOOL bOverlay = settings.m_bHasOverlay != 0;
     CPoint ptIcon = bOverlay ? pt : CPoint(pt.x + 3 * nScale, pt.y + 3 * nScale);
 
     // Active-weapon-set green ring overlay.  Original FUN_005950F0 loads BAM
-    // "HIGHLGHT" inline when settings.field_1D0 != 0 && settings.field_1CC == 0
+    // "HIGHLGHT" inline when settings.m_bActiveWeaponSet != 0 && settings.m_bSelected == 0
     // (the selection-highlight always takes precedence).  We construct the
     // CVidCell inline here too — this is a UI render path called only when the
     // bar is visible, so the cost is amortized.
-    if (settings.field_1D0 != 0 && settings.field_1CC == 0) {
+    if (settings.m_bActiveWeaponSet != 0 && settings.m_bSelected == 0) {
         CVidCell cHighlight;
         cHighlight.SetResRef(CResRef("HIGHLGHT"), nScale == 2, TRUE, FALSE);
         cHighlight.SequenceSet(0);
@@ -896,16 +916,16 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
         cHighlight.Render(0, pt.x + 3 * nScale, pt.y + 3 * nScale, rClip, NULL, 0, 0, -1);
     }
 
-    SHORT nFrame = settings.field_C;
-    if (settings.field_1CC != 0 && settings.field_10 >= 0) {
-        nFrame = settings.field_10;
+    SHORT nFrame = settings.m_nIconNormalFrame;
+    if (settings.m_bSelected != 0 && settings.m_nIconSelectedFrame >= 0) {
+        nFrame = settings.m_nIconSelectedFrame;
     }
-    if (bPressed && nFrame >= 0 && settings.field_C != settings.field_10) {
+    if (bPressed && nFrame >= 0 && settings.m_nIconNormalFrame != settings.m_nIconSelectedFrame) {
         nFrame++;
     }
 
     if (nFrame >= 0) {
-        settings.field_14.SequenceSet(0);
+        settings.field_14.SequenceSet(static_cast<SHORT>(settings.field_1C8));
         settings.field_14.FrameSet(nFrame);
     }
 

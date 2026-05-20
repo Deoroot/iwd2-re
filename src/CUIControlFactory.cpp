@@ -4269,28 +4269,29 @@ BOOL CUIControlButtonAction::Render(BOOL bForce)
     BOOL bIsActionSlot = nButton >= 0 && nButton < 12;
     CInfButtonSettings* pSettings = bIsActionSlot ? &pArray->m_buttonArray[nButton] : NULL;
 
-    // Active slot whose icon BAM covers the whole 38x38 button rect:
-    // Ghidra's FUN_005957C0 paints settings.field_14 at pt+0 with the full
-    // button size, and that BAM (GUIBTACT / FORMx) bakes the stone bezel in
-    // its frame.  Painting CUIControlButton::Render first would just be
-    // overwritten, but it's harmless.  We skip the base only in that case
-    // for parity; every other code path (STON*, inactive type 100, etc.)
-    // wants the plain GUIBTBUT bezel underneath so the panel BG (GACTN008's
-    // continuous strip) doesn't show through.
+    // Inactive slot (settings.field_0 == 0): both FUN_005957C0 and
+    // FUN_005950F0 short-circuit, leaving the panel BG (GACTN008 strip)
+    // visible.  Reproduce: skip every paint path here.  Important for
+    // group state 0x6E slots 8-11 (type 100) to render blank as in the
+    // original screenshots.
+    if (pSettings != NULL && pSettings->field_0 == 0) {
+        return 1;
+    }
+
+    // Active slot.  m_bHasOverlay selects the bezel-handling path:
+    //   != 0 → GUIBTACT-style 38×38 BAM bakes its own stone bezel; skip
+    //          CUIControlButton::Render (would be painted then immediately
+    //          covered up).
+    //   == 0 → STON*-/FORM*-/item-style 32×32 icon centred inside a regular
+    //          GUIBTBUT bezel.  Paint the base GUIBTBUT first, then the
+    //          small icon over it.
     BOOL bIconCoversBezel = pSettings != NULL
-        && pSettings->field_0 != 0
-        && pSettings->field_8 != 0
-        && pSettings->field_C >= 0;
+        && pSettings->m_bHasOverlay != 0
+        && pSettings->m_nIconNormalFrame >= 0;
 
     BOOL bResult = TRUE;
     if (!bIconCoversBezel) {
         bResult = CUIControlButton::Render(bForce);
-    }
-
-    // Inactive slot (settings.field_0 == 0): base already drawn above; the
-    // icon overlay/BG passes both no-op in the original, so stop here.
-    if (pSettings != NULL && pSettings->field_0 == 0) {
-        return bResult;
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
