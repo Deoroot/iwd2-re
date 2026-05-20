@@ -214,7 +214,7 @@ void CGameAIBase::CheckTimers(LONG cycles)
             // NOTE: Uninline.
             SetTrigger(trigger);
 
-            m_timers.RemoveAt(pos);
+            m_timers.RemoveAt(oldPos);
             delete pTimer;
         }
     }
