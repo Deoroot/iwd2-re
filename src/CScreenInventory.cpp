@@ -4196,34 +4196,33 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
         return TRUE;
     }
 
-    // Empty-slot fallback.  When no item icon is set, the original paints a
-    // type-specific STON* placeholder (STONHELM for helmet, STONWEAP for
-    // main weapon, STONSHIL for off-hand, STONQUIV for ammo, STONITEM for
-    // quick items, etc.).  Map button ID → STON* resref via the inverse
-    // of MapButtonIdToInventoryId.
+    // Empty-slot fallback.  Per Ghidra CUIControlButtonInventorySlot::Render
+    // (0x62DDE0): equipment slots (helmet/armor/ammo/etc.) and quick-weapon
+    // slots have a per-slot STON* placeholder set up in a switch case before
+    // falling through to RenderIcon.  Quick items (5/6/7) and the inventory
+    // grid (30-45/73-80) explicitly `goto LAB_0062dff4` instead and have no
+    // fallback — empty stays transparent so the panel BG shows through.
     if (cResIcon == "") {
         CResRef cStone;
         switch (m_nID) {
-        case 14:                          // amulet
-            cStone = CResRef("STONAMUL"); break;
         case 11:                          // armor
             cStone = CResRef("STONARM"); break;
-        case 21:                          // belt
-            cStone = CResRef("STONBELT"); break;
-        case 25:                          // boots
-            cStone = CResRef("STONBOOT"); break;
-        case 24:                          // cloak
-            cStone = CResRef("STONCLOK"); break;
         case 12:                          // gauntlets
             cStone = CResRef("STONGLET"); break;
         case 13:                          // helmet
             cStone = CResRef("STONHELM"); break;
-        case 22: case 23:                 // rings
-            cStone = CResRef("STONRING"); break;
+        case 14:                          // amulet
+            cStone = CResRef("STONAMUL"); break;
         case 15: case 16: case 17:        // ammo / quiver
             cStone = CResRef("STONQUIV"); break;
-        case 5: case 6: case 7:           // quick items
-            cStone = CResRef("STONITEM"); break;
+        case 21:                          // belt
+            cStone = CResRef("STONBELT"); break;
+        case 22: case 23:                 // rings
+            cStone = CResRef("STONRING"); break;
+        case 24:                          // cloak
+            cStone = CResRef("STONCLOK"); break;
+        case 25:                          // boots
+            cStone = CResRef("STONBOOT"); break;
         case 101: case 103: case 105: case 107:
             cStone = CResRef("STONWEAP"); break;
         case 102: case 104: case 106: case 108:
@@ -4299,17 +4298,19 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
                 INFINITE);
         }
         if (bActive) {
-            CVidCell cBorder;
-            cBorder.SetResRef(CResRef("STONSLOT"),
+            // Active weapon-set ring.  Same HIGHLGHT BAM the action bar uses
+            // (CInfButtonArray::RenderButton at 0x5950F0 lines 69-80 loads
+            // HIGHLGHT inline when settings.m_bActiveWeaponSet != 0).  The
+            // BAM is a 32x32 transparent green outline that sits inside the
+            // 36x36 slot bezel.
+            CVidCell cHighlight;
+            cHighlight.SetResRef(CResRef("HIGHLGHT"),
                 m_pPanel->m_pManager->m_bDoubleSize, TRUE, FALSE);
-            if (cBorder.pRes != NULL) {
-                cBorder.SequenceSet(0);
-                // STONSLOT frame 22 = green ring overlay used by the
-                // original for both slots of the active weapon set.  The
-                // red-bordered variants (frames 4/5) are reserved for
-                // mouse-over / drag-source feedback elsewhere.
-                cBorder.FrameSet(22);
-                cBorder.Render(0, pos.x, pos.y, rClip, NULL, 0, 0, -1);
+            if (cHighlight.pRes != NULL) {
+                cHighlight.SequenceSet(0);
+                cHighlight.FrameSet(0);
+                INT nScale = m_pPanel->m_pManager->m_bDoubleSize ? 2 : 1;
+                cHighlight.Render(0, pos.x + 2 * nScale, pos.y + 2 * nScale, rClip, NULL, 0, 0, -1);
             }
         }
     }
