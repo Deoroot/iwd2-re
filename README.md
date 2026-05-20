@@ -29,6 +29,8 @@ Original source code was never released. This project reconstructs it by analyzi
 | **UI Screens** | Working | Options, Keymaps, Single Player, Party Select, Character Creation |
 | **Load Game** | **Working** | Save list + preview thumbnails fixed |
 | **World Screen** | **Partial** | Loads from menu; blocked on AI/dialogue pipeline |
+| **Action Bar** | **Working** | Skills submenu, customize menu, weapon picker, all sub-menus exit correctly |
+| **Inventory** | **Working** | Slots, weapon icons, active-set highlight, STON* fallback for empties |
 | **Gameplay** | **Not working** | Requires `ProcessAI` / `ExecuteAction` implementation |
 
 **Current milestone**: Reconstruct the AI and dialogue runtime (`CGameAIBase::ProcessAI`, `ExecuteAction`, `EvaluateStatusTrigger`).
@@ -37,11 +39,14 @@ Original source code was never released. This project reconstructs it by analyzi
 
 | Date | Achievement |
 |------|------------|
+| May 2026 | **Action Bar**: Customize menu (state 0x75), skills submenu (0x73), quick-weapon picker (0x79), class pickers (0x76/0x77), and all sub-menu exit paths wired per Ghidra |
+| May 2026 | **Inventory**: STON* fallback for empty equipment slots, active-set HIGHLGHT ring, quick-weapon panel rendering |
 | May 2026 | **Ghidra DB**: 4,963 functions renamed (88% named), 716 TODO/FIXME bookmarks imported |
 | May 2026 | **Tooling**: `scripts/ghidra_re.py` for rename/annotate; batch SQL via `ghidrasql -f` |
 | May 2026 | **Fields**: 26 `field_XXX` renamed across 10 classes (CRes, CChitin, CDimm, CUIManager, CNetwork, etc.) |
 | May 2026 | **Load Game**: Save list + preview thumbnails fixed |
 | May 2026 | **Critical sections**: Named and documented across CUIManager, CNetwork, CChitin |
+| May 2026 | **Cleanup**: 204 DBG() scaffolding calls + debuglog.h removed once boot was stable |
 
 ---
 
