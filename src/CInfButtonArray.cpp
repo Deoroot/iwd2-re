@@ -1208,6 +1208,108 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             UpdateButtons();
             return;
+        case 5:
+            // Generic modal — Ghidra FUN_00594280(5, sprite): toggles the
+            // sprite's modal state via SetModalState.  Simplified: if already
+            // in modal 5 clear it, else enter it.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    BYTE state = pSprite->GetModalState();
+                    if (state == 5 || state == 3) {
+                        pSprite->SetModalState(0, 0);
+                        SetSelectedButton(100);
+                    } else {
+                        pSprite->SetModalState(5, 0);
+                        SetSelectedButton(5);
+                    }
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                UpdateButtons();
+            }
+            return;
+        case 10:
+            // Find Traps — Ghidra FUN_00594280(10): SetState 0x6A (innate
+            // picker).  We route to 0x6A directly; picker state shows
+            // placeholder formation buttons until FUN_00587c20 is ported.
+            pGame->SetState(0);
+            SetSelectedButton(100);
+            UpdateButtons();
+            SetState(0x6A, 1);
+            return;
+        case 0xE:
+            // Quick-spell tab — Ghidra FUN_00594280(0xE): SetState 0x69.
+            pGame->SetState(0);
+            SetSelectedButton(0xE);
+            UpdateButtons();
+            SetState(0x69, 1);
+            return;
+        case 0x6E:
+        case 0x6F:
+        case 0x70:
+        case 0x71:
+        case 0x72:
+        case 0x73:
+        case 0x74:
+        case 0x75:
+        case 0x76:
+            // Quick song click.  Ghidra default case 0x6E-0x76: GetDeny
+            // leader, FUN_00587f80(slot - 0x6E, &cButtonData, 6) to fetch the
+            // song's button-data, then FUN_00588820(buttonData, 1) to play.
+            // Simplified: route through the song selection state when the
+            // slot is empty (no data), otherwise toggle modal state 1 and let
+            // CGameSprite handle the rest.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    if (pSprite->GetModalState() == 1) {
+                        pSprite->SetModalState(0, 0);
+                        SetSelectedButton(100);
+                    } else {
+                        pSprite->SetModalState(1, 0);
+                        SetSelectedButton(2);
+                    }
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                UpdateButtons();
+            }
+            return;
+        case 0x77:
+            // Weapon flip — cycle to next quick-weapon set.  Ghidra calls
+            // CGameSprite::SwitchWeaponSet; simplified inline increment.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    pSprite->m_nWeaponSet = (pSprite->m_nWeaponSet + 1) & 0x3;
+                    m_nQuickWeaponSlot = pSprite->m_nWeaponSet;
+                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                pGame->SetState(0);
+                SetSelectedButton(100);
+                UpdateState();
+            }
+            return;
         case 0x46:
         case 0x47:
         case 0x48:
