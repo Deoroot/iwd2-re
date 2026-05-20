@@ -1174,12 +1174,26 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
 {
     // TODO: Incomplete.
 
-    if (buttonID < 0 || buttonID >= 12 || m_buttonArray[buttonID].m_bGreyOut) {
+    if (buttonID < 0 || buttonID >= 12) {
         return;
     }
 
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     INT nButtonType = m_buttonTypes[buttonID];
+
+    // Greyout gate per Ghidra OnLButtonPressed entry: a greyed-out slot
+    // only blocks the click in state 0x72 (action bar) and in state 0x66
+    // for non-picker button types.  In every other submenu state the
+    // click must reach the handler — its default case is what pops the
+    // submenu back to the action bar when the user clicks an empty slot.
+    if (m_buttonArray[buttonID].m_bGreyOut) {
+        if (m_nState == 0x72) {
+            return;
+        }
+        if (m_nState == 0x66 && (nButtonType < 0x15 || nButtonType > 0x20)) {
+            return;
+        }
+    }
 
     switch (m_nState) {
     case 0x6C:
@@ -1506,6 +1520,34 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
                 pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+                pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+        SetState(0x72, 0);
+        return;
+    case 0x79:
+        // Quick-weapon picker (entered from state 0x72 right-click on a
+        // weapon slot).  Per Ghidra OnLButtonPressed state 0x79: a click
+        // on a 0x3C-0x43 button calls CGameSprite::SetWeaponSet with the
+        // set index (buttonType - 0x3C) / 2, updates the array's tracked
+        // quick-weapon slot, then exits to 0x72.  Any other click just
+        // exits.
+        if (nButtonType >= 0x3C && nButtonType <= 0x43) {
+            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+            CGameSprite* pSprite = NULL;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                BYTE nNewSet = static_cast<BYTE>((nButtonType - 0x3C) / 2);
+                pSprite->SetWeaponSet(nNewSet);
+                m_nQuickWeaponSlot = pSprite->m_nWeaponSet;
                 pGame->GetObjectArray()->ReleaseDeny(nLeader,
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
@@ -2008,7 +2050,15 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             SetState(0x67, 1);
             return;
         default:
-            break;
+            // Unhandled button click.  In submenu states (anything other
+            // than the main action bar 0x72 or the group bar 0x6E), this
+            // is how Ghidra exits — empty/unknown slot click pops the
+            // state stack back to 0x72 via the default branch.  We don't
+            // implement the state stack, so SetState(0x72, 0) directly.
+            if (m_nState != 0x72 && m_nState != 0x6E) {
+                SetState(0x72, 0);
+            }
+            return;
         }
         break;
     }
