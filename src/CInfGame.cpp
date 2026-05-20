@@ -784,7 +784,7 @@ CInfGame::CInfGame()
     g_pChitin->cDimm.AddToDirectoryList(m_sPortraitsDir, TRUE);
     g_pChitin->cDimm.AddToDirectoryList(m_sCharactersDir, TRUE);
 
-    m_gameSave.m_curFormation = 0;
+    m_gameSave.m_curFormation = TRUE;
     m_gameSave.m_bSequenceMode = FALSE;
 
     m_zoomLevel = 48;
@@ -2193,11 +2193,6 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     }
 
     // TODO: Load inventory
-
-    // Refresh action-bar selection now that m_curFormation /
-    // m_quickFormations are loaded; otherwise the formation red border
-    // doesn't appear until the user clicks a formation slot once.
-    m_cButtonArray.UpdateState();
 
     DBG("Unmarshal: done (partial)");
     return TRUE;

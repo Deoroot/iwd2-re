@@ -76,9 +76,15 @@ Empty quick-spell (0x46-0x4E STONSPEL fallback), "No Item" quick-item / quick-ab
 - GUIBTBUT base frame 0 may not be the right frame index — the original might pull a lighter "empty" frame from GUIBTACT (e.g. frame 0x68/0x6A which IS a bezel-only weapon-empty BAM frame).
 - Possible palette / `SetTintColor` mismatch invoked somewhere in `FUN_005950F0` we haven't ported.
 
-### Group formation selection red border missing
+### Group formation selection red border on save load
 
-In group state 0x6E with `m_curFormation` set, the matching formation slot (one of 0x10-0x14) does NOT show the red selection border that the original does. UpdateButtons does set `settings.m_bSelected = m_nSelectedButton == m_buttonTypes[nButton]`, but `m_nSelectedButton` is only mutated by the click handler (`SetState(0x6E)` → no selection persistence between right-click formations). Probably needs the formation-current-index reflected in `m_nSelectedButton` whenever `m_curFormation` is touched (also from movement / pathfinding code that's still stub).
+Per Ghidra UpdateButtons case 0x10-0x14:
+```
+piVar8[0x73] = (uint)(piStack_51c == apiStack_4e8[0]);
+```
+i.e. `settings.m_bSelected = (m_quickFormations[N] == m_curFormation)`. Implemented in our code (commit 20a7d3b7). Works after the user clicks any formation in-game.
+
+**Open:** on save load nothing is highlighted until the user clicks once. Cause is upstream — `m_curFormation` initial state vs `m_quickFormations[]` contents. Save Unmarshal at `CInfGame.cpp:2061` reads `m_curFormation = *(SHORT*)(pGame + 0x0C)`; that may be wrong offset / format, or the formation/AI system that owns the current formation isn't yet wired to drive `m_curFormation` post-load. Out of scope until the formation/AI path is implemented. Strict Ghidra adherence here means: do NOT add invented refreshes after Unmarshal — the original does not. Leave as-is and revisit when formation code lands.
 
 ### Inventory quick-weapon yellow border (separate file)
 
