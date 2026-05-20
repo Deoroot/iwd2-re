@@ -112,13 +112,14 @@ void CInfButtonArray::RebuildPickerList()
     switch (m_nState) {
     case 0x66:
     case 0x67:
-        // Spellbook for `m_nCurrentSelectedSpellClass` at the current level
-        // (0x67 = single level; 0x66 = all levels of class — original treats
-        // these slightly differently, but for the visible parity we pick the
-        // selected level).
-        m_pPickerList = pSprite->GetSpellsAtLevelButtonList(
-            m_nCurrentSelectedSpellClass,
-            static_cast<UINT>(m_nCurrentSelectedSpellLevel));
+        // Spellbook.  Matches Ghidra FUN_00587c20 case 2 dispatch:
+        //   class == 3 && level != 0 → domain spells (FUN_007155c0)
+        //   otherwise              → regular class spells (FUN_00714f70)
+        if (m_nCurrentSelectedSpellClass == 3 && m_nCurrentSelectedSpellLevel != 0) {
+            m_pPickerList = pSprite->GetDomainSpellsButtonList();
+        } else {
+            m_pPickerList = pSprite->GetSpellsButtonList(m_nCurrentSelectedSpellClass);
+        }
         break;
     case 0x70:
     case 0x71:
@@ -1181,13 +1182,44 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     default:
         switch (nButtonType) {
         case 3:
-            // Cast Spell.  Ghidra helper FUN_00594280 routes to spell-class
-            // picker 0x76 when more than one class is available; use it as the
-            // first recovered step.
-            pGame->SetState(0);
-            SetSelectedButton(100);
-            UpdateButtons();
-            SetState(0x76, 1);
+            // Cast Spell.  Per Ghidra FUN_00594280 case 3: count classes that
+            // have memorised spells.  If 1 → set m_nCurrentSelectedSpellClass
+            // and jump directly to spellbook (0x67).  If 2+ → class picker
+            // (0x76).  This matches the original sorcerer behaviour where
+            // there's only one casting class, so no intermediate picker.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                INT nCasterCount = 0;
+                BYTE nOnlyClass = 0;
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    static const BYTE classes[] = { 2, 3, 4, 7, 8, 10, 11 };
+                    for (size_t i = 0; i < sizeof(classes) / sizeof(classes[0]); i++) {
+                        CGameSpriteGroupedSpellList* grouped = pSprite->GetSpells(classes[i]);
+                        if (grouped != NULL && grouped->m_nHighestLevel != 0) {
+                            nCasterCount++;
+                            nOnlyClass = classes[i];
+                        }
+                    }
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                pGame->SetState(0);
+                SetSelectedButton(100);
+                UpdateButtons();
+                if (nCasterCount == 1) {
+                    m_nCurrentSelectedSpellClass = nOnlyClass;
+                    m_nCurrentSelectedSpellLevel = 0;
+                    SetState(0x67, 1);
+                } else {
+                    SetState(0x76, 1);
+                }
+            }
             return;
         case 7:
             if (pGame->GetState() == 3) {
@@ -1538,31 +1570,50 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         }
         case 0x32:
             m_nCurrentSelectedSpellClass = 2;
+            m_nCurrentSelectedSpellLevel = 0;
             SetState(0x67, 1);
             return;
         case 0x33:
-        case 0x39:
+            // Cleric — regular spells (m_nCurrentSelectedSpellLevel = 0
+            // signals the picker dispatcher to use m_spells.m_spellsByClass).
             m_nCurrentSelectedSpellClass = 3;
+            m_nCurrentSelectedSpellLevel = 0;
+            SetState(0x67, 1);
+            return;
+        case 0x39:
+            // Cleric DOMAIN.  Per Ghidra OnLButton case 0x39:
+            //   m_nCurrentSelectedSpellClass = 3
+            //   m_nCurrentSelectedSpellLevel = FUN_005940d0() == sprite[0x80C]
+            // Any non-zero level acts as the "domain" sentinel for FUN_00587c20
+            // case 2's dispatch; we use 1 here since the picker iterates ALL
+            // levels of m_domainSpells anyway.
+            m_nCurrentSelectedSpellClass = 3;
+            m_nCurrentSelectedSpellLevel = 1;
             SetState(0x67, 1);
             return;
         case 0x34:
             m_nCurrentSelectedSpellClass = 4;
+            m_nCurrentSelectedSpellLevel = 0;
             SetState(0x67, 1);
             return;
         case 0x35:
             m_nCurrentSelectedSpellClass = 7;
+            m_nCurrentSelectedSpellLevel = 0;
             SetState(0x67, 1);
             return;
         case 0x36:
             m_nCurrentSelectedSpellClass = 8;
+            m_nCurrentSelectedSpellLevel = 0;
             SetState(0x67, 1);
             return;
         case 0x37:
             m_nCurrentSelectedSpellClass = 10;
+            m_nCurrentSelectedSpellLevel = 0;
             SetState(0x67, 1);
             return;
         case 0x38:
             m_nCurrentSelectedSpellClass = 11;
+            m_nCurrentSelectedSpellLevel = 0;
             SetState(0x67, 1);
             return;
         default:

@@ -7953,53 +7953,103 @@ CGameButtonList* CGameSprite::GetSongsButtonList()
     return buttons;
 }
 
-// Minimum-viable port of FUN_007155c0 — builds a CGameButtonList* for the
-// memorised spells of class nClass at level nLevel.  Drops the per-entry
-// CanCast/caster-level filtering from the original; that gate currently
-// lives in the click handler instead.  Caller owns the returned list and
-// must delete its entries (RemoveHead loop) then delete the list itself.
+// Helper: append every memorised entry of `spellList` to `out`, looking up
+// each entry's resref via CInfGame::m_spells.  Drops the original Ghidra
+// CanCast/caster-level gates — those run at click time.
+static void AppendSpellsToList(CGameSpriteSpellList& spellList, CGameButtonList& out)
+{
+    CSpellResRefList& masterSpells = g_pBaldurChitin->GetObjectGame()->m_spells;
+    for (size_t index = 0; index < spellList.m_List.size(); index++) {
+        CGameSpriteSpellListEntry* entry = spellList.Get(static_cast<UINT>(index));
+        if (entry == NULL || entry->m_nMax == 0) {
+            continue;
+        }
+        UINT nSpellId = entry->m_nID;
+        if (nSpellId >= masterSpells.m_nCount) {
+            continue;
+        }
+        RESREF resRef;
+        masterSpells.Get(nSpellId).GetResRef(resRef);
+        if (resRef[0] == 0) {
+            continue;
+        }
+        CButtonData* btn = IcewindMisc::CreateButtonData(resRef);
+        if (btn != NULL) {
+            btn->m_count = static_cast<SHORT>(entry->m_nCurrent);
+            btn->m_bDisplayCount = 1;
+            btn->m_bDisabled = (entry->m_nCurrent == 0) ? TRUE : FALSE;
+            out.AddTail(btn);
+        }
+    }
+}
+
+// Minimum-viable port of FUN_007155c0 — builds a list for a single level
+// of class nClass.
 CGameButtonList* CGameSprite::GetSpellsAtLevelButtonList(BYTE nClass, UINT nLevel)
 {
     CGameButtonList* buttons = new CGameButtonList();
     if (nLevel >= CSPELLLIST_MAX_LEVELS) {
         return buttons;
     }
-
     CGameSpriteGroupedSpellList* grouped = GetSpells(nClass);
     if (grouped == NULL || grouped->m_nHighestLevel == 0) {
         return buttons;
     }
+    AppendSpellsToList(grouped->m_lists[nLevel], *buttons);
+    return buttons;
+}
 
-    CGameSpriteSpellList& spellList = grouped->m_lists[nLevel];
-    CSpellResRefList& masterSpells = g_pBaldurChitin->GetObjectGame()->m_spells;
+// Minimum-viable port of FUN_00714f70 — builds a list across ALL memorised
+// levels of class nClass.  Used when SetState(0x67) is entered with
+// m_nCurrentSelectedSpellLevel == 0 (regular class spellbook).
+CGameButtonList* CGameSprite::GetSpellsButtonList(BYTE nClass)
+{
+    CGameButtonList* buttons = new CGameButtonList();
+    CGameSpriteGroupedSpellList* grouped = GetSpells(nClass);
+    if (grouped == NULL || grouped->m_nHighestLevel == 0) {
+        return buttons;
+    }
+    for (UINT level = 0; level < CSPELLLIST_MAX_LEVELS && level <= grouped->m_nHighestLevel; level++) {
+        AppendSpellsToList(grouped->m_lists[level], *buttons);
+    }
+    return buttons;
+}
 
-    for (size_t index = 0; index < spellList.m_List.size(); index++) {
-        CGameSpriteSpellListEntry* entry = spellList.Get(static_cast<UINT>(index));
-        if (entry == NULL || entry->m_nMax == 0) {
-            continue;
-        }
+// Minimum-viable port of FUN_007155c0 domain branch — iterates m_domainSpells
+// (cleric domain pool) across every memorised level.  Used when entering
+// SetState(0x67) via picker class button 0x39 (Domain).
+CGameButtonList* CGameSprite::GetDomainSpellsButtonList()
+{
+    CGameButtonList* buttons = new CGameButtonList();
+    if (m_domainSpells.m_nHighestLevel == 0) {
+        return buttons;
+    }
+    for (UINT level = 0; level < CSPELLLIST_MAX_LEVELS && level <= m_domainSpells.m_nHighestLevel; level++) {
+        AppendSpellsToList(m_domainSpells.m_lists[level], *buttons);
+    }
+    return buttons;
+}
 
-        UINT nSpellId = entry->m_nID;
-        if (nSpellId >= masterSpells.m_nCount) {
-            continue;
-        }
-
-        RESREF resRef;
-        masterSpells.Get(nSpellId).GetResRef(resRef);
-        if (resRef[0] == 0) {
-            continue;
-        }
-
-        CButtonData* btn = IcewindMisc::CreateButtonData(resRef);
-        if (btn != NULL) {
-            btn->m_count = static_cast<SHORT>(entry->m_nCurrent);
-            btn->m_bDisplayCount = 1;
-            btn->m_bDisabled = (entry->m_nCurrent == 0) ? TRUE : FALSE;
-            buttons->AddTail(btn);
+// Count classes that have any memorised spells.  Used by the Cast Spell
+// click handler to decide whether to show the class picker (state 0x76)
+// or jump straight to the spellbook (state 0x67) when only one class has
+// spells.  Matches Ghidra FUN_00594280 case 3.
+INT CGameSprite::CountClassesWithSpells()
+{
+    INT count = 0;
+    // Ghidra checks classes 2/3/4/7/8/10/11 (the canonical spellcaster set).
+    static const BYTE classes[] = { 2, 3, 4, 7, 8, 10, 11 };
+    for (size_t i = 0; i < sizeof(classes) / sizeof(classes[0]); i++) {
+        CGameSpriteGroupedSpellList* grouped = GetSpells(classes[i]);
+        if (grouped != NULL && grouped->m_nHighestLevel != 0) {
+            count++;
         }
     }
-
-    return buttons;
+    // Domain counts as its own class for the picker.
+    if (m_domainSpells.m_nHighestLevel != 0) {
+        count++;
+    }
+    return count;
 }
 
 // NOTE: This function correctly accepts `nClass` by value (as opposed by to

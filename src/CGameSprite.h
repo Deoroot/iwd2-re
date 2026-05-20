@@ -706,6 +706,9 @@ public:
     void GetQuickAbility(BYTE buttonNum, CButtonData& buttonData);
     void GetQuickSong(BYTE buttonNum, CButtonData& buttonData);
     CGameButtonList* GetSpellsAtLevelButtonList(BYTE nClass, UINT nLevel);
+    CGameButtonList* GetSpellsButtonList(BYTE nClass);
+    CGameButtonList* GetDomainSpellsButtonList();
+    INT CountClassesWithSpells();
     void SetQuickWeapon(BYTE buttonNum, CButtonData buttonData);
     void SetQuickWeapon(BYTE buttonNum, BYTE index);
     void SetQuickItem(BYTE buttonNum, CButtonData buttonData);
