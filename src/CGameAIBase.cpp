@@ -1956,9 +1956,28 @@ void CGameAIBase::FireSpellPoint(const CResRef& resRef, const CPoint& ptTarget)
 // 0x4686C0
 CVariable* CGameAIBase::GetGlobalVariable(const CString& sScope, const CString& sName, int a3)
 {
-    // TODO: Incomplete.
+    CVariable* pVariable;
 
-    return NULL;
+    if (sScope == CString("GLOBAL")) {
+        pVariable = g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(sName);
+        if (pVariable != NULL) {
+            return pVariable;
+        }
+    } else {
+        CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sScope);
+        if (pArea != NULL) {
+            pVariable = pArea->GetVariables()->FindKey(sName);
+            if (pVariable != NULL) {
+                return pVariable;
+            }
+        }
+    }
+
+    CVariable variable;
+    variable.SetName(sName);
+    g_pBaldurChitin->GetObjectGame()->GetVariables()->AddKey(variable);
+
+    return g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(sName);
 }
 
 // 0x4530F0
