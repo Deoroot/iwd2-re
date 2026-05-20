@@ -313,7 +313,7 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
     }
     case 0x73:
     case 0x74:
-        // Action submenu (Stealth / Berserk / Turn / Weapon flip / Trapfind).
+        // Skills submenu (Stealth / Search / Thieving / Wilderness Lore / Animal Empathy).
         m_buttonTypes[0] = 0x0B;
         m_buttonTypes[1] = 4;
         m_buttonTypes[2] = 0x0C;
@@ -633,14 +633,14 @@ void CInfButtonArray::UpdateButtons()
             nHotKey = 0xB;
             break;
         case 4:
-            // Berserk modal â€” Ghidra case 4 frames 0x24/0x26, tooltip 0x133F.
+            // Search modal. Ghidra case 4 frames 0x24/0x26, tooltip 0x133F.
             nIconNormalFrame = 0x24;
             nIconSelectedFrame = 0x26;
             nToolTip = 0x133F;
             nHotKey = 0x10;
             break;
         case 5:
-            // Bard alternate ?  Ghidra case 5 frame 0x60/0x62.
+            // Skills button. Ghidra case 5 frames 0x60/0x62, tooltip 0x1345.
             nIconNormalFrame = 0x60;
             nIconSelectedFrame = 0x62;
             nToolTip = 0x1345;
@@ -653,31 +653,37 @@ void CInfButtonArray::UpdateButtons()
             nToolTip = 0x135E;
             break;
         case 10:
+            // Special Abilities. Ghidra case 10 frames 0x28/0x2A, tooltip 0x135A.
             nIconNormalFrame = 0x28;
             nIconSelectedFrame = 0x2A;
             nToolTip = 0x135A;
             nHotKey = 0x13;
             break;
         case 0x0B:
-            // Stealth / Cleric class spell tab â€” frame 0x1C/0x1E.
+            // Stealth. Ghidra case 0x0B frames 0x1C/0x1E, tooltip 0x1368.
             nIconNormalFrame = 0x1C;
             nIconSelectedFrame = 0x1E;
             nToolTip = 0x1368;
             nHotKey = 0xF;
             break;
         case 0x0C:
-            // Turn Undead / Mage class spell tab â€” frame 0x18/0x1A.
+            // Thieving. Ghidra case 0x0C frames 0x18/0x1A, tooltip 0x136B.
             nIconNormalFrame = 0x18;
             nIconSelectedFrame = 0x1A;
             nToolTip = 0x136B;
             nHotKey = 0xE;
             break;
         case 0x0D:
-            // Trapfinding / Druid class spell tab â€” frame 0x7C/0x7E.
+            // Animal Empathy. These are GUIBTACT logical frames; the BAM cycle
+            // lookup maps 0x7C/0x7E to the animal head physical frames.
             nIconNormalFrame = 0x7C;
             nIconSelectedFrame = 0x7E;
             nToolTip = 0x136E;
             nHotKey = 0x9;
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
+                && static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) < 1) {
+                bGreyOut = TRUE;
+            }
             break;
         case 0x0E:
             // Quick-spell tab â€” frame 0x10/0x12.
@@ -829,7 +835,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x56;
             break;
         case 0x77:
-            // Quick-weapon flip / "swap weapon set" â€” frame 0x5C/0x5E, tooltip
+            // Wilderness Lore. Ghidra case 0x77 frames 0x5C/0x5E, tooltip
             // 0x7DBA, hotkey 0x36 ('6').
             nIconNormalFrame = 0x5C;
             nIconSelectedFrame = 0x5E;
@@ -1431,11 +1437,10 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         }
         return;
     case 0x73:
-        // Skills submenu (entered from state 0x72 button 5).  Per Ghidra
-        // OnLButtonPressed state 0x73: clicking Stealth/Berserk/Turn/Trap/
-        // Weapon-flip toggles the corresponding modal on the sprite, then
-        // pops back to state 0x72 via the state-stack mechanism.  Any
-        // other click (empty slot, unknown type) just exits the submenu.
+        // Skills submenu (entered from state 0x72 button 5). Per Ghidra
+        // OnLButtonPressed state 0x73 handles Stealth, Search, Thieving,
+        // Wilderness Lore, and Animal Empathy, then pops back to state 0x72
+        // via the state-stack mechanism. Any other click exits the submenu.
         {
             LONG nLeader = pGame->GetGroup()->GetGroupLeader();
             CGameSprite* pSprite = NULL;
@@ -1449,7 +1454,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
                 BYTE modal = pSprite->GetModalState();
                 switch (nButtonType) {
-                case 4: // Berserk
+                case 4: // Search
                     if (modal == 2) {
                         pSprite->SetModalState(0, 0);
                         SetSelectedButton(100);
@@ -1467,7 +1472,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         SetSelectedButton(5);
                     }
                     break;
-                case 0xC: // Turn Undead
+                case 0xC: // Thieving
                     if (pGame->GetState() == 2
                         && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
                         pGame->SetState(0);
@@ -1478,15 +1483,11 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         SetSelectedButton(0xC);
                     }
                     break;
-                case 0xD: // Detect Traps
-                    // Per Ghidra OnL state 0x73 case 0xD: build a
-                    // CButtonData via FUN_00718390 (BuildAbilityButtonData)
-                    // from the cleric-trapfind resref DAT_008f8e60
-                    // ("SPIN108") then dispatch via UseSpellAction.
-                    // BuildAbilityButtonData isn't ported; construct the
-                    // minimal CButtonData inline so UseButtonAction can
-                    // still queue the AI action.
-                    {
+                case 0xD: // Animal Empathy
+                    // Per Ghidra OnL state 0x73 case 0xD: require Animal
+                    // Empathy > 0, build DAT_008f8e60 ("SPIN108", Charm
+                    // Animal), then dispatch via UseSpellAction.
+                    if (static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) > 0) {
                         CButtonData bd;
                         bd.m_abilityId.m_res = CResRef("SPIN108");
                         bd.m_abilityId.m_targetType = -1;
@@ -1496,7 +1497,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         pSprite->UseButtonAction(bd, 1);
                     }
                     break;
-                case 0x77: { // Weapon flip
+                case 0x77: { // TODO: Wilderness Lore in Ghidra; this port still cycles weapon sets.
                     BYTE nNext = static_cast<BYTE>((pSprite->m_nWeaponSet + 1) & 0x3);
                     pSprite->SetWeaponSet(nNext);
                     m_nQuickWeaponSlot = nNext;
@@ -1790,7 +1791,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 4:
-            // Berserk modal toggle.
+            // Search modal toggle.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
@@ -1833,8 +1834,8 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 0xC:
-            // Turn Undead modal â€” Ghidra default case 0xC: SetState(2) and
-            // IconIndex 0x24 (turn) or toggle off when already in that mode.
+            // Thieving mode. Ghidra default case 0xC: SetState(2) and
+            // IconIndex 0x24 (or toggle off when already in that mode).
             if (pGame->GetState() == 2
                 && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
                 pGame->SetState(0);
@@ -1846,12 +1847,41 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             UpdateButtons();
             return;
+        case 0xD:
+            // Animal Empathy: require skill > 0, then use SPIN108 (Charm Animal).
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        reinterpret_cast<CGameObject**>(&pSprite),
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    if (static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) > 0) {
+                        CButtonData bd;
+                        bd.m_abilityId.m_res = CResRef("SPIN108");
+                        bd.m_abilityId.m_targetType = -1;
+                        bd.m_abilityId.m_strDescription = -1;
+                        bd.m_bDisabled = FALSE;
+                        bd.m_bDisplayCount = TRUE;
+                        pSprite->UseButtonAction(bd, 1);
+                    }
+                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                UpdateButtons();
+            }
+            return;
         case 5:
             // Skills button.  Per Ghidra FUN_00594280 case 5: if the sprite
             // is already in any modal state, clear it and reset the selected
             // button; otherwise open the skills submenu (state 0x73).  The
-            // submenu surfaces Stealth / Berserk / Turn / Weapon flip /
-            // Trapfind based on class.
+            // submenu surfaces Stealth / Search / Thieving / Wilderness Lore /
+            // Animal Empathy based on class.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
@@ -1879,7 +1909,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 10:
-            // Find Traps â€” Ghidra FUN_00594280(10): SetState 0x6A (innate
+            // Special Abilities. Ghidra FUN_00594280(10): SetState 0x6A (innate
             // picker).  We route to 0x6A directly; picker state shows
             // placeholder formation buttons until FUN_00587c20 is ported.
             pGame->SetState(0);
@@ -1937,9 +1967,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 0x77:
-            // Weapon flip â€” cycle to next quick-weapon set.  Uses
-            // CGameSprite::SetWeaponSet which also updates the sprite's
-            // m_selectedWeapon equipment slot and emits the equip animation.
+            // TODO: Ghidra identifies type 0x77 as Wilderness Lore (tooltip
+            // 0x7DBA) and applies effect 0x11E. This port still cycles to the
+            // next quick-weapon set.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;

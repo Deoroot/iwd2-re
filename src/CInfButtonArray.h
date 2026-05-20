@@ -17,7 +17,7 @@ class CGameButtonList;
 //   0x68/0x69  item picker
 //   0x6A/0x6B  innate picker
 //   0x70/0x71/0x7A  song pickers
-//   0x73  skills submenu  (Stealth/Berserk/Turn/Weapon-flip/Trapfind)
+//   0x73  skills submenu  (Stealth/Search/Thieving/Wilderness Lore/Animal Empathy)
 //   0x74  customize-skills submenu
 //   0x75  customize menu  (Attack/Cast/QuickItem/Innate/Song/Erase/Reset)
 //   0x76  cast-spell class picker
