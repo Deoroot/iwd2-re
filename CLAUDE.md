@@ -26,12 +26,7 @@ Copy-Item -Path "build/Debug/iwd2-re.exe" -Destination "C:\GOG Games\Icewind Dal
 python scripts/click_load_original.py
 ```
 
-Build safety is non-negotiable: every `src/` commit must compile clean on VS 2019 Win32. Rename a field/function → update header + every `.cpp` referent in **one** atomic commit (`rg "oldName" src/`).
-
-Build rules:
-- No clean rebuild unless asked. Incremental only.
-- On build failure: report the first error verbatim and stop. Don't speculate or auto-patch.
-- Report C4244 / C4267 narrowing warnings with file + line — they're cheap to fix.
+Build safety is non-negotiable: every `src/` commit must compile clean on VS 2019 Win32. Rename a field/function → update header + every `.cpp` referent in **one** atomic commit (`rg "oldName" src/`). On build failure, report the first error verbatim and stop.
 
 ## Ghidra is the source of truth
 
@@ -173,11 +168,4 @@ The repo root accumulates `tmp_*.txt`, `tmp_*.json`, and `chunk_*.sql` from prio
 
 Don't touch a function's `// 0xADDR` comment unless you've verified the address against Ghidra. Don't refactor surrounding code while fixing a bug — keep diffs minimal so each change is auditable against the binary. Prefer named constants (`ITEM_FLAGS_TWOHANDED`) over magic numbers when they're already defined in the file.
 
-## Commit style
-
-- Imperative subject ≤72 chars; body only when the *why* isn't obvious from the diff.
-- Cite class/method when relevant: `"Recover CGameSprite::CanSaveGame"`.
-- No trailing period in the subject. No `Co-Authored-By` / AI attribution — ever.
-- Atomic renames: one commit covers header + every `.cpp` referent.
-- Never stage `tmp_*`, `chunk_*.sql`, `*.pyc`, or generated artifacts.
-- Never amend — create a new commit. Never `--no-verify` / `--no-gpg-sign` unless the user asks.
+Commits: no `Co-Authored-By` / AI attribution trailer.
