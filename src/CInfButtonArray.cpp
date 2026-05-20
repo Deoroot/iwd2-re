@@ -548,6 +548,7 @@ void CInfButtonArray::UpdateButtons()
         BOOL bActive = TRUE;
         BOOL bGreyOut = FALSE;
         BOOL bActiveWeaponSet = FALSE;
+        SHORT nCount = 0;
         // m_bHasOverlay selects the render path in CUIControlButtonAction::Render:
         //   1 = GUIBTACT-style overlay (Protect/Attack/Cast etc.) — the BAM
         //       bakes its own stone bezel, so CUIControlButton::Render base
@@ -738,6 +739,9 @@ void CInfButtonArray::UpdateButtons()
                     nToolTip = pEntry->m_name;
                     bGreyOut = pEntry->m_bDisabled;
                     bHasOverlay = FALSE;
+                    if (pEntry->m_bDisplayCount) {
+                        nCount = pEntry->m_count;
+                    }
                 } else {
                     bActive = FALSE;
                     bEnabled = FALSE;
@@ -892,6 +896,9 @@ void CInfButtonArray::UpdateButtons()
                 nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
+                if (buttonData.m_bDisplayCount) {
+                    nCount = buttonData.m_count;
+                }
             } else {
                 cIconResRef = CResRef("STONSPEL");
                 nToolTip = 0x1250;
@@ -914,6 +921,9 @@ void CInfButtonArray::UpdateButtons()
                 nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
+                if (buttonData.m_bDisplayCount) {
+                    nCount = buttonData.m_count;
+                }
             } else {
                 cIconResRef = CResRef("STONITEM");
                 nToolTip = 0x1372;
@@ -944,6 +954,9 @@ void CInfButtonArray::UpdateButtons()
                 nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
+                if (buttonData.m_bDisplayCount) {
+                    nCount = buttonData.m_count;
+                }
             } else {
                 cIconResRef = CResRef("STONSPEC");
                 nToolTip = 0x135A;
@@ -995,7 +1008,7 @@ void CInfButtonArray::UpdateButtons()
         settings.m_nIconNormalFrame = nIconNormalFrame;
         settings.m_nIconSelectedFrame = nIconSelectedFrame;
         settings.m_bActiveWeaponSet = bActiveWeaponSet ? 1 : 0;
-        settings.m_nCount = 0;
+        settings.m_nCount = nCount;
         settings.m_bGreyOut = !bEnabled || bGreyOut;
         settings.field_14.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
         settings.field_14.SequenceSet(nIconSequence);
@@ -1094,6 +1107,32 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
 
     DWORD dwFlags = settings.m_bGreyOut ? 0xA0000 : 0;
     settings.field_14.Render(0, ptIcon.x, ptIcon.y, rClip, NULL, 0, dwFlags, -1);
+
+    // Memorize / charge count badge.  Matches Ghidra FUN_005950F0 spell &
+    // ability branch and the count-render loop inside CIcon::RenderIcon
+    // (0x4E66E0): right-justified digits drawn at LAST_DIGIT_OFFSET (25,25
+    // scaled), each digit a frame in NUMBER.BAM, walking left while the
+    // remainder is non-zero.  Only quick spells / abilities / songs and
+    // picker entries set m_nCount > 0; everyone else gets 0 and skips.
+    if (settings.m_nCount > 0) {
+        CVidCell cNumber;
+        cNumber.SetResRef(CResRef("NUMBER"), nScale == 2, TRUE, TRUE);
+        if (cNumber.pRes != NULL) {
+            cNumber.SequenceSet(0);
+            LONG x = pt.x + 25 * nScale;
+            LONG y = pt.y + 25 * nScale;
+            WORD wRemaining = static_cast<WORD>(settings.m_nCount);
+            do {
+                SHORT digit = static_cast<SHORT>(wRemaining % 10);
+                wRemaining = wRemaining / 10;
+                if (digit > 0 || wRemaining > 0) {
+                    cNumber.FrameSet(digit);
+                    cNumber.Render(0, x, y, rClip, NULL, 0, 0, -1);
+                }
+                x -= 5 * nScale;
+            } while (wRemaining > 0);
+        }
+    }
 
     return TRUE;
 }
