@@ -299,8 +299,12 @@ void CGameAIBase::DoAction()
 // 0x44DC10
 SHORT CGameAIBase::ExecuteAction()
 {
-    // TODO: Incomplete — only MOVETOPOINT implemented so far
-    if (m_curAction.m_actionID == CAIAction::MOVETOPOINT) {
+    // TODO: Incomplete; target-object and message-heavy actions still need recovery.
+    SHORT actionReturn = ACTION_DONE;
+
+    if (m_curAction.m_actionID == CAIAction::NO_ACTION) {
+        actionReturn = ACTION_NO_ACTION;
+    } else if (m_curAction.m_actionID == CAIAction::MOVETOPOINT) {
         CGameSprite* pSprite = static_cast<CGameSprite*>(this);
         if (pSprite != NULL) {
             pSprite->m_targetPoint = m_curAction.m_dest;
@@ -309,10 +313,39 @@ SHORT CGameAIBase::ExecuteAction()
             pSprite->SetDirection(m_curAction.m_dest);
             pSprite->SetSequence(CGAMESPRITE_SEQ_WALK);
         }
-        return ACTION_DONE;
+    } else if (m_curAction.m_actionID == CAIAction::MOVEVIEWPOINT
+        || m_curAction.m_actionID == CAIACTION_MOVEVIEWPOINTUNTILDONE) {
+        actionReturn = MoveViewPoint();
+    } else if (m_curAction.m_actionID == CAIAction::CLICKLBUTTONPOINT) {
+        actionReturn = ClickLButtonPoint();
+    } else if (m_curAction.m_actionID == CAIAction::CLICKRBUTTONPOINT) {
+        actionReturn = ClickRButtonPoint();
+    } else if (m_curAction.m_actionID == CAIAction::DOUBLECLICKLBUTTONPOINT) {
+        actionReturn = DoubleClickLButtonPoint();
+    } else if (m_curAction.m_actionID == CAIAction::DOUBLECLICKRBUTTONPOINT) {
+        actionReturn = DoubleClickRButtonPoint();
+    } else if (m_curAction.m_actionID == CAIAction::MOVECURSORPOINT) {
+        actionReturn = MoveCursorPoint();
+    } else if (m_curAction.m_actionID == CAIAction::CHANGEAISCRIPT) {
+        actionReturn = ChangeAIScript();
+    } else if (m_curAction.m_actionID == CAIAction::STARTTIMER) {
+        actionReturn = StartTimer();
+    } else if (m_curAction.m_actionID == CAIAction::WAIT) {
+        actionReturn = Wait();
+    } else if (m_curAction.m_actionID == CAIAction::SMALLWAIT) {
+        actionReturn = SmallWait();
+    } else if (m_curAction.m_actionID == CAIAction::SHOUT
+        || m_curAction.m_actionID == CAIACTION_212) {
+        actionReturn = Shout();
+    } else if (m_curAction.m_actionID == CAIAction::TAKEPARTYGOLD) {
+        actionReturn = TakePartyGold();
+    } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
+        || m_curAction.m_actionID == CAIAction::GIVEGOLDFORCE) {
+        actionReturn = GivePartyGold();
     }
 
-    return ACTION_DONE;
+    SetLastActionReturn(actionReturn);
+    return actionReturn;
 }
 
 // 0x45C300
