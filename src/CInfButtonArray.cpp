@@ -47,7 +47,7 @@ CInfButtonArray::CInfButtonArray()
         m_buttonArray[nButton].m_bGreyOut = FALSE;
     }
 
-    field_1976 = "";
+    m_nCustomizeSlot = 0;
     m_nSelectedButton = 100;
     m_nState = STATE_NONE;
     memset(field_1986, 0, sizeof(field_1986));
@@ -1258,7 +1258,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     // settings round-trip and skip the dispatch.
                     BOOL bCustomize = (m_nState == 0x66 || m_nState == 0x68 || m_nState == 0x71);
                     if (bCustomize) {
-                        INT nSlot = m_nCurrentSelectedSpellLevel;
+                        INT nSlot = m_nCustomizeSlot;
                         if (nSlot >= 0 && nSlot < 9) {
                             switch (m_nState) {
                             case 0x66:
@@ -1339,6 +1339,107 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             break;
         }
         break;
+    case 0x75:
+        // Customize menu — left click writes the chosen button type into
+        // m_customButtonTypes[m_nCustomizeSlot] and mirrors it onto the
+        // sprite via SetCustomButtonValue.  Per Ghidra OnLButtonPressed
+        // state 0x75 (FUN_0058FF20 around 0x592b14).  No state change after
+        // write — the menu stays open and UpdateButtons re-paints the slot
+        // with the new icon.  Slot index was stashed by OnRButtonPressed
+        // state 0x72 customize-entry.
+        {
+            INT nNewType = -1;
+            switch (nButtonType) {
+            case 0x23: nNewType = 5;   break; // Attack
+            case 0x24: nNewType = 3;   break; // Cast Spell
+            case 0x25: nNewType = 0xE; break;
+            case 0x26:
+                SetState(0x78, 1);
+                return;
+            case 0x27: nNewType = 10;  break; // Innate ability
+            case 0x28: nNewType = 2;   break; // Bard Song
+            case 0x29: nNewType = 100; break; // No action
+            case 0x2A: {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        reinterpret_cast<CGameObject**>(&pSprite),
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    for (BYTE i = 0; i < 9; i++) {
+                        pSprite->SetCustomButtonValue(i, 0);
+                    }
+                    pSprite->ResetQuickSlots();
+                    for (BYTE i = 0; i < 9; i++) {
+                        m_customButtonTypes[i] = pSprite->GetCustomButtonValue(i);
+                    }
+                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                SetState(0x72, 0);
+                return;
+            }
+            default:
+                return;
+            }
+
+            if (m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
+                m_customButtonTypes[m_nCustomizeSlot] = nNewType;
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        reinterpret_cast<CGameObject**>(&pSprite),
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nNewType);
+                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+            }
+            // Return to single-PC action bar (state 0x72) so the new icon
+            // shows and the menu closes.  Ghidra uses a saved-state stack
+            // (FUN_00589ff0 + field_19B2) that pops the prior state; we
+            // hardcode 0x72 because customize entry comes from 0x72.
+            SetState(0x72, 0);
+        }
+        return;
+    case 0x78:
+        // Quick-item picker sub-menu reached from state 0x75 case 0x26.
+        // Per Ghidra OnLButtonPressed state 0x78: a click on a 0x50-0x52
+        // button writes that button type into m_customButtonTypes[slot]
+        // (and the sprite mirror) and pops back to the action bar.  Any
+        // other click just dismisses the picker.
+        if (nButtonType >= 0x50 && nButtonType <= 0x52
+            && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
+            m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
+            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+            CGameSprite* pSprite = NULL;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+                pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+        SetState(0x72, 0);
+        return;
     default:
         switch (nButtonType) {
         case 3:
@@ -1898,10 +1999,10 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
         case 0x75:
         case 0x76:
         case 0x77:
-            // Customize the slot.  Ghidra stores (buttonID - 3) in
-            // field_1976 so the picker (state 0x75) can write back to the
-            // right m_customButtonTypes entry.
-            m_nCurrentSelectedSpellLevel = buttonID - 3;
+            // Customize the slot.  Ghidra stores (buttonID - 3) at
+            // offset 0x1976 so state 0x75 can write back to the right
+            // m_customButtonTypes entry.
+            m_nCustomizeSlot = buttonID - 3;
             SetState(0x75, 1);
             return;
         }

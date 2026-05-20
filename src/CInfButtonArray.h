@@ -51,7 +51,8 @@ public:
     /* 16E8 */ CVidCell field_16E8;
     /* 17C2 */ CVidCell field_17C2;
     /* 189C */ CVidCell field_189C;
-    /* 1976 */ CResRef field_1976;
+    /* 1976 */ INT m_nCustomizeSlot;
+    /* 197A */ INT m_nPickerPage;
     /* 197E */ INT m_nSelectedButton;
     /* 1982 */ int m_nState;
     /* 1986 */ BYTE field_1986[0x2C];
@@ -69,7 +70,6 @@ public:
     // instance.  NULL outside of picker states.  Owned by us — freed in
     // ClearPickerList().
     CGameButtonList* m_pPickerList;
-    INT m_nPickerPage;
     void ClearPickerList();
     void RebuildPickerList();
 };
