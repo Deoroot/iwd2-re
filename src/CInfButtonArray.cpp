@@ -1,4 +1,4 @@
-#include "CInfButtonArray.h"
+﻿#include "CInfButtonArray.h"
 
 #include "CBaldurChitin.h"
 #include "CButtonData.h"
@@ -20,7 +20,7 @@ const BYTE CInfButtonArray::STATE_NONE = 0;
 // 0x587960
 CInfButtonSettings::CInfButtonSettings()
 {
-    field_1C8 = 0;
+    m_nIconSequence = 0;
     m_bSelected = 0;
     m_nCount = 0;
     field_0 = 0;
@@ -51,7 +51,7 @@ CInfButtonArray::CInfButtonArray()
     m_nSelectedButton = 100;
     m_nState = STATE_NONE;
     memset(field_1986, 0, sizeof(field_1986));
-    field_19B2 = 0;
+    m_nStateStackDepth = 0;
 
     // 0x19B6..0x19D6, copied from selected sprite by SelectToolbar.
     m_customButtonTypes[0] = 5;
@@ -114,7 +114,7 @@ void CInfButtonArray::RebuildPickerList()
     case 0x65:
         // Weapon-equip picker.  Ghidra SetState 0x65 passes
         // (m_nCurrentSelectedSpellLevel + 0x2B) as slot index to FUN_00587c20
-        // case 1 → GetItemUsages(slot, 1, -1).  Slot 0x2B = 43 is
+        // case 1 â†’ GetItemUsages(slot, 1, -1).  Slot 0x2B = 43 is
         // SLOT_WEAPON; the offset converts the quick-weapon button index
         // (0..7) into the actual inventory slot (43..50).
         m_pPickerList = pSprite->GetItemUsages(
@@ -125,8 +125,8 @@ void CInfButtonArray::RebuildPickerList()
     case 0x66:
     case 0x67:
         // Spellbook.  Matches Ghidra FUN_00587c20 case 2 dispatch:
-        //   class == 3 && level != 0 → domain spells (FUN_007155c0)
-        //   otherwise              → regular class spells (FUN_00714f70)
+        //   class == 3 && level != 0 â†’ domain spells (FUN_007155c0)
+        //   otherwise              â†’ regular class spells (FUN_00714f70)
         if (m_nCurrentSelectedSpellClass == 3 && m_nCurrentSelectedSpellLevel != 0) {
             m_pPickerList = pSprite->GetDomainSpellsButtonList();
         } else {
@@ -136,7 +136,7 @@ void CInfButtonArray::RebuildPickerList()
     case 0x68:
     case 0x69:
         // Item-ability picker.  Ghidra FUN_00587c20 case 3 with non-zero
-        // alt-flag → GetItemUsages(slot + 0xF, 3, -1).  Slot 0xF = 15 is
+        // alt-flag â†’ GetItemUsages(slot + 0xF, 3, -1).  Slot 0xF = 15 is
         // SLOT_MISC; the offset converts the quick-item button index
         // (0..2) into the inventory slot (15..17).
         m_pPickerList = pSprite->GetItemUsages(
@@ -278,7 +278,7 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
     case 0x7B: {
         // Picker states (weapon / spell / item / ability / song).  Per Ghidra
         // SetState (0x589110) + FUN_00587c20: build the dynamic list of
-        // available entries.  When N ≤ 12 the slots use formation-submenu
+        // available entries.  When N â‰¤ 12 the slots use formation-submenu
         // types 0x15..0x20 (entry = buttonType - 0x15).  When N > 12 the
         // layout switches to paging buttons: slot 0 = 0x21 (page-up arrow),
         // slots 1..10 = 0x15..0x1E (entries), slot 11 = 0x22 (page-down).
@@ -291,7 +291,7 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
             ? static_cast<INT>(m_pPickerList->GetCount())
             : 0;
         if (nEntries > 12) {
-            // Paging layout — slot 0 = page up, slots 1-10 = entries
+            // Paging layout â€” slot 0 = page up, slots 1-10 = entries
             // (filled by UpdateButtons via m_nPickerPage), slot 11 = page
             // down.  Type 0x21 / 0x22 already in UpdateButtons.
             m_buttonTypes[0] = 0x21;
@@ -337,7 +337,7 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
         UpdateButtons();
         return TRUE;
     case 0x79:
-        // Quick-weapon picker — 4 weapon-set rows, each (main, off, empty).
+        // Quick-weapon picker â€” 4 weapon-set rows, each (main, off, empty).
         m_buttonTypes[0] = 0x3C;
         m_buttonTypes[1] = 0x3D;
         m_buttonTypes[2] = 100;
@@ -550,11 +550,11 @@ void CInfButtonArray::UpdateButtons()
         BOOL bActiveWeaponSet = FALSE;
         SHORT nCount = 0;
         // m_bHasOverlay selects the render path in CUIControlButtonAction::Render:
-        //   1 = GUIBTACT-style overlay (Protect/Attack/Cast etc.) — the BAM
+        //   1 = GUIBTACT-style overlay (Protect/Attack/Cast etc.) â€” the BAM
         //       bakes its own stone bezel, so CUIControlButton::Render base
         //       must be skipped.
         //   0 = STON*-style icon (small silhouette over a regular GUIBTBUT
-        //       bezel) — base GUIBTBUT must be painted underneath.
+        //       bezel) â€” base GUIBTBUT must be painted underneath.
         // Original UpdateButtons at 0x58A340 sets m_bHasOverlay per case.
         BOOL bHasOverlay = TRUE;
         // Item icon BAMs (IBLUN/ISHD/SW1H/IPOTN...) carry two cycles:
@@ -618,8 +618,8 @@ void CInfButtonArray::UpdateButtons()
             break;
         }
         case 2:
-            // Bard song.  Ghidra UpdateButtons case 2 sets field_1C8 (=
-            // settings.field_1C8) and may set m_bSelected if currently in song
+            // Bard song.  Ghidra UpdateButtons case 2 sets m_nIconSequence (=
+            // settings.m_nIconSequence) and may set m_bSelected if currently in song
             // modal. Tooltip 0x1336, hotkey 0xA.
             nIconNormalFrame = 0x14;
             nIconSelectedFrame = 0x16;
@@ -633,7 +633,7 @@ void CInfButtonArray::UpdateButtons()
             nHotKey = 0xB;
             break;
         case 4:
-            // Berserk modal — Ghidra case 4 frames 0x24/0x26, tooltip 0x133F.
+            // Berserk modal â€” Ghidra case 4 frames 0x24/0x26, tooltip 0x133F.
             nIconNormalFrame = 0x24;
             nIconSelectedFrame = 0x26;
             nToolTip = 0x133F;
@@ -647,7 +647,7 @@ void CInfButtonArray::UpdateButtons()
             nHotKey = 0xD;
             break;
         case 9:
-            // Shapeshift — frame 0x28, tooltip 0x135E.
+            // Shapeshift â€” frame 0x28, tooltip 0x135E.
             nIconNormalFrame = 0x28;
             nIconSelectedFrame = 0x28;
             nToolTip = 0x135E;
@@ -659,28 +659,28 @@ void CInfButtonArray::UpdateButtons()
             nHotKey = 0x13;
             break;
         case 0x0B:
-            // Stealth / Cleric class spell tab — frame 0x1C/0x1E.
+            // Stealth / Cleric class spell tab â€” frame 0x1C/0x1E.
             nIconNormalFrame = 0x1C;
             nIconSelectedFrame = 0x1E;
             nToolTip = 0x1368;
             nHotKey = 0xF;
             break;
         case 0x0C:
-            // Turn Undead / Mage class spell tab — frame 0x18/0x1A.
+            // Turn Undead / Mage class spell tab â€” frame 0x18/0x1A.
             nIconNormalFrame = 0x18;
             nIconSelectedFrame = 0x1A;
             nToolTip = 0x136B;
             nHotKey = 0xE;
             break;
         case 0x0D:
-            // Trapfinding / Druid class spell tab — frame 0x7C/0x7E.
+            // Trapfinding / Druid class spell tab â€” frame 0x7C/0x7E.
             nIconNormalFrame = 0x7C;
             nIconSelectedFrame = 0x7E;
             nToolTip = 0x136E;
             nHotKey = 0x9;
             break;
         case 0x0E:
-            // Quick-spell tab — frame 0x10/0x12.
+            // Quick-spell tab â€” frame 0x10/0x12.
             nIconNormalFrame = 0x10;
             nIconSelectedFrame = 0x12;
             nToolTip = 0x1372;
@@ -698,7 +698,7 @@ void CInfButtonArray::UpdateButtons()
         case 0x1E:
         case 0x1F:
         case 0x20: {
-            // Formation picker sub-grid (state 0x6C / 0x6D) — Ghidra sets
+            // Formation picker sub-grid (state 0x6C / 0x6D) â€” Ghidra sets
             // m_bHasOverlay = 0 here too: small FORMx icon over GUIBTBUT.
             if (m_nState == 0x6C || m_nState == 0x6D) {
                 INT nFormation = m_buttonTypes[nButton] - 0x15;
@@ -713,9 +713,9 @@ void CInfButtonArray::UpdateButtons()
                 nIconSelectedFrame = 0;
                 bHasOverlay = FALSE;
             } else if (m_pPickerList != NULL) {
-                // Picker list entry — pull icon + tooltip from the
+                // Picker list entry â€” pull icon + tooltip from the
                 // CGameButtonList built in RebuildPickerList.  Two layouts:
-                //   * ≤ 12 entries: nEntry = buttonType - 0x15 (slot maps
+                //   * â‰¤ 12 entries: nEntry = buttonType - 0x15 (slot maps
                 //     directly to list index).
                 //   * > 12 entries (paging): nEntry = page * 10 + (buttonType
                 //     - 0x15); slots 0 + 11 hold the 0x21/0x22 arrows and
@@ -787,12 +787,12 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x7A;
             break;
         case 0x21:
-            // Page-up arrow (submenu paging) — frame 0x30.
+            // Page-up arrow (submenu paging) â€” frame 0x30.
             nIconNormalFrame = 0x30;
             nIconSelectedFrame = 0x30;
             break;
         case 0x22:
-            // Page-down arrow — frame 0x34.
+            // Page-down arrow â€” frame 0x34.
             nIconNormalFrame = 0x34;
             nIconSelectedFrame = 0x34;
             break;
@@ -829,7 +829,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x56;
             break;
         case 0x77:
-            // Quick-weapon flip / "swap weapon set" — frame 0x5C/0x5E, tooltip
+            // Quick-weapon flip / "swap weapon set" â€” frame 0x5C/0x5E, tooltip
             // 0x7DBA, hotkey 0x36 ('6').
             nIconNormalFrame = 0x5C;
             nIconSelectedFrame = 0x5E;
@@ -857,7 +857,7 @@ void CInfButtonArray::UpdateButtons()
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
-                // Off-hand slot (odd index) → STONSHIL.  Main hand → STONWEAP.
+                // Off-hand slot (odd index) â†’ STONSHIL.  Main hand â†’ STONWEAP.
                 cIconResRef = (m_buttonTypes[nButton] & 1) ? CResRef("STONSHIL") : CResRef("STONWEAP");
                 nIconNormalFrame = 0;
                 nIconSelectedFrame = 0;
@@ -884,7 +884,7 @@ void CInfButtonArray::UpdateButtons()
         case 0x4D:
         case 0x4E: {
             // Quick spell.  Empty slot keeps STONSPEL stone visible so the user
-            // can right-click to assign — original UpdateButtons at 0x58A340
+            // can right-click to assign â€” original UpdateButtons at 0x58A340
             // never marks these inactive.  Ghidra default tooltip 0x1250 ("Cast
             // Spell").
             CButtonData buttonData;
@@ -1010,15 +1010,15 @@ void CInfButtonArray::UpdateButtons()
         settings.m_bActiveWeaponSet = bActiveWeaponSet ? 1 : 0;
         settings.m_nCount = nCount;
         settings.m_bGreyOut = !bEnabled || bGreyOut;
-        settings.field_14.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
-        settings.field_14.SequenceSet(nIconSequence);
+        settings.m_iconCell.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
+        settings.m_iconCell.SequenceSet(nIconSequence);
         if (nIconNormalFrame >= 0) {
-            settings.field_14.FrameSet(nIconNormalFrame);
+            settings.m_iconCell.FrameSet(nIconNormalFrame);
         }
-        // Stash sequence in field_1C8 so RenderButton can re-apply it when
+        // Stash sequence in m_nIconSequence so RenderButton can re-apply it when
         // swapping between normal/selected frames without resetting to 0.
-        settings.field_1C8 = nIconSequence;
-        settings.field_EE.SetResRef(CResRef(""), pPanel->m_pManager->m_bDoubleSize, FALSE, FALSE);
+        settings.m_nIconSequence = nIconSequence;
+        settings.m_countCell.SetResRef(CResRef(""), pPanel->m_pManager->m_bDoubleSize, FALSE, FALSE);
 
         // Selection highlight: GUIBTBUT cycle entries 0x18+ map to frame 2
         // (red border) per the BAM lookup table.  Original RenderButton at
@@ -1066,14 +1066,14 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
     }
 
     CInfButtonSettings& settings = m_buttonArray[nButton];
-    if (settings.field_0 == 0 || settings.field_14.pRes == NULL) {
+    if (settings.field_0 == 0 || settings.m_iconCell.pRes == NULL) {
         return TRUE;
     }
 
     INT nScale = g_pBaldurChitin->field_4A2C != 0 ? 2 : 1;
     // Two render origins per Ghidra:
     //   - FUN_005957C0 (GUIBTACT overlay, m_bHasOverlay != 0): draws at pt+0 with
-    //     full 38x38 (scaled) button rect — the action BAM bakes its bezel.
+    //     full 38x38 (scaled) button rect â€” the action BAM bakes its bezel.
     //   - FUN_005950F0 (STON*/item BG, m_bHasOverlay == 0): draws at pt+3 (scaled)
     //     with 32x32 frames that sit inside the GUIBTBUT bezel.
     BOOL bOverlay = settings.m_bHasOverlay != 0;
@@ -1082,7 +1082,7 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
     // Active-weapon-set green ring overlay.  Original FUN_005950F0 loads BAM
     // "HIGHLGHT" inline when settings.m_bActiveWeaponSet != 0 && settings.m_bSelected == 0
     // (the selection-highlight always takes precedence).  We construct the
-    // CVidCell inline here too — this is a UI render path called only when the
+    // CVidCell inline here too â€” this is a UI render path called only when the
     // bar is visible, so the cost is amortized.
     if (settings.m_bActiveWeaponSet != 0 && settings.m_bSelected == 0) {
         CVidCell cHighlight;
@@ -1101,12 +1101,12 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
     }
 
     if (nFrame >= 0) {
-        settings.field_14.SequenceSet(static_cast<SHORT>(settings.field_1C8));
-        settings.field_14.FrameSet(nFrame);
+        settings.m_iconCell.SequenceSet(static_cast<SHORT>(settings.m_nIconSequence));
+        settings.m_iconCell.FrameSet(nFrame);
     }
 
     DWORD dwFlags = settings.m_bGreyOut ? 0xA0000 : 0;
-    settings.field_14.Render(0, ptIcon.x, ptIcon.y, rClip, NULL, 0, dwFlags, -1);
+    settings.m_iconCell.Render(0, ptIcon.x, ptIcon.y, rClip, NULL, 0, dwFlags, -1);
 
     // Memorize / charge count badge.  Matches Ghidra FUN_005950F0 spell &
     // ability branch and the count-render loop inside CIcon::RenderIcon
@@ -1184,7 +1184,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     // Greyout gate per Ghidra OnLButtonPressed entry: a greyed-out slot
     // only blocks the click in state 0x72 (action bar) and in state 0x66
     // for non-picker button types.  In every other submenu state the
-    // click must reach the handler — its default case is what pops the
+    // click must reach the handler â€” its default case is what pops the
     // submenu back to the action bar when the user clicks an empty slot.
     if (m_buttonArray[buttonID].m_bGreyOut) {
         if (m_nState == 0x72) {
@@ -1213,7 +1213,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     case 0x71:
     case 0x7A:
     case 0x7B:
-        // Page-up / page-down clicks — adjust m_nPickerPage and re-render
+        // Page-up / page-down clicks â€” adjust m_nPickerPage and re-render
         // without changing the state.  Ghidra OnLButton state 0x66/0x67
         // case 0x21 / 0x22 do the same bounds-checked increment.
         if (nButtonType == 0x21) {
@@ -1233,13 +1233,13 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         }
-        // Picker click — dispatch the selected entry via the appropriate
+        // Picker click â€” dispatch the selected entry via the appropriate
         // CGameSprite method.  Matches Ghidra OnLButtonPressed state
         // 0x66/0x67/0x68/0x69/0x70/0x71/0x7A switch:
-        //   0x66 / 0x67           → FUN_005886a0 → UseButtonAction
-        //   0x68 / 0x69           → FUN_005884b0 → ReadyOffInternalList
-        //   0x70 / 0x71 / 0x7A    → FUN_00588820 (song play, AI action)
-        //   0x6A / 0x6B (default) → FUN_00588760 (innate use)
+        //   0x66 / 0x67           â†’ FUN_005886a0 â†’ UseButtonAction
+        //   0x68 / 0x69           â†’ FUN_005884b0 â†’ ReadyOffInternalList
+        //   0x70 / 0x71 / 0x7A    â†’ FUN_00588820 (song play, AI action)
+        //   0x6A / 0x6B (default) â†’ FUN_00588760 (innate use)
         // We don't yet have ports of the song-play / innate-use helpers, so
         // those states fall back to UseButtonAction which is the underlying
         // generic dispatcher used by all four wrappers in the binary.
@@ -1263,7 +1263,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         INFINITE);
                 } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    // States 0x66 / 0x68 / 0x71 are "customise" variants — the
+                    // States 0x66 / 0x68 / 0x71 are "customise" variants â€” the
                     // user picked a target to ASSIGN to a quick slot rather
                     // than to fire.  Ghidra calls FUN_00588cb0 in those
                     // states to copy buttonData into m_quickSpells/Items/Songs
@@ -1354,11 +1354,11 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         }
         break;
     case 0x75:
-        // Customize menu — left click writes the chosen button type into
+        // Customize menu â€” left click writes the chosen button type into
         // m_customButtonTypes[m_nCustomizeSlot] and mirrors it onto the
         // sprite via SetCustomButtonValue.  Per Ghidra OnLButtonPressed
         // state 0x75 (FUN_0058FF20 around 0x592b14).  No state change after
-        // write — the menu stays open and UpdateButtons re-paints the slot
+        // write â€” the menu stays open and UpdateButtons re-paints the slot
         // with the new icon.  Slot index was stashed by OnRButtonPressed
         // state 0x72 customize-entry.
         {
@@ -1399,7 +1399,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 return;
             }
             default:
-                // Empty / unknown click in customize menu — pop back to
+                // Empty / unknown click in customize menu â€” pop back to
                 // the action bar like every other submenu default exit.
                 SetState(0x72, 0);
                 return;
@@ -1425,7 +1425,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             // Return to single-PC action bar (state 0x72) so the new icon
             // shows and the menu closes.  Ghidra uses a saved-state stack
-            // (FUN_00589ff0 + field_19B2) that pops the prior state; we
+            // (FUN_00589ff0 + m_nStateStackDepth) that pops the prior state; we
             // hardcode 0x72 because customize entry comes from 0x72.
             SetState(0x72, 0);
         }
@@ -1531,7 +1531,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         SetState(0x72, 0);
         return;
     case 0x77:
-        // Customize class picker — entered from state 0x75 case 0x24 via
+        // Customize class picker â€” entered from state 0x75 case 0x24 via
         // OnRButtonPressed.  Per Ghidra OnLButtonPressed state 0x77: each
         // class button (0x32-0x39) writes its own type into the customize
         // slot's m_customButtonTypes entry + sprite mirror, so the action
@@ -1618,9 +1618,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 3:
             // Cast Spell.  Per Ghidra FUN_00594280 case 3: count classes that
             // have memorised spells, then add domain pool to the count when
-            // m_domainSpells.m_nHighestLevel != 0.  Counts > 1 → class picker
-            // (0x76).  Count == 1 → direct spellbook (0x67) with the only
-            // class.  Count == 0 → nothing happens.  This matches the
+            // m_domainSpells.m_nHighestLevel != 0.  Counts > 1 â†’ class picker
+            // (0x76).  Count == 1 â†’ direct spellbook (0x67) with the only
+            // class.  Count == 0 â†’ nothing happens.  This matches the
             // original sorcerer single-class fast-path AND keeps the
             // Cleric/Domain picker visible whenever the cleric has memorised
             // at least one domain spell.
@@ -1705,7 +1705,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x41:
         case 0x42:
         case 0x43: {
-            // Quick weapon click — Ghidra 0x58FF20 default + button-type fall-
+            // Quick weapon click â€” Ghidra 0x58FF20 default + button-type fall-
             // through.  Two behaviors: full picker (state 0x65) if the active
             // engine reports "weapon swap allowed", otherwise just select the
             // weapon set and call the equip helper.  We approximate by always
@@ -1824,7 +1824,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 0xC:
-            // Turn Undead modal — Ghidra default case 0xC: SetState(2) and
+            // Turn Undead modal â€” Ghidra default case 0xC: SetState(2) and
             // IconIndex 0x24 (turn) or toggle off when already in that mode.
             if (pGame->GetState() == 2
                 && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
@@ -1870,7 +1870,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 10:
-            // Find Traps — Ghidra FUN_00594280(10): SetState 0x6A (innate
+            // Find Traps â€” Ghidra FUN_00594280(10): SetState 0x6A (innate
             // picker).  We route to 0x6A directly; picker state shows
             // placeholder formation buttons until FUN_00587c20 is ported.
             pGame->SetState(0);
@@ -1879,7 +1879,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             SetState(0x6A, 1);
             return;
         case 0xE:
-            // Quick-spell tab — Ghidra FUN_00594280(0xE): SetState 0x69.
+            // Quick-spell tab â€” Ghidra FUN_00594280(0xE): SetState 0x69.
             pGame->SetState(0);
             SetSelectedButton(0xE);
             UpdateButtons();
@@ -1897,7 +1897,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             // Quick song click.  Ghidra default case 0x6E-0x76 reads the
             // assigned CButtonData via GetQuickSong, then calls
             // FUN_00588820(buttonData, 1) which dispatches through the AI
-            // action table.  UseButtonAction is our generic equivalent — it
+            // action table.  UseButtonAction is our generic equivalent â€” it
             // handles spell / item / ability / song uniformly.
             {
                 CButtonData buttonData;
@@ -1915,7 +1915,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     if (buttonData.m_icon != "") {
                         pSprite->UseButtonAction(buttonData, 0);
                     } else if (pSprite->GetModalState() == 1) {
-                        // No assigned song — toggle out of song-modal mode.
+                        // No assigned song â€” toggle out of song-modal mode.
                         pSprite->SetModalState(0, 0);
                     }
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
@@ -1928,7 +1928,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 0x77:
-            // Weapon flip — cycle to next quick-weapon set.  Uses
+            // Weapon flip â€” cycle to next quick-weapon set.  Uses
             // CGameSprite::SetWeaponSet which also updates the sprite's
             // m_selectedWeapon equipment slot and emits the equip animation.
             {
@@ -1987,7 +1987,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x50:
         case 0x51:
         case 0x52: {
-            // Quick item use — FUN_00588570(slot, 3) → ReadyItem.
+            // Quick item use â€” FUN_00588570(slot, 3) â†’ ReadyItem.
             LONG nLeader = pGame->GetGroup()->GetGroupLeader();
             CGameSprite* pSprite = NULL;
             BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
@@ -2014,7 +2014,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x60:
         case 0x61:
         case 0x62: {
-            // Quick ability use — FUN_00588570(slot, 4) → ReadySpell type 4.
+            // Quick ability use â€” FUN_00588570(slot, 4) â†’ ReadySpell type 4.
             LONG nLeader = pGame->GetGroup()->GetGroupLeader();
             CGameSprite* pSprite = NULL;
             BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
@@ -2038,7 +2038,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             SetState(0x67, 1);
             return;
         case 0x33:
-            // Cleric — regular spells (m_nCurrentSelectedSpellLevel = 0
+            // Cleric â€” regular spells (m_nCurrentSelectedSpellLevel = 0
             // signals the picker dispatcher to use m_spells.m_spellsByClass).
             m_nCurrentSelectedSpellClass = 3;
             m_nCurrentSelectedSpellLevel = 0;
@@ -2083,7 +2083,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         default:
             // Unhandled button click.  In submenu states (anything other
             // than the main action bar 0x72 or the group bar 0x6E), this
-            // is how Ghidra exits — empty/unknown slot click pops the
+            // is how Ghidra exits â€” empty/unknown slot click pops the
             // state stack back to 0x72 via the default branch.  We don't
             // implement the state stack, so SetState(0x72, 0) directly.
             if (m_nState != 0x72 && m_nState != 0x6E) {
@@ -2098,7 +2098,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
 // 0x594720
 void CInfButtonArray::OnRButtonPressed(int buttonID)
 {
-    // TODO: Incomplete — picker states (0x66/0x71/0x78/0x79) need SetState
+    // TODO: Incomplete â€” picker states (0x66/0x71/0x78/0x79) need SetState
     // helpers that build the per-class spell / item / ability lists.  When a
     // sub-list cannot be built, the right-click is currently silent.
 
@@ -2110,7 +2110,7 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
 
     // Empty quick-slot (type 100) renders inactive so its bezel can stay
     // transparent, but right-clicking it in state 0x72 must still bring up
-    // the customize menu — otherwise erased slots become permanent dead
+    // the customize menu â€” otherwise erased slots become permanent dead
     // zones.  UpdateButtons forces m_bGreyOut for type 100; bypass that
     // gate for the customize entry path.
     BOOL bCustomizeEntry = (m_nState == 0x72 && nButtonType == 100);
@@ -2209,7 +2209,7 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
             SetState(0x78, 1);
             return;
         case 0x27:
-            // Innate ability customize — Ghidra OnR state 0x75 case 0x27
+            // Innate ability customize â€” Ghidra OnR state 0x75 case 0x27
             // checks sprite[0x4A94] (m_innateSpells internal head pointer)
             // is non-zero before opening the picker.  We use the
             // std::vector emptiness check on m_innateSpells.m_List.
@@ -2234,7 +2234,7 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
             }
             return;
         case 0x28:
-            // Bard Song customize — Ghidra OnR state 0x75 case 0x28 checks
+            // Bard Song customize â€” Ghidra OnR state 0x75 case 0x28 checks
             // the song list head + (end - head) / 16 (entry size).  We
             // approximate with std::vector emptiness on m_songs.m_List.
             {
@@ -2258,7 +2258,7 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
             }
             return;
         case 0x24:
-            // Cast Spell — pick state 0x66 (customize spellbook) for a
+            // Cast Spell â€” pick state 0x66 (customize spellbook) for a
             // single-class caster and state 0x77 (customize-class-picker)
             // for multi-class.  Mirrors Ghidra OnRButtonPressed state 0x75
             // case 0x24 which iterates classes 2/3/4/7/8/10/11 and counts
