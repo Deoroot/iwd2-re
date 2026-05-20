@@ -2217,11 +2217,50 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
             SetState(0x71, 1);
             return;
         case 0x24:
-            // Cast Spell submenu — chooses between class picker (0x77) and
-            // direct spellbook (0x66) based on how many classes have spells.
-            // We pick 0x77 (class picker) unconditionally as a starting
-            // point; SetState(0x77) is already implemented.
-            SetState(0x77, 1);
+            // Cast Spell — pick state 0x66 (customize spellbook) for a
+            // single-class caster and state 0x77 (customize-class-picker)
+            // for multi-class.  Mirrors Ghidra OnRButtonPressed state 0x75
+            // case 0x24 which iterates classes 2/3/4/7/8/10/11 and counts
+            // those with memorised spells (plus the cleric domain pool).
+            {
+                CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                INT nCasterCount = 0;
+                BYTE nOnlyClass = 0;
+                BOOL bDomainContributed = FALSE;
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    static const BYTE classes[] = { 2, 3, 4, 7, 8, 10, 11 };
+                    for (size_t i = 0; i < sizeof(classes) / sizeof(classes[0]); i++) {
+                        CGameSpriteGroupedSpellList* grouped = pSprite->GetSpells(classes[i]);
+                        if (grouped != NULL && grouped->m_nHighestLevel != 0) {
+                            nCasterCount++;
+                            nOnlyClass = classes[i];
+                        }
+                    }
+                    if (pSprite->m_domainSpells.m_nHighestLevel != 0) {
+                        if (nCasterCount == 0) {
+                            nOnlyClass = 3;
+                            bDomainContributed = TRUE;
+                        }
+                        nCasterCount++;
+                    }
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                if (nCasterCount == 1) {
+                    m_nCurrentSelectedSpellClass = nOnlyClass;
+                    m_nCurrentSelectedSpellLevel = bDomainContributed ? 1 : 0;
+                    SetState(0x66, 1);
+                } else if (nCasterCount >= 2) {
+                    SetState(0x77, 1);
+                }
+            }
             return;
         }
         return;
