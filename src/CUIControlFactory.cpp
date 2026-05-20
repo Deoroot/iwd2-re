@@ -3870,6 +3870,60 @@ CUIControlPortraitGeneral::~CUIControlPortraitGeneral()
 {
 }
 
+static BOOL DebugIsPortraitStripGui(CUIPanel* pPanel)
+{
+    if (pPanel == NULL || pPanel->m_pManager == NULL) {
+        return FALSE;
+    }
+
+    CString sResRef = pPanel->m_pManager->m_cResRef.GetResRefStr();
+    return (sResRef == "GUIINV"
+            || sResRef == "GUISPL"
+            || sResRef == "GUISPL08"
+            || sResRef == "GUIJRNL"
+            || sResRef == "GUIREC"
+            || sResRef == "GUIW"
+            || sResRef == "GUIW08"
+            || sResRef == "GUIW10"
+            || sResRef == "GUIW12"
+            || sResRef == "GUIW16"
+            || sResRef == "GUIW20")
+        && pPanel->m_nID == 1;
+}
+
+static void DebugLogPortraitControl(const char* event, CUIControlButton* pButton, BOOL bForce)
+{
+    if (!DebugIsPortraitStripGui(pButton->m_pPanel)) {
+        return;
+    }
+
+    CRect rControlRect(pButton->m_pPanel->m_ptOrigin + pButton->m_ptOrigin, pButton->m_size);
+    CString sGui = pButton->m_pPanel->m_pManager->m_cResRef.GetResRefStr();
+    CString sBam = pButton->m_cVidCell.GetResRef().GetResRefStr();
+    DBG("PORTRAIT_CONTROL_%s gui=%s panel=%lu ctrl=%lu bam=%s seq=%d frame=%d normal=%d pressedFrame=%d pressed=%d force=%d renderCount=%d selected=%d control=(%ld,%ld,%ld,%ld) dirty=(%ld,%ld,%ld,%ld)",
+        event,
+        (LPCSTR)sGui,
+        pButton->m_pPanel->m_nID,
+        pButton->m_nID,
+        (LPCSTR)sBam,
+        pButton->m_cVidCell.GetCurrentSequenceId(),
+        pButton->m_cVidCell.GetCurrentFrameId(),
+        pButton->m_nNormalFrame,
+        pButton->m_nPressedFrame,
+        pButton->m_bPressed,
+        bForce,
+        pButton->m_nRenderCount,
+        g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter(),
+        rControlRect.left,
+        rControlRect.top,
+        rControlRect.right,
+        rControlRect.bottom,
+        pButton->m_rDirty.left,
+        pButton->m_rDirty.top,
+        pButton->m_rDirty.right,
+        pButton->m_rDirty.bottom);
+}
+
 // 0x635200
 void CUIControlPortraitGeneral::OnLButtonClick(CPoint pt)
 {
@@ -3898,19 +3952,40 @@ void CUIControlPortraitGeneral::OnRButtonClick(CPoint pt)
 // 0x77AC40
 BOOL CUIControlPortraitGeneral::Render(BOOL bForce)
 {
+    DebugLogPortraitControl("GENERAL_BEGIN", this, bForce);
+
     if (!m_bActive && !m_bInactiveRender) {
+        DebugLogPortraitControl("GENERAL_INACTIVE", this, bForce);
         return FALSE;
     }
 
     if (m_nRenderCount == 0 && !bForce) {
+        DebugLogPortraitControl("GENERAL_SKIP_COUNT", this, bForce);
         return FALSE;
     }
 
     if (!CUIControlButton::Render(bForce)) {
+        DebugLogPortraitControl("GENERAL_BUTTON_FAIL", this, bForce);
         return FALSE;
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
+    if (DebugIsPortraitStripGui(m_pPanel)) {
+        DBG("PORTRAIT_CONTROL_GENERAL_RENDER_PORTRAIT gui=%s panel=%lu ctrl=%lu pt=(%ld,%ld) size=(%ld,%ld) dirty=(%ld,%ld,%ld,%ld) double=%d selected=%d",
+            (LPCSTR)m_pPanel->m_pManager->m_cResRef.GetResRefStr(),
+            m_pPanel->m_nID,
+            m_nID,
+            pt.x,
+            pt.y,
+            m_size.cx,
+            m_size.cy,
+            m_rDirty.left,
+            m_rDirty.top,
+            m_rDirty.right,
+            m_rDirty.bottom,
+            m_pPanel->m_pManager->m_bDoubleSize,
+            g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter());
+    }
     g_pBaldurChitin->GetObjectGame()->RenderPortrait(m_nID,
         pt,
         m_size,
@@ -3919,6 +3994,8 @@ BOOL CUIControlPortraitGeneral::Render(BOOL bForce)
         FALSE,
         m_rDirty,
         m_pPanel->m_pManager->m_bDoubleSize);
+
+    DebugLogPortraitControl("GENERAL_END", this, bForce);
 
     return TRUE;
 }
@@ -4116,15 +4193,37 @@ void CUIControlPortraitWorld::OnRButtonClick(CPoint pt)
 // 0x77B360
 BOOL CUIControlPortraitWorld::Render(BOOL bForce)
 {
+    DebugLogPortraitControl("WORLD_BEGIN", this, bForce);
+
     if (!m_bActive && !m_bInactiveRender) {
+        DebugLogPortraitControl("WORLD_INACTIVE", this, bForce);
         return FALSE;
     }
 
     if (m_nRenderCount == 0 && !bForce) {
+        DebugLogPortraitControl("WORLD_SKIP_COUNT", this, bForce);
         return FALSE;
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
+    if (DebugIsPortraitStripGui(m_pPanel)) {
+        DBG("PORTRAIT_CONTROL_WORLD_RENDER_PORTRAIT gui=%s panel=%lu ctrl=%lu pt=(%ld,%ld) size=(%ld,%ld) dirty=(%ld,%ld,%ld,%ld) pressed=%d highlighted=%d double=%d selected=%d",
+            (LPCSTR)m_pPanel->m_pManager->m_cResRef.GetResRefStr(),
+            m_pPanel->m_nID,
+            m_nID,
+            pt.x,
+            pt.y,
+            m_size.cx,
+            m_size.cy,
+            m_rDirty.left,
+            m_rDirty.top,
+            m_rDirty.right,
+            m_rDirty.bottom,
+            m_bPressed,
+            m_bHighlighted,
+            m_pPanel->m_pManager->m_bDoubleSize,
+            g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter());
+    }
     g_pBaldurChitin->GetObjectGame()->RenderPortrait(m_nID,
         pt,
         m_size,
@@ -4133,6 +4232,8 @@ BOOL CUIControlPortraitWorld::Render(BOOL bForce)
         TRUE,
         m_rDirty,
         m_pPanel->m_pManager->m_bDoubleSize);
+
+    DebugLogPortraitControl("WORLD_END", this, bForce);
 
     return TRUE;
 }

@@ -4793,6 +4793,7 @@ void CGameSprite::RenderMarkers(CVidMode* pVidMode, INT nSurface)
 // 0x704D40
 void CGameSprite::RenderPortrait(const CPoint& cpRenderPosition, const CSize& szControl, BOOL bPressed, BOOL reorderHighlight, BOOL selectFromMarker, const CRect& rClip, BOOL bDoubleSize)
 {
+    static int debugPortraitLogCount = 0;
     BOOL bDead = FALSE;
 
     if (g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode
@@ -4870,6 +4871,38 @@ void CGameSprite::RenderPortrait(const CPoint& cpRenderPosition, const CSize& sz
         cpRenderPosition.x + 2 * nScale + 42 * nScale,
         cpRenderPosition.y + 2 * nScale + 42 * nScale);
     CRect r3(r2);
+
+    if (debugPortraitLogCount < 2000) {
+        CString sPortrait = CResRef(m_baseStats.m_portraitSmall).GetResRefStr();
+        DBG("PORTRAIT_SPRITE_RENDER sprite=%ld portraitNum=%d selected=%d res=%s pos=(%ld,%ld) control=(%ld,%ld) clip=(%ld,%ld,%ld,%ld) r2=(%ld,%ld,%ld,%ld) hp=%d/%d pressed=%d reorder=%d marker=%d double=%d oldHealth=%d dead=%d blood=%d flash=%d",
+            m_id,
+            g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id),
+            g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter(),
+            (LPCSTR)sPortrait,
+            cpRenderPosition.x,
+            cpRenderPosition.y,
+            szControl.cx,
+            szControl.cy,
+            rClip.left,
+            rClip.top,
+            rClip.right,
+            rClip.bottom,
+            r2.left,
+            r2.top,
+            r2.right,
+            r2.bottom,
+            m_baseStats.m_hitPoints,
+            m_derivedStats.m_nMaxHitPoints,
+            bPressed,
+            reorderHighlight,
+            selectFromMarker,
+            bDoubleSize,
+            g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nOldPortraitHealth,
+            bDead,
+            m_bBloodFlashOn,
+            m_nBloodFlashAmount);
+        debugPortraitLogCount++;
+    }
 
     if (bDead) {
         m_vbPortraitSmall.SetTintColor(RGB(180, 180, 180));

@@ -1,5 +1,7 @@
 #include "CUIControlButton.h"
 
+#include "debuglog.h"
+
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
 #include "CUIManager.h"
@@ -25,6 +27,54 @@ const WORD CUIControlButton::TYPE_WORD_WRAP = 0x100;
 
 // 0x8AB9B4
 const int CUIControlButton::dword_8AB9B4 = 2;
+
+static BOOL DebugIsPortraitStripButton(CUIControlButton* pButton)
+{
+    if (pButton == NULL || pButton->m_pPanel == NULL || pButton->m_pPanel->m_pManager == NULL) {
+        return FALSE;
+    }
+
+    CString sResRef = pButton->m_pPanel->m_pManager->m_cResRef.GetResRefStr();
+    return (sResRef == "GUIINV"
+            || sResRef == "GUISPL"
+            || sResRef == "GUISPL08"
+            || sResRef == "GUIJRNL"
+            || sResRef == "GUIREC")
+        && pButton->m_pPanel->m_nID == 1
+        && pButton->m_nID <= 5;
+}
+
+static void DebugLogButtonState(const char* event, CUIControlButton* pButton, const CRect& rControl, const CRect& rDirty)
+{
+    if (!DebugIsPortraitStripButton(pButton)) {
+        return;
+    }
+
+    CString sGui = pButton->m_pPanel->m_pManager->m_cResRef.GetResRefStr();
+    CString sBam = pButton->m_cVidCell.GetResRef().GetResRefStr();
+    DBG("PORTRAIT_BUTTON_%s gui=%s panel=%lu ctrl=%lu bam=%s seq=%d frame=%d normal=%d pressedFrame=%d pressed=%d renderCount=%d active=%d inactive=%d control=(%ld,%ld,%ld,%ld) dirty=(%ld,%ld,%ld,%ld)",
+        event,
+        (LPCSTR)sGui,
+        pButton->m_pPanel->m_nID,
+        pButton->m_nID,
+        (LPCSTR)sBam,
+        pButton->m_cVidCell.GetCurrentSequenceId(),
+        pButton->m_cVidCell.GetCurrentFrameId(),
+        pButton->m_nNormalFrame,
+        pButton->m_nPressedFrame,
+        pButton->m_bPressed,
+        pButton->m_nRenderCount,
+        pButton->m_bActive,
+        pButton->m_bInactiveRender,
+        rControl.left,
+        rControl.top,
+        rControl.right,
+        rControl.bottom,
+        rDirty.left,
+        rDirty.top,
+        rDirty.right,
+        rDirty.bottom);
+}
 
 // 0x4D47D0
 CUIControlButton::CUIControlButton(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo, BYTE nMouseButtons, unsigned char a5)
@@ -126,6 +176,21 @@ void CUIControlButton::OnMouseMove(CPoint pt)
 {
     if (!IsOver(pt)) {
         if (m_bPressed) {
+            if (DebugIsPortraitStripButton(this)) {
+                CRect rControlRect(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
+                DBG("PORTRAIT_BUTTON_MOUSE_LEAVE gui=%s panel=%lu ctrl=%lu pt=(%ld,%ld) bam=%s seq=%d frameBefore=%d normal=%d pressedFrame=%d",
+                    (LPCSTR)m_pPanel->m_pManager->m_cResRef.GetResRefStr(),
+                    m_pPanel->m_nID,
+                    m_nID,
+                    pt.x,
+                    pt.y,
+                    (LPCSTR)m_cVidCell.GetResRef().GetResRefStr(),
+                    m_cVidCell.GetCurrentSequenceId(),
+                    m_cVidCell.GetCurrentFrameId(),
+                    m_nNormalFrame,
+                    m_nPressedFrame);
+                DebugLogButtonState("MOUSE_LEAVE_DIRTY", this, rControlRect, m_rDirty);
+            }
             m_cVidCell.FrameSet(m_nNormalFrame);
             m_bPressed = FALSE;
 
@@ -135,6 +200,21 @@ void CUIControlButton::OnMouseMove(CPoint pt)
 
     if (IsOver(pt)) {
         if (!m_bPressed) {
+            if (DebugIsPortraitStripButton(this)) {
+                CRect rControlRect(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
+                DBG("PORTRAIT_BUTTON_MOUSE_ENTER gui=%s panel=%lu ctrl=%lu pt=(%ld,%ld) bam=%s seq=%d frameBefore=%d normal=%d pressedFrame=%d",
+                    (LPCSTR)m_pPanel->m_pManager->m_cResRef.GetResRefStr(),
+                    m_pPanel->m_nID,
+                    m_nID,
+                    pt.x,
+                    pt.y,
+                    (LPCSTR)m_cVidCell.GetResRef().GetResRefStr(),
+                    m_cVidCell.GetCurrentSequenceId(),
+                    m_cVidCell.GetCurrentFrameId(),
+                    m_nNormalFrame,
+                    m_nPressedFrame);
+                DebugLogButtonState("MOUSE_ENTER_DIRTY", this, rControlRect, m_rDirty);
+            }
             m_cVidCell.FrameSet(m_nPressedFrame);
             m_bPressed = TRUE;
 
@@ -280,6 +360,8 @@ BOOL CUIControlButton::Render(BOOL bForce)
     CRect rDirtyRect;
     rDirtyRect.IntersectRect(rControlRect, m_rDirty);
 
+    DebugLogButtonState("RENDER_BEGIN", this, rControlRect, rDirtyRect);
+
     if (!pVidInf->BKLock(rDirtyRect)) {
         return FALSE;
     }
@@ -293,6 +375,21 @@ BOOL CUIControlButton::Render(BOOL bForce)
     m_cVidCell.RealizePalette(dwFlags);
     BOOL bResult = pVidInf->BKRender(&m_cVidCell, pt.x, pt.y, rDirtyRect, TRUE, dwFlags);
     m_cVidCell.pRes->Release();
+
+    if (DebugIsPortraitStripButton(this)) {
+        DBG("PORTRAIT_BUTTON_RENDER_BKRESULT gui=%s panel=%lu ctrl=%lu result=%d localPt=(%ld,%ld) localClip=(%ld,%ld,%ld,%ld) flags=0x%lx",
+            (LPCSTR)m_pPanel->m_pManager->m_cResRef.GetResRefStr(),
+            m_pPanel->m_nID,
+            m_nID,
+            bResult,
+            pt.x,
+            pt.y,
+            rDirtyRect.left,
+            rDirtyRect.top,
+            rDirtyRect.right,
+            rDirtyRect.bottom,
+            dwFlags);
+    }
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\ChUIControls.cpp
     // __LINE__: 575
@@ -381,6 +478,12 @@ BOOL CUIControlButton::Render(BOOL bForce)
     }
 
     pVidInf->BKUnlock();
+    if (DebugIsPortraitStripButton(this)) {
+        DBG("PORTRAIT_BUTTON_RENDER_END gui=%s panel=%lu ctrl=%lu",
+            (LPCSTR)m_pPanel->m_pManager->m_cResRef.GetResRefStr(),
+            m_pPanel->m_nID,
+            m_nID);
+    }
     return TRUE;
 }
 
