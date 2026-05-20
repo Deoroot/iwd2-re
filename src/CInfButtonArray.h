@@ -4,6 +4,7 @@
 #include "CVidCell.h"
 
 class CButtonData;
+class CGameButtonList;
 
 class CInfButtonSettings {
 public:
@@ -60,6 +61,17 @@ public:
     /* 19DC */ INT m_nCurrentSelectedSpellLevel;
     /* 19E0 */ CResRef m_currentAbilityResRef;
     /* 19E8 */ BYTE m_nQuickWeaponSlot;
+
+    // Dynamic spell/item/ability/song picker list — populated by SetState
+    // when entering a picker state (0x66/0x67 spellbook, 0x68/0x69 item,
+    // 0x6A/0x6B ability, 0x70/0x71/0x7A song).  Mirrors original
+    // DAT_008e6820 (global pointer in Ghidra) but scoped to the array
+    // instance.  NULL outside of picker states.  Owned by us — freed in
+    // ClearPickerList().
+    CGameButtonList* m_pPickerList;
+    INT m_nPickerPage;
+    void ClearPickerList();
+    void RebuildPickerList();
 };
 
 #endif /* CINFBUTTONARRAY_H_ */

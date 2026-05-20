@@ -7953,6 +7953,55 @@ CGameButtonList* CGameSprite::GetSongsButtonList()
     return buttons;
 }
 
+// Minimum-viable port of FUN_007155c0 — builds a CGameButtonList* for the
+// memorised spells of class nClass at level nLevel.  Drops the per-entry
+// CanCast/caster-level filtering from the original; that gate currently
+// lives in the click handler instead.  Caller owns the returned list and
+// must delete its entries (RemoveHead loop) then delete the list itself.
+CGameButtonList* CGameSprite::GetSpellsAtLevelButtonList(BYTE nClass, UINT nLevel)
+{
+    CGameButtonList* buttons = new CGameButtonList();
+    if (nLevel >= CSPELLLIST_MAX_LEVELS) {
+        return buttons;
+    }
+
+    CGameSpriteGroupedSpellList* grouped = GetSpells(nClass);
+    if (grouped == NULL || grouped->m_nHighestLevel == 0) {
+        return buttons;
+    }
+
+    CGameSpriteSpellList& spellList = grouped->m_lists[nLevel];
+    CSpellResRefList& masterSpells = g_pBaldurChitin->GetObjectGame()->m_spells;
+
+    for (size_t index = 0; index < spellList.m_List.size(); index++) {
+        CGameSpriteSpellListEntry* entry = spellList.Get(static_cast<UINT>(index));
+        if (entry == NULL || entry->m_nMax == 0) {
+            continue;
+        }
+
+        UINT nSpellId = entry->m_nID;
+        if (nSpellId >= masterSpells.m_nCount) {
+            continue;
+        }
+
+        RESREF resRef;
+        masterSpells.Get(nSpellId).GetResRef(resRef);
+        if (resRef[0] == 0) {
+            continue;
+        }
+
+        CButtonData* btn = IcewindMisc::CreateButtonData(resRef);
+        if (btn != NULL) {
+            btn->m_count = static_cast<SHORT>(entry->m_nCurrent);
+            btn->m_bDisplayCount = 1;
+            btn->m_bDisabled = (entry->m_nCurrent == 0) ? TRUE : FALSE;
+            buttons->AddTail(btn);
+        }
+    }
+
+    return buttons;
+}
+
 // NOTE: This function correctly accepts `nClass` by value (as opposed by to
 // many others which passes `nClass` as a reference for unknown reason).
 //

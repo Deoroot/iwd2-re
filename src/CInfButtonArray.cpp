@@ -2,6 +2,7 @@
 
 #include "CBaldurChitin.h"
 #include "CButtonData.h"
+#include "CGameButtonList.h"
 #include "CGameSave.h"
 #include "CGameSprite.h"
 #include "CInfGame.h"
@@ -65,6 +66,76 @@ CInfButtonArray::CInfButtonArray()
     m_nCurrentSelectedSpellLevel = 0;
     m_currentAbilityResRef = "";
     m_nQuickWeaponSlot = 0;
+    m_pPickerList = NULL;
+    m_nPickerPage = 0;
+}
+
+void CInfButtonArray::ClearPickerList()
+{
+    if (m_pPickerList != NULL) {
+        while (!m_pPickerList->IsEmpty()) {
+            delete m_pPickerList->RemoveHead();
+        }
+        delete m_pPickerList;
+        m_pPickerList = NULL;
+    }
+    m_nPickerPage = 0;
+}
+
+// Builds the picker list for the current state.  Called from SetState when
+// entering 0x66/0x67/0x68/0x69/0x6A/0x6B/0x70/0x71/0x7A.  Mirrors the
+// per-type dispatch in Ghidra FUN_00587c20.  Currently implements type 2
+// (spellbook) only; the other branches still return an empty list.
+void CInfButtonArray::RebuildPickerList()
+{
+    ClearPickerList();
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->GetGroup()->GetCount() == 0) {
+        return;
+    }
+
+    LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+    CGameSprite* pSprite = NULL;
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS || pSprite == NULL) {
+        return;
+    }
+
+    switch (m_nState) {
+    case 0x66:
+    case 0x67:
+        // Spellbook for `m_nCurrentSelectedSpellClass` at the current level
+        // (0x67 = single level; 0x66 = all levels of class — original treats
+        // these slightly differently, but for the visible parity we pick the
+        // selected level).
+        m_pPickerList = pSprite->GetSpellsAtLevelButtonList(
+            m_nCurrentSelectedSpellClass,
+            static_cast<UINT>(m_nCurrentSelectedSpellLevel));
+        break;
+    case 0x70:
+    case 0x71:
+    case 0x7A:
+        m_pPickerList = pSprite->GetSongsButtonList();
+        break;
+    case 0x6A:
+    case 0x6B:
+        m_pPickerList = pSprite->GetInternalButtonList();
+        break;
+    default:
+        break;
+    }
+
+    pGame->GetObjectArray()->ReleaseShare(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
 // 0x588240
@@ -159,6 +230,16 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
 {
     // TODO: Incomplete.
 
+    // Clear any picker list when transitioning out of a picker state.  The
+    // picker-case branch below will rebuild it if the new state is itself
+    // a picker.
+    BOOL bIsPickerState = nState == 0x65 || nState == 0x66 || nState == 0x67
+        || nState == 0x68 || nState == 0x69 || nState == 0x6A || nState == 0x6B
+        || nState == 0x70 || nState == 0x71 || nState == 0x7A || nState == 0x7B;
+    if (!bIsPickerState) {
+        ClearPickerList();
+    }
+
     switch (nState) {
     case 0x65:
     case 0x66:
@@ -170,21 +251,32 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
     case 0x70:
     case 0x71:
     case 0x7A:
-    case 0x7B:
+    case 0x7B: {
         // Picker states (weapon / spell / item / ability / song).  Per Ghidra
-        // SetState (0x589110) these all funnel through a single fallback
-        // layout that fills the bar with formation submenu buttons 0x15-0x20
-        // (the small-rune frame).  The original additionally tries to build
-        // a dynamic list via FUN_00587c20 and switches to paging buttons
-        // (0x21 / 0x15-0x1F / 0x22) when the list is large.  We do not have
-        // the dynamic list yet; ship the fallback so the bar at least shows
-        // valid sub-menu slots and the user can right-click out.
-        for (INT nButton = 0; nButton < 12; nButton++) {
-            m_buttonTypes[nButton] = 0x15 + nButton;
-        }
+        // SetState (0x589110) + FUN_00587c20: build the dynamic list of
+        // available entries, populate slots 0..N-1 with formation-submenu
+        // types 0x15..0x20 (paging at 0x21/0x22 when N > 12).  Slot icons
+        // are overridden in UpdateButtons via m_pPickerList[nButton].
         m_nState = nState;
+        RebuildPickerList();
+        INT nEntries = 0;
+        if (m_pPickerList != NULL) {
+            nEntries = static_cast<INT>(m_pPickerList->GetCount());
+        }
+        // Cap at 12 for now — paging (0x21/0x22) not yet implemented.
+        if (nEntries > 12) {
+            nEntries = 12;
+        }
+        for (INT nButton = 0; nButton < 12; nButton++) {
+            if (nButton < nEntries) {
+                m_buttonTypes[nButton] = 0x15 + nButton;
+            } else {
+                m_buttonTypes[nButton] = 100;
+            }
+        }
         UpdateButtons();
         return TRUE;
+    }
     case 0x73:
     case 0x74:
         // Action submenu (Stealth / Berserk / Turn / Weapon flip / Trapfind).
@@ -585,6 +677,26 @@ void CInfButtonArray::UpdateButtons()
                 nIconNormalFrame = 0;
                 nIconSelectedFrame = 0;
                 bHasOverlay = FALSE;
+            } else if (m_pPickerList != NULL) {
+                // Picker list entry — pull icon + tooltip from the
+                // CGameButtonList built in RebuildPickerList.  The entry
+                // index equals the formation submenu offset (button type -
+                // 0x15) so the first list entry sits at slot 0.
+                INT nEntry = m_buttonTypes[nButton] - 0x15;
+                POSITION pos = m_pPickerList->FindIndex(nEntry);
+                CButtonData* pEntry = (pos != NULL) ? m_pPickerList->GetAt(pos) : NULL;
+                if (pEntry != NULL && pEntry->m_icon != "") {
+                    cIconResRef = pEntry->m_icon;
+                    nIconNormalFrame = 0;
+                    nIconSelectedFrame = 0;
+                    nToolTip = pEntry->m_name;
+                    bGreyOut = pEntry->m_bDisabled;
+                    bHasOverlay = FALSE;
+                } else {
+                    bActive = FALSE;
+                    bEnabled = FALSE;
+                    cIconResRef = CResRef("");
+                }
             } else {
                 bActive = FALSE;
                 bEnabled = FALSE;
@@ -991,6 +1103,37 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             pGame->GetGameSave()->m_curFormation = static_cast<SHORT>(buttonID);
             SetState(0x6E, 0);
         }
+        return;
+    case 0x66:
+    case 0x67:
+    case 0x68:
+    case 0x69:
+    case 0x6A:
+    case 0x6B:
+    case 0x70:
+    case 0x71:
+    case 0x7A:
+    case 0x7B:
+        // Picker click — look up the selected entry in m_pPickerList, then
+        // hand it to the appropriate sprite action.  The original
+        // FUN_0058FF20 picker-state branches each call a dedicated helper
+        // (FUN_005886a0 for spells, FUN_005884b0 for items, FUN_00588760
+        // for abilities, FUN_00588820 for songs).  Those helpers wrap the
+        // AI-action dispatch we haven't ported yet, so for now we just
+        // cancel the picker and let the user re-enter the parent state.
+        // TODO: proper Cast / UseAbility integration once the AI action
+        // table lands.
+        if (nButtonType >= 0x15 && nButtonType <= 0x20 && m_pPickerList != NULL) {
+            INT nEntry = nButtonType - 0x15;
+            POSITION pos = m_pPickerList->FindIndex(nEntry);
+            CButtonData* pEntry = (pos != NULL) ? m_pPickerList->GetAt(pos) : NULL;
+            if (pEntry != NULL && !pEntry->m_bDisabled) {
+                m_currentAbilityResRef = pEntry->m_abilityId.m_res;
+            }
+        }
+        pGame->SetState(0);
+        SetSelectedButton(100);
+        SetState(0x72, 0);
         return;
     case 0x6E:
         switch (nButtonType) {
