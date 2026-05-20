@@ -69,6 +69,17 @@ Currently the picker states route to the default-case button-type handler, which
 
 - Slight discrepancies between our action-bar strip BG colour and the original. Probably a screen-cap artifact; verify with a pixel-diff if it becomes a real bug.
 
+### Empty-quick-slot tint (Image #18 vs #19 — May 2026)
+
+Empty quick-spell (0x46-0x4E STONSPEL fallback), "No Item" quick-item / quick-ability / quick-song slots render with a darker tint than the original. Bezel + interior both look dimmer in our screenshots. Confirmed not `m_bGreyOut` driven — `bGreyOut` stays FALSE for the empty fallback paths. Plausible causes:
+- STON* BAM render path (alpha + RGB565 dithering) differs from the original's surface blit.
+- GUIBTBUT base frame 0 may not be the right frame index — the original might pull a lighter "empty" frame from GUIBTACT (e.g. frame 0x68/0x6A which IS a bezel-only weapon-empty BAM frame).
+- Possible palette / `SetTintColor` mismatch invoked somewhere in `FUN_005950F0` we haven't ported.
+
+### Group formation selection red border missing
+
+In group state 0x6E with `m_curFormation` set, the matching formation slot (one of 0x10-0x14) does NOT show the red selection border that the original does. UpdateButtons does set `settings.m_bSelected = m_nSelectedButton == m_buttonTypes[nButton]`, but `m_nSelectedButton` is only mutated by the click handler (`SetState(0x6E)` → no selection persistence between right-click formations). Probably needs the formation-current-index reflected in `m_nSelectedButton` whenever `m_curFormation` is touched (also from movement / pathfinding code that's still stub).
+
 ### Inventory quick-weapon yellow border (separate file)
 
 - `CScreenInventory::CUIControlButtonInventorySlot::Render` doesn't paint the yellow active-set highlight around `pSprite->m_nWeaponSet` in the quick-weapons panel.
