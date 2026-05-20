@@ -872,9 +872,69 @@ SHORT CGameAIBase::MoveViewObject(CGameObject* target)
 // 0x45F6D0
 SHORT CGameAIBase::MoveCursor(CPoint dest, SHORT speed)
 {
-    // TODO: Incomplete.
+    CInfinity* pInfinity = GetArea()->GetInfinity();
 
-    return ACTION_DONE;
+    INT x;
+    INT y;
+    pInfinity->GetViewPosition(x, y);
+
+    CPoint pt;
+    GetCursorPos(&pt);
+
+    const SHORT nCursorStep = 4;
+    const SHORT nDiagonalStep = static_cast<SHORT>(3 * nCursorStep / 4);
+    const SHORT nDiagonalTolerance = static_cast<SHORT>(nDiagonalStep * speed);
+
+    if (m_curAction.m_specificID == 0) {
+        pInfinity->SetViewPosition(dest.x, dest.y, TRUE);
+        return ACTION_DONE;
+    }
+
+    const SHORT nStraightStep = static_cast<SHORT>(nCursorStep * speed);
+    const SHORT nHalfStep = static_cast<SHORT>(nCursorStep / 2 * speed);
+    const INT dx = dest.x - pt.x;
+    const INT dy = dest.y - pt.y;
+
+    if (dx <= nStraightStep) {
+        if (dx >= -nStraightStep
+            && dy <= nDiagonalTolerance
+            && dy >= -nDiagonalTolerance) {
+            return ACTION_DONE;
+        }
+
+        if (dx >= -nStraightStep) {
+            if (dy > 0) {
+                pt.y += nDiagonalStep * speed;
+            } else if (dy < 0) {
+                pt.y -= nDiagonalStep * speed;
+            }
+
+            pInfinity->SetViewPosition(pt.x, pt.y, TRUE);
+            return ACTION_INTERRUPTABLE;
+        }
+    }
+
+    if (dx > 0 && dy <= 6 && dy >= -nDiagonalTolerance) {
+        pt.x += nCursorStep * speed;
+    } else if (dx < 0 && dy <= 6 && dy >= -nDiagonalTolerance) {
+        pt.x -= nCursorStep * speed;
+    } else if (dx > 0 && dy > 0) {
+        pt.x += nDiagonalStep * speed;
+        pt.y += nHalfStep;
+    } else if (dx < 0 && dy > 0) {
+        pt.x -= nDiagonalStep * speed;
+        pt.y += nHalfStep;
+    } else if (dx > 0 && dy < 0) {
+        pt.x += nDiagonalStep * speed;
+        pt.y -= nHalfStep;
+    } else if (dx < 0 && dy < 0) {
+        pt.x -= nDiagonalStep * speed;
+        pt.y -= nHalfStep;
+    }
+
+    pInfinity->SetViewPosition(pt.x, pt.y, TRUE);
+
+    return ACTION_INTERRUPTABLE;
 }
 
 // 0x45F900
