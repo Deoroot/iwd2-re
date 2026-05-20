@@ -1413,6 +1413,106 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             SetState(0x72, 0);
         }
         return;
+    case 0x73:
+        // Skills submenu (entered from state 0x72 button 5).  Per Ghidra
+        // OnLButtonPressed state 0x73: clicking Stealth/Berserk/Turn/Trap/
+        // Weapon-flip toggles the corresponding modal on the sprite, then
+        // pops back to state 0x72 via the state-stack mechanism.  Any
+        // other click (empty slot, unknown type) just exits the submenu.
+        {
+            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+            CGameSprite* pSprite = NULL;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                BYTE modal = pSprite->GetModalState();
+                switch (nButtonType) {
+                case 4: // Berserk
+                    if (modal == 2) {
+                        pSprite->SetModalState(0, 0);
+                        SetSelectedButton(100);
+                    } else {
+                        pSprite->SetModalState(2, 0);
+                        SetSelectedButton(5);
+                    }
+                    break;
+                case 0xB: // Stealth
+                    if (modal == 3) {
+                        pSprite->SetModalState(0, 0);
+                        SetSelectedButton(100);
+                    } else {
+                        pSprite->SetModalState(3, 0);
+                        SetSelectedButton(5);
+                    }
+                    break;
+                case 0xC: // Turn Undead
+                    if (pGame->GetState() == 2
+                        && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
+                        pGame->SetState(0);
+                        SetSelectedButton(100);
+                    } else {
+                        pGame->SetState(2);
+                        pGame->SetIconIndex(0x24);
+                        SetSelectedButton(0xC);
+                    }
+                    break;
+                case 0xD: // Detect Traps
+                    if (modal == 4) {
+                        pSprite->SetModalState(0, 0);
+                        SetSelectedButton(100);
+                    } else {
+                        pSprite->SetModalState(4, 0);
+                        SetSelectedButton(5);
+                    }
+                    break;
+                case 0x77: { // Weapon flip
+                    BYTE nNext = static_cast<BYTE>((pSprite->m_nWeaponSet + 1) & 0x3);
+                    pSprite->SetWeaponSet(nNext);
+                    m_nQuickWeaponSlot = nNext;
+                    break;
+                }
+                default:
+                    break;
+                }
+                pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+            SetState(0x72, 0);
+        }
+        return;
+    case 0x74:
+        // Skills submenu in customize mode (entered from state 0x75 case
+        // 0x23 right-click).  Click writes the chosen button type into
+        // m_customButtonTypes[m_nCustomizeSlot] and the sprite mirror,
+        // then exits to state 0x72.  Empty / unknown clicks just exit.
+        if ((nButtonType == 4 || nButtonType == 0xB || nButtonType == 0xC
+                || nButtonType == 0xD || nButtonType == 0x77)
+            && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
+            m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
+            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+            CGameSprite* pSprite = NULL;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+                pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+        SetState(0x72, 0);
+        return;
     case 0x78:
         // Quick-item picker sub-menu reached from state 0x75 case 0x26.
         // Per Ghidra OnLButtonPressed state 0x78: a click on a 0x50-0x52
@@ -1665,9 +1765,11 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             UpdateButtons();
             return;
         case 5:
-            // Generic modal — Ghidra FUN_00594280(5, sprite): toggles the
-            // sprite's modal state via SetModalState.  Simplified: if already
-            // in modal 5 clear it, else enter it.
+            // Skills button.  Per Ghidra FUN_00594280 case 5: if the sprite
+            // is already in any modal state, clear it and reset the selected
+            // button; otherwise open the skills submenu (state 0x73).  The
+            // submenu surfaces Stealth / Berserk / Turn / Weapon flip /
+            // Trapfind based on class.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
@@ -1675,20 +1777,23 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     CGameObjectArray::THREAD_ASYNCH,
                     reinterpret_cast<CGameObject**>(&pSprite),
                     INFINITE);
+                BYTE modal = 0;
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    BYTE state = pSprite->GetModalState();
-                    if (state == 5 || state == 3) {
+                    modal = pSprite->GetModalState();
+                    if (modal != 0) {
                         pSprite->SetModalState(0, 0);
-                        SetSelectedButton(100);
-                    } else {
-                        pSprite->SetModalState(5, 0);
-                        SetSelectedButton(5);
                     }
                     pGame->GetObjectArray()->ReleaseShare(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
                 }
-                UpdateButtons();
+                if (modal != 0) {
+                    SetSelectedButton(100);
+                    UpdateButtons();
+                } else {
+                    UpdateButtons();
+                    SetState(0x73, 1);
+                }
             }
             return;
         case 10:
