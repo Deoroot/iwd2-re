@@ -518,7 +518,7 @@ void CInfButtonArray::UpdateButtons()
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CGameSprite* pSprite = NULL;
     LONG nLeaderId = CGameObjectArray::INVALID_INDEX;
-    BYTE rc = CGameObjectArray::INVALID_INDEX;
+    BYTE rc = 0xFF;
     if (pGame->GetGroup()->GetCount() != 0) {
         nLeaderId = pGame->GetGroup()->GetGroupLeader();
         do {
