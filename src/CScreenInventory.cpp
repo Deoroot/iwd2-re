@@ -4174,6 +4174,7 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
     }
 
     CScreenInventory* pInventory = g_pBaldurChitin->m_pEngineInventory;
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
     // __LINE__: 6826
@@ -4224,6 +4225,47 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
         0,
         FALSE,
         0);
+
+    // Active-weapon-set border.  Buttons 101-108 are the Quick Weapons
+    // panel (4 sets × main + off-hand).  When this slot belongs to the
+    // sprite's currently-selected weapon set, paint STONSLOT frame 22
+    // (green-bordered stone) over the slot — matches the bright outline
+    // the original draws around the active pair.
+    if (m_nID >= 101 && m_nID <= 108) {
+        INT nSlotSet = (m_nID - 101) / 2;
+        INT nCharacterId = pGame->GetCharacterId(pInventory->GetSelectedCharacter());
+        CGameSprite* pSprite = NULL;
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                CGameObjectArray::THREAD_1,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        BOOL bActive = FALSE;
+        if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+            bActive = (nSlotSet == pSprite->m_nWeaponSet);
+            pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_1,
+                INFINITE);
+        }
+        if (bActive) {
+            CVidCell cBorder;
+            cBorder.SetResRef(CResRef("STONSLOT"),
+                m_pPanel->m_pManager->m_bDoubleSize, TRUE, FALSE);
+            if (cBorder.pRes != NULL) {
+                cBorder.SequenceSet(0);
+                // Cycle-0 lookup index 2 (main) / 3 (off-hand) → STONSLOT
+                // frames 4 / 22.  Frame 22 is the green ring used for the
+                // active off-hand; frame 4 is the red main-hand selection
+                // outline.  Original IWD2 distinguishes the two; we keep
+                // the same split.
+                BOOL bOffhand = ((m_nID - 101) & 1) != 0;
+                cBorder.FrameSet(bOffhand ? 22 : 4);
+                cBorder.Render(0, pos.x, pos.y, rClip, NULL, 0, 0, -1);
+            }
+        }
+    }
 
     InvalidateRect();
     return TRUE;
