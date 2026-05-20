@@ -1919,11 +1919,18 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
     if (buttonID < 0 || buttonID >= 12) {
         return;
     }
-    if (m_buttonArray[buttonID].m_bGreyOut) {
-        return;
-    }
 
     INT nButtonType = m_buttonTypes[buttonID];
+
+    // Empty quick-slot (type 100) renders inactive so its bezel can stay
+    // transparent, but right-clicking it in state 0x72 must still bring up
+    // the customize menu — otherwise erased slots become permanent dead
+    // zones.  UpdateButtons forces m_bGreyOut for type 100; bypass that
+    // gate for the customize entry path.
+    BOOL bCustomizeEntry = (m_nState == 0x72 && nButtonType == 100);
+    if (m_buttonArray[buttonID].m_bGreyOut && !bCustomizeEntry) {
+        return;
+    }
 
     switch (m_nState) {
     case 0x6E:
