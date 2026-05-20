@@ -1115,20 +1115,31 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     case 0x71:
     case 0x7A:
     case 0x7B:
-        // Picker click — look up the selected entry in m_pPickerList, then
-        // hand it to the appropriate sprite action.  The original
-        // FUN_0058FF20 picker-state branches each call a dedicated helper
-        // (FUN_005886a0 for spells, FUN_005884b0 for items, FUN_00588760
-        // for abilities, FUN_00588820 for songs).  Those helpers wrap the
-        // AI-action dispatch we haven't ported yet, so for now we just
-        // cancel the picker and let the user re-enter the parent state.
-        // TODO: proper Cast / UseAbility integration once the AI action
-        // table lands.
+        // Picker click — look up the selected entry in m_pPickerList and
+        // dispatch via CGameSprite::UseButtonAction.  Matches Ghidra
+        // FUN_005886a0 (used by states 0x66/0x67 and 0x68/0x69 in the
+        // original): copy the CButtonData onto the stack, then call
+        // sprite->UseButtonAction(data, 0).
         if (nButtonType >= 0x15 && nButtonType <= 0x20 && m_pPickerList != NULL) {
             INT nEntry = nButtonType - 0x15;
             POSITION pos = m_pPickerList->FindIndex(nEntry);
             CButtonData* pEntry = (pos != NULL) ? m_pPickerList->GetAt(pos) : NULL;
             if (pEntry != NULL && !pEntry->m_bDisabled) {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        reinterpret_cast<CGameObject**>(&pSprite),
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    pSprite->UseButtonAction(*pEntry, 0);
+                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
                 m_currentAbilityResRef = pEntry->m_abilityId.m_res;
             }
         }
