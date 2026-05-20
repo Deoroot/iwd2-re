@@ -1479,12 +1479,21 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     }
                     break;
                 case 0xD: // Detect Traps
-                    if (modal == 4) {
-                        pSprite->SetModalState(0, 0);
-                        SetSelectedButton(100);
-                    } else {
-                        pSprite->SetModalState(4, 0);
-                        SetSelectedButton(5);
+                    // Per Ghidra OnL state 0x73 case 0xD: build a
+                    // CButtonData via FUN_00718390 (BuildAbilityButtonData)
+                    // from the cleric-trapfind resref DAT_008f8e60
+                    // ("SPIN108") then dispatch via UseSpellAction.
+                    // BuildAbilityButtonData isn't ported; construct the
+                    // minimal CButtonData inline so UseButtonAction can
+                    // still queue the AI action.
+                    {
+                        CButtonData bd;
+                        bd.m_abilityId.m_res = CResRef("SPIN108");
+                        bd.m_abilityId.m_targetType = -1;
+                        bd.m_abilityId.m_strDescription = -1;
+                        bd.m_bDisabled = FALSE;
+                        bd.m_bDisplayCount = TRUE;
+                        pSprite->UseButtonAction(bd, 1);
                     }
                     break;
                 case 0x77: { // Weapon flip
