@@ -1399,6 +1399,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 return;
             }
             default:
+                // Empty / unknown click in customize menu — pop back to
+                // the action bar like every other submenu default exit.
+                SetState(0x72, 0);
                 return;
             }
 
