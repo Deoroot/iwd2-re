@@ -81,17 +81,52 @@ Run `git log --oneline | head -30` for the latest list.
 - STON* fallback per Ghidra: 11/12/13/14 → STONARM/STONGLET/STONHELM/STONAMUL. 15-17 → STONQUIV. 21-25 → STONBELT/STONRING/STONRING/STONCLOK/STONBOOT. 101-108 → STONWEAP/STONSHIL alternating. Quick items (5/6/7) + inventory grid (30-45/73-80) do NOT get fallback — Ghidra `goto LAB_0062dff4`s them directly.
 - Active weapon set: HIGHLGHT.BAM (32×32 green ring) over both main + off slots of `pSprite->m_nWeaponSet`. Drawn at pt+2 scaled.
 
+## May 21 2026 session — what landed
+
+Customize + submenu UX cleanup:
+```
+8f42b1a8  action bar customize menu (state 0x75) writes choice + returns to bar
+f78df738  Fix C4244 BYTE narrowing in CInfButtonArray::UpdateButtons
+448b5b51  docs: inline build + commit rules into CLAUDE.md
+909d6ca9  Allow right-click on empty quick slot to open customize menu
+a0059b9c  Open skills submenu on type-5 click + wire OnL state 0x73/0x74
+e87e2206  Submenu empty-slot exits + quick-weapon picker (state 0x79) click
+aaad0b6b  State 0x75 default click exits to action bar
+c05fbcd0  OnL state 0x77 writes customize class type to slot
+9bb0c70d  docs: trim CLAUDE.md additions to essentials
+```
+
+Header: `field_1976` (was wrongly CResRef) split to `INT m_nCustomizeSlot` + `INT m_nPickerPage` (matches Ghidra offsets 0x1976 + 0x197A).  Old `INT m_nPickerPage` member at end removed.
+
+OnL gate now matches Ghidra: greyout only blocks in state 0x72 + state 0x66 non-picker.  All other submenu states process greyed clicks so default case can pop back to 0x72.
+
+OnL outer states now handled: 0x6C/0x6D, 0x66-0x6B/0x70-0x7B (pickers), 0x6E (group), 0x75 (customize menu), 0x73/0x74 (skills + customize-skills), 0x77 (customize class picker), 0x78 (quick-item picker), 0x79 (quick-weapons picker), default (state 0x72 + 0x76 cast-class fallthrough).
+
+OnL default inner-switch `default:` now exits to 0x72 when state != 0x72 && state != 0x6E — empty/unknown clicks pop submenu.
+
+Two subagents (`iwd2-build-deploy`, `git-commit`) and their backing memory files were deleted.  Build + commit are inline; the rules live in CLAUDE.md.
+
 ## Open items (priority order)
 
-### High — weapon icons missing in inventory
+### Known nit — user reported state 0x79 empty click doesn't exit
 
-Image #26 shows equipped Geldin with empty quick weapon slots. `InventoryInfoPersonal(slot, ...)` returns `cResIcon == ""` for those slots. Verify:
+`OnL case 0x79` ends with unconditional `SetState(0x72, 0)` (line ~1559 of CInfButtonArray.cpp).  Empty slot click SHOULD exit.  User reported it doesn't, but the fix landed in commit `e87e2206`.  Re-test after build `aaad0b6b` / `c05fbcd0`.  If still broken, dig into whether the CUIControl click is even firing for type-100 settings.field_0 = 0 buttons in state 0x79.
 
-1. `pSprite->m_equipment.m_items[43 + 2*m_nWeaponSet]` is non-NULL after CRE load.
-2. `CItem::GetItemIcon()` returns a valid resref for that item.
-3. The CRE in the save file actually has the weapons at the expected slot offsets (the save format `pCreature + 0x?` for weapons may have shifted).
+### Low — case 0xD (Detect Traps) action dispatch
 
-Drop into `CGameSprite::UnmarshalCreature` (likely culprit) and DBG-log `m_items[43..50]` after load.
+Currently state 0x73 case 0xD toggles modal 4.  Per Ghidra OnL state 0x73 case 0xD: build a CButtonData via `FUN_00718390(DAT_008f8e60, 0, 0, buttonData)` then call `FUN_005886a0(buttonData, 1)` (UseButtonAction).  `DAT_008f8e60` at 0x8F8E60 is all-zero bytes — looks like an empty CResRef literal, suggesting the action is constructed entirely from the ability table side.  Need FUN_00718390 port (cleric-trapfind builder) before this can be faithfully reproduced.  Modal-toggle approximation is harmless (modal 4 is otherwise unused).
+
+### Low — case 9 (Shapeshift) action dispatch
+
+`GetShapeshifts` exists on the sprite but no OnL case 9 handler.  Ghidra has no case 9 in `OnLButtonPressed` outer default — type 9 may only appear in shapeshift sub-pickers.  Defer until a class with shapeshift entries triggers it.
+
+### Low — state 0x65 (weapon equip picker) OnL click
+
+Per Ghidra OnL state 0x65 (decomp line ~115): iterate `DAT_008e6820` picker list, call `FUN_00588cb0(buttonData, slot, 1)` + `FUN_00588570(slot, 1)` to equip the weapon at the picker's slot index.  State 0x65 is entered from action bar weapon-slot click when the engine vmethod 0x44 reports "weapon swap allowed".  We don't currently enter 0x65 from the main bar (our 0x3C-0x43 handler just selects/deselects), so the OnL handler is unreachable.  Both pieces would need to land together.
+
+### High — weapon icons missing in inventory (RESOLVED)
+
+User confirmed in Image #1 that weapon icons appear in the inventory quick-weapon panel.  Previous suspicion was wrong.  Ignore.
 
 ### Med — save-load formation red border
 
