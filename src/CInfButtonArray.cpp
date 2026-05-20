@@ -5,6 +5,7 @@
 #include "CGameButtonList.h"
 #include "CGameSave.h"
 #include "CGameSprite.h"
+#include "CGameSpriteEquipment.h"
 #include "CInfGame.h"
 #include "CItem.h"
 #include "CScreenWorld.h"
@@ -110,6 +111,17 @@ void CInfButtonArray::RebuildPickerList()
     }
 
     switch (m_nState) {
+    case 0x65:
+        // Weapon-equip picker.  Ghidra SetState 0x65 passes
+        // (m_nCurrentSelectedSpellLevel + 0x2B) as slot index to FUN_00587c20
+        // case 1 → GetItemUsages(slot, 1, -1).  Slot 0x2B = 43 is
+        // SLOT_WEAPON; the offset converts the quick-weapon button index
+        // (0..7) into the actual inventory slot (43..50).
+        m_pPickerList = pSprite->GetItemUsages(
+            static_cast<SHORT>(m_nCurrentSelectedSpellLevel + CGameSpriteEquipment::SLOT_WEAPON),
+            1,
+            -1);
+        break;
     case 0x66:
     case 0x67:
         // Spellbook.  Matches Ghidra FUN_00587c20 case 2 dispatch:
@@ -120,6 +132,17 @@ void CInfButtonArray::RebuildPickerList()
         } else {
             m_pPickerList = pSprite->GetSpellsButtonList(m_nCurrentSelectedSpellClass);
         }
+        break;
+    case 0x68:
+    case 0x69:
+        // Item-ability picker.  Ghidra FUN_00587c20 case 3 with non-zero
+        // alt-flag → GetItemUsages(slot + 0xF, 3, -1).  Slot 0xF = 15 is
+        // SLOT_MISC; the offset converts the quick-item button index
+        // (0..2) into the inventory slot (15..17).
+        m_pPickerList = pSprite->GetItemUsages(
+            static_cast<SHORT>(m_nCurrentSelectedSpellLevel + CGameSpriteEquipment::SLOT_MISC),
+            3,
+            -1);
         break;
     case 0x70:
     case 0x71:
