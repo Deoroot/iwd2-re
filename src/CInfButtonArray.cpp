@@ -2209,12 +2209,53 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
             SetState(0x78, 1);
             return;
         case 0x27:
-            // Ghidra additionally checks sprite[0x4A94] != 0 first.  Skipped.
-            SetState(0x6B, 1);
+            // Innate ability customize — Ghidra OnR state 0x75 case 0x27
+            // checks sprite[0x4A94] (m_innateSpells internal head pointer)
+            // is non-zero before opening the picker.  We use the
+            // std::vector emptiness check on m_innateSpells.m_List.
+            {
+                CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                BOOL bHasInnate = FALSE;
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    bHasInnate = !pSprite->m_innateSpells.m_List.empty();
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                if (bHasInnate) {
+                    SetState(0x6B, 1);
+                }
+            }
             return;
         case 0x28:
-            // Ghidra checks the song list pointer; skipped here.
-            SetState(0x71, 1);
+            // Bard Song customize — Ghidra OnR state 0x75 case 0x28 checks
+            // the song list head + (end - head) / 16 (entry size).  We
+            // approximate with std::vector emptiness on m_songs.m_List.
+            {
+                CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                BOOL bHasSong = FALSE;
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    bHasSong = !pSprite->m_songs.m_List.empty();
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                if (bHasSong) {
+                    SetState(0x71, 1);
+                }
+            }
             return;
         case 0x24:
             // Cast Spell — pick state 0x66 (customize spellbook) for a
