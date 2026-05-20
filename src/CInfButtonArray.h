@@ -11,16 +11,16 @@ public:
     ~CInfButtonSettings();
 
     /* 0000 */ int field_0;
-    /* 0004 */ int field_4;
-    /* 0008 */ int field_8;
-    /* 000C */ int field_C;
-    /* 0010 */ int field_10;
+    /* 0004 */ int m_bActive;
+    /* 0008 */ int m_bHasOverlay;
+    /* 000C */ int m_nIconNormalFrame;
+    /* 0010 */ int m_nIconSelectedFrame;
     /* 0014 */ CVidCell field_14;
     /* 00EE */ CVidCell field_EE;
     /* 01C8 */ int field_1C8;
-    /* 01CC */ int field_1CC;
-    /* 01D0 */ int field_1D0;
-    /* 01D8 */ int field_1D8;
+    /* 01CC */ int m_bSelected;
+    /* 01D0 */ int m_bActiveWeaponSet;
+    /* 01D8 */ int m_nCount;
     /* 01DC */ BOOL m_bGreyOut;
 };
 
