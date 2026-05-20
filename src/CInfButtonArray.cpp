@@ -1183,10 +1183,13 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         switch (nButtonType) {
         case 3:
             // Cast Spell.  Per Ghidra FUN_00594280 case 3: count classes that
-            // have memorised spells.  If 1 → set m_nCurrentSelectedSpellClass
-            // and jump directly to spellbook (0x67).  If 2+ → class picker
-            // (0x76).  This matches the original sorcerer behaviour where
-            // there's only one casting class, so no intermediate picker.
+            // have memorised spells, then add domain pool to the count when
+            // m_domainSpells.m_nHighestLevel != 0.  Counts > 1 → class picker
+            // (0x76).  Count == 1 → direct spellbook (0x67) with the only
+            // class.  Count == 0 → nothing happens.  This matches the
+            // original sorcerer single-class fast-path AND keeps the
+            // Cleric/Domain picker visible whenever the cleric has memorised
+            // at least one domain spell.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
@@ -1196,6 +1199,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     INFINITE);
                 INT nCasterCount = 0;
                 BYTE nOnlyClass = 0;
+                BOOL bDomainContributed = FALSE;
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
                     static const BYTE classes[] = { 2, 3, 4, 7, 8, 10, 11 };
                     for (size_t i = 0; i < sizeof(classes) / sizeof(classes[0]); i++) {
@@ -1204,6 +1208,17 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                             nCasterCount++;
                             nOnlyClass = classes[i];
                         }
+                    }
+                    if (pSprite->m_domainSpells.m_nHighestLevel != 0) {
+                        if (nCasterCount == 0) {
+                            // Cleric with domain pool only: fall through to
+                            // the single-class fast-path with class 3 +
+                            // non-zero level so RebuildPickerList picks the
+                            // domain branch.
+                            nOnlyClass = 3;
+                            bDomainContributed = TRUE;
+                        }
+                        nCasterCount++;
                     }
                     pGame->GetObjectArray()->ReleaseShare(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
@@ -1214,9 +1229,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 UpdateButtons();
                 if (nCasterCount == 1) {
                     m_nCurrentSelectedSpellClass = nOnlyClass;
-                    m_nCurrentSelectedSpellLevel = 0;
+                    m_nCurrentSelectedSpellLevel = bDomainContributed ? 1 : 0;
                     SetState(0x67, 1);
-                } else {
+                } else if (nCasterCount >= 2) {
                     SetState(0x76, 1);
                 }
             }
