@@ -1,10 +1,8 @@
-#include "mfc.h"
+﻿#include "mfc.h"
 
 #include <iostream>
 
 #include "CBaldurChitin.h"
-#include "debuglog.h"
-
 // 0x421820
 static BOOL IsSupportedOS(DWORD& majorVersion, DWORD& minorVersion)
 {
@@ -99,7 +97,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     }
 
     CBaldurChitin baldurChitin;
-    DBG("MAIN: constructor done");
     if (baldurChitin.field_1932 != 0) {
         CloseHandle(mutexHandle);
         return 0;
@@ -125,11 +122,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // FIXME: Original hardcoded path doesn't exist on this machine.
     // SetCurrentDirectoryA("C:\\Program Files (x86)\\GOG.com\\Icewind Dale II");
 
-    DBG("MAIN: calling Init");
     baldurChitin.Init(hInstance);
-    DBG("MAIN: Init returned");
     int rc = baldurChitin.WinMain(hInstance, hPrevInstance, lpCmdLine, nCmdShow);
-    DBG("MAIN: WinMain returned");
     CloseHandle(mutexHandle);
     return rc;
 }

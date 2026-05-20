@@ -1,7 +1,4 @@
-#include "CUIManager.h"
-
-#include "debuglog.h"
-
+﻿#include "CUIManager.h"
 #include "CBaldurChitin.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
@@ -245,7 +242,6 @@ void CUIManager::OnMouseMove(CPoint pt)
 {
     static int s_uiMouseMoveLogCount = 0;
     if (s_uiMouseMoveLogCount < 20) {
-        DBG("CUIManager::OnMouseMove pt=(%d,%d) initialized=%d hidden=%d focused=%p capture=%d", pt.x, pt.y, (int)m_bInitialized, (int)m_bHidden, m_pFocusedControl, (int)m_nCaptureType);
         s_uiMouseMoveLogCount++;
     }
 
@@ -286,7 +282,6 @@ void CUIManager::OnMouseMove(CPoint pt)
 // 0x4D41D0
 void CUIManager::OnLButtonDown(CPoint pt)
 {
-    DBG("CUIManager::OnLButtonDown pt=(%d,%d) initialized=%d hidden=%d focused=%p capture=%d field_18=%d", pt.x, pt.y, (int)m_bInitialized, (int)m_bHidden, m_pFocusedControl, (int)m_nCaptureType, (int)field_18);
     if (m_bInitialized) {
         if (field_18) {
             if (m_pFocusedControl != NULL) {

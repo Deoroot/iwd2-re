@@ -1,4 +1,4 @@
-#include "CScreenSinglePlayer.h"
+﻿#include "CScreenSinglePlayer.h"
 
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
@@ -17,8 +17,6 @@
 #include "CUIControlTextDisplay.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
-#include "debuglog.h"
-
 // 0x8F7500
 const CString CScreenSinglePlayer::TOKEN_GOLD("GOLD");
 
@@ -1333,7 +1331,6 @@ void CScreenSinglePlayer::UpdateModifyCharacterPanel()
 // 0x6629E0
 void CScreenSinglePlayer::OnMainDoneButtonClick()
 {
-    DBG("OnMainDoneButtonClick: enter");
 
     CString sDefault;
     INT nMsgFrom;
@@ -1409,7 +1406,6 @@ void CScreenSinglePlayer::OnMainDoneButtonClick()
                 }
 
                 bStartupSaveGameSucceeded = pGame->SaveGame(0, 1, 0);
-                DBG("OnMainDoneButtonClick: startup SaveGame returned %d", bStartupSaveGameSucceeded);
 
                 // NOTE: Uninline.
                 m_cUIManager.KillCapture();
@@ -1471,7 +1467,6 @@ void CScreenSinglePlayer::OnMainDoneButtonClick()
                 } else if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL) {
                     // SaveGame/Unmarshal are still incomplete in this reimplementation.
                     // Keep freshly initialized new-game state from SetupCharacters().
-                    DBG("OnMainDoneButtonClick: keeping SetupCharacters state, skipping DestroyGame/LoadGame");
                 } else {
                     pGame->DestroyGame(FALSE, TRUE);
                     pGame->LoadGame(FALSE, TRUE);
@@ -2067,7 +2062,6 @@ void CScreenSinglePlayer::UpdatePartySelectionPanel()
 // 0x6642C0
 void CScreenSinglePlayer::OnPartySelectionDoneButtonClick()
 {
-    DBG("OnPartySelectionDoneButtonClick: enter");
 
     CUIPanel* pPanel = m_cUIManager.GetPanel(10);
 

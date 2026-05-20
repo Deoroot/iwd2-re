@@ -1,7 +1,4 @@
-#include "CVidInf.h"
-
-#include "debuglog.h"
-
+﻿#include "CVidInf.h"
 #include "CChitin.h"
 #include "CParticle.h"
 #include "CUtil.h"
@@ -193,7 +190,6 @@ BOOLEAN CVidInf::SetClipper(IDirectDrawClipper* lpDirectDrawClipper)
     UTIL_ASSERT(pSurfaces[CVIDINF_SURFACE_FRONT] != NULL && !g_pChitin->FullScreen());
 
     if (pSurfaces[CVIDINF_SURFACE_FRONT]->SetClipper(lpDirectDrawClipper) != DD_OK) {
-        DBG("CVidInf: SetClipper failed (clipper disabled)");
         // FIXME: Clipper disabled, ignore failure
         // UTIL_ASSERT(FALSE);
     }
@@ -2021,7 +2017,6 @@ BOOL CVidInf::RenderPointer(UINT nSurface)
 
     if (g_pChitin->m_bPointerUpdated) {
         if (s_renderPointerLogCount < 40) {
-            DBG("CVidInf::RenderPointer skipped updated=1 surface=%u", nSurface);
             s_renderPointerLogCount++;
         }
         return FALSE;
@@ -2033,7 +2028,6 @@ BOOL CVidInf::RenderPointer(UINT nSurface)
 
     if (!m_bPointerInside || pPointerVidCell == NULL || !m_bPointerEnabled) {
         if (s_renderPointerLogCount < 40) {
-            DBG("CVidInf::RenderPointer skipped inside=%d ptr=%p enabled=%d surface=%u", (int)m_bPointerInside, pPointerVidCell, (int)m_bPointerEnabled, nSurface);
             s_renderPointerLogCount++;
         }
         field_10 = FALSE;
@@ -2047,7 +2041,6 @@ BOOL CVidInf::RenderPointer(UINT nSurface)
     positionLock.Unlock();
 
     if (s_renderPointerLogCount < 40) {
-        DBG("CVidInf::RenderPointer draw surface=%u pt=(%d,%d) ptr=%p enabled=%d inside=%d number=%d", nSurface, pt.x, pt.y, pPointerVidCell, (int)m_bPointerEnabled, (int)m_bPointerInside, m_nPointerNumber);
         s_renderPointerLogCount++;
     }
 

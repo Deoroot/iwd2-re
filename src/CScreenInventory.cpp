@@ -1,6 +1,5 @@
 #include "CScreenInventory.h"
 
-#include "debuglog.h"
 
 #include "CBaldurChitin.h"
 #include "CGameAnimationTypeCharacter.h"

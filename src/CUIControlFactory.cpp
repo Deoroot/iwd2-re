@@ -1,7 +1,4 @@
-#include "CUIControlFactory.h"
-
-#include "debuglog.h"
-
+﻿#include "CUIControlFactory.h"
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
 #include "CGameSprite.h"
@@ -4279,10 +4276,10 @@ BOOL CUIControlButtonAction::Render(BOOL bForce)
     }
 
     // Active slot.  m_bHasOverlay selects the bezel-handling path:
-    //   != 0 → GUIBTACT-style 38×38 BAM bakes its own stone bezel; skip
+    //   != 0 â†’ GUIBTACT-style 38Ã—38 BAM bakes its own stone bezel; skip
     //          CUIControlButton::Render (would be painted then immediately
     //          covered up).
-    //   == 0 → STON*-/FORM*-/item-style 32×32 icon centred inside a regular
+    //   == 0 â†’ STON*-/FORM*-/item-style 32Ã—32 icon centred inside a regular
     //          GUIBTBUT bezel.  Paint the base GUIBTBUT first, then the
     //          small icon over it.
     BOOL bIconCoversBezel = pSettings != NULL
@@ -4984,7 +4981,6 @@ void CUIControlButtonGeneralOptionsFromMainMenu::OnLButtonClick(CPoint pt)
 {
     CScreenOptions* pOptions = g_pBaldurChitin->m_pEngineOptions;
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-    DBG("CUIControlButtonGeneralOptionsFromMainMenu::OnLButtonClick options=%p game=%p", pOptions, pGame);
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\UIControlButtons.cpp
     // __LINE__: 9050

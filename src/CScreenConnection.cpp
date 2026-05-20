@@ -1,7 +1,4 @@
-#include "CScreenConnection.h"
-
-#include "debuglog.h"
-
+﻿#include "CScreenConnection.h"
 #include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
 #include "CInfCursor.h"
@@ -560,7 +557,6 @@ void CScreenConnection::OnLButtonDown(CPoint pt)
     static int s_lbuttonDownLogCount = 0;
     if (s_lbuttonDownLogCount < 20) {
         CVidMode* pVidMode = g_pChitin->GetCurrentVideoMode();
-        DBG("CScreenConnection::OnLButtonDown pt=(%d,%d) allow=%d emWaiting=%d ptrEnabled=%d", pt.x, pt.y, (int)m_bAllowInput, (int)m_bEMWaiting, pVidMode != NULL ? (int)pVidMode->m_bPointerEnabled : -1);
         s_lbuttonDownLogCount++;
     }
 
@@ -589,7 +585,6 @@ void CScreenConnection::OnMouseMove(CPoint pt)
     static int s_mouseMoveLogCount = 0;
     if (s_mouseMoveLogCount < 20) {
         CVidMode* pVidMode = g_pChitin->GetCurrentVideoMode();
-        DBG("CScreenConnection::OnMouseMove pt=(%d,%d) allow=%d emWaiting=%d ptrEnabled=%d", pt.x, pt.y, (int)m_bAllowInput, (int)m_bEMWaiting, pVidMode != NULL ? (int)pVidMode->m_bPointerEnabled : -1);
         s_mouseMoveLogCount++;
     }
 
@@ -1410,10 +1405,8 @@ void CScreenConnection::OnNewGameButtonClick()
         }
     }
 
-    DBG("OnNewGameButtonClick: connInit=%d", (int)pNetwork->m_bConnectionInitialized);
     if (!pNetwork->m_bConnectionInitialized) {
         pNetwork->InitializeConnectionToServiceProvider(TRUE);
-        DBG("OnNewGameButtonClick: after InitConn connInit=%d", (int)pNetwork->m_bConnectionInitialized);
         if (!pNetwork->m_bConnectionInitialized) {
             m_nErrorState = 1;
             m_strErrorText = 18986;
@@ -1440,7 +1433,6 @@ void CScreenConnection::OnNewGameButtonClick()
 
     INT nServiceProviderType;
     pNetwork->GetServiceProviderType(pNetwork->m_nServiceProvider, nServiceProviderType);
-    DBG("OnNewGameButtonClick: providerType=%d", nServiceProviderType);
     if (nServiceProviderType == CNetwork::SERV_PROV_MODEM
         || nServiceProviderType == CNetwork::SERV_PROV_TCP_IP) {
         m_bEMSwapped = FALSE;
@@ -1449,12 +1441,9 @@ void CScreenConnection::OnNewGameButtonClick()
         m_nEMEvent = 1;
         m_nEMEventStage = 1;
     } else {
-        DBG("OnNewGameButtonClick: calling HostNewSession");
         if (pNetwork->HostNewSession()) {
-            DBG("OnNewGameButtonClick: HostNewSession OK");
             INT nErrorCode;
             if (pNetwork->CreatePlayer(nErrorCode)) {
-                DBG("OnNewGameButtonClick: CreatePlayer OK idLocal=%d", g_pChitin->cNetwork.m_idLocalPlayer);
                 CSingleLock renderLock(&(m_cUIManager.m_critSect), FALSE);
                 renderLock.Lock(INFINITE);
 
@@ -1465,18 +1454,14 @@ void CScreenConnection::OnNewGameButtonClick()
                 renderLock.Unlock();
 
                 pSettings->InitializeSettings();
-                DBG("OnNewGameButtonClick: InitializeSettings OK");
 
                 for (int nCharacterSlot = 0; nCharacterSlot < 6; nCharacterSlot++) {
                     pSettings->SetCharacterControlledByPlayer(nCharacterSlot, 0, TRUE, FALSE);
                 }
 
                 pSettings->SetPlayerReady(g_pChitin->cNetwork.m_idLocalPlayer, TRUE, TRUE);
-                DBG("OnNewGameButtonClick: SetPlayerReady OK");
 
-                DBG("OnNewGameButtonClick: before NewGame game=%p", g_pBaldurChitin->GetObjectGame());
                 g_pBaldurChitin->GetObjectGame()->NewGame(TRUE, FALSE);
-                DBG("OnNewGameButtonClick: NewGame done");
 
                 CResRef cResArea;
                 CString sAreaName;
@@ -1490,7 +1475,6 @@ void CScreenConnection::OnNewGameButtonClick()
                 g_pBaldurChitin->GetObjectGame()->LoadMultiPlayerPermissions();
 
                 if (g_pChitin->cNetwork.m_nServiceProvider == CNetwork::SERV_PROV_NULL) {
-                    DBG("OnNewGameButtonClick: switching to SinglePlayer");
                     CScreenSinglePlayer* pSinglePlayer = g_pBaldurChitin->m_pEngineSinglePlayer;
                     pSinglePlayer->m_nLobbyMode = 1;
                     pSinglePlayer->StartSinglePlayer(1);
@@ -1504,12 +1488,10 @@ void CScreenConnection::OnNewGameButtonClick()
 
                 g_pBaldurChitin->GetObjectGame()->GetMultiplayerSettings()->SetArbitrationLockStatus(TRUE, 0);
             } else {
-                DBG("OnNewGameButtonClick: CreatePlayer FAILED err=%d", nErrorCode);
                 pNetwork->CloseSession(TRUE);
                 m_bEliminateInitialize = TRUE;
             }
         } else {
-            DBG("OnNewGameButtonClick: HostNewSession FAILED");
             m_bEliminateInitialize = TRUE;
         }
     }

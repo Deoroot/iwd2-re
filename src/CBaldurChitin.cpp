@@ -1,7 +1,4 @@
-#include "CBaldurChitin.h"
-
-#include "debuglog.h"
-
+﻿#include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
 #include "CDungeonMaster.h"
 #include "CGameAnimationType.h"
@@ -823,7 +820,6 @@ void CBaldurChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, D
 // 0x423800
 void CBaldurChitin::Init(HINSTANCE hInstance)
 {
-    DBG("Init: start");
     CString maleURI;
     CString femaleURI;
     CString path;
@@ -840,7 +836,6 @@ void CBaldurChitin::Init(HINSTANCE hInstance)
     g_pChitin->cDimm.AddToDirectoryList(OVERRIDE_DIR_NAME, FALSE);
 
     InitResources();
-    DBG("Init: after InitResources");
 
     m_pObjectCursor = new CInfCursor();
 
@@ -865,7 +860,6 @@ void CBaldurChitin::Init(HINSTANCE hInstance)
     m_pEngineChapter = new CScreenChapter();
     m_pEngineMovies = new CScreenMovies();
     m_pEngineKeymaps = new CScreenKeymaps();
-    DBG("Init: all engines created, initializing menu-only connection path");
 
     // The normal startup path creates the game object up front; menu buttons such as
     // New Game and Options dereference it immediately from CScreenConnection/UI handlers.
@@ -1076,7 +1070,6 @@ void CBaldurChitin::MainAIThread(void* userInfo)
     int vLog = 0;
     while (!m_bExitMainAIThread) {
         if (vLog < 40) {
-            DBG("CBaldurChitin::MainAIThread loop active=%p aiStale=%d displayStale=%d event=%p", pActiveEngine, (int)g_pChitin->m_bAIStale, (int)g_pChitin->m_bDisplayStale, m_eventTimer);
             vLog++;
         }
         if (g_pBaldurChitin->pActiveEngine == g_pBaldurChitin->m_pEngineProjector) {

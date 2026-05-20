@@ -1,7 +1,4 @@
-#include "CInfGame.h"
-
-#include "debuglog.h"
-
+﻿#include "CInfGame.h"
 #include <process.h>
 
 #include "CAIScript.h"
@@ -716,8 +713,6 @@ int CInfGame::dword_8E52F0;
 CInfGame::CInfGame()
     : m_rgbMasterBitmap(CResRef("MPALETTE"), FALSE, 24)
 {
-    DBG("CInfGame ctor start");
-    DBG("CInfGame ctor start");
     m_nUniqueAreaID = 0;
     m_nReputation = 0;
     m_nProtagonistId = 0;
@@ -770,7 +765,6 @@ CInfGame::CInfGame()
     m_sSoundsDir = ".\\sounds\\";
     m_sCharactersDir = ".\\characters\\";
 
-    DBG("CInfGame ctor before DirectoryRemoveFiles");
     if (!g_pChitin->cDimm.DirectoryRemoveFiles(m_sTempDir)) {
         UTIL_ASSERT_MSG(FALSE, "Problems removing files from Temp directory, delete the directory and try again");
     }
@@ -798,9 +792,7 @@ CInfGame::CInfGame()
     memset(m_defaultFamiliarResRefs, 0, sizeof(m_defaultFamiliarResRefs));
     field_4204 = 0;
     m_nCharacterOverflowCount = 0;
-    DBG("CInfGame ctor before m_saveObjectList.LoadList");
     m_saveObjectList.LoadList(CResRef(SAVE_OBJECT_LIST_NAME), FALSE);
-    DBG("CInfGame ctor after m_saveObjectList.LoadList");
     m_listGrid = new CPathNode*[CPathSearch::GRID_ACTUALX * CPathSearch::GRID_ACTUALY];
     m_pathSearch = new CPathSearch(m_listGrid);
     m_searchShutdown = FALSE;
@@ -812,12 +804,10 @@ CInfGame::CInfGame()
         m_bSaveScreen = 0;
         m_nAreaFirstObject = 0;
 
-        DBG("CInfGame ctor before m_INISounds.Load");
         m_INISounds.SetFileName(CString("sounds"));
         if (m_INISounds.Load(CString("sounds")) == 0) {
             UTIL_ASSERT_MSG(FALSE, "Problem loading the sounds.ini file!");
         }
-        DBG("CInfGame ctor after m_INISounds.Load");
 
         memset(m_aServerStore, 0, sizeof(m_aServerStore));
         memset(m_nServerStoreDemands, 0, sizeof(m_nServerStoreDemands));
@@ -833,12 +823,9 @@ CInfGame::CInfGame()
         m_bExpansion = FALSE;
         field_4BD6 = FALSE;
 
-        DBG("CInfGame ctor before tSpells.Load");
         C2DArray tSpells;
         tSpells.Load(CResRef(CRuleTables::LISTSPLL));
-        DBG("CInfGame ctor after tSpells.Load");
         m_spells.Load(tSpells, 7);
-        DBG("CInfGame ctor after m_spells.Load");
 
         for (unsigned int spellcasterClassIndex = 0; spellcasterClassIndex < 7; spellcasterClassIndex++) {
             m_spellsByClass[spellcasterClassIndex].Load(tSpells,
@@ -846,7 +833,6 @@ CInfGame::CInfGame()
                 7,
                 NULL);
         }
-        DBG("CInfGame ctor after m_spellsByClass");
 
         C2DArray tDomainSpells;
         tDomainSpells.Load(CResRef(CRuleTables::LISTDOMN));
@@ -857,7 +843,6 @@ CInfGame::CInfGame()
                 9,
                 &m_spells);
         }
-        DBG("CInfGame ctor after m_spellsByDomain");
 
         C2DArray tInnateSpells;
         tInnateSpells.Load(CResRef(CRuleTables::LISTINNT));
@@ -870,7 +855,6 @@ CInfGame::CInfGame()
         C2DArray tShapeshifts;
         tShapeshifts.Load(CResRef(CRuleTables::LISTSHAP));
         m_shapeshifts.Load(tShapeshifts, 0);
-        DBG("CInfGame ctor after innate/songs/shapeshifts");
 
         CString sError(" ");
         UINT nIndex;
@@ -934,7 +918,6 @@ CInfGame::CInfGame()
 
             cSpell.Release();
         }
-        DBG("CInfGame ctor end");
     }
 }
 
@@ -994,9 +977,7 @@ void CInfGame::StartSearchThread()
 // 0x59F540
 void CInfGame::InitGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace)
 {
-    DBG("InitGame: start");
     m_cVRamPool.AttachSurfaces(g_pBaldurChitin->GetCurrentVideoMode());
-    DBG("InitGame: after AttachSurfaces");
 
     if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL) {
         m_singlePlayerPermissions.SetSinglePermission(CGamePermission::AREA_TRANSITION, TRUE);
@@ -1013,32 +994,23 @@ void CInfGame::InitGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
         m_singlePlayerPermissions.SetSinglePermission(CGamePermission::LEADER, TRUE);
     }
 
-    DBG("InitGame: before LoadKeymap");
     LoadKeymap();
-    DBG("InitGame: before LoadOptions");
     LoadOptions();
-    DBG("InitGame: before EnginesGameInit");
     g_pBaldurChitin->EnginesGameInit();
-    DBG("InitGame: after EnginesGameInit");
 
     m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
-    DBG("InitGame: after ButtonArray");
 
     g_pBaldurChitin->GetCurrentVideoMode()->rgbGlobalTint = RGB(255, 255, 255);
-    DBG("InitGame: after rgbGlobalTint");
 
     m_worldTime.m_gameTime = CTimerWorld::TIME_DAY + 1;
     m_worldTime.CheckForTriggerEventPast();
-    DBG("InitGame: after CheckForTriggerEventPast");
 
     g_pBaldurChitin->GetTlkTable().Fetch(16484, m_soundNeedParty);
     g_pBaldurChitin->GetTlkTable().Fetch(15307, m_soundAreaTransitionRefused);
-    DBG("InitGame: after Fetch sounds");
 
     for (BYTE nIndex = 0; nIndex < 6; nIndex++) {
         EnablePortrait(nIndex, FALSE);
     }
-    DBG("InitGame: after EnablePortrait");
 
     m_gameSave.field_1B0 = 0;
     memset(m_gameSave.m_groupInventory, 0, sizeof(m_gameSave.m_groupInventory));
@@ -1054,7 +1026,6 @@ void CInfGame::InitGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     m_bShowAreaNotes = TRUE;
     m_bTriggerOutline = 0;
     m_bGameLoaded = TRUE;
-    DBG("InitGame: after bGameLoaded");
 
     m_allies.RemoveAll();
     m_familiars.RemoveAll();
@@ -1064,34 +1035,27 @@ void CInfGame::InitGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     field_4204 = 0;
 
     m_cJournal.ClearAllEntries();
-    DBG("InitGame: after ClearAllEntries");
 
     m_variables.Resize(2048);
     m_namedCreatures.Resize(2048);
     m_variables.ClearAll();
     m_namedCreatures.ClearAll();
-    DBG("InitGame: after variables cleanup");
 
     m_entanglePalette.SetType(CVidPalette::TYPE_RANGE);
     m_entanglePalette.SetRange(0, 54, m_rgbMasterBitmap);
-    DBG("InitGame: after entanglePalette");
 
     m_webHoldPalette.SetType(CVidPalette::TYPE_RANGE);
     m_webHoldPalette.SetRange(0, 65, m_rgbMasterBitmap);
-    DBG("InitGame: after webHoldPalette");
 
     sub_5A0160();
-    DBG("InitGame: after sub_5A0160");
 
     m_nCharacterTerminationSequenceDelay = 0;
 
     m_cMoveList.ClearAll();
     m_cLimboList.ClearAll();
-    DBG("InitGame: after ClearAll lists");
 
     CGameAIGame* pAIGame = new CGameAIGame();
     CAIScript* pScript = new CAIScript(CResRef("BALDUR"));
-    DBG("InitGame: after new CAIScript");
 
     // NOTE: Uninline.
     pAIGame->SetDefaultScript(pScript);
@@ -1099,26 +1063,22 @@ void CInfGame::InitGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     m_nAIIndex = pAIGame->m_id;
     m_nTimeStop = 0;
     m_nTimeStopCaster = -1;
-    DBG("InitGame: after AI setup");
 
     if (!g_pChitin->cDimm.DirectoryRemoveFiles(m_sTempDir)) {
         // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
         // __LINE__: 3213
         UTIL_ASSERT_MSG(FALSE, "Could not clean out Temp directory");
     }
-    DBG("InitGame: after DirectoryRemoveFiles temp");
 
     if (!g_pChitin->cDimm.DirectoryRemoveFiles(m_sTempSaveDir)) {
         // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
         // __LINE__: 3215
         UTIL_ASSERT_MSG(FALSE, "Could not clean out TempSave directory");
     }
-    DBG("InitGame: after DirectoryRemoveFiles tempsave");
 
     // TODO: Use loop.
     memset(m_aServerStore, 0, sizeof(m_aServerStore));
     memset(m_nServerStoreDemands, 0, sizeof(m_nServerStoreDemands));
-    DBG("InitGame: end");
 
     dword_8E752C = 0;
 
@@ -1433,7 +1393,6 @@ LONG CInfGame::ImportCharacter(const CString& sFileName, INT nIndex)
     }
 
     if (stream == NULL) {
-        DBG("ImportCharacter: failed to open %s", static_cast<LPCSTR>(sFileName));
         return 0;
     }
 
@@ -1456,7 +1415,6 @@ LONG CInfGame::ImportCharacter(const CString& sFileName, INT nIndex)
     }
 
     if (nChrSize < 0x30 || memcmp(pChrData, "CHR V2.2", 8) != 0) {
-        DBG("ImportCharacter: invalid CHR header in %s", static_cast<LPCSTR>(sFileName));
         delete[] pChrData;
         return 0;
     }
@@ -1469,14 +1427,12 @@ LONG CInfGame::ImportCharacter(const CString& sFileName, INT nIndex)
             nCreatureOffset = 0x224;
             nCreatureSize = nChrSize - 0x224;
         } else {
-            DBG("ImportCharacter: invalid embedded CRE range in %s", static_cast<LPCSTR>(sFileName));
             delete[] pChrData;
             return 0;
         }
     }
 
     if (nCreatureSize < 8 || memcmp(pChrData + nCreatureOffset, "CRE V2.2", 8) != 0) {
-        DBG("ImportCharacter: invalid embedded CRE in %s", static_cast<LPCSTR>(sFileName));
         delete[] pChrData;
         return 0;
     }
@@ -1995,10 +1951,8 @@ BOOL CInfGame::SaveGame(unsigned char a1, unsigned char a2, unsigned char a3)
 // 0x5A7E40
 BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
 {
-    DBG("Unmarshal: pGame=0x%p nGame=%d bProgress=%d", pGame, nGame, bProgressBarInPlace);
 
     if (pGame == NULL || nGame < 1) {
-        DBG("Unmarshal: invalid input");
         return FALSE;
     }
 
@@ -2033,7 +1987,6 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     // Total header: 0xB4 bytes
 
     if (nGame < 0xB4) {
-        DBG("Unmarshal: file too small (%d < 180)", nGame);
         return FALSE;
     }
 
@@ -2041,21 +1994,17 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
 
     // Validate signature
     if (memcmp(pGame, "GAME", 4) != 0) {
-        DBG("Unmarshal: bad signature");
         return FALSE;
     }
 
-    // Version check — support V2.0, V2.2, etc.
+    // Version check â€” support V2.0, V2.2, etc.
     if (memcmp(pGame + 4, "V2.", 3) != 0) {
-        DBG("Unmarshal: unsupported version (expected V2.x)");
         return FALSE;
     }
     BOOL bVersion22 = (memcmp(pGame + 4, "V2.2", 4) == 0);
-    DBG("Unmarshal: version V2.%c", pGame[6]);
 
     // Game time: pData[2] is elapsed seconds, convert to game ticks (*15)
     m_worldTime.m_gameTime = pData[2] * 15;
-    DBG("Unmarshal: gameTime=%d seconds -> %d ticks", pData[2], m_worldTime.m_gameTime);
 
     // Selected formation (offset 0x0C, word)
     m_gameSave.m_curFormation = *reinterpret_cast<SHORT*>(pGame + 0x0C);
@@ -2065,7 +2014,6 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
 
     // Party gold (offset 0x18)
     m_gameSave.m_nPartyGold = *reinterpret_cast<DWORD*>(pGame + 0x18);
-    DBG("Unmarshal: partyGold=%lu", m_gameSave.m_nPartyGold);
 
     // View area of party member (offset 0x1C)
 
@@ -2085,23 +2033,19 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     // Number of party members (offset 0x24)
     int nPartyMembers = pData[9]; // offset 0x24 / 4 = index 9
     int partyOffset = pData[8];   // offset 0x20 / 4 = index 8
-    DBG("Unmarshal: partyMembers=%d partyOffset=0x%X", nPartyMembers, partyOffset);
 
     // Number of non-party characters (offset 0x34)
     int nNonParty = pData[13]; // offset 0x34 / 4 = index 13
-    DBG("Unmarshal: nonParty=%d", nNonParty);
 
     // World area (offset 0x40, 8 bytes RESREF)
     char areaResRef[9];
     memcpy(areaResRef, pGame + 0x40, 8);
     areaResRef[8] = 0;
-    DBG("Unmarshal: worldArea=%s", areaResRef);
     m_gameSave.m_cResCurrentWorldArea = CResRef(areaResRef);
     m_gameSave.m_nCurrentWorldLink = static_cast<DWORD>(pData[0x12]);
 
     // Reputation (offset 0x54)
     m_nReputation = static_cast<SHORT>(pData[21]); // offset 0x54 / 4 = 21
-    DBG("Unmarshal: reputation=%d", m_nReputation);
 
     // Master area (offset 0x58, 8 bytes)
     // Current link (offset 0x48)
@@ -2119,7 +2063,6 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         } else if (memcmp(pGame + 4, "V2.1", 4) == 0) {
             memberSize = 0x220;
         }
-        DBG("Unmarshal: loading %d party members at 0x%X, size=0x%X each", nPartyMembers, partyOffset, memberSize);
 
         BYTE* pMember = pGame + partyOffset;
         for (int i = 0; i < nPartyMembers && i < 6; i++) {
@@ -2140,9 +2083,6 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
 
             short posX = *reinterpret_cast<short*>(pMember + 0x20);
             short posY = *reinterpret_cast<short*>(pMember + 0x22);
-
-            DBG("Unmarshal: member[%d] slot=%d creOff=0x%X creSize=%d area=%s pos=(%d,%d) facing=%d",
-                i, slotIndex, creOffset, creSize, areaRef, posX, posY, facing);
 
             // Create CGameSprite from embedded CRE data
             if (creOffset > 0 && creSize > 0 && creOffset + creSize <= nGame) {
@@ -2185,16 +2125,12 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     DWORD nJournalOffset = pData[0x14]; // 0x50/4 = 0x14
     if (nJournalCount > 0 && nJournalOffset > 0 && nJournalOffset + nJournalCount * 12 <= (DWORD)nGame) {
         m_cJournal.ClearAllEntries();
-        DBG("Unmarshal: loading %d journal entries from offset 0x%X", nJournalCount, nJournalOffset);
         m_cJournal.Unmarshal(reinterpret_cast<CSavedGameJournalEntry*>(pGame + nJournalOffset), nJournalCount);
-        DBG("Unmarshal: journal entries loaded");
     } else {
-        DBG("Unmarshal: no journal entries (count=%d offset=0x%X gameSize=%d)", nJournalCount, nJournalOffset, nGame);
     }
 
     // TODO: Load inventory
 
-    DBG("Unmarshal: done (partial)");
     return TRUE;
 }
 
@@ -2967,7 +2903,6 @@ void CInfGame::SaveMultiPlayerPermissions()
 // 0x5AB190
 void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace)
 {
-    DBG("LoadGame: enter save=%s", static_cast<LPCSTR>(m_sSaveGame));
     // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
     // __LINE__: 8447
     UTIL_ASSERT(m_sSaveGame != "");
@@ -3150,17 +3085,13 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
 
     g_pBaldurChitin->GetObjectGame()->m_cButtonArray.UpdateState();
 
-    DBG("LoadGame: end save=%s characters=%d worldTime=%lu", static_cast<LPCSTR>(m_sSaveGame), m_nCharacters, m_worldTime.m_gameTime);
 }
 
 // 0x5ABA20
 void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace)
 {
-    DBG("NewGame: START");
     if (!bProgressBarInPlace && bProgressBarRequired == TRUE) {
-        DBG("NewGame: before WaitForEngine");
         WaitForEngine(TRUE);
-        DBG("NewGame: after WaitForEngine");
 
         g_pChitin->SetProgressBar(TRUE,
             9889,
@@ -3197,22 +3128,16 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
         g_pChitin->cDimm.m_cKeyTable.RescanEverything();
     }
 
-    DBG("NewGame: before InitGame");
     InitGame(FALSE, FALSE);
-    DBG("NewGame: after InitGame");
 
     if (bProgressBarInPlace || bProgressBarRequired) {
-        DBG("NewGame: before ProgressBarCallback 1");
         ProgressBarCallback(156250, FALSE);
-        DBG("NewGame: after ProgressBarCallback 1");
     }
 
-    DBG("NewGame: before chapter variable");
     CVariable chapter;
     chapter.SetName(CHAPTER_GLOBAL);
     chapter.m_intValue = -1;
     m_variables.AddKey(chapter);
-    DBG("NewGame: after chapter variable");
 
     m_bFromNewGame = TRUE;
 
@@ -3225,24 +3150,17 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
     g_pBaldurChitin->GetTlkTable().OpenOverride(CString("temp/default.toh"), CString("temp/default.tot"));
 
     if (bProgressBarInPlace || bProgressBarRequired) {
-        DBG("NewGame: before ProgressBarCallback 2");
         ProgressBarCallback(156250, FALSE);
-        DBG("NewGame: after ProgressBarCallback 2");
     }
 
-    DBG("NewGame: before WorldMap SetResRef");
     m_cWorldMap.SetResRef(CResRef("WORLDMAP"));
-    DBG("NewGame: after WorldMap SetResRef");
 
-    DBG("NewGame: before CGameFile");
     CGameFile cGameFile;
     cGameFile.SetResRef(CResRef("ICEWIND2"), TRUE, TRUE);
-    DBG("NewGame: before Unmarshal data=%p size=%d", cGameFile.GetData(), cGameFile.GetDataSize());
 
     Unmarshal(cGameFile.GetData(),
         cGameFile.GetDataSize(),
         bProgressBarInPlace | bProgressBarRequired);
-    DBG("NewGame: after Unmarshal");
 
     m_cOptions.m_nNightmareMode = GetPrivateProfileIntA("Game Options",
         "Nightmare Mode",
@@ -3488,7 +3406,6 @@ void CInfGame::UnselectAll()
 // 0x5AD8A0
 BOOL CInfGame::SelectCharacter(LONG characterId, BOOLEAN bPlaySelectSound)
 {
-    DBG("SelectCharacter: id=%ld", characterId);
     CGameSprite* pSprite;
     BYTE rc;
     SHORT nPortrait = GetCharacterPortraitNum(characterId);
@@ -3577,7 +3494,6 @@ BOOL CInfGame::SelectCharacter(LONG characterId, BOOLEAN bPlaySelectSound)
 // 0x5ADAE0
 void CInfGame::SelectToolbar()
 {
-    DBG("SelectToolbar: enter");
     // TODO: Incomplete.
 
     m_nState = 0;
@@ -3912,7 +3828,6 @@ void CInfGame::RenderPortrait(DWORD portraitId, const CPoint& cpRenderPosition, 
 // 0x5AF7F0
 void CInfGame::WorldEngineActivated(CVidMode* pVidMode)
 {
-    DBG("WorldEngineActivated: enter visibleArea=%d", m_visibleArea);
     m_nState = 0;
     m_cButtonArray.m_nSelectedButton = 100;
     m_cVRamPool.DetachSurfaces();
@@ -3920,7 +3835,6 @@ void CInfGame::WorldEngineActivated(CVidMode* pVidMode)
     if (m_visibleArea >= 0 && m_visibleArea < CINFGAME_MAX_AREAS && m_gameAreas[m_visibleArea] != NULL) {
         m_gameAreas[m_visibleArea]->OnActivation();
     } else {
-        DBG("WorldEngineActivated: SKIPPING OnActivation, area missing or invalid");
     }
     m_cButtonArray.ResetState();
 }
@@ -5855,7 +5769,6 @@ INT CInfGame::GetCharacterSlotFromId(LONG nCharacterId)
 // 0x5BD6B0
 void CInfGame::UpdateCharacterSlots()
 {
-    DBG("UpdateCharacterSlots: enter");
     for (SHORT nPortrait = 0; nPortrait < CINFGAME_MAXCHARACTERS; nPortrait++) {
         if (m_characterPortraits[nPortrait] != -1) {
             EnablePortrait(nPortrait, FALSE);
@@ -5869,7 +5782,6 @@ void CInfGame::UpdateCharacterSlots()
             AddCharacterToParty(nCharacterId, -1);
         }
     }
-    DBG("UpdateCharacterSlots: done nCharacters=%d", m_nCharacters);
 }
 
 // 0x5BD9D0
@@ -6046,7 +5958,6 @@ void CInfGame::AddPartyGold(LONG dwAddPartyGold)
 // 0x5BF6A0
 void CInfGame::SetupCharacters(BOOLEAN bProgressBarInPlace)
 {
-    DBG("SetupCharacters: enter, m_nCharacters=%d", m_nCharacters);
 
     CResRef cResArea;
     CPoint ptView;
@@ -6054,18 +5965,15 @@ void CInfGame::SetupCharacters(BOOLEAN bProgressBarInPlace)
 
     CString sAreaName;
     cResArea.CopyToString(sAreaName);
-    DBG("SetupCharacters: loading area %s", static_cast<LPCSTR>(sAreaName));
 
     CGameArea* pArea = LoadArea(sAreaName, -1, TRUE, bProgressBarInPlace);
     if (pArea == NULL) {
-        DBG("SetupCharacters: LoadArea returned NULL!");
         return;
     }
 
     m_visibleArea = pArea->m_id;
     pArea->m_visibility.SetAreaExplored();
     pArea->m_visibility.SetAreaVisible(TRUE);
-    DBG("SetupCharacters: visibleArea set to %d", m_visibleArea);
 
     for (SHORT nPortrait = 0; nPortrait < m_nCharacters; nPortrait++) {
         LONG nCharacterId = m_characterPortraits[nPortrait];
@@ -6082,24 +5990,13 @@ void CInfGame::SetupCharacters(BOOLEAN bProgressBarInPlace)
                 pSprite->AddToArea(pArea, ptStart, 0, CGAMEOBJECT_LIST_FRONT);
                 pSprite->SetIdleSequence();
                 pSprite->m_canBeSeen = 4 * (CGameObject::VISIBLE_DELAY + 1);
-                DBG("SetupCharacters: sprite flags active=%d activeAI=%d activeImprisonment=%d animType=%d state=0x%X canBeSeen=%d seq=%d",
-                    pSprite->m_active,
-                    pSprite->m_activeAI,
-                    pSprite->m_activeImprisonment,
-                    pSprite->m_baseStats.m_animationType,
-                    pSprite->m_derivedStats.m_generalState,
-                    pSprite->m_canBeSeen,
-                    pSprite->m_nSequence);
                 m_cObjectArray.ReleaseDeny(nCharacterId,
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
-                DBG("SetupCharacters: added char %ld at (%d,%d) facing %d seq=%d",
-                    nCharacterId, ptStart.x, ptStart.y, nFacing, pSprite->m_nSequence);
             }
         }
     }
 
-    DBG("SetupCharacters: done");
 
     // Center view on start position (matching original Ghidra decomp: CInfinity__SetViewPosition)
     CInfinity* pInfinity = pArea->GetInfinity();
@@ -6110,12 +6007,9 @@ void CInfGame::SetupCharacters(BOOLEAN bProgressBarInPlace)
 // 0x5BFC40
 LONG CInfGame::GetProtagonist()
 {
-    DBG("GetProtagonist: enter");
     if (m_nCharacters > 0) {
-        DBG("GetProtagonist: returning first character %ld", m_characterPortraits[0]);
         return m_characterPortraits[0];
     }
-    DBG("GetProtagonist: no characters, returning INVALID_INDEX");
     return CGameObjectArray::INVALID_INDEX;
 }
 

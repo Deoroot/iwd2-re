@@ -1,7 +1,4 @@
-#include "CChitin.h"
-
-#include "debuglog.h"
-
+﻿#include "CChitin.h"
 #include <direct.h>
 #include <process.h>
 #include <winver.h>
@@ -400,9 +397,7 @@ void CChitin::InitResources()
 // 0x790080
 BOOL CChitin::InitInstance()
 {
-    DBG("InitInstance: start");
     POSITION pos = lEngines.GetHeadPosition();
-    DBG("InitInstance: GetHeadPosition done");
     while (pos != NULL) {
         CWarp* pEngine = static_cast<CWarp*>(lEngines.GetNext(pos));
         if (pEngine != NULL) {
@@ -410,14 +405,10 @@ BOOL CChitin::InitInstance()
         }
     }
 
-    DBG("InitInstance: engines iterated");
 
     if (m_pStartingEngine != NULL) {
-        DBG("InitInstance: calling SelectEngine");
         SelectEngine(m_pStartingEngine);
-        DBG("InitInstance: SelectEngine done");
     } else {
-        DBG("InitInstance: NO starting engine - ShutDown");
         ShutDown(-1, NULL, NULL);
     }
 
@@ -466,7 +457,6 @@ BOOL CChitin::InitInstance()
 // 0x790240
 BOOL CChitin::InitializeServices(HWND hWnd)
 {
-    DBG("InitServices: start");
     BOOL initialized;
 
     if (cVideo.m_bIs3dAccelerated) {
@@ -476,11 +466,9 @@ BOOL CChitin::InitializeServices(HWND hWnd)
     }
 
     if (initialized) {
-        DBG("InitServices: about to init SoundMixer");
         cSoundMixer.Initialize(&cWnd, 16, GetNumberSoundChannels());
         field_142 = 1;
     }
-    DBG("InitServices: returning %d", initialized);
 
     return initialized;
 }
@@ -500,7 +488,6 @@ void CChitin::ParseCommandLine()
 // 0x7926B0
 int CChitin::WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
-    DBG("WM: start");
     m_bFullscreen = FALSE; // FIXME: Force windowed for testing
     m_nNextFullscreen = FALSE;
     m_nQueryCancelAutoPlayMsgID = RegisterWindowMessageA("QueryCancelAutoPlay");
@@ -518,26 +505,20 @@ int CChitin::WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         }
     }
 
-    DBG("WM: before InitApplication");
     if (!InitApplication(hInstance, nCmdShow)) {
-        DBG("WM: InitApplication FAILED");
         field_1932 = 1;
         cWnd.Detach();
         return 0;
     }
-    DBG("WM: InitApplication OK");
 
     CoInitialize(NULL);
-    DBG("WM: CoInit OK");
 
     HANDLE hCopy;
     HANDLE hCurrentThread = GetCurrentThread();
     HANDLE hCurrentProcess = GetCurrentProcess();
     DuplicateHandle(hCurrentProcess, hCurrentThread, hCurrentProcess, &hCopy, 0, FALSE, DUPLICATE_SAME_ACCESS);
     field_B4 = hCopy;
-    DBG("WM: calling InitInstance");
     InitInstance();
-    DBG("WM: entering message loop");
     MSG msg;
     while (1) {
         while (!PeekMessageA(&msg, NULL, 0, 0, 0)) {
@@ -555,7 +536,6 @@ int CChitin::WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         }
 
         if (!GetMessageA(&msg, NULL, 0, 0)) {
-            DBG("WM: message loop exit (WM_QUIT)");
             break;
         }
 
@@ -764,12 +744,9 @@ void CChitin::InitializeVariables()
 // 0x790860
 void CChitin::SelectEngine(CWarp* pNewEngine)
 {
-    DBG("SelectEngine: enter");
     CVidMode* pPrevVidMode = NULL;
     if (pNewEngine != NULL) {
-        DBG("SelectEngine: EnterCriticalSection");
         EnterCriticalSection(&field_3AC);
-        DBG("SelectEngine: CS entered");
 
         m_bEngineActive = FALSE;
         if (pActiveEngine != NULL) {
@@ -807,10 +784,8 @@ void CChitin::SelectEngine(CWarp* pNewEngine)
         pNewEngine->pLastEngine = pActiveEngine;
         pActiveEngine = pNewEngine;
         pActiveEngine->pVidMode->ActivateVideoMode(pPrevVidMode, cWnd.GetSafeHwnd(), m_bFullscreen);
-        DBG("SelectEngine: before EngineActivated");
         cVideo.cVidBlitter.Init();
         pActiveEngine->EngineActivated();
-        DBG("SelectEngine: EngineActivated done");
 
         m_bEngineActive = TRUE;
         LeaveCriticalSection(&field_3AC);
@@ -877,7 +852,6 @@ int CChitin::TranslateType(const CString& sRes)
 // 0x790FE0
 int CChitin::InitApplication(HINSTANCE hInstance, int nCmdShow)
 {
-    DBG("InitApp: start");
     CString sIcon = GetIconRes();
 
     WNDCLASSEXA wc = { 0 };
@@ -904,23 +878,18 @@ int CChitin::InitApplication(HINSTANCE hInstance, int nCmdShow)
         }
     }
 
-    DBG("InitApp: before InitGraphics");
     int rc = InitGraphics();
-    DBG("InitApp: InitGraphics done rc=%d", rc);
     if (rc != 0) {
-        DBG("InitApp: calling LoadOptions (SKIPPED)");
         // FIXME: LoadOptions needs m_pObjectGame which is NULL
         // LoadOptions();
     }
 
-    DBG("InitApp: returning rc=%d", rc);
     return rc;
 }
 
 // 0x791150
 BOOL CChitin::InitGraphics()
 {
-    DBG("InitGraphics: start");
     if (m_ptScreen.x < 0 || m_ptScreen.x >= GetSystemMetrics(SM_CXFULLSCREEN) - CVideo::SCREENWIDTH) {
         m_ptScreen.x = (GetSystemMetrics(SM_CXFULLSCREEN) - CVideo::SCREENWIDTH) / 2;
     }
@@ -956,18 +925,14 @@ BOOL CChitin::InitGraphics()
     }
 
     if (hWnd == NULL) {
-        DBG("InitGraphics: CreateWindowExA FAILED");
         return FALSE;
     }
 
     cWnd.Attach(hWnd);
-    DBG("InitGraphics: window created, calling InitServices");
 
     if (!InitializeServices(hWnd)) {
-        DBG("InitGraphics: InitializeServices FAILED");
         return FALSE;
     }
-    DBG("InitGraphics: success");
 
     UpdateWindow(hWnd);
     if (g_pBaldurChitin != NULL && g_pBaldurChitin->GetObjectGame() == NULL) {
@@ -1339,7 +1304,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
 
         static int s_asyncStateLogCount = 0;
         if (s_asyncStateLogCount < 40) {
-            DBG("CChitin::AsynchronousUpdate engineActive=%d active=%p reinit=%d exitRS=%d", (int)m_bEngineActive, pActiveEngine, (int)m_bReInitializing, (int)m_bExitRSThread);
             s_asyncStateLogCount++;
         }
 
@@ -1394,7 +1358,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
             GetCursorPos(&pt);
             static int s_rawMouseLogCount = 0;
             if (s_rawMouseLogCount < 40) {
-                DBG("CChitin::RawMouse screen=(%d,%d) fullscreen=%d rect=(%ld,%ld,%ld,%ld) inRect=%d active=%p", pt.x, pt.y, (int)m_bFullscreen, field_E8.left, field_E8.top, field_E8.right, field_E8.bottom, (int)PtInRect(&field_E8, pt), pActiveEngine);
                 s_rawMouseLogCount++;
             }
             if (m_bFullscreen || PtInRect(&field_E8, pt)) {
@@ -1423,7 +1386,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
                         if (pActiveEngine->CheckMouseMove()) {
                             static int s_idleMouseMoveLogCount1 = 0;
                             if (s_idleMouseMoveLogCount1 < 20) {
-                                DBG("CChitin::IdleMouseMove pt=(%d,%d) active=%p pointerInside=%d", pt.x, pt.y, pActiveEngine, pVidMode != NULL ? (int)pVidMode->m_bPointerInside : -1);
                                 s_idleMouseMoveLogCount1++;
                             }
                             pActiveEngine->OnMouseMove(pt);
@@ -1439,7 +1401,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
                     if (pActiveEngine->CheckMouseMove()) {
                         static int s_idleMouseMoveLogCount2 = 0;
                         if (s_idleMouseMoveLogCount2 < 20) {
-                            DBG("CChitin::IdleMouseMove pt=(%d,%d) active=%p pointerInside=%d", pt.x, pt.y, pActiveEngine, pVidMode != NULL ? (int)pVidMode->m_bPointerInside : -1);
                             s_idleMouseMoveLogCount2++;
                         }
                         pActiveEngine->OnMouseMove(pt);
@@ -1474,7 +1435,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
                         if (pActiveEngine->CheckMouseMove()) {
                             static int s_idleMouseMoveLogCount3 = 0;
                             if (s_idleMouseMoveLogCount3 < 20) {
-                                DBG("CChitin::IdleMouseMove pt=(%d,%d) active=%p pointerInside=%d", pt.x, pt.y, pActiveEngine, pVidMode != NULL ? (int)pVidMode->m_bPointerInside : -1);
                                 s_idleMouseMoveLogCount3++;
                             }
                             pActiveEngine->OnMouseMove(pt);
@@ -1490,7 +1450,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
                     if (pActiveEngine->CheckMouseMove()) {
                         static int s_idleMouseMoveLogCount4 = 0;
                         if (s_idleMouseMoveLogCount4 < 20) {
-                            DBG("CChitin::IdleMouseMove pt=(%d,%d) active=%p pointerInside=%d", pt.x, pt.y, pActiveEngine, pVidMode != NULL ? (int)pVidMode->m_bPointerInside : -1);
                             s_idleMouseMoveLogCount4++;
                         }
                         pActiveEngine->OnMouseMove(pt);
@@ -1540,7 +1499,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
                         if (m_bMouseLButtonDown) {
                             if (nLButtonState >= 0) {
                                 m_bMouseLButtonDown = FALSE;
-                                DBG("CChitin::OnLButtonUp pt=(%d,%d) active=%p", m_ptPointer.x, m_ptPointer.y, pActiveEngine);
                                 pActiveEngine->OnLButtonUp(m_ptPointer);
                             }
                         } else {
@@ -1549,7 +1507,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
                                     if (m_mouseLDblClickCount >= m_mouseDblClickTime
                                         || abs(m_ptPointer.x - m_mouseLDblClickPoint.x) > m_mouseDblClickSize.cx / 2
                                         || abs(m_ptPointer.y - m_mouseLDblClickPoint.y) > m_mouseDblClickSize.cy / 2) {
-                                        DBG("CChitin::OnLButtonDown pt=(%d,%d) active=%p", m_ptPointer.x, m_ptPointer.y, pActiveEngine);
                                         pActiveEngine->OnLButtonDown(m_ptPointer);
                                         m_mouseLDblClickPoint = m_ptPointer;
                                         m_mouseLDblClickCount = 0;
@@ -1558,7 +1515,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
                                         m_mouseLDblClickCount = m_mouseDblClickTime;
                                     }
 
-                                    DBG("CChitin::OnLButtonUp pt=(%d,%d) active=%p", m_ptPointer.x, m_ptPointer.y, pActiveEngine);
                                     pActiveEngine->OnLButtonUp(m_ptPointer);
                                 }
                             } else {
@@ -1566,7 +1522,6 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
                                 if (m_mouseLDblClickCount >= m_mouseDblClickTime
                                     || abs(m_ptPointer.x - m_mouseLDblClickPoint.x) > m_mouseDblClickSize.cx / 2
                                     || abs(m_ptPointer.y - m_mouseLDblClickPoint.y) > m_mouseDblClickSize.cy / 2) {
-                                    DBG("CChitin::OnLButtonDown pt=(%d,%d) active=%p", m_ptPointer.x, m_ptPointer.y, pActiveEngine);
                                     pActiveEngine->OnLButtonDown(m_ptPointer);
                                     m_mouseLDblClickPoint = m_ptPointer;
                                     m_mouseLDblClickCount = 0;

@@ -1,4 +1,4 @@
-#include "CGameArea.h"
+﻿#include "CGameArea.h"
 
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
@@ -26,8 +26,6 @@
 #include "CTiledObject.h"
 #include "CUtil.h"
 #include "CVidPoly.h"
-#include "debuglog.h"
-
 // 0x8D212C
 INT CGameArea::dword_8D212C;
 
@@ -212,7 +210,7 @@ BOOL CGameArea::AdjustTarget(CPoint start, POINT* goal, BYTE personalSpace, SHOR
 // 0x46A630
 BOOL CGameArea::SnapshotAdjustTarget(CPoint start, POINT* goal, BOOL bBump, SHORT tolerance)
 {
-    // TODO: Incomplete — always accept target for now
+    // TODO: Incomplete â€” always accept target for now
     return TRUE;
 }
 
@@ -2558,7 +2556,6 @@ void CGameArea::SetListenPosition()
 // 0x4750E0
 void CGameArea::OnActivation()
 {
-    DBG("CGameArea::OnActivation: area=%d", m_id);
     SetListenPosition();
 
     m_ptMousePos = g_pChitin->m_ptPointer;

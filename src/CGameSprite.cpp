@@ -1,6 +1,5 @@
 #include "CGameSprite.h"
 
-#include "debuglog.h"
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
