@@ -1180,11 +1180,16 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         }
-        // Picker click — look up the selected entry in m_pPickerList and
-        // dispatch via CGameSprite::UseButtonAction.  Matches Ghidra
-        // FUN_005886a0 (used by states 0x66/0x67 and 0x68/0x69 in the
-        // original): copy the CButtonData onto the stack, then call
-        // sprite->UseButtonAction(data, 0).
+        // Picker click — dispatch the selected entry via the appropriate
+        // CGameSprite method.  Matches Ghidra OnLButtonPressed state
+        // 0x66/0x67/0x68/0x69/0x70/0x71/0x7A switch:
+        //   0x66 / 0x67           → FUN_005886a0 → UseButtonAction
+        //   0x68 / 0x69           → FUN_005884b0 → ReadyOffInternalList
+        //   0x70 / 0x71 / 0x7A    → FUN_00588820 (song play, AI action)
+        //   0x6A / 0x6B (default) → FUN_00588760 (innate use)
+        // We don't yet have ports of the song-play / innate-use helpers, so
+        // those states fall back to UseButtonAction which is the underlying
+        // generic dispatcher used by all four wrappers in the binary.
         if (nButtonType >= 0x15 && nButtonType <= 0x20 && m_pPickerList != NULL) {
             INT nListCount = static_cast<INT>(m_pPickerList->GetCount());
             INT nEntry = (nListCount > 12)
@@ -1205,7 +1210,11 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         INFINITE);
                 } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    pSprite->UseButtonAction(*pEntry, 0);
+                    if (m_nState == 0x68 || m_nState == 0x69) {
+                        pSprite->ReadyOffInternalList(*pEntry, 0);
+                    } else {
+                        pSprite->UseButtonAction(*pEntry, 0);
+                    }
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
