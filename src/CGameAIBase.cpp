@@ -857,6 +857,16 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x42) {
+        // 0x42 = DayNight (ACTION.IDS 66).  Binary case 0x42 computes
+        // m_specificID * byte[0x84EC0C] * byte[0x84EC0D] * byte[0x84EC0E]
+        // == hours * MSEC_PER_SEC * SEC_PER_MIN * MIN_PER_HOUR
+        // == hours * MSEC_PER_HOUR (15 * 60 * 5 == 4500) and feeds it
+        // into CTimerWorld::AdvanceCurrentTime.
+        g_pBaldurChitin->GetObjectGame()->GetWorldTimer()
+            ->AdvanceCurrentTime(m_curAction.m_specificID
+                * CTimerWorld::TIMESCALE_MSEC_PER_HOUR);
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x11F) {
         // 0x11F = SetHPPercent (ACTION.IDS 287).  Binary case 0x11f
         // clamps m_specificID to [0,100], divides by 100 to get a
