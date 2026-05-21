@@ -1796,40 +1796,136 @@ void CGameAIBase::SpellIdToResRef(int spellId, CString& outResRef)
 }
 
 // 0x461190 - ForceSpell (0x71) and ReallyForceSpell (0xB5) action handler.
-// FULL RECOVERY IN PROGRESS -- multi-session arc.  Current state is a
-// thin shell that resolves the spell resref via SpellIdToResRef and
-// delegates to FireSpell.  The binary handler is 414 decompiled lines
-// covering ability-by-level selection, cast-frame accumulation,
-// interruption checks (silence / damage / cast-immune), projectile
-// spawn via CMessageFireProjectile, and an 8-way effect-dispatch
-// matrix (single-target / projectile / party / area / point / formation).
+// FULL RECOVERY IN PROGRESS -- multi-session arc.  This step expands the
+// shell to match the binary's entry-guard, resref-resolution, ability-
+// selection, and CheckAppropriateTarget logic.  The tail (cast-time
+// gating + 8-way effect dispatch + projectile spawn) remains a TODO; on
+// completion we still delegate to the FireSpell stub so callers observe
+// a single-tick cast.
 //
-// Helpers still to recover before a binary-faithful body is possible:
-//   FUN_0051EAF0  - projectile/visual-effect factory
-//   FUN_00727720  - cast-target point + flags extraction
-//   FUN_00755A70  - cast animation start
-//   FUN_007564E0  - cast animation cancel
-//   FUN_0054A510  - effect-instance allocator from spell ability template
-//   FUN_0046E130  - area/point effect dispatch
-//   FUN_004699F0  - resource-handle lazy-load wrapper
-// Field offsets on caster still unresolved: +0x25, +0x33, +0x11D,
-// +0x283 flags, +0x14D2.
+// Recovered field offsets on caster (param_1 in the decomp):
+//   +0x25  -> m_typeAI.m_nGeneral (binary compares against DAT_00847C48,
+//             which is the G_DEAD marker written by 0x4ACFB2 / 0x70D4F6
+//             when m_baseStats.m_generalState has STATE_DEAD bit 0x800)
+//   +0x33  -> m_typeAI.m_nSpecific (used as effect.casterParty in case 6)
+//   +0x11D -> m_actionCount (cast-frame counter; CGameAIBase 0x474)
+//   +0x14D2-> m_nSequence (CGameSprite animation sequence; 0x5348)
+//   +0x283 -> m_derivedStats.m_spellStates dword0 (bit 0x100000 == lost
+//             concentration; CGameSprite 0xA0C)
+//   +0x966 -> m_derivedStats.m_nLevel (CGameSprite 0x920+0x46)
+//
+// Helpers still pending (see memory/project_forcespell_recovery.md):
+//   FUN_0051EAF0 - projectile/visual-effect factory (~5400 lines)
+//   FUN_00755A70 - cast animation start
+//   FUN_007564E0 - cast animation cancel
+//   FUN_0054A510 - effect-instance allocator
+//   FUN_0046E130 - CGameArea-scoped effect dispatch
+//   FUN_00727720 - cast-target point + flags extraction
 SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
 {
+    // Dead casters short-circuit (binary 0x4611BA).
+    if (m_typeAI.GetGeneral() == CAIObjectType::G_DEAD) {
+        return ACTION_DONE;
+    }
     if (target == NULL) {
         return ACTION_INTERRUPTABLE;
     }
 
-    CString sResRef = m_curAction.GetString1();
-    if (sResRef.IsEmpty()) {
-        SpellIdToResRef(m_curAction.m_specificID, sResRef);
-        if (sResRef.IsEmpty()) {
+    // Resolve resref + cast level.  Script can pass either a CString in
+    // m_string1 (with cast level in m_specificID) or a numeric spell id in
+    // m_specificID alone (cast level falls back to caster's m_nLevel).
+    SHORT specificLevel;
+    CResRef resRef;
+    CString sStr1 = m_curAction.GetString1();
+    if (sStr1.IsEmpty()) {
+        CString sFromId;
+        SpellIdToResRef(m_curAction.m_specificID, sFromId);
+        if (sFromId.IsEmpty()) {
             return ACTION_INTERRUPTABLE;
         }
+        resRef = sFromId;
+        if (GetObjectType() == CGameObject::TYPE_SPRITE) {
+            specificLevel = static_cast<CGameSprite*>(this)
+                                ->GetDerivedStats()
+                                ->m_nLevel;
+        } else {
+            specificLevel = 1;
+        }
+    } else {
+        resRef = sStr1;
+        specificLevel = static_cast<SHORT>(m_curAction.m_specificID);
+    }
+    if (specificLevel < 2) {
+        specificLevel = 1;
     }
 
-    CResRef resRef(sResRef);
+    // Binary heap-allocates a 16-byte CResHelper<CResSpell,1006> (== CSpell)
+    // with SetResRef + auto-request, then Demand() to make sure the .SPL is
+    // resident.
+    CSpell* pSpell = new CSpell();
+    if (pSpell == NULL) {
+        return ACTION_INTERRUPTABLE;
+    }
+    pSpell->SetResRef(resRef, TRUE, TRUE);
+    if (!pSpell->Demand()) {
+        delete pSpell;
+        return ACTION_INTERRUPTABLE;
+    }
+
+    // 0xB5 (ReallyForceSpell) skips the target-appropriate gate.
+    if (m_curAction.m_actionID != 0xB5
+        && (target->GetObjectType() & CGameObject::TYPE_AIBASE) != 0
+        && !CheckAppropriateTarget(pSpell, static_cast<CGameAIBase*>(target))) {
+        pSpell->Release();
+        delete pSpell;
+        return ACTION_INTERRUPTABLE;
+    }
+
+    // Pick the ability whose minCasterLevel <= specificLevel.  Binary scans
+    // forward, counts qualifying entries, then re-fetches at (count - 1).
+    LONG abilityCount = pSpell->GetAbilityCount();
+    SHORT nAbilityIndex = -1;
+    for (LONG i = 0; i < abilityCount; ++i) {
+        SPELL_ABILITY* pCheck = pSpell->GetAbility(i);
+        if (pCheck == NULL
+            || pCheck->minCasterLevel > static_cast<WORD>(specificLevel)) {
+            break;
+        }
+        nAbilityIndex++;
+    }
+    SPELL_ABILITY* pAbility = pSpell->GetAbility(nAbilityIndex);
+    if (pAbility == NULL) {
+        pSpell->Release();
+        delete pSpell;
+        return ACTION_INTERRUPTABLE;
+    }
+
+    // Cast-time gate.  speedFactor is per-ability cast time in 1/10ths of an
+    // AI tick; the binary computes castTime = speedFactor*100/10 == *10 and
+    // splits the gate into two visual stages:
+    //   m_actionCount < castTime - 4 : raise-hands state (DAT_0085BBB3)
+    //   m_actionCount < castTime     : cast-burst state (DAT_0085BBB2) +
+    //                                  FUN_007564E0 cancel-anim hook
+    //   otherwise                    : fire and complete.
+    // Both not-yet-done branches return ACTION_INTERRUPTABLE.  The visual
+    // state-change message (PTR_FUN_008488C4) and the first-frame cast-anim
+    // start (FUN_00755A70 + invisibility-break + concentration checks at
+    // m_actionCount == 0) are still TODO -- without them casts complete
+    // silently, but the action's duration now matches the binary.
+    WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
+    if (m_actionCount < static_cast<SHORT>(castTime)) {
+        pSpell->Release();
+        delete pSpell;
+        return ACTION_INTERRUPTABLE;
+    }
+
+    // TODO (multi-session): 8-case effect dispatch matrix and
+    // CMessageFireProjectile spawn.  For now delegate to FireSpell so the
+    // legacy stub still runs at completion.
     FireSpell(resRef, target);
+
+    pSpell->Release();
+    delete pSpell;
     return ACTION_DONE;
 }
 
