@@ -857,6 +857,27 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x10F) {
+        // 0x10F = StopJoinRequests (ACTION.IDS 271).  Saves the current
+        // ListenToJoin flag into field_595 and disables join requests,
+        // marking field_596 to allow a later ResetJoinRequests to
+        // restore the prior state.
+        if (field_596 == 0) {
+            CMultiplayerSettings* pMP =
+                g_pBaldurChitin->GetObjectGame()->GetMultiplayerSettings();
+            field_595 = static_cast<unsigned char>(pMP->GetListenToJoinOption());
+            pMP->SetListenToJoinOption(FALSE, FALSE);
+            field_596++;
+        }
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x110) {
+        // 0x110 = ResetJoinRequests (ACTION.IDS 272).  Restores the
+        // saved ListenToJoin flag from field_595 and clears field_596.
+        CMultiplayerSettings* pMP =
+            g_pBaldurChitin->GetObjectGame()->GetMultiplayerSettings();
+        pMP->SetListenToJoinOption(field_595 != 0 ? TRUE : FALSE, FALSE);
+        field_596 = 0;
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0xE6) {
         // 0xE6 = RestParty (ACTION.IDS 230).  Binary case 0xe6 calls
         // CInfGame::RestParty(1, 1).
