@@ -366,6 +366,25 @@ SHORT CGameAIBase::ExecuteAction()
         // to ACTION_DONE in SP (DAT_008cf6dc+0x96e == DAT_0085e65c).  Skip
         // the MP handshake -- recovery deferred until MP path is restored.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xE8) {
+        // 0xE8 = StartRandomTimer (ACTION.IDS).  Rolls a random time in
+        // [m_specificID2, m_specificID3] inclusive into m_specificID2, then
+        // dispatches the regular StartTimer handler (TimerID stays in
+        // m_specificID).
+        LONG lo = m_curAction.m_specificID2;
+        LONG hi = m_curAction.m_specificID3;
+        if (lo > hi) {
+            LONG tmp = lo;
+            lo = hi;
+            hi = tmp;
+        }
+        LONG range = hi - lo + 1;
+        if (range <= 1) {
+            m_curAction.m_specificID2 = lo;
+        } else {
+            m_curAction.m_specificID2 = (rand() % range) + lo;
+        }
+        actionReturn = StartTimer();
     } else if (m_curAction.m_actionID == 0xFC) {
         // 0xFC = ChangeCurrentScript (ACTION.IDS).  Binary pokes
         // m_curScriptNum into m_specificID then falls into the 0x3C
