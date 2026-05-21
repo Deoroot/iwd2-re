@@ -1095,7 +1095,6 @@ void CInfButtonArray::UpdateButtons()
         // Render checks that to short-circuit. Keep m_bEnabled = TRUE so
         // right-click customization works on slots the user could populate.
         pButton->SetEnabled(TRUE);
-        pButton->InvalidateRect();
     }
 
     if (rc == CGameObjectArray::SUCCESS) {
@@ -1104,7 +1103,9 @@ void CInfButtonArray::UpdateButtons()
             INFINITE);
     }
 
-    pPanel->InvalidateRect(NULL);
+    if (g_pBaldurChitin->m_pEngineWorld->m_nPopupState == -1) {
+        pPanel->InvalidateRect(NULL);
+    }
 }
 
 // 0x5950F0 / 0x5957C0
