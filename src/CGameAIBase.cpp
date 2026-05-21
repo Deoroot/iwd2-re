@@ -366,6 +366,13 @@ SHORT CGameAIBase::ExecuteAction()
         // to ACTION_DONE in SP (DAT_008cf6dc+0x96e == DAT_0085e65c).  Skip
         // the MP handshake -- recovery deferred until MP path is restored.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xFC) {
+        // 0xFC = ChangeCurrentScript (ACTION.IDS).  Binary pokes
+        // m_curScriptNum into m_specificID then falls into the 0x3C
+        // (ChangeAIScript) handler, which reads m_specificID for the
+        // script-slot index.
+        m_curAction.m_specificID = static_cast<LONG>(m_curScriptNum);
+        actionReturn = ChangeAIScript();
     } else if (m_curAction.m_actionID == 0x85) {
         // 0x85 = ClearActions (ACTION.IDS).  Resolves m_acteeID and forwards
         // to ClearActions(target), which queues a CMessageClearActions.
