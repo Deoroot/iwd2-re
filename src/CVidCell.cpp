@@ -1640,6 +1640,7 @@ BOOL CVidCell::Blt8To32(DWORD* pSurface, LONG lPitch, const CPoint& pt, const CR
             // Skip dest left.
             int nSkipDestW = min(max(rClip.left - pt.x, 0), nRemainingWidth);
             nRemainingWidth -= nSkipDestW;
+            int nDestX = pt.x + nSkipDestW;
             while (nSkipDestW > 0) {
                 BYTE nColor = pFrameData[pos];
                 if (nColor == nTransparentColor) {
@@ -1672,7 +1673,7 @@ BOOL CVidCell::Blt8To32(DWORD* pSurface, LONG lPitch, const CPoint& pt, const CR
             }
 
             // Blt.
-            int nBltW = min(max(rClip.right - rClip.left, 0), nRemainingWidth);
+            int nBltW = min(max(rClip.right - nDestX, 0), nRemainingWidth);
             nRemainingWidth -= nBltW;
             while (nBltW > 0) {
                 BYTE nColor = pFrameData[pos];
