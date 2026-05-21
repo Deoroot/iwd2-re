@@ -775,6 +775,25 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x12D) {
+        // 0x12D = SetExtendedNight (ACTION.IDS 301).  Binary case 0x12d
+        // toggles bit 0x40 of m_pArea->m_header.m_areaType based on
+        // m_specificID (0 clears, nonzero sets) then propagates the new
+        // areaType to the area's CInfinity render.
+        if (m_pArea != NULL) {
+            WORD areaType = m_pArea->m_header.m_areaType;
+            if (m_curAction.m_specificID == 0) {
+                areaType &= 0xFFBF;
+            } else {
+                areaType |= 0x40;
+            }
+            m_pArea->m_header.m_areaType = areaType;
+            CInfinity* pInfinity = m_pArea->GetInfinity();
+            if (pInfinity != NULL) {
+                pInfinity->SetAreaType(areaType);
+            }
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x11B) {
         // 0x11B = SetCriticalPathObject (ACTION.IDS 283).  Binary case
         // 0x11b toggles bit 0x2000 of the target sprite's
