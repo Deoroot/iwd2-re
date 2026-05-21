@@ -28,7 +28,7 @@ public:
     void CompressContainer();
     CItem* GetItem(SHORT nSlotNum);
     void SetItem(SHORT nSlotNum, CItem* pItem);
-    void sub_480480(SHORT nSlotNum, CItem* pItem);
+    void UpdateHeartContainerMapping(SHORT nSlotNum, CItem* pItem);
     BOOLEAN PlaceItemInBlankSlot(CItem* pItem, BOOLEAN bCompressContainer, SHORT nRecommendedSlotNum);
     void Marshal(CAreaFileContainer** pContainerObject);
     void MarshalMessage(BYTE** pData, DWORD* dwSize);

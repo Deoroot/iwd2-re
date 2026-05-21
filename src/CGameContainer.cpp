@@ -165,7 +165,7 @@ CGameContainer::CGameContainer(CGameArea* pArea, CAreaFileContainer* pContainerO
             while (pos != NULL) {
                 CItem* pItem = m_lstItems.GetNext(pos);
                 if (pItem != NULL) {
-                    sub_480480(nSlotNum, pItem);
+                    UpdateHeartContainerMapping(nSlotNum, pItem);
                 }
                 nSlotNum++;
             }
@@ -682,7 +682,7 @@ void CGameContainer::SetItem(SHORT nSlotNum, CItem* pItem)
     static const CResRef RESREF_AR6051("AR6051");
 
     if (m_pArea->m_resRef == RESREF_AR6051) {
-        sub_480480(nSlotNum, pItem);
+        UpdateHeartContainerMapping(nSlotNum, pItem);
     }
 
     POSITION pos = m_lstItems.FindIndex(nSlotNum);
@@ -713,9 +713,50 @@ void CGameContainer::SetItem(SHORT nSlotNum, CItem* pItem)
 }
 
 // 0x480480
-void CGameContainer::sub_480480(SHORT nSlotNum, CItem* pItem)
+void CGameContainer::UpdateHeartContainerMapping(SHORT nSlotNum, CItem* pItem)
 {
-    // TODO: Incomplete.
+    static const CResRef HEART_ITEM_PREFIX("60HEART");
+    static const CString HEART_CONTAINER_NAME("HCx");
+
+    CItem* pHeartItem = pItem;
+    if (pHeartItem == NULL) {
+        pHeartItem = GetItem(nSlotNum);
+    }
+
+    if (pHeartItem == NULL) {
+        return;
+    }
+
+    BYTE resRef[RESREF_SIZE];
+    pHeartItem->cResRef.GetResRef(resRef);
+
+    char heartIndex = resRef[RESREF_SIZE - 1];
+    resRef[RESREF_SIZE - 1] = '\0';
+
+    if (CResRef(resRef) != HEART_ITEM_PREFIX) {
+        return;
+    }
+
+    CString sName(HEART_CONTAINER_NAME);
+    sName.SetAt(sName.GetLength() - 1, heartIndex);
+
+    CNamedCreatureVariableHash* pNamedCreatures = m_pArea->GetNamedCreatures();
+    CVariable* pVariable = pNamedCreatures->FindKey(sName);
+
+    if (pItem == NULL) {
+        if (pVariable != NULL && pVariable->m_intValue == m_id) {
+            pNamedCreatures->RemoveKey(sName, FALSE, 0);
+        }
+    } else {
+        if (pVariable != NULL) {
+            pVariable->m_intValue = m_id;
+        } else {
+            CVariable variable;
+            variable.SetName(sName);
+            variable.m_intValue = m_id;
+            pNamedCreatures->AddKey(variable);
+        }
+    }
 }
 
 // 0x480760
