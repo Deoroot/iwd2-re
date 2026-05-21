@@ -857,6 +857,22 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xAD) {
+        // 0xAD = AddJournalEntry (ACTION.IDS 173).  Binary case 0xad
+        // calls m_cJournal.AddEntry(m_specificID, 0).
+        g_pBaldurChitin->GetObjectGame()->m_cJournal.AddEntry(
+            static_cast<STRREF>(m_curAction.m_specificID), 0);
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xF4) {
+        // 0xF4 = DeleteJournalEntry (ACTION.IDS 244).
+        g_pBaldurChitin->GetObjectGame()->m_cJournal.DeleteEntry(
+            static_cast<STRREF>(m_curAction.m_specificID));
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xF5) {
+        // 0xF5 = JournalEntryDone (ACTION.IDS 245).
+        g_pBaldurChitin->GetObjectGame()->m_cJournal.SetQuestDone(
+            static_cast<STRREF>(m_curAction.m_specificID));
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x10C) {
         // 0x10C = ClearPartyEffects (ACTION.IDS 268).  Iterates party
         // members; for each with m_baseStats.m_flags bit 0x800 set, calls
