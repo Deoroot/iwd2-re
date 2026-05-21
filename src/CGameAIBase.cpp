@@ -857,6 +857,29 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x10C) {
+        // 0x10C = ClearPartyEffects (ACTION.IDS 268).  Iterates party
+        // members; for each with m_baseStats.m_flags bit 0x800 set, calls
+        // ReapplyEquipmentEffects to rebuild equipment-derived state.
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        SHORT nChars = pGame->GetNumCharacters();
+        for (SHORT i = 0; i < nChars; ++i) {
+            LONG nCharId = pGame->GetCharacterId(i);
+            CGameSprite* pSprite = NULL;
+            BYTE rc = pGame->GetObjectArray()->GetShare(
+                nCharId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                if ((pSprite->m_baseStats.m_flags & 0x800) != 0) {
+                    pSprite->ReapplyEquipmentEffects();
+                }
+                pGame->GetObjectArray()->ReleaseShare(
+                    nCharId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x42) {
         // 0x42 = DayNight (ACTION.IDS 66).  Binary case 0x42 computes
         // m_specificID * byte[0x84EC0C] * byte[0x84EC0D] * byte[0x84EC0E]
