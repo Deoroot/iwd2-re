@@ -366,6 +366,18 @@ SHORT CGameAIBase::ExecuteAction()
         // to ACTION_DONE in SP (DAT_008cf6dc+0x96e == DAT_0085e65c).  Skip
         // the MP handshake -- recovery deferred until MP path is restored.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x85) {
+        // 0x85 = ClearActions (ACTION.IDS).  Resolves m_acteeID and forwards
+        // to ClearActions(target), which queues a CMessageClearActions.
+        // TODO: Binary also enqueues a NULL_ACTION terminator after clear.
+        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        actionReturn = ClearActions(pObj);
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
     } else if (m_curAction.m_actionID == CAIAction::TAKEPARTYGOLD) {
         actionReturn = TakePartyGold();
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
