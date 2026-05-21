@@ -392,6 +392,9 @@ SHORT CGameAIBase::ExecuteAction()
         // script-slot index.
         m_curAction.m_specificID = static_cast<LONG>(m_curScriptNum);
         actionReturn = ChangeAIScript();
+    } else if (m_curAction.m_actionID == 0xA9) {
+        // 0xA9 = DestroyItem (ACTION.IDS).  Pure wire to existing helper.
+        actionReturn = DestroyItem();
     } else if (m_curAction.m_actionID == 0xEB) {
         // 0xEB = PlaySequence (ACTION.IDS).  Resolves m_acteeID, then
         // broadcasts a CMessageSetSequence so the target plays the
