@@ -355,6 +355,9 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0x143) {
         // 0x143 = WaitAnimation (ACTION.IDS).
         actionReturn = WaitAnimation();
+    } else if (m_curAction.m_actionID == 0xE9) {
+        // 0xE9 = HideCreature (ACTION.IDS).
+        actionReturn = HideCreature();
     } else if (m_curAction.m_actionID == CAIAction::TAKEPARTYGOLD) {
         actionReturn = TakePartyGold();
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
@@ -1487,6 +1490,29 @@ SHORT CGameAIBase::SetGlobal()
         }
     }
 
+    return ACTION_DONE;
+}
+
+// 0x452020 - case body for HideCreature (0xE9).
+// Resolves target via m_acteeID and calls SetStealthState(m_specificID).
+// TODO: Skips the FUN_0045BDD0 immunity/distance filter and the MP
+// broadcast (CMessage90) -- SP semantics are preserved.
+SHORT CGameAIBase::HideCreature()
+{
+    CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+    if (pObj == NULL) {
+        return ACTION_DONE;
+    }
+
+    if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+        pSprite->SetStealthState(m_curAction.m_specificID);
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+        pObj->m_id,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
     return ACTION_DONE;
 }
 

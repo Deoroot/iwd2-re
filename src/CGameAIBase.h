@@ -90,6 +90,7 @@ public:
     SHORT SetGlobal();
     SHORT IncrementGlobal();
     SHORT WaitAnimation();
+    SHORT HideCreature();
     void PutItemGround(CItem* pItem);
     SHORT ClearActions(CGameObject* target);
     SHORT TakePartyGold();
