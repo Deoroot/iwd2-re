@@ -341,6 +341,9 @@ SHORT CGameAIBase::ExecuteAction()
         || m_curAction.m_actionID == 0x132) {
         // 0x1E = SetGlobal, 0x132 = SetGlobalRandom (ACTION.IDS).
         actionReturn = SetGlobal();
+    } else if (m_curAction.m_actionID == 0x6D) {
+        // 0x6D = IncrementGlobal (ACTION.IDS).
+        actionReturn = IncrementGlobal();
     } else if (m_curAction.m_actionID == CAIAction::TAKEPARTYGOLD) {
         actionReturn = TakePartyGold();
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
@@ -1469,6 +1472,69 @@ SHORT CGameAIBase::SetGlobal()
             CVariable v;
             v.SetName(sName);
             v.m_intValue = nValue;
+            pHash->AddKey(v);
+        }
+    }
+
+    return ACTION_DONE;
+}
+
+// 0x460300 - handles IncrementGlobal (0x6D).  Like SetGlobal but adds
+// m_specificID to existing value; if variable absent, creates it with
+// value = m_specificID.
+// TODO: Multiplayer broadcast (same CMessage as SetGlobal) skipped.
+SHORT CGameAIBase::IncrementGlobal()
+{
+    CString sName = m_curAction.GetString1();
+    CString sScope = m_curAction.GetString2();
+    LONG nDelta = m_curAction.m_specificID;
+
+    if (sScope == CString("GLOBAL")) {
+        CVariableHash* pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        CVariable* pVar = pHash->FindKey(sName);
+        if (pVar != NULL) {
+            pVar->m_intValue += nDelta;
+        } else {
+            CVariable v;
+            v.SetName(sName);
+            v.m_intValue = nDelta;
+            pHash->AddKey(v);
+        }
+        return ACTION_DONE;
+    }
+
+    if (sScope == CString("LOCALS")) {
+        if ((GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+            CVariableHash* pHash = pSprite->GetLocalVariables();
+            CVariable* pVar = pHash->FindKey(sName);
+            if (pVar != NULL) {
+                pVar->m_intValue += nDelta;
+            } else {
+                CVariable v;
+                v.SetName(sName);
+                v.m_intValue = nDelta;
+                pHash->AddKey(v);
+            }
+        }
+        return ACTION_DONE;
+    }
+
+    CString sAreaName = sScope;
+    if (sScope == CString("MYAREA") && m_pArea != NULL) {
+        sAreaName = CString(reinterpret_cast<LPCTSTR>(m_pArea));
+    }
+
+    CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sAreaName);
+    if (pArea != NULL) {
+        CVariableHash* pHash = pArea->GetVariables();
+        CVariable* pVar = pHash->FindKey(sName);
+        if (pVar != NULL) {
+            pVar->m_intValue += nDelta;
+        } else {
+            CVariable v;
+            v.SetName(sName);
+            v.m_intValue = nDelta;
             pHash->AddKey(v);
         }
     }

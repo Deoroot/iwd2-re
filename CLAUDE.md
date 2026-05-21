@@ -134,21 +134,55 @@ print(pe.get_data(0x8ABCA4 - ib, 16))   # bytes at .rdata 0x8ABCA4
 
 ## Game asset export (`data/near_infinity_export/`)
 
-All IWD2 game files extracted via NearInfinity. Inspect assets without launching the game.
+All IWD2 game files extracted via NearInfinity. **Reach for this directory whenever you need to reason about game content** (action IDs, spell IDs, rule tables, button mappings, what scripts actually do) — it's faster and more authoritative than guessing from binary patterns or BG2 conventions.
 
 ```
 data/near_infinity_export/
-├── BAM/        # raw BAM (use BAM_DECOMP for parsable headers)
-├── BAM_DECOMP/ # decompressed BAMv1 — read frames with struct.unpack
-├── ITM/        # items
-├── CRE/        # creatures
-├── ARE/        # areas
-├── CHU/        # UI panels (button frames, hotkeys, positions)
-├── 2DA/        # rule tables (QSLOTS.2DA, etc.)
-└── ...
+├── 2DA/         # rule tables — QSLOTS, XPLEVEL, MGSPLLVL, ANIMATE, etc.
+├── ACM/         # voice / ambient audio (compressed)
+├── ARE/         # area files — actors, doors, triggers, containers, spawn points
+├── BAM/         # raw BAM (zlib-wrapped — use BAM_DECOMP for parsable headers)
+├── BAM_DECOMP/  # decompressed BAMv1 — read frames with struct.unpack
+├── BCS/         # compiled creature scripts (exported as readable .BAF)
+├── BS/          # compiled PC/player scripts (.BAF form)
+├── CHR/         # player character templates
+├── CHU/         # UI panels (button frames, hotkeys, positions, control ids)
+├── CRE/         # creature templates — stats, items, spells, scripts, anim id
+├── DLG/         # dialogue trees (state graph + triggers/actions per node)
+├── EFF/         # standalone effect files (.eff opcodes)
+├── GAM/         # save-game shape (party state, journal, globals)
+├── IDS/         # symbol→id maps — ACTION, TRIGGER, OBJECT, STATS, SPLSTATE, etc.
+├── ITM/         # item files — type, flags, weight, equip effects, abilities
+├── MOS/         # raw MOS (use MOS_DECOMP)
+├── MOS_DECOMP/  # decompressed MOS images
+├── MUS/         # music playlists (ACM cue sheets)
+├── MVE/         # bink-format movies
+├── PLT/         # paperdoll layer templates
+├── RES/         # generic resource blobs
+├── SPL/         # spell files — school, level, range, abilities, effects
+├── SRC/         # random strings (rumour tables, voicelines)
+├── STO/         # store inventories
+├── TIS/         # area tileset images
+├── WAV/         # uncompressed sfx
+├── WED/         # area tile maps / overlays
+└── WMP/         # world map nodes + transitions
 ```
 
-Use for: frame indices, BAM cycle counts, CHU button IDs, weapon item types, spell resrefs.
+Common uses by question type:
+
+| Question | File |
+|---|---|
+| What's action id N? | `IDS/ACTION.IDS` |
+| What's trigger id N? | `IDS/TRIGGER.IDS` |
+| What's the canonical name of state/stat N? | `IDS/STATS.IDS`, `IDS/SPLSTATE.IDS` |
+| Which actions / triggers do real scripts use most? | grep / tally across `BCS/*.BAF` + `BS/*.BAF` |
+| What does spell SPxxx do? | `SPL/SPxxx.SPL` |
+| Which button slot is "select all"? | `CHU/<panel>.CHU` |
+| Which CRE uses script X? | grep `CRE/` decompiled output |
+| What's the QSlot layout? | `2DA/QSLOTS.2DA` |
+| What edges connect two areas? | `WMP/WORLDMAP.WMP` |
+
+TODO: as we encounter new file shapes, document the parser path (struct.unpack signatures, NearInfinity GUI fields) below this table so the next person doesn't have to rediscover layouts.
 
 ## Reference paths (outside the repo)
 

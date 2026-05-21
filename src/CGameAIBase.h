@@ -88,6 +88,7 @@ public:
     SHORT SmallWait();
     SHORT Shout();
     SHORT SetGlobal();
+    SHORT IncrementGlobal();
     void PutItemGround(CItem* pItem);
     SHORT ClearActions(CGameObject* target);
     SHORT TakePartyGold();
