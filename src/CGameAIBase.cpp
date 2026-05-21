@@ -759,6 +759,28 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x40
+        || m_curAction.m_actionID == 0x41) {
+        // 0x40 = UndoExplore (ACTION.IDS 64), 0x41 = Explore (ACTION.IDS 65).
+        // Binary posts CMessageSetAreaExplored on self -- 0x40 with FALSE
+        // (unexplore), 0x41 with TRUE.
+        CMessage* msg = new CMessageSetAreaExplored(
+            m_curAction.m_actionID == 0x41 ? TRUE : FALSE,
+            m_id,
+            m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x79
+        || m_curAction.m_actionID == 0x7A) {
+        // 0x79 = StartCutSceneMode (ACTION.IDS 121),
+        // 0x7A = EndCutSceneMode  (ACTION.IDS 122).  Binary posts
+        // CMessageCutSceneModeStatus -- 0x79 with TRUE, 0x7A with FALSE.
+        CMessage* msg = new CMessageCutSceneModeStatus(
+            m_curAction.m_actionID == 0x79 ? TRUE : FALSE,
+            m_id,
+            m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+        actionReturn = ACTION_DONE;
     }
 
     SetLastActionReturn(actionReturn);
