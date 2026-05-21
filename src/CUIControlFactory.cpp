@@ -4151,11 +4151,8 @@ BOOL CUIControlPortraitWorld::Render(BOOL bForce)
         return FALSE;
     }
 
-    if (m_nRenderCount != 0) {
-        CSingleLock renderLock(&(m_pPanel->m_pManager->field_56), FALSE);
-        renderLock.Lock(INFINITE);
-        m_nRenderCount--;
-        renderLock.Unlock();
+    if (!CUIControlButton::Render(bForce)) {
+        return FALSE;
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;

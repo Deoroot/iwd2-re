@@ -1436,12 +1436,6 @@ void CScreenWorld::TimerSynchronousUpdate()
             pVidMode->EnableScissoring();
             pArea->Render(pVidMode, 0);
             pVidMode->DisableScissoring();
-
-            CUIPanel* pPanel = m_cUIManager.GetPanel(1);
-            if (pPanel != NULL) {
-                pPanel->InvalidateRect(NULL);
-                m_cUIManager.Render();
-            }
         }
 
         pVidMode->Flip(TRUE);
