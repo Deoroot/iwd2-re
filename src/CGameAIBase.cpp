@@ -857,6 +857,11 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xBA) {
+        // 0xBA = EndCredits (ACTION.IDS 186).  Binary case 0xba jumps to
+        // switchD_caseD_ba which calls CScreenWorld::ReadyEndCredits(FALSE).
+        g_pBaldurChitin->m_pEngineWorld->ReadyEndCredits(FALSE);
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x10F) {
         // 0x10F = StopJoinRequests (ACTION.IDS 271).  Saves the current
         // ListenToJoin flag into field_595 and disables join requests,
