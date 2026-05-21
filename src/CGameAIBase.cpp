@@ -361,6 +361,11 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0xF1) {
         // 0xF1 = FloatMessage (ACTION.IDS).
         actionReturn = FloatMessage();
+    } else if (m_curAction.m_actionID == 0xB7) {
+        // 0xB7 = MultiPlayerSync (ACTION.IDS).  Binary 0x466750 short-circuits
+        // to ACTION_DONE in SP (DAT_008cf6dc+0x96e == DAT_0085e65c).  Skip
+        // the MP handshake -- recovery deferred until MP path is restored.
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == CAIAction::TAKEPARTYGOLD) {
         actionReturn = TakePartyGold();
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
