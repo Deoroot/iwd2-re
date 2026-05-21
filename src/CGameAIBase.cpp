@@ -770,6 +770,11 @@ SHORT CGameAIBase::ExecuteAction()
             m_id);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x88) {
+        // 0x88 = UnlockScroll (ACTION.IDS 136).  Binary case 0x88 clears
+        // CScreenWorld::m_scrollLockId (sets to -1).
+        g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x79
         || m_curAction.m_actionID == 0x7A) {
         // 0x79 = StartCutSceneMode (ACTION.IDS 121),
