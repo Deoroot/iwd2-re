@@ -93,6 +93,7 @@ public:
     SHORT HideCreature();
     SHORT FloatMessage();
     CGameObject* ResolveActionTarget();
+    void SpellIdToResRef(int spellId, CString& outResRef);
     void PutItemGround(CItem* pItem);
     SHORT ClearActions(CGameObject* target);
     SHORT TakePartyGold();

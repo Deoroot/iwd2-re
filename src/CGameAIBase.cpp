@@ -1751,6 +1751,40 @@ SHORT CGameAIBase::SetGlobal()
     return ACTION_DONE;
 }
 
+// 0x45D3E0 - decodes a numeric spell id into a resref string of the form
+// "SP" + family + "%03d" where family is one of:
+//   1xxx -> SPPR (priest)
+//   2xxx -> SPWI (wizard / arcane)
+//   3xxx -> SPIN (innate)
+// When spellId is 0 the helper falls back to field_588 (caster's pending
+// spell id); if both are zero the output is the empty string.  Invalid
+// family ids fall through to an empty prefix and the binary logs an
+// "Invalid or missing spell ID" assert -- skipped here.
+void CGameAIBase::SpellIdToResRef(int spellId, CString& outResRef)
+{
+    if (spellId == 0 && field_588 == 0) {
+        outResRef = "";
+        return;
+    }
+    if (spellId == 0) {
+        spellId = field_588;
+    }
+
+    outResRef = "SP";
+    int family = spellId / 1000;
+    if (family == 1) {
+        outResRef += "PR";
+    } else if (family == 2) {
+        outResRef += "WI";
+    } else if (family == 3) {
+        outResRef += "IN";
+    }
+
+    CString suffix;
+    suffix.Format("%03d", spellId % 1000);
+    outResRef += suffix;
+}
+
 // 0x45BDD0 - resolves m_acteeID, then filters sprites whose immunity list
 // names the caller's CAIObjectType (e.g. spell-immune creature scripted
 // against by a matching caster type).  Returns the target with an ACTIVE
