@@ -736,6 +736,15 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x117) {
+        // 0x117 = AdvanceTime (ACTION.IDS 279).  Pushes m_specificID into
+        // the world timer and emits a FEEDBACK_TIMEPASS note.
+        g_pBaldurChitin->GetObjectGame()->GetWorldTimer()
+            ->AdvanceCurrentTime(m_curAction.m_specificID);
+        // TODO: CInfGame::FeedBack(DAT_008518CA, m_specificID, ?) -- the
+        // binary call site pushes only 2 args; the C++ signature has an
+        // extra BOOLEAN that defaults via m_bShowQuestXP fallback.
+        actionReturn = ACTION_DONE;
     }
 
     SetLastActionReturn(actionReturn);
