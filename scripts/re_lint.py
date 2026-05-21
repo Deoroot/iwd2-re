@@ -83,7 +83,9 @@ STRICT_PLACEHOLDER_RULE = PatternRule(
 FUNCTION_DEF_RE = re.compile(
     r"^\s*(?!//)(?!.*;)(?:[\w:<>,~*&\s]+\s+)?[A-Za-z_]\w*::[~A-Za-z_]\w*\s*\([^;]*\)\s*(?:const)?\s*$"
 )
-ADDRESS_COMMENT_RE = re.compile(r"^\s*//\s*0x[0-9A-Fa-f]+(?:\s+\(virtual\))?\s*$")
+FUNCTION_MARKER_RE = re.compile(
+    r"^\s*//\s*(?:0x[0-9A-Fa-f]+(?:\s+\(virtual\))?|NOTE:\s*(?:Inlined|Uninline)\.)\s*$"
+)
 
 
 def run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -222,7 +224,7 @@ def scan_file(path: Path, line_numbers: set[int], rules: list[PatternRule]) -> l
 
         if FUNCTION_DEF_RE.match(line) and not disabled(line, "RE006"):
             previous = previous_nonblank_line(lines, line_no)
-            if not ADDRESS_COMMENT_RE.match(previous):
+            if not FUNCTION_MARKER_RE.match(previous):
                 issues.append(
                     Issue(
                         path,
