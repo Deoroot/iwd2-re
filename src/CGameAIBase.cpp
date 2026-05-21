@@ -775,6 +775,19 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x129) {
+        // 0x129 = ScreenShake (ACTION.IDS 297).  Binary case 0x129 posts
+        // CMessageScreenShake(duration=specifics1, magX=specifics2,
+        // magY=specifics3, bOverride=TRUE) on self.
+        CMessage* msg = new CMessageScreenShake(
+            static_cast<WORD>(m_curAction.GetSpecifics()),
+            static_cast<CHAR>(m_curAction.GetSpecifics2()),
+            static_cast<CHAR>(m_curAction.GetSpecifics3()),
+            TRUE,
+            m_id,
+            m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x111
         || m_curAction.m_actionID == 0x112) {
         // 0x111 = HideGUI (ACTION.IDS 273), 0x112 = UnhideGUI (274).
