@@ -857,6 +857,92 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x138) {
+        // 0x138 = SetApparentName (binary case 0x138).  Writes the new
+        // STRREF (m_specificID) into target.m_baseStats.m_apparentName
+        // when it differs from the current value, then broadcasts
+        // CMessageSpriteUpdate so observers refresh the displayed name.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+                DWORD newRef = static_cast<DWORD>(m_curAction.m_specificID);
+                if (pSprite->m_baseStats.m_apparentName != newRef) {
+                    pSprite->m_baseStats.m_apparentName = newRef;
+                    CMessage* msg = new CMessageSpriteUpdate(
+                        pSprite, m_id, pSprite->m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                        msg, FALSE);
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x139) {
+        // 0x139 = SetName (binary case 0x139).  Same shape as 0x138 but
+        // writes target.m_baseStats.m_name (the canonical STRREF).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+                DWORD newRef = static_cast<DWORD>(m_curAction.m_specificID);
+                if (pSprite->m_baseStats.m_name != newRef) {
+                    pSprite->m_baseStats.m_name = newRef;
+                    CMessage* msg = new CMessageSpriteUpdate(
+                        pSprite, m_id, pSprite->m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                        msg, FALSE);
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x13E) {
+        // 0x13E = SetCreatureFlag (binary case 0x13e).  Resolves the
+        // target sprite and applies AND-clear (specifics2 == 0) or
+        // OR-set (specifics2 != 0) of mask m_specificID to its
+        // m_baseStats.m_flags.  Returns ACTION_INTERRUPTABLE when the
+        // target is unresolved (binary path LAB_00451451 -> sVar7 = -2).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj == NULL) {
+            actionReturn = ACTION_INTERRUPTABLE;
+        } else {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+                DWORD mask = static_cast<DWORD>(m_curAction.m_specificID);
+                if (m_curAction.GetSpecifics2() == 0) {
+                    pSprite->m_baseStats.m_flags &= ~mask;
+                } else {
+                    pSprite->m_baseStats.m_flags |= mask;
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            actionReturn = ACTION_DONE;
+        }
+    } else if (m_curAction.m_actionID == 0x145) {
+        // 0x145 = SetAreaFlag (binary case 0x145).  Three-way bit-op on
+        // m_pArea->m_header.m_flags selected by specifics2:
+        //   1 -> AND  (clear masked bits)
+        //   2 -> OR   (set masked bits)
+        //   3 -> XOR  (toggle masked bits)
+        //   other -> ACTION_INTERRUPTABLE.
+        if (m_pArea != NULL) {
+            DWORD mask = static_cast<DWORD>(m_curAction.m_specificID);
+            switch (m_curAction.GetSpecifics2()) {
+            case 1: m_pArea->m_header.m_flags &= mask; break;
+            case 2: m_pArea->m_header.m_flags |= mask; break;
+            case 3: m_pArea->m_header.m_flags ^= mask; break;
+            default: actionReturn = ACTION_INTERRUPTABLE; break;
+            }
+            if (actionReturn != ACTION_INTERRUPTABLE) {
+                actionReturn = ACTION_DONE;
+            }
+        } else {
+            actionReturn = ACTION_INTERRUPTABLE;
+        }
     } else if (m_curAction.m_actionID == 0x12F) {
         // 0x12F = SetRestEncounterChance (ACTION.IDS 303).  Binary case
         // 0x12f caps both probabilities at 100, writes them into the
