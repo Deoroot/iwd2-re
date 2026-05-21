@@ -34,6 +34,7 @@
 #include "CUIManager.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
+#include "DebugLog.h"
 #include "Icewind586B70.h"
 #include "IcewindMisc.h"
 
@@ -2907,6 +2908,16 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     // __LINE__: 8447
     UTIL_ASSERT(m_sSaveGame != "");
 
+    Iwd2DebugLogReset();
+    Iwd2DebugLog("LoadGame begin save=%s progressRequired=%d progressInPlace=%d chars=%d group=%u activeEngine=%p worldEngine=%p",
+        static_cast<LPCSTR>(m_sSaveGame),
+        bProgressBarRequired,
+        bProgressBarInPlace,
+        m_nCharacters,
+        m_group.GetCount(),
+        g_pBaldurChitin->GetActiveEngine(),
+        g_pBaldurChitin->m_pEngineWorld);
+
     g_pBaldurChitin->GetObjectGame()->GetMultiplayerSettings()->ClearViewedCharacters();
     g_pBaldurChitin->GetObjectGame()->GetMultiplayerSettings()->ClearPlayerReady();
 
@@ -3081,9 +3092,32 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
             255);
     }
 
+    Iwd2DebugLog("LoadGame before SelectAll visibleAreaIndex=%u visibleArea=%p chars=%d group=%u activeEngine=%p worldEngine=%p",
+        m_visibleArea,
+        GetVisibleArea(),
+        m_nCharacters,
+        m_group.GetCount(),
+        g_pBaldurChitin->GetActiveEngine(),
+        g_pBaldurChitin->m_pEngineWorld);
+
+    for (SHORT cnt = 0; cnt < m_nCharacters; cnt++) {
+        Iwd2DebugLog("LoadGame portrait slot=%d characterPortraitId=%ld fixedCharacterId=%ld",
+            cnt,
+            m_characterPortraits[cnt],
+            m_characters[cnt]);
+    }
+
     SelectAll(FALSE);
 
+    Iwd2DebugLog("LoadGame after SelectAll group=%u activeEngine=%p",
+        m_group.GetCount(),
+        g_pBaldurChitin->GetActiveEngine());
+
     g_pBaldurChitin->GetObjectGame()->m_cButtonArray.UpdateState();
+
+    Iwd2DebugLog("LoadGame after ButtonArray.UpdateState group=%u selectedButton=%d",
+        m_group.GetCount(),
+        m_cButtonArray.m_nSelectedButton);
 
 }
 
@@ -3246,6 +3280,14 @@ void CInfGame::SelectAll(BOOLEAN bPlaySound)
     SHORT cnt;
     POSITION pos;
 
+    Iwd2DebugLog("SelectAll begin playSound=%d chars=%d visibleAreaIndex=%u visibleArea=%p group=%u activeEngine=%p",
+        bPlaySound,
+        m_nCharacters,
+        m_visibleArea,
+        GetVisibleArea(),
+        m_group.GetCount(),
+        g_pBaldurChitin->GetActiveEngine());
+
     for (cnt = 0; cnt < m_nCharacters; cnt++) {
         iSprite = m_characterPortraits[cnt];
         do {
@@ -3256,6 +3298,21 @@ void CInfGame::SelectAll(BOOLEAN bPlaySound)
         } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
         if (rc == CGameObjectArray::SUCCESS) {
+            CGameArea* pVisibleArea = GetVisibleArea();
+            Iwd2DebugLog("SelectAll portrait=%d objectId=%ld sprite=%p spriteId=%ld spriteArea=%p visibleArea=%p selectedBefore=%d orderable=%d inControl=%d hp=%d/%d group=%u",
+                cnt,
+                iSprite,
+                pSprite,
+                pSprite->m_id,
+                pSprite->m_pArea,
+                pVisibleArea,
+                pSprite->m_bSelected,
+                pSprite->Orderable(FALSE),
+                pSprite->InControl(),
+                pSprite->m_baseStats.m_hitPoints,
+                pSprite->m_derivedStats.m_nMaxHitPoints,
+                m_group.GetCount());
+
             if (GetVisibleArea() != NULL && pSprite->m_pArea == GetVisibleArea()) {
                 if (pSprite->Orderable(FALSE) && !pSprite->m_bSelected) {
                     do {
@@ -3270,6 +3327,17 @@ void CInfGame::SelectAll(BOOLEAN bPlaySound)
                         m_cObjectArray.ReleaseDeny(iSprite,
                             CGameObjectArray::THREAD_ASYNCH,
                             INFINITE);
+                        UpdatePortrait(cnt, 1);
+                        Iwd2DebugLog("SelectAll portrait=%d selected spriteId=%ld selectedAfter=%d group=%u updatePortrait=1",
+                            cnt,
+                            pSprite->m_id,
+                            pSprite->m_bSelected,
+                            m_group.GetCount());
+                    } else {
+                        Iwd2DebugLog("SelectAll portrait=%d select GetDeny failed rc=%u objectId=%ld",
+                            cnt,
+                            rc,
+                            iSprite);
                     }
                 }
                 if (pSprite->Orderable(FALSE) && bPlaySound) {
@@ -3289,13 +3357,27 @@ void CInfGame::SelectAll(BOOLEAN bPlaySound)
                     m_cObjectArray.ReleaseDeny(iSprite,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
+                    UpdatePortrait(cnt, 1);
+                    Iwd2DebugLog("SelectAll portrait=%d unselected spriteId=%ld selectedAfter=%d group=%u updatePortrait=1",
+                        cnt,
+                        pSprite->m_id,
+                        pSprite->m_bSelected,
+                        m_group.GetCount());
+                } else {
+                    Iwd2DebugLog("SelectAll portrait=%d unselect GetDeny failed rc=%u objectId=%ld",
+                        cnt,
+                        rc,
+                        iSprite);
                 }
             }
             m_cObjectArray.ReleaseShare(iSprite,
                 CGameObjectArray::THREAD_ASYNCH,
                 INFINITE);
-
-            UpdatePortrait(cnt, 1);
+        } else {
+            Iwd2DebugLog("SelectAll portrait=%d GetShare failed rc=%u objectId=%ld",
+                cnt,
+                rc,
+                iSprite);
         }
     }
 
@@ -3370,6 +3452,10 @@ void CInfGame::SelectAll(BOOLEAN bPlaySound)
     }
 
     SelectToolbar();
+
+    Iwd2DebugLog("SelectAll end group=%u activeEngine=%p",
+        m_group.GetCount(),
+        g_pBaldurChitin->GetActiveEngine());
 }
 
 // 0x5AD7E0
@@ -3694,6 +3780,15 @@ void CInfGame::UpdatePortrait(SHORT nPortrait, DWORD dwPanelId)
 {
     if (nPortrait != -1) {
         CBaldurEngine* pEngine = g_pBaldurChitin->GetActiveEngine();
+        Iwd2DebugLog("UpdatePortrait request portrait=%d panel=%lu activeEngine=%p world=%p single=%p multiplayer=%p worldmap=%p save=%p",
+            nPortrait,
+            dwPanelId,
+            pEngine,
+            g_pBaldurChitin->m_pEngineWorld,
+            g_pBaldurChitin->m_pEngineSinglePlayer,
+            g_pBaldurChitin->m_pEngineMultiPlayer,
+            g_pBaldurChitin->m_pEngineWorldMap,
+            g_pBaldurChitin->m_pEngineSave);
         if (pEngine != g_pBaldurChitin->m_pEngineProjector
             && pEngine != g_pBaldurChitin->m_pEngineMultiPlayer
             && pEngine != g_pBaldurChitin->m_pEngineSinglePlayer
@@ -3703,22 +3798,50 @@ void CInfGame::UpdatePortrait(SHORT nPortrait, DWORD dwPanelId)
             CUIPanel* pPanel = pManager->GetPanel(dwPanelId);
             if (pPanel != NULL) {
                 CUIControlBase* pControl = pPanel->GetControl(nPortrait);
+                Iwd2DebugLog("UpdatePortrait primary panel=%lu pPanel=%p control=%p",
+                    dwPanelId,
+                    pPanel,
+                    pControl);
                 if (pControl != NULL) {
                     pControl->InvalidateRect();
+                    Iwd2DebugLog("UpdatePortrait invalidated portrait=%d panel=%lu control=%p active=%d inactiveRender=%d",
+                        nPortrait,
+                        dwPanelId,
+                        pControl,
+                        pControl->m_bActive,
+                        pControl->m_bInactiveRender);
                 }
             } else {
                 // NOTE: Obtaining active engine second time, probably some
                 // inlining. Looks similar to `CBaldurEngine::OnPortraitLClick`.
                 CUIManager* pManager = g_pBaldurChitin->GetActiveEngine()->GetManager();
                 CUIPanel* pPanel = pManager->GetPanel(1);
+                Iwd2DebugLog("UpdatePortrait fallback requestedPanel=%lu fallbackPanel=%p",
+                    dwPanelId,
+                    pPanel);
                 if (pPanel != NULL) {
                     CUIControlBase* pControl = pPanel->GetControl(nPortrait);
+                    Iwd2DebugLog("UpdatePortrait fallback control=%p portrait=%d",
+                        pControl,
+                        nPortrait);
                     if (pControl != NULL) {
                         pControl->InvalidateRect();
+                        Iwd2DebugLog("UpdatePortrait fallback invalidated portrait=%d control=%p active=%d inactiveRender=%d",
+                            nPortrait,
+                            pControl,
+                            pControl->m_bActive,
+                            pControl->m_bInactiveRender);
                     }
                 }
             }
+        } else {
+            Iwd2DebugLog("UpdatePortrait ignored portrait=%d panel=%lu activeEngine=%p",
+                nPortrait,
+                dwPanelId,
+                pEngine);
         }
+    } else {
+        Iwd2DebugLog("UpdatePortrait ignored portrait=-1 panel=%lu", dwPanelId);
     }
 }
 
@@ -3800,7 +3923,30 @@ void CInfGame::RemoveFamiliarResRef(const CResRef& resRef, BYTE nAlignment, BYTE
 // 0x5AF770
 void CInfGame::RenderPortrait(DWORD portraitId, const CPoint& cpRenderPosition, const CSize& szControl, BOOL bPressed, BOOL reorderHighlight, BOOL selectFromMarker, const CRect& rClip, BOOL bDoubleSize)
 {
+    static int s_renderPortraitRequestLogCount = 0;
     LONG iSprite = GetCharacterId(static_cast<SHORT>(portraitId));
+    BOOL bLogRequest = s_renderPortraitRequestLogCount < 400;
+
+    if (bLogRequest) {
+        s_renderPortraitRequestLogCount++;
+        Iwd2DebugLog("CInfGame::RenderPortrait request portrait=%lu objectId=%ld pressed=%d highlight=%d marker=%d double=%d pos=%ld,%ld size=%ld,%ld clip=%ld,%ld,%ld,%ld group=%u",
+            portraitId,
+            iSprite,
+            bPressed,
+            reorderHighlight,
+            selectFromMarker,
+            bDoubleSize,
+            cpRenderPosition.x,
+            cpRenderPosition.y,
+            szControl.cx,
+            szControl.cy,
+            rClip.left,
+            rClip.top,
+            rClip.right,
+            rClip.bottom,
+            m_group.GetCount());
+    }
+
     if (iSprite != CGameObjectArray::INVALID_INDEX) {
         CGameSprite* pSprite;
 
@@ -3810,6 +3956,16 @@ void CInfGame::RenderPortrait(DWORD portraitId, const CPoint& cpRenderPosition, 
             INFINITE);
 
         if (rc == CGameObjectArray::SUCCESS) {
+            if (bLogRequest) {
+                Iwd2DebugLog("CInfGame::RenderPortrait share success portrait=%lu sprite=%p selected=%d hp=%d/%d area=%p",
+                    portraitId,
+                    pSprite,
+                    pSprite->m_bSelected,
+                    pSprite->m_baseStats.m_hitPoints,
+                    pSprite->m_derivedStats.m_nMaxHitPoints,
+                    pSprite->m_pArea);
+            }
+
             pSprite->RenderPortrait(cpRenderPosition,
                 szControl,
                 bPressed,
@@ -3821,13 +3977,29 @@ void CInfGame::RenderPortrait(DWORD portraitId, const CPoint& cpRenderPosition, 
             m_cObjectArray.ReleaseShare(iSprite,
                 CGameObjectArray::THREAD_ASYNCH,
                 INFINITE);
+        } else if (bLogRequest) {
+            Iwd2DebugLog("CInfGame::RenderPortrait GetShare failed portrait=%lu objectId=%ld rc=%u",
+                portraitId,
+                iSprite,
+                rc);
         }
+    } else if (bLogRequest) {
+        Iwd2DebugLog("CInfGame::RenderPortrait invalid portrait=%lu objectId=%ld",
+            portraitId,
+            iSprite);
     }
 }
 
 // 0x5AF7F0
 void CInfGame::WorldEngineActivated(CVidMode* pVidMode)
 {
+    Iwd2DebugLog("WorldEngineActivated begin vidMode=%p visibleAreaIndex=%u visibleArea=%p group=%u activeEngine=%p",
+        pVidMode,
+        m_visibleArea,
+        GetVisibleArea(),
+        m_group.GetCount(),
+        g_pBaldurChitin->GetActiveEngine());
+
     m_nState = 0;
     m_cButtonArray.m_nSelectedButton = 100;
     m_cVRamPool.DetachSurfaces();
@@ -3837,6 +4009,11 @@ void CInfGame::WorldEngineActivated(CVidMode* pVidMode)
     } else {
     }
     m_cButtonArray.ResetState();
+
+    Iwd2DebugLog("WorldEngineActivated end visibleArea=%p group=%u selectedButton=%d",
+        GetVisibleArea(),
+        m_group.GetCount(),
+        m_cButtonArray.m_nSelectedButton);
 }
 
 // 0x5AF850

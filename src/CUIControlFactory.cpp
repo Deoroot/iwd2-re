@@ -29,6 +29,7 @@
 #include "CUIManager.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
+#include "DebugLog.h"
 
 // 0x76D370
 CUIControlBase* CUIControlBase::CreateControl(CUIPanel* pPanel, UI_CONTROL* controlInfo)
@@ -4042,6 +4043,15 @@ void CUIControlPortraitWorld::OnMouseMove(CPoint pt)
 {
     if (IsOver(pt)) {
         if (!m_bPressed) {
+            Iwd2DebugLog("PortraitMouseMove enter id=%lu pt=%ld,%ld pressedBefore=%d highlightedBefore=%d renderCountBefore=%d panel=%lu",
+                m_nID,
+                pt.x,
+                pt.y,
+                m_bPressed,
+                m_bHighlighted,
+                m_nRenderCount,
+                m_pPanel->m_nID);
+
             m_bHighlighted = FALSE;
             g_pBaldurChitin->GetObjectGame()->SetTempCursor(4);
             m_cVidCell.FrameSet(m_nPressedFrame);
@@ -4051,9 +4061,24 @@ void CUIControlPortraitWorld::OnMouseMove(CPoint pt)
             renderLock.Lock(INFINITE);
             m_nRenderCount = CUIManager::RENDER_COUNT;
             renderLock.Unlock();
+            Iwd2DebugLog("PortraitMouseMove enter done id=%lu pressedAfter=%d highlightedAfter=%d renderCountAfter=%d",
+                m_nID,
+                m_bPressed,
+                m_bHighlighted,
+                m_nRenderCount);
         }
     } else {
         if (m_bPressed) {
+            Iwd2DebugLog("PortraitMouseMove leave id=%lu pt=%ld,%ld pressedBefore=%d highlightedBefore=%d capture=%d renderCountBefore=%d panel=%lu",
+                m_nID,
+                pt.x,
+                pt.y,
+                m_bPressed,
+                m_bHighlighted,
+                m_pPanel->m_pManager->m_nCaptureType,
+                m_nRenderCount,
+                m_pPanel->m_nID);
+
             if (m_pPanel->m_pManager->m_nCaptureType == CUIManager::MOUSELBUTTON) {
                 m_bHighlighted = TRUE;
                 g_pBaldurChitin->GetObjectGame()->SetTempCursor(14);
@@ -4066,6 +4091,11 @@ void CUIControlPortraitWorld::OnMouseMove(CPoint pt)
             renderLock.Lock(INFINITE);
             m_nRenderCount = CUIManager::RENDER_COUNT;
             renderLock.Unlock();
+            Iwd2DebugLog("PortraitMouseMove leave done id=%lu pressedAfter=%d highlightedAfter=%d renderCountAfter=%d",
+                m_nID,
+                m_bPressed,
+                m_bHighlighted,
+                m_nRenderCount);
         }
     }
 }
@@ -4113,15 +4143,55 @@ void CUIControlPortraitWorld::OnRButtonClick(CPoint pt)
 // 0x77B360
 BOOL CUIControlPortraitWorld::Render(BOOL bForce)
 {
+    static int s_portraitRenderLogCount = 0;
+    BOOL bLogRender = s_portraitRenderLogCount < 400;
+
     if (!m_bActive && !m_bInactiveRender) {
+        if (bLogRender) {
+            s_portraitRenderLogCount++;
+            Iwd2DebugLog("PortraitRender skip inactive id=%lu force=%d active=%d inactiveRender=%d panel=%lu",
+                m_nID,
+                bForce,
+                m_bActive,
+                m_bInactiveRender,
+                m_pPanel->m_nID);
+        }
         return FALSE;
     }
 
     if (m_nRenderCount == 0 && !bForce) {
+        if (bLogRender) {
+            s_portraitRenderLogCount++;
+            Iwd2DebugLog("PortraitRender skip clean id=%lu force=%d renderCount=%d panel=%lu",
+                m_nID,
+                bForce,
+                m_nRenderCount,
+                m_pPanel->m_nID);
+        }
         return FALSE;
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
+    if (bLogRender) {
+        s_portraitRenderLogCount++;
+        Iwd2DebugLog("PortraitRender id=%lu force=%d renderCount=%d pressed=%d highlighted=%d panel=%lu pt=%ld,%ld size=%ld,%ld dirty=%ld,%ld,%ld,%ld double=%d",
+            m_nID,
+            bForce,
+            m_nRenderCount,
+            m_bPressed,
+            m_bHighlighted,
+            m_pPanel->m_nID,
+            pt.x,
+            pt.y,
+            m_size.cx,
+            m_size.cy,
+            m_rDirty.left,
+            m_rDirty.top,
+            m_rDirty.right,
+            m_rDirty.bottom,
+            m_pPanel->m_pManager->m_bDoubleSize);
+    }
+
     g_pBaldurChitin->GetObjectGame()->RenderPortrait(m_nID,
         pt,
         m_size,
@@ -5019,6 +5089,13 @@ CUIControlButton77DCC0::CUIControlButton77DCC0(CUIPanel* panel, UI_CONTROL_BUTTO
     field_668 = frameSize.cx & 0xFF;
     field_666 = 0;
 
+    Iwd2DebugLog("HpBar ctor id=%lu panel=%lu frameSize=%ld,%ld width=%d",
+        m_nID,
+        m_pPanel->m_nID,
+        frameSize.cx,
+        frameSize.cy,
+        field_668);
+
     InvalidateRect();
 }
 
@@ -5030,13 +5107,32 @@ CUIControlButton77DCC0::~CUIControlButton77DCC0()
 // 0x77DE10
 BOOL CUIControlButton77DCC0::Render(BOOL bForce)
 {
+    static int s_hpBarRenderLogCount = 0;
+    BOOL bLogRender = s_hpBarRenderLogCount < 300;
     DWORD dwFlags = field_64C ? 0x80000 : 0;
 
     if (!m_bActive && !m_bInactiveRender) {
+        if (bLogRender) {
+            s_hpBarRenderLogCount++;
+            Iwd2DebugLog("HpBarRender skip inactive id=%lu force=%d active=%d inactiveRender=%d panel=%lu",
+                m_nID,
+                bForce,
+                m_bActive,
+                m_bInactiveRender,
+                m_pPanel->m_nID);
+        }
         return FALSE;
     }
 
     if (m_nRenderCount == 0 && !bForce) {
+        if (bLogRender) {
+            s_hpBarRenderLogCount++;
+            Iwd2DebugLog("HpBarRender skip clean id=%lu force=%d renderCount=%d panel=%lu",
+                m_nID,
+                bForce,
+                m_nRenderCount,
+                m_pPanel->m_nID);
+        }
         return FALSE;
     }
 
@@ -5051,15 +5147,49 @@ BOOL CUIControlButton77DCC0::Render(BOOL bForce)
     CRect rClip(pt, m_size);
     rClip.right = pt.x + field_666;
 
+    if (bLogRender) {
+        s_hpBarRenderLogCount++;
+        Iwd2DebugLog("HpBarRender id=%lu force=%d renderCount=%d field_666=%d field_668=%d panel=%lu pt=%ld,%ld size=%ld,%ld clip=%ld,%ld,%ld,%ld flags=0x%lx",
+            m_nID,
+            bForce,
+            m_nRenderCount,
+            field_666,
+            field_668,
+            m_pPanel->m_nID,
+            pt.x,
+            pt.y,
+            m_size.cx,
+            m_size.cy,
+            rClip.left,
+            rClip.top,
+            rClip.right,
+            rClip.bottom,
+            dwFlags);
+    }
+
     return m_cVidCell.Render(0, pt.x, pt.y, rClip, NULL, 0, dwFlags, -1);
 }
 
 // 0x77DF40
 void CUIControlButton77DCC0::TimerAsynchronousUpdate(BOOLEAN bInside)
 {
+    static int s_hpBarAsyncLogCount = 0;
+    BOOL bLogAsync = s_hpBarAsyncLogCount < 300;
+
     CUIControlBase::TimerAsynchronousUpdate(bInside);
     if (((m_nID ^ g_pChitin->nAUCounter) & 0x2) == 0) {
         LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetCharacterId(static_cast<SHORT>(m_nID) - 50);
+        if (bLogAsync) {
+            s_hpBarAsyncLogCount++;
+            Iwd2DebugLog("HpBarAsync id=%lu inside=%d au=%lu characterId=%ld fieldBefore=%d width=%d",
+                m_nID,
+                bInside,
+                g_pChitin->nAUCounter,
+                nCharacterId,
+                field_666,
+                field_668);
+        }
+
         if (nCharacterId != CGameObjectArray::INVALID_INDEX) {
             CGameSprite* pSprite;
 
@@ -5072,6 +5202,9 @@ void CUIControlButton77DCC0::TimerAsynchronousUpdate(BOOLEAN bInside)
             } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
             if (rc == CGameObjectArray::SUCCESS) {
+                SHORT nMaxHitPointsForLog = max(pSprite->GetDerivedStats()->m_nMaxHitPoints, 1);
+                SHORT nCurrentHitPointsForLog = max(pSprite->GetBaseStats()->m_hitPoints, 0);
+                BOOLEAN bSuppressHpForLog = pSprite->GetDerivedStats()->m_spellStates[SPLSTATE_SUPPRESS_HP_INFO];
                 if (pSprite->GetDerivedStats()->m_spellStates[SPLSTATE_SUPPRESS_HP_INFO]) {
                     m_cVidCell.SequenceSet(4);
                     field_666 = field_668;
@@ -5103,10 +5236,31 @@ void CUIControlButton77DCC0::TimerAsynchronousUpdate(BOOLEAN bInside)
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
                 InvalidateRect();
+                if (bLogAsync) {
+                    Iwd2DebugLog("HpBarAsync updated id=%lu characterId=%ld hp=%d/%d suppress=%d fieldAfter=%d renderCount=%d",
+                        m_nID,
+                        nCharacterId,
+                        nCurrentHitPointsForLog,
+                        nMaxHitPointsForLog,
+                        bSuppressHpForLog,
+                        field_666,
+                        m_nRenderCount);
+                }
+            } else if (bLogAsync) {
+                Iwd2DebugLog("HpBarAsync GetShare failed id=%lu characterId=%ld rc=%u",
+                    m_nID,
+                    nCharacterId,
+                    rc);
             }
         } else {
             field_666 = 0;
             InvalidateRect();
+            if (bLogAsync) {
+                Iwd2DebugLog("HpBarAsync invalid character id=%lu fieldAfter=%d renderCount=%d",
+                    m_nID,
+                    field_666,
+                    m_nRenderCount);
+            }
         }
     }
 }

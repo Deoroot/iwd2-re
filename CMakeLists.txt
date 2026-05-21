@@ -193,6 +193,8 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/CInfButtonArray.h"
     "src/CInfCursor.cpp"
     "src/CInfCursor.h"
+    "src/DebugLog.cpp"
+    "src/DebugLog.h"
     "src/CInfGame.cpp"
     "src/CInfGame.h"
     "src/CInfinity.cpp"

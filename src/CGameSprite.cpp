@@ -24,6 +24,7 @@
 #include "CUtil.h"
 #include "CVariableHash.h"
 #include "CVidInf.h"
+#include "DebugLog.h"
 #include "Icewind586B70.h"
 #include "IcewindCGameEffects.h"
 #include "IcewindCVisualEffect.h"
@@ -4792,10 +4793,44 @@ void CGameSprite::RenderMarkers(CVidMode* pVidMode, INT nSurface)
 // 0x704D40
 void CGameSprite::RenderPortrait(const CPoint& cpRenderPosition, const CSize& szControl, BOOL bPressed, BOOL reorderHighlight, BOOL selectFromMarker, const CRect& rClip, BOOL bDoubleSize)
 {
+    static int s_renderPortraitLogCount = 0;
     BOOL bDead = FALSE;
+    BOOLEAN bInControl = InControl();
+    BOOL bSequenceMode = g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode;
+    BOOL bLogRenderPortrait = s_renderPortraitLogCount < 600;
 
-    if (g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode
-        && !InControl()) {
+    if (bLogRenderPortrait) {
+        s_renderPortraitLogCount++;
+        Iwd2DebugLog("SpriteRenderPortrait enter spriteId=%ld portrait=%d hp=%d/%d selected=%d inControl=%d seq=%d showHP=%d oldHP=%d pressed=%d highlight=%d marker=%d double=%d area=%p pos=%ld,%ld size=%ld,%ld clip=%ld,%ld,%ld,%ld",
+            m_id,
+            g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id),
+            m_baseStats.m_hitPoints,
+            m_derivedStats.m_nMaxHitPoints,
+            m_bSelected,
+            bInControl,
+            bSequenceMode,
+            SHOW_CHARACTER_HP,
+            g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nOldPortraitHealth,
+            bPressed,
+            reorderHighlight,
+            selectFromMarker,
+            bDoubleSize,
+            m_pArea,
+            cpRenderPosition.x,
+            cpRenderPosition.y,
+            szControl.cx,
+            szControl.cy,
+            rClip.left,
+            rClip.top,
+            rClip.right,
+            rClip.bottom);
+    }
+
+    if (bSequenceMode
+        && !bInControl) {
+        if (bLogRenderPortrait) {
+            Iwd2DebugLog("SpriteRenderPortrait skip sequence mode spriteId=%ld", m_id);
+        }
         return;
     }
 
@@ -5039,6 +5074,13 @@ void CGameSprite::RenderPortrait(const CPoint& cpRenderPosition, const CSize& sz
         if (SHOW_CHARACTER_HP) {
             font.SetResRef(CResRef("NUMFONT"), bDoubleSize, TRUE);
             font.SequenceSet(0);
+            if (bLogRenderPortrait) {
+                Iwd2DebugLog("SpriteRenderPortrait hpText demand spriteId=%ld hp=%d/%d suppress=%d",
+                    m_id,
+                    m_baseStats.m_hitPoints,
+                    m_derivedStats.m_nMaxHitPoints,
+                    m_derivedStats.m_spellStates[SPLSTATE_SUPPRESS_HP_INFO]);
+            }
             if (font.GetRes()->Demand() != NULL) {
                 // 0x85BD4C
                 static const INT HEALTH_VALUE[4] = {
@@ -5058,7 +5100,7 @@ void CGameSprite::RenderPortrait(const CPoint& cpRenderPosition, const CSize& sz
 
                 CString sHealth;
                 INT iHealthPercent = 100 * m_baseStats.m_hitPoints / m_derivedStats.m_nMaxHitPoints;
-                COLORREF rgbColor;
+                COLORREF rgbColor = RGB(255, 0, 0);
 
                 for (int index = 0; index < 4; index++) {
                     if (iHealthPercent >= HEALTH_VALUE[index]) {
@@ -5084,7 +5126,22 @@ void CGameSprite::RenderPortrait(const CPoint& cpRenderPosition, const CSize& sz
                     cpRenderPosition.y + font.GetFontHeight(FALSE),
                     rClip,
                     CVIDINF_SURFACE_BACK);
+                if (bLogRenderPortrait) {
+                    Iwd2DebugLog("SpriteRenderPortrait hpTextOut spriteId=%ld text=%s percent=%d color=0x%08lx textPos=%ld,%ld clip=%ld,%ld,%ld,%ld",
+                        m_id,
+                        static_cast<LPCSTR>(sHealth),
+                        iHealthPercent,
+                        rgbColor,
+                        r3.left,
+                        cpRenderPosition.y + font.GetFontHeight(FALSE),
+                        rClip.left,
+                        rClip.top,
+                        rClip.right,
+                        rClip.bottom);
+                }
                 font.GetRes()->Release();
+            } else if (bLogRenderPortrait) {
+                Iwd2DebugLog("SpriteRenderPortrait hpText demand failed spriteId=%ld", m_id);
             }
         }
     }
@@ -5206,9 +5263,23 @@ COLORREF CGameSprite::GetMapScreenColor()
 // 0x705FD0
 void CGameSprite::Select()
 {
+    Iwd2DebugLog("SpriteSelect begin spriteId=%ld selectedBefore=%d area=%p groupBefore=%u target=%ld groupPosition=%p",
+        m_id,
+        m_bSelected,
+        m_pArea,
+        m_pArea != NULL ? m_pArea->m_pGame->GetGroup()->GetCount() : 0,
+        m_targetId,
+        m_groupPosition);
+
     m_bSelected = TRUE;
     m_firstActionSound = TRUE;
     m_pArea->m_pGame->GetGroup()->Add(this);
+    Iwd2DebugLog("SpriteSelect added spriteId=%ld selectedAfter=%d groupAfter=%u groupPosition=%p",
+        m_id,
+        m_bSelected,
+        m_pArea->m_pGame->GetGroup()->GetCount(),
+        m_groupPosition);
+
     if (m_targetId != CGameObjectArray::INVALID_INDEX && Orderable(FALSE)) {
         CGameObject* pObject;
 
@@ -5237,6 +5308,14 @@ void CGameSprite::Unselect()
 {
     CGameSprite* pSprite = NULL;
 
+    Iwd2DebugLog("SpriteUnselect begin spriteId=%ld selectedBefore=%d area=%p groupBefore=%u target=%ld groupPosition=%p",
+        m_id,
+        m_bSelected,
+        m_pArea,
+        m_pArea != NULL ? m_pArea->m_pGame->GetGroup()->GetCount() : 0,
+        m_targetId,
+        m_groupPosition);
+
     m_bSelected = FALSE;
 
     BYTE rc;
@@ -5251,6 +5330,12 @@ void CGameSprite::Unselect()
         if (pSprite != NULL) {
             g_pBaldurChitin->GetObjectGame()->GetGroup()->Remove(pSprite);
         }
+
+        Iwd2DebugLog("SpriteUnselect removed spriteId=%ld selectedAfter=%d groupAfter=%u groupPosition=%p",
+            m_id,
+            m_bSelected,
+            g_pBaldurChitin->GetObjectGame()->GetGroup()->GetCount(),
+            m_groupPosition);
 
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_id,
             CGameObjectArray::THREAD_ASYNCH,
