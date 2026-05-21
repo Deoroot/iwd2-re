@@ -55,6 +55,14 @@ RULES = [
         "LPCSTR in CString-facing code is usually an IntelliSense/Unicode trap; prefer LPCTSTR unless Ghidra requires bytes.",
     ),
     PatternRule(
+        "RE008",
+        re.compile(
+            r"\b(?:fopen|freopen|FindFirstFileA|CreateFileA|GetPrivateProfile(?:Int|String)A|WritePrivateProfileStringA)"
+            r"\s*\([^;\n]*(?:\bCString\b|\bGetDir[A-Za-z0-9_]*\s*\(|\bs[A-Z]\w*\b|\bm_s[A-Za-z0-9_]*\b)"
+        ),
+        "narrow CRT/Win32 API receives a CString-like expression; prefer a TCHAR wrapper or an explicit byte conversion if the A API is intentional.",
+    ),
+    PatternRule(
         "RE004",
         re.compile(r"\bsub_[0-9A-Fa-f]{4,}\b"),
         "new sub_ placeholder in touched code; rename in Ghidra first when the function is understood.",
