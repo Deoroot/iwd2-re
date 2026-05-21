@@ -352,6 +352,9 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0x6D) {
         // 0x6D = IncrementGlobal (ACTION.IDS).
         actionReturn = IncrementGlobal();
+    } else if (m_curAction.m_actionID == 0x143) {
+        // 0x143 = WaitAnimation (ACTION.IDS).
+        actionReturn = WaitAnimation();
     } else if (m_curAction.m_actionID == CAIAction::TAKEPARTYGOLD) {
         actionReturn = TakePartyGold();
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
@@ -1485,6 +1488,34 @@ SHORT CGameAIBase::SetGlobal()
     }
 
     return ACTION_DONE;
+}
+
+// 0x4525CC - case body for WaitAnimation (0x143).
+// Returns ACTION_INTERRUPTABLE while the resolved target's current
+// animation sequence matches m_specificID, ACTION_DONE otherwise.
+// TODO: Binary uses FUN_0045BDD0 which adds an immunity check and a
+// PC-distance cutoff (param_1[0x248] & 0x40000U).  Skipped here -- both
+// are filters; the core semantics match.
+SHORT CGameAIBase::WaitAnimation()
+{
+    CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+    if (pObj == NULL) {
+        return ACTION_DONE;
+    }
+
+    SHORT result = ACTION_DONE;
+    if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+        if (pSprite->GetSequence() == m_curAction.m_specificID) {
+            result = ACTION_INTERRUPTABLE;
+        }
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+        pObj->m_id,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+    return result;
 }
 
 // 0x460300 - handles IncrementGlobal (0x6D).  Like SetGlobal but adds
