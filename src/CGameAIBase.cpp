@@ -857,6 +857,11 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xE6) {
+        // 0xE6 = RestParty (ACTION.IDS 230).  Binary case 0xe6 calls
+        // CInfGame::RestParty(1, 1).
+        g_pBaldurChitin->GetObjectGame()->RestParty(1, 1);
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0xAD) {
         // 0xAD = AddJournalEntry (ACTION.IDS 173).  Binary case 0xad
         // calls m_cJournal.AddEntry(m_specificID, 0).
