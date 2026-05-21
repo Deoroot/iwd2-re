@@ -385,17 +385,118 @@ void CGameAIBase::InsertResponse(CAIResponse& response, BOOL checkCurrentRespons
 // 0x45CA10
 void CGameAIBase::ProcessAI()
 {
-    // TODO: Incomplete.
+    // TODO: 0x57 action sentinel meaning not yet identified.
 
-    // If no current action, try to dequeue one from queue
-    if (m_curAction.m_actionID == CAIAction::NO_ACTION) {
-        if (!m_queuedActions.IsEmpty()) {
-            CAIAction action;
-            SetCurrAction(GetNextAction(action));
-            ResetCurrResponse();
-        }
+    if (m_inCutScene) {
+        return;
+    }
+    if (m_nLastActionReturn == 0) {
+        return;
     }
 
+    CAIResponse localResponse;
+
+    ApplyTriggers();
+
+    CAIResponse* found = NULL;
+    if (m_overrideScript != NULL) {
+        found = m_overrideScript->Find(m_pendingTriggers, this);
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    BOOL bPlayerControl = pGame->m_bPartyAI == FALSE
+        && pGame->GetCharacterPortraitNum(m_id) != -1;
+    SHORT curID = m_curAction.m_actionID;
+    BOOL bBypassChain = bPlayerControl
+        || curID == 0x1B
+        || curID == 0x57
+        || (curID == CAIAction::MOVETOPOINT && m_curAction.m_specificID3 == 1);
+
+    if (bBypassChain) {
+        if (found != NULL) {
+            if (!found->m_actionList.IsEmpty()) {
+                found->m_scriptNum = 0;
+                InsertResponse(*found, TRUE, TRUE);
+
+                POSITION pos = m_pendingTriggers.GetHeadPosition();
+                while (pos != NULL) {
+                    CAITrigger* pTrigger = m_pendingTriggers.GetNext(pos);
+                    if (pTrigger != NULL) {
+                        delete pTrigger;
+                    }
+                }
+                m_pendingTriggers.RemoveAll();
+            }
+            delete found;
+        }
+        return;
+    }
+
+    BOOL bTryNextScript = TRUE;
+    if (found != NULL) {
+        localResponse.Add(*found);
+        BOOL hasContinue = localResponse.InListEnd(CAIAction::CONTINUE);
+        bTryNextScript = found->m_actionList.IsEmpty() || hasContinue;
+    }
+    if (found != NULL) {
+        delete found;
+        found = NULL;
+    }
+
+    CAIScript* chain[6] = {
+        m_special1Script,
+        m_teamScript,
+        m_special2Script,
+        m_combatScript,
+        m_special3Script,
+        m_movementScript,
+    };
+
+    SHORT scriptLevel = 0;
+    for (int i = 0; i < 6 && bTryNextScript; ++i) {
+        scriptLevel = (SHORT)(i + 1);
+        if (chain[i] == NULL || chain[i]->IsEmpty()) {
+            continue;
+        }
+        found = chain[i]->Find(m_pendingTriggers, this);
+        if (found == NULL) {
+            continue;
+        }
+        localResponse.Add(*found);
+        BOOL hasContinue = localResponse.InListEnd(CAIAction::CONTINUE);
+        if (!found->m_actionList.IsEmpty() && !hasContinue) {
+            bTryNextScript = FALSE;
+        }
+        delete found;
+        found = NULL;
+    }
+
+    if (!localResponse.m_actionList.IsEmpty()) {
+        localResponse.m_scriptNum = scriptLevel;
+        InsertResponse(localResponse, TRUE, TRUE);
+
+        POSITION pos = m_pendingTriggers.GetHeadPosition();
+        while (pos != NULL) {
+            CAITrigger* pTrigger = m_pendingTriggers.GetNext(pos);
+            if (pTrigger != NULL) {
+                delete pTrigger;
+            }
+        }
+        m_pendingTriggers.RemoveAll();
+    }
+    if (found != NULL) {
+        delete found;
+    }
+
+    // NOTE: Binary's ProcessAI does NOT call DoAction.  DoAction is invoked
+    // from CGameSprite::AIUpdate (vtable +0x80) at several distinct call sites.
+    // Until those AIUpdate paths are restored, keep a DoAction call here so
+    // queued actions still execute end-to-end.
+    if (m_curAction.m_actionID == CAIAction::NO_ACTION && !m_queuedActions.IsEmpty()) {
+        CAIAction action;
+        SetCurrAction(GetNextAction(action));
+        ResetCurrResponse();
+    }
     if (m_curAction.m_actionID != CAIAction::NO_ACTION) {
         DoAction();
     }
