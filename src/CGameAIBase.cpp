@@ -679,6 +679,32 @@ SHORT CGameAIBase::ExecuteAction()
         // Binary cases share switchD_0044DC95_caseD_24 which is
         // sVar7 = -1 (ACTION_DONE) -- no side effects.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x7E) {
+        // 0x7E = Activate (ACTION.IDS 126).  Binary case 0x7e posts a
+        // CMessageSetActive(TRUE) on the resolved target.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            CMessage* msg = new CMessageSetActive(TRUE, m_id, pObj->m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x7D) {
+        // 0x7D = Deactivate (ACTION.IDS 125).  Binary case 0x7d posts
+        // CMessageSetActive(FALSE) -- but skips PCs (party-portrait check).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            SHORT nPortrait = g_pBaldurChitin->GetObjectGame()
+                                  ->GetCharacterPortraitNum(pObj->m_id);
+            if (nPortrait == -1) {
+                CMessage* msg = new CMessageSetActive(FALSE, m_id, pObj->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     }
 
     SetLastActionReturn(actionReturn);
