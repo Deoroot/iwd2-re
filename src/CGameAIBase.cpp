@@ -775,6 +775,18 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x11E) {
+        // 0x11E = AllowAreaResting (ACTION.IDS 286).  Binary case 0x11e
+        // toggles the no-rest bit (0x2) in m_pArea->m_header.m_flags --
+        // m_specificID == 0 sets it (disallow), nonzero clears it (allow).
+        if (m_pArea != NULL) {
+            if (m_curAction.m_specificID == 0) {
+                m_pArea->m_header.m_flags |= 2;
+            } else {
+                m_pArea->m_header.m_flags &= ~2u;
+            }
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x79
         || m_curAction.m_actionID == 0x7A) {
         // 0x79 = StartCutSceneMode (ACTION.IDS 121),
