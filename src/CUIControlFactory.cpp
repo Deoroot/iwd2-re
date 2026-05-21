@@ -4786,9 +4786,9 @@ CUIControlEditLua::CUIControlEditLua(CUIPanel* panel, UI_CONTROL_EDIT* controlIn
 
     for (BYTE nIndex = 0; nIndex < m_nHistorySize; nIndex++) {
         sKey.SetAt(sKey.GetLength() - 1, nIndex + '0');
-        GetPrivateProfileString(_T("Lua Edit"),
+        GetPrivateProfileStringA("Lua Edit",
             sKey,
-            _T(""),
+            "",
             field_874[nIndex].GetBuffer(128),
             128,
             g_pBaldurChitin->GetIniFileName());
