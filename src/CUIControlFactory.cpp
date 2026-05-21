@@ -4143,55 +4143,19 @@ void CUIControlPortraitWorld::OnRButtonClick(CPoint pt)
 // 0x77B360
 BOOL CUIControlPortraitWorld::Render(BOOL bForce)
 {
-    static int s_portraitRenderLogCount = 0;
-    BOOL bLogRender = s_portraitRenderLogCount < 400;
-
     if (!m_bActive && !m_bInactiveRender) {
-        if (bLogRender) {
-            s_portraitRenderLogCount++;
-            Iwd2DebugLog("PortraitRender skip inactive id=%lu force=%d active=%d inactiveRender=%d panel=%lu",
-                m_nID,
-                bForce,
-                m_bActive,
-                m_bInactiveRender,
-                m_pPanel->m_nID);
-        }
         return FALSE;
     }
 
     if (m_nRenderCount == 0 && !bForce) {
-        if (bLogRender) {
-            s_portraitRenderLogCount++;
-            Iwd2DebugLog("PortraitRender skip clean id=%lu force=%d renderCount=%d panel=%lu",
-                m_nID,
-                bForce,
-                m_nRenderCount,
-                m_pPanel->m_nID);
-        }
+        return FALSE;
+    }
+
+    if (!CUIControlButton::Render(bForce)) {
         return FALSE;
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
-    if (bLogRender) {
-        s_portraitRenderLogCount++;
-        Iwd2DebugLog("PortraitRender id=%lu force=%d renderCount=%d pressed=%d highlighted=%d panel=%lu pt=%ld,%ld size=%ld,%ld dirty=%ld,%ld,%ld,%ld double=%d",
-            m_nID,
-            bForce,
-            m_nRenderCount,
-            m_bPressed,
-            m_bHighlighted,
-            m_pPanel->m_nID,
-            pt.x,
-            pt.y,
-            m_size.cx,
-            m_size.cy,
-            m_rDirty.left,
-            m_rDirty.top,
-            m_rDirty.right,
-            m_rDirty.bottom,
-            m_pPanel->m_pManager->m_bDoubleSize);
-    }
-
     g_pBaldurChitin->GetObjectGame()->RenderPortrait(m_nID,
         pt,
         m_size,
