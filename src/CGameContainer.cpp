@@ -310,40 +310,40 @@ void CGameContainer::DebugDump(const CString& message, BOOLEAN bEchoToScreen)
 
     switch (m_containerType) {
     case 1:
-        sType = "BAG";
+        sType = _T("BAG");
         break;
     case 2:
-        sType = "CHEST";
+        sType = _T("CHEST");
         break;
     case 3:
-        sType = "DRAWER";
+        sType = _T("DRAWER");
         break;
     case 4:
-        sType = "PILE";
+        sType = _T("PILE");
         break;
     case 5:
-        sType = "TABLE";
+        sType = _T("TABLE");
         break;
     case 6:
-        sType = "SHELF";
+        sType = _T("SHELF");
         break;
     case 7:
-        sType = "ALTAR";
+        sType = _T("ALTAR");
         break;
     case 8:
-        sType = "NONVISIBLE";
+        sType = _T("NONVISIBLE");
         break;
     case 9:
-        sType = "SPELLBOOK";
+        sType = _T("SPELLBOOK");
         break;
     case 10:
-        sType = "BODY";
+        sType = _T("BODY");
         break;
     case 11:
-        sType = "BARREL";
+        sType = _T("BARREL");
         break;
     case 12:
-        sType = "CRATE";
+        sType = _T("CRATE");
         break;
     default:
         // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameContainer.cpp
@@ -352,96 +352,102 @@ void CGameContainer::DebugDump(const CString& message, BOOLEAN bEchoToScreen)
     }
 
     if (bEchoToScreen) {
-        pWorld->DisplayText(CString(""),
-            CString("DEBUG DUMP: CGameContainer"),
+        pWorld->DisplayText(CString(_T("")),
+            CString(_T("DEBUG DUMP: CGameContainer")),
             -1,
             FALSE);
 
-        pWorld->DisplayText(CString(""),
+        pWorld->DisplayText(CString(_T("")),
             message,
             -1,
             FALSE);
 
-        sTemp.Format("Current Area: %.*s", RESREF_SIZE, m_pArea->m_resRef.GetResRef());
-        pWorld->DisplayText(CString(""),
+        CString sArea;
+        m_pArea->m_resRef.CopyToString(sArea);
+        sTemp.Format(_T("Current Area: %s"), static_cast<LPCTSTR>(sArea));
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Current Position: x=%d y=%d", m_pos.x, m_pos.y);
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Current Position: x=%d y=%d"), m_pos.x, m_pos.y);
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Container Type: %s", (LPCSTR)sType);
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Container Type: %s"), static_cast<LPCTSTR>(sType));
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Locked: %s\n", (m_dwFlags & 0x1) != 0 ? "TRUE" : "FALSE");
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Locked: %s\n"), (m_dwFlags & 0x1) != 0 ? _T("TRUE") : _T("FALSE"));
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Lock Difficulty: %d%%\n", m_lockDifficulty);
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Lock Difficulty: %d%%\n"), m_lockDifficulty);
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Key Type: %.*s", RESREF_SIZE, m_keyType.GetResRef());
-        pWorld->DisplayText(CString(""),
+        CString sKeyType;
+        m_keyType.CopyToString(sKeyType);
+        sTemp.Format(_T("Key Type: %s"), static_cast<LPCTSTR>(sKeyType));
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Trapped: %s", m_trapActivated != 0 ? "TRUE" : "FALSE");
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Trapped: %s"), m_trapActivated != 0 ? _T("TRUE") : _T("FALSE"));
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Trap Detected: %s", m_trapDetected != 0 ? "TRUE" : "FALSE");
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Trap Detected: %s"), m_trapDetected != 0 ? _T("TRUE") : _T("FALSE"));
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Reset Trap: %s", (m_dwFlags & 0x8) != 0 ? "TRUE" : "FALSE");
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Reset Trap: %s"), (m_dwFlags & 0x8) != 0 ? _T("TRUE") : _T("FALSE"));
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Trap Detection Difficulty: %d%%", m_trapDetectionDifficulty);
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Trap Detection Difficulty: %d%%"), m_trapDetectionDifficulty);
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Trap Removal Difficulty: %d%%", m_trapRemovalDifficulty);
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Trap Removal Difficulty: %d%%"), m_trapRemovalDifficulty);
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Trap Script: %.*s", RESREF_SIZE, m_scriptRes);
-        pWorld->DisplayText(CString(""),
+        CString sScriptRes;
+        CResRef(m_scriptRes).CopyToString(sScriptRes);
+        sTemp.Format(_T("Trap Script: %s"), static_cast<LPCTSTR>(sScriptRes));
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        sTemp.Format("Trap Launching Point: x=%d y=%d", m_posTrapOrigin.x, m_posTrapOrigin.y);
-        pWorld->DisplayText(CString(""),
+        sTemp.Format(_T("Trap Launching Point: x=%d y=%d"), m_posTrapOrigin.x, m_posTrapOrigin.y);
+        pWorld->DisplayText(CString(_T("")),
             sTemp,
             -1,
             FALSE);
 
-        pWorld->DisplayText(CString(""),
-            CString("Contents:"),
+        pWorld->DisplayText(CString(_T("")),
+            CString(_T("Contents:")),
             -1,
             FALSE);
 
@@ -449,25 +455,26 @@ void CGameContainer::DebugDump(const CString& message, BOOLEAN bEchoToScreen)
         while (pos != NULL) {
             CItem* pItem = m_lstItems.GetNext(pos);
             if (pItem != NULL) {
+                CString sItemResRef;
+                pItem->GetResRef().CopyToString(sItemResRef);
+
                 if ((pItem->m_flags & 0x1) != 0) {
-                    sTemp.Format("    %.*s, %d, %d, %d, IDENTIFIED\n",
-                        RESREF_SIZE,
-                        pItem->GetResRef().GetResRef(),
+                    sTemp.Format(_T("    %s, %d, %d, %d, IDENTIFIED\n"),
+                        static_cast<LPCTSTR>(sItemResRef),
                         pItem->GetUsageCount(0),
                         pItem->GetUsageCount(1),
                         pItem->GetUsageCount(2));
-                    pWorld->DisplayText(CString(""),
+                    pWorld->DisplayText(CString(_T("")),
                         sTemp,
                         -1,
                         FALSE);
                 } else {
-                    sTemp.Format("    %.*s, %d, %d, %d\n",
-                        RESREF_SIZE,
-                        pItem->GetResRef().GetResRef(),
+                    sTemp.Format(_T("    %s, %d, %d, %d\n"),
+                        static_cast<LPCTSTR>(sItemResRef),
                         pItem->GetUsageCount(0),
                         pItem->GetUsageCount(1),
                         pItem->GetUsageCount(2));
-                    pWorld->DisplayText(CString(""),
+                    pWorld->DisplayText(CString(_T("")),
                         sTemp,
                         -1,
                         FALSE);
