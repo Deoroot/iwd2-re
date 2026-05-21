@@ -84,7 +84,7 @@ FUNCTION_DEF_RE = re.compile(
     r"^\s*(?!//)(?!.*;)(?:[\w:<>,~*&\s]+\s+)?[A-Za-z_]\w*::[~A-Za-z_]\w*\s*\([^;]*\)\s*(?:const)?\s*$"
 )
 FUNCTION_MARKER_RE = re.compile(
-    r"^\s*//\s*(?:0x[0-9A-Fa-f]+(?:\s+\(virtual\))?|NOTE:\s*(?:Inlined|Probably inlined|Uninline|Convenience)\b.*)\s*$"
+    r"^\s*//\s*(?:0x[0-9A-Fa-f]+(?:\b.*)?|NOTE:\s*(?:Inlined|Probably inlined|Uninline|Uninlined|Convenience)\b.*)\s*$"
 )
 
 
@@ -215,6 +215,18 @@ def next_nonblank_line(lines: list[str], line_no: int) -> str:
     return ""
 
 
+def previous_comment_block_has_marker(lines: list[str], line_no: int) -> bool:
+    index = line_no - 2
+    while index >= 0:
+        candidate = lines[index].strip()
+        if not candidate or not candidate.startswith("//"):
+            return False
+        if FUNCTION_MARKER_RE.match(lines[index]):
+            return True
+        index -= 1
+    return False
+
+
 def scan_file(path: Path, line_numbers: set[int], rules: list[PatternRule]) -> list[Issue]:
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -237,8 +249,7 @@ def scan_file(path: Path, line_numbers: set[int], rules: list[PatternRule]) -> l
             if next_line != "{" and not next_line.startswith(":"):
                 continue
 
-            previous = previous_nonblank_line(lines, line_no)
-            if not FUNCTION_MARKER_RE.match(previous):
+            if not previous_comment_block_has_marker(lines, line_no):
                 issues.append(
                     Issue(
                         path,

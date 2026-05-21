@@ -1091,6 +1091,7 @@ WORD CItem::GetLoreValue()
     return nLoreValue;
 }
 
+// NOTE: Convenience.
 INT CItem::GetEquippedACBonus()
 {
     // FIXME: Temporary fallback until equipped effects/AddEffect are fully

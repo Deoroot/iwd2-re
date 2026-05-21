@@ -35,6 +35,7 @@ CPathNode* CPathSearch::m_nodeList;
 // 0x8DE06C
 LONG CPathSearch::m_nNodeList;
 
+// NOTE: Inlined.
 CPathNode::CPathNode()
 {
     m_pathNodePrev = NULL;

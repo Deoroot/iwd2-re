@@ -8069,6 +8069,7 @@ static void AppendSpellsToList(CGameSpriteSpellList& spellList, CGameButtonList&
 
 // Minimum-viable port of FUN_007155c0 — builds a list for a single level
 // of class nClass.
+// NOTE: Convenience.
 CGameButtonList* CGameSprite::GetSpellsAtLevelButtonList(BYTE nClass, UINT nLevel)
 {
     CGameButtonList* buttons = new CGameButtonList();
@@ -8086,6 +8087,7 @@ CGameButtonList* CGameSprite::GetSpellsAtLevelButtonList(BYTE nClass, UINT nLeve
 // Minimum-viable port of FUN_00714f70 — builds a list across ALL memorised
 // levels of class nClass.  Used when SetState(0x67) is entered with
 // m_nCurrentSelectedSpellLevel == 0 (regular class spellbook).
+// NOTE: Convenience.
 CGameButtonList* CGameSprite::GetSpellsButtonList(BYTE nClass)
 {
     CGameButtonList* buttons = new CGameButtonList();
@@ -8102,6 +8104,7 @@ CGameButtonList* CGameSprite::GetSpellsButtonList(BYTE nClass)
 // Minimum-viable port of FUN_007155c0 domain branch — iterates m_domainSpells
 // (cleric domain pool) across every memorised level.  Used when entering
 // SetState(0x67) via picker class button 0x39 (Domain).
+// NOTE: Convenience.
 CGameButtonList* CGameSprite::GetDomainSpellsButtonList()
 {
     CGameButtonList* buttons = new CGameButtonList();
@@ -8118,6 +8121,7 @@ CGameButtonList* CGameSprite::GetDomainSpellsButtonList()
 // click handler to decide whether to show the class picker (state 0x76)
 // or jump straight to the spellbook (state 0x67) when only one class has
 // spells.  Matches Ghidra FUN_00594280 case 3.
+// NOTE: Convenience.
 INT CGameSprite::CountClassesWithSpells()
 {
     INT count = 0;

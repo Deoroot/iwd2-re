@@ -71,6 +71,7 @@ CInfButtonArray::CInfButtonArray()
     m_nPickerPage = 0;
 }
 
+// NOTE: Convenience.
 void CInfButtonArray::ClearPickerList()
 {
     if (m_pPickerList != NULL) {
@@ -87,6 +88,7 @@ void CInfButtonArray::ClearPickerList()
 // entering 0x66/0x67/0x68/0x69/0x6A/0x6B/0x70/0x71/0x7A.  Mirrors the
 // per-type dispatch in Ghidra FUN_00587c20.  Currently implements type 2
 // (spellbook) only; the other branches still return an empty list.
+// NOTE: Convenience.
 void CInfButtonArray::RebuildPickerList()
 {
     ClearPickerList();

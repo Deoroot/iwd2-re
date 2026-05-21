@@ -4107,6 +4107,7 @@ static HRESULT WINAPI FakeDirectPlayLobbyCreateA(LPGUID, LPDIRECTPLAYLOBBYA*, IU
     return DPERR_GENERIC;
 }
 
+// NOTE: Convenience.
 void CNetwork::InitDirectPlay()
 {
     hDirectPlayDLL = LoadLibraryA("dplayx");
@@ -4124,6 +4125,7 @@ void CNetwork::InitDirectPlay()
     }
 }
 
+// NOTE: Convenience.
 void CNetwork::FreeDirectPlay()
 {
     if (hDirectPlayDLL != NULL) {

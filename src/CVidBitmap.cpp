@@ -364,7 +364,7 @@ BOOL CVidBitmap::BltBmp24To16(WORD* pSurface, LONG lPitch, BYTE* pData, const CS
     return FALSE;
 }
 
-// 0x0x7B3B70
+// 0x7B3B70
 BOOL CVidBitmap::BltBmp24To16Tint(WORD* pSurface, LONG lPitch, BYTE* pData, const CSize& bmpSize, LONG nDataJump, DWORD dwFlags)
 {
     // TODO: Incomplete.

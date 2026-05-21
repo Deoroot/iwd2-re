@@ -6292,7 +6292,7 @@ CUIControlButtonCharGenPopupDone::~CUIControlButtonCharGenPopupDone()
 {
 }
 
-// 615B50
+// 0x615B50 (virtual)
 void CUIControlButtonCharGenPopupDone::OnLButtonClick(CPoint)
 {
     CScreenCreateChar* pCreateChar = g_pBaldurChitin->m_pEngineCreateChar;
