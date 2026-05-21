@@ -397,7 +397,7 @@ SHORT CGameAIBase::ExecuteAction()
         // 0x84 = VerbalConstant (ACTION.IDS).  Resolves m_acteeID and
         // broadcasts CMessageVerbalConstant so the target plays the named
         // voice line (m_specificID).
-        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        CGameObject* pObj = ResolveActionTarget();
         if (pObj != NULL) {
             CMessage* msg = new CMessageVerbalConstant(
                 m_curAction.m_specificID,
@@ -411,7 +411,7 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0x119) {
         // 0x119 = MarkObject (ACTION.IDS).  Stores the resolved target's
         // AI type in field_342 via SetAIType342; NOONE when unresolved.
-        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        CGameObject* pObj = ResolveActionTarget();
         if (pObj == NULL) {
             SetAIType342(CAIObjectType::NOONE);
         } else {
@@ -423,7 +423,7 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0x131) {
         // 0x131 = SetMyTarget (ACTION.IDS).  Stores the resolved target's
         // AI type in field_37E via SetAIType37E; NOONE when unresolved.
-        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        CGameObject* pObj = ResolveActionTarget();
         if (pObj == NULL) {
             SetAIType37E(CAIObjectType::NOONE);
         } else {
@@ -463,7 +463,7 @@ SHORT CGameAIBase::ExecuteAction()
         // 0xEB = PlaySequence (ACTION.IDS).  Resolves m_acteeID, then
         // broadcasts a CMessageSetSequence so the target plays the
         // requested animation sequence (m_specificID).
-        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        CGameObject* pObj = ResolveActionTarget();
         if (pObj != NULL) {
             CMessage* msg = new CMessageSetSequence(
                 static_cast<BYTE>(m_curAction.m_specificID),
@@ -480,7 +480,7 @@ SHORT CGameAIBase::ExecuteAction()
         // 0x85 = ClearActions (ACTION.IDS).  Resolves m_acteeID and forwards
         // to ClearActions(target), which queues a CMessageClearActions.
         // TODO: Binary also enqueues a NULL_ACTION terminator after clear.
-        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        CGameObject* pObj = ResolveActionTarget();
         actionReturn = ClearActions(pObj);
         if (pObj != NULL) {
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
@@ -1623,6 +1623,36 @@ SHORT CGameAIBase::SetGlobal()
     return ACTION_DONE;
 }
 
+// 0x45BDD0 - resolves m_acteeID, then filters sprites whose immunity list
+// names the caller's CAIObjectType (e.g. spell-immune creature scripted
+// against by a matching caster type).  Returns the target with an ACTIVE
+// GetObjectArray share -- caller must ReleaseShare on the returned id.
+// Skips two filters from the binary helper: (1) the per-case type byte
+// argument that gates "sprite vs. any" (caller-level checks cover this);
+// (2) the PC-distance cutoff that only fires when this is a non-PC
+// sprite with bit 0x40000 set in field_248.  Both are coverage TODOs.
+CGameObject* CGameAIBase::ResolveActionTarget()
+{
+    CGameObject* pObj = ResolveActionTarget();
+    if (pObj == NULL) {
+        return NULL;
+    }
+
+    if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+        CDerivedStats* pDeriv = pSprite->GetDerivedStats();
+        if (pDeriv != NULL && pDeriv->m_cImmunitiesAIType.OnList(m_typeAI)) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            return NULL;
+        }
+    }
+
+    return pObj;
+}
+
 // 0x4507E0 - case body for FloatMessage (0xF1).
 // Resolves m_acteeID, queues a CMessageFloatText so the strref (m_specificID)
 // is displayed above the target sprite.  Binary takes an SP fast path
@@ -1630,7 +1660,7 @@ SHORT CGameAIBase::SetGlobal()
 // reaches the same display routine on both SP and MP.
 SHORT CGameAIBase::FloatMessage()
 {
-    CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+    CGameObject* pObj = ResolveActionTarget();
     if (pObj == NULL) {
         return ACTION_DONE;
     }
@@ -1655,7 +1685,7 @@ SHORT CGameAIBase::FloatMessage()
 // broadcast (CMessage90) -- SP semantics are preserved.
 SHORT CGameAIBase::HideCreature()
 {
-    CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+    CGameObject* pObj = ResolveActionTarget();
     if (pObj == NULL) {
         return ACTION_DONE;
     }
@@ -1680,7 +1710,7 @@ SHORT CGameAIBase::HideCreature()
 // are filters; the core semantics match.
 SHORT CGameAIBase::WaitAnimation()
 {
-    CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+    CGameObject* pObj = ResolveActionTarget();
     if (pObj == NULL) {
         return ACTION_DONE;
     }

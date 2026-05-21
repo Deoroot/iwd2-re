@@ -92,6 +92,7 @@ public:
     SHORT WaitAnimation();
     SHORT HideCreature();
     SHORT FloatMessage();
+    CGameObject* ResolveActionTarget();
     void PutItemGround(CItem* pItem);
     SHORT ClearActions(CGameObject* target);
     SHORT TakePartyGold();
