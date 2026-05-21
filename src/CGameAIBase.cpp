@@ -631,6 +631,54 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
         || m_curAction.m_actionID == CAIAction::GIVEGOLDFORCE) {
         actionReturn = GivePartyGold();
+    } else if (m_curAction.m_actionID == 0x32) {
+        // 0x32 = MoveViewObject (ACTION.IDS 50).  Binary case 0x32.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            actionReturn = MoveViewObject(pObj);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0x34) {
+        // 0x34 = ClickLButtonObject (ACTION.IDS 52).  Binary case 0x34.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            actionReturn = ClickLButtonObject(pObj);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0x36) {
+        // 0x36 = ClickRButtonObject (ACTION.IDS 54).  Binary case 0x36.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            actionReturn = ClickRButtonObject(pObj);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0x38) {
+        // 0x38 = DoubleClickLButtonObject (ACTION.IDS 56).  Binary case 0x38.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            actionReturn = DoubleClickLButtonObject(pObj);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0x3A) {
+        // 0x3A = DoubleClickRButtonObject (ACTION.IDS 58).  Binary case 0x3a.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            actionReturn = DoubleClickRButtonObject(pObj);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0x24
+        || m_curAction.m_actionID == 0xB2
+        || m_curAction.m_actionID == 0xEA
+        || m_curAction.m_actionID == 0xF6) {
+        // 0x24=Continue, 0xB2=BreakInstants, 0xEA=Debug, 0xF6=Log.
+        // Binary cases share switchD_0044DC95_caseD_24 which is
+        // sVar7 = -1 (ACTION_DONE) -- no side effects.
+        actionReturn = ACTION_DONE;
     }
 
     SetLastActionReturn(actionReturn);
