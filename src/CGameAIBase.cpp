@@ -775,6 +775,32 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x12F) {
+        // 0x12F = SetRestEncounterChance (ACTION.IDS 303).  Binary case
+        // 0x12f caps both probabilities at 100, writes them into the
+        // area's rest-encounter header, and posts CMessageSetAreaRestEncounter
+        // when the caster is in control.
+        if (m_pArea != NULL) {
+            CAreaFileRestEncounter* pRest = m_pArea->GetHeaderRestEncounter();
+            if (pRest != NULL) {
+                LONG dayProb = m_curAction.GetSpecifics();
+                if (dayProb > 100) dayProb = 100;
+                LONG nightProb = m_curAction.GetSpecifics2();
+                if (nightProb > 100) nightProb = 100;
+                pRest->m_probDay = static_cast<WORD>(dayProb);
+                pRest->m_probNight = static_cast<WORD>(nightProb);
+                if (InControl()) {
+                    CMessage* msg = new CMessageSetAreaRestEncounter(
+                        pRest->m_probDay,
+                        pRest->m_probNight,
+                        m_id,
+                        m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                        msg, FALSE);
+                }
+            }
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x12D) {
         // 0x12D = SetExtendedNight (ACTION.IDS 301).  Binary case 0x12d
         // toggles bit 0x40 of m_pArea->m_header.m_areaType based on
