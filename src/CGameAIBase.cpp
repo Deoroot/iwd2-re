@@ -723,6 +723,19 @@ SHORT CGameAIBase::ExecuteAction()
                 * CInfGame::REPUTATION_MULTIPLIER),
             FALSE);
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x104) {
+        // 0x104 = JumpToPointInstant (ACTION.IDS 260).  Binary case 0x104
+        // resolves the target sprite and calls JumpToPoint(dest).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                static_cast<CGameSprite*>(pObj)->JumpToPoint(
+                    m_curAction.m_dest, TRUE);
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     }
 
     SetLastActionReturn(actionReturn);
