@@ -302,6 +302,14 @@ SHORT CGameAIBase::ExecuteAction()
     // TODO: Incomplete; target-object and message-heavy actions still need recovery.
     SHORT actionReturn = ACTION_DONE;
 
+    // ActionOverride (id 1) is a queue marker.  The script compiler emits it
+    // followed by the inner action with m_actorID pre-baked to the override
+    // target, so dequeue it here and let the switch dispatch the real action
+    // in the same tick.
+    if (m_curAction.m_actionID == 1) {
+        SetCurrAction(GetNextAction(m_aiAction));
+    }
+
     if (m_curAction.m_actionID == CAIAction::NO_ACTION) {
         actionReturn = ACTION_NO_ACTION;
     } else if (m_curAction.m_actionID == CAIAction::MOVETOPOINT) {
