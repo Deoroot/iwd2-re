@@ -454,6 +454,16 @@ target_link_libraries(${EXECUTABLE_NAME}
 
 target_include_directories(${EXECUTABLE_NAME} SYSTEM PRIVATE "third_party/directplay/include")
 
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_custom_target(re-lint
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/re_lint.py
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Running changed-line RE lint"
+        VERBATIM
+    )
+endif()
+
 add_subdirectory("third_party/zlib")
 target_link_libraries(${EXECUTABLE_NAME} ${ZLIB_LIBRARIES})
 target_include_directories(${EXECUTABLE_NAME} PRIVATE ${ZLIB_INCLUDE_DIRS})

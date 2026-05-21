@@ -92,9 +92,16 @@ powershell -File data/restore.ps1
 
 # Build (Win32/Debug or Release)
 cmake --build build --config Debug
+
+# Optional changed-line RE lint
+cmake --build build --target re-lint --config Debug
 ```
 
 > Only **32-bpp windowed mode** is currently implemented.
+
+`re-lint` is deliberately narrow: it checks only touched `src/` lines by
+default and reports patterns that tend to cause IntelliSense/build drift or
+Ghidra sync mistakes. It does not reformat, modernize, or auto-fix code.
 
 ---
 
