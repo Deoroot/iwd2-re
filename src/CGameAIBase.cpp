@@ -429,6 +429,36 @@ SHORT CGameAIBase::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
+    } else if (m_curAction.m_actionID == 0x10) {
+        // 0x10 = GiveOrder (ACTION.IDS).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && (pObj->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
+            actionReturn = GiveOrder(static_cast<CGameAIBase*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0x3E) {
+        // 0x3E = SendTrigger (ACTION.IDS).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && (pObj->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
+            actionReturn = SendTrigger(static_cast<CGameAIBase*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0x97) {
+        // 0x97 = DisplayString (ACTION.IDS).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && (pObj->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
+            actionReturn = DisplayString(static_cast<CGameAIBase*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
     } else if (m_curAction.m_actionID == 0xC9) {
         // 0xC9 = DetectSecretDoor (ACTION.IDS).  Target is CGameDoor.
         CGameObject* pObj = ResolveActionTarget();
