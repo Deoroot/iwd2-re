@@ -775,6 +775,17 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x111
+        || m_curAction.m_actionID == 0x112) {
+        // 0x111 = HideGUI (ACTION.IDS 273), 0x112 = UnhideGUI (274).
+        // In SP the binary calls CScreenWorld::HideInterface / UnhideInterface
+        // directly; in MP it posts CMessageToggleInterface.  We take the MP
+        // path always -- the message handler routes to the same screen calls
+        // and avoids the SP-only auto-hide bookkeeping branch.
+        BOOLEAN bHide = m_curAction.m_actionID == 0x111 ? TRUE : FALSE;
+        CMessage* msg = new CMessageToggleInterface(bHide, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x11E) {
         // 0x11E = AllowAreaResting (ACTION.IDS 286).  Binary case 0x11e
         // toggles the no-rest bit (0x2) in m_pArea->m_header.m_flags --
