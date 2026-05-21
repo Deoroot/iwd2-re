@@ -358,6 +358,9 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0xE9) {
         // 0xE9 = HideCreature (ACTION.IDS).
         actionReturn = HideCreature();
+    } else if (m_curAction.m_actionID == 0xF1) {
+        // 0xF1 = FloatMessage (ACTION.IDS).
+        actionReturn = FloatMessage();
     } else if (m_curAction.m_actionID == CAIAction::TAKEPARTYGOLD) {
         actionReturn = TakePartyGold();
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
@@ -1490,6 +1493,32 @@ SHORT CGameAIBase::SetGlobal()
         }
     }
 
+    return ACTION_DONE;
+}
+
+// 0x4507E0 - case body for FloatMessage (0xF1).
+// Resolves m_acteeID, queues a CMessageFloatText so the strref (m_specificID)
+// is displayed above the target sprite.  Binary takes an SP fast path
+// calling FUN_004C80E0 directly; routing through CMessageFloatText::Run
+// reaches the same display routine on both SP and MP.
+SHORT CGameAIBase::FloatMessage()
+{
+    CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+    if (pObj == NULL) {
+        return ACTION_DONE;
+    }
+
+    LONG targetId = pObj->m_id;
+    CMessage* msg = new CMessageFloatText(m_id,
+        targetId,
+        m_curAction.m_specificID,
+        FALSE);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+        targetId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
     return ACTION_DONE;
 }
 
