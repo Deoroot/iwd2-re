@@ -857,6 +857,46 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x11F) {
+        // 0x11F = SetHPPercent (ACTION.IDS 287).  Binary case 0x11f
+        // clamps m_specificID to [0,100], divides by 100 to get a
+        // fraction, then:
+        //   specifics2 == 0: heal-only set to max(curHP, maxHP * frac);
+        //                    skips write entirely when maxHP*frac <= curHP.
+        //   specifics2 != 0: scale curHP by frac.
+        // Dead targets (derivedStats.generalState bit 0x800 OR
+        // baseStats.m_generalState bit 0x800) are skipped.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+                CDerivedStats* pDeriv = pSprite->GetDerivedStats();
+                if ((pDeriv->m_generalState & 0x800) == 0
+                    && (pSprite->m_baseStats.m_generalState & 0x800) == 0) {
+                    float pct = static_cast<float>(m_curAction.m_specificID);
+                    if (pct > 100.0f) pct = 100.0f;
+                    else if (pct < 0.0f) pct = 0.0f;
+                    float frac = pct / 100.0f;
+                    SHORT curHP = pSprite->m_baseStats.m_hitPoints;
+                    SHORT maxHP = pDeriv->m_nMaxHitPoints;
+                    if (m_curAction.GetSpecifics2() == 0) {
+                        if (static_cast<float>(maxHP) * frac
+                            > static_cast<float>(curHP)) {
+                            pSprite->m_baseStats.m_hitPoints =
+                                static_cast<SHORT>(
+                                    static_cast<float>(maxHP) * frac);
+                        }
+                    } else {
+                        pSprite->m_baseStats.m_hitPoints =
+                            static_cast<SHORT>(
+                                static_cast<float>(curHP) * frac);
+                    }
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x130) {
         // 0x130 = AddHP (binary case 0x130).  Resolves the target and,
         // unless flagged dead (state bit 0x800), adds m_specificID to
