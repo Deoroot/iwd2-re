@@ -857,6 +857,30 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x130) {
+        // 0x130 = AddHP (binary case 0x130).  Resolves the target and,
+        // unless flagged dead (state bit 0x800), adds m_specificID to
+        // target.m_baseStats.m_hitPoints capped at m_nMaxHitPoints.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+                if ((pSprite->m_baseStats.m_generalState & 0x800) == 0) {
+                    LONG delta = m_curAction.m_specificID;
+                    SHORT curHP = pSprite->m_baseStats.m_hitPoints;
+                    SHORT maxHP = pSprite->GetDerivedStats()->m_nMaxHitPoints;
+                    if (curHP + delta < maxHP) {
+                        pSprite->m_baseStats.m_hitPoints =
+                            curHP + static_cast<SHORT>(delta);
+                    } else {
+                        pSprite->m_baseStats.m_hitPoints = maxHP;
+                    }
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x138) {
         // 0x138 = SetApparentName (binary case 0x138).  Writes the new
         // STRREF (m_specificID) into target.m_baseStats.m_apparentName
