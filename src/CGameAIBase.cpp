@@ -429,6 +429,16 @@ SHORT CGameAIBase::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
+    } else if (m_curAction.m_actionID == 0x71 || m_curAction.m_actionID == 0xB5) {
+        // 0x71 = ForceSpell, 0xB5 = ReallyForceSpell.  Shell handler --
+        // binary FUN_00461190 recovery is multi-session, see ForceSpellAction
+        // for the gap list.
+        CGameObject* pObj = ResolveActionTarget();
+        actionReturn = ForceSpellAction(pObj);
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
     } else if (m_curAction.m_actionID == 0x10) {
         // 0x10 = GiveOrder (ACTION.IDS).
         CGameObject* pObj = ResolveActionTarget();
@@ -1783,6 +1793,44 @@ void CGameAIBase::SpellIdToResRef(int spellId, CString& outResRef)
     CString suffix;
     suffix.Format("%03d", spellId % 1000);
     outResRef += suffix;
+}
+
+// 0x461190 - ForceSpell (0x71) and ReallyForceSpell (0xB5) action handler.
+// FULL RECOVERY IN PROGRESS -- multi-session arc.  Current state is a
+// thin shell that resolves the spell resref via SpellIdToResRef and
+// delegates to FireSpell.  The binary handler is 414 decompiled lines
+// covering ability-by-level selection, cast-frame accumulation,
+// interruption checks (silence / damage / cast-immune), projectile
+// spawn via CMessageFireProjectile, and an 8-way effect-dispatch
+// matrix (single-target / projectile / party / area / point / formation).
+//
+// Helpers still to recover before a binary-faithful body is possible:
+//   FUN_0051EAF0  - projectile/visual-effect factory
+//   FUN_00727720  - cast-target point + flags extraction
+//   FUN_00755A70  - cast animation start
+//   FUN_007564E0  - cast animation cancel
+//   FUN_0054A510  - effect-instance allocator from spell ability template
+//   FUN_0046E130  - area/point effect dispatch
+//   FUN_004699F0  - resource-handle lazy-load wrapper
+// Field offsets on caster still unresolved: +0x25, +0x33, +0x11D,
+// +0x283 flags, +0x14D2.
+SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
+{
+    if (target == NULL) {
+        return ACTION_INTERRUPTABLE;
+    }
+
+    CString sResRef = m_curAction.GetString1();
+    if (sResRef.IsEmpty()) {
+        SpellIdToResRef(m_curAction.m_specificID, sResRef);
+        if (sResRef.IsEmpty()) {
+            return ACTION_INTERRUPTABLE;
+        }
+    }
+
+    CResRef resRef(sResRef);
+    FireSpell(resRef, target);
+    return ACTION_DONE;
 }
 
 // 0x45BDD0 - resolves m_acteeID, then filters sprites whose immunity list
