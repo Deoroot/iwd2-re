@@ -775,6 +775,39 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x103) {
+        // 0x103 = SetVisualRange (ACTION.IDS 259).  Binary case 0x103
+        // posts CMessage92(self, self, m_specificID) -- the message
+        // class number is unresolved but the binary call site uses the
+        // m_id/m_id/m_specificID triple.
+        CMessage* msg = new CMessage92(
+            m_id, m_id, m_curAction.m_specificID);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xFE) {
+        // 0xFE = SetHP (ACTION.IDS 254).  Binary case 0xfe writes
+        // min(m_specificID, target.maxHP) into target.m_hitPoints if the
+        // target isn't already marked dead (state bit 0x800).  We need to
+        // operate on the target sprite's m_baseStats.m_hitPoints
+        // (offset 0x1c into CCreatureFileHeader == sprite + 0x5C0).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+                if ((pSprite->m_baseStats.m_generalState & 0x800) == 0) {
+                    LONG hp = m_curAction.m_specificID;
+                    SHORT maxHP = pSprite->GetDerivedStats()->m_nMaxHitPoints;
+                    if (hp > maxHP) {
+                        pSprite->m_baseStats.m_hitPoints = maxHP;
+                    } else {
+                        pSprite->m_baseStats.m_hitPoints = static_cast<SHORT>(hp);
+                    }
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x12F) {
         // 0x12F = SetRestEncounterChance (ACTION.IDS 303).  Binary case
         // 0x12f caps both probabilities at 100, writes them into the
