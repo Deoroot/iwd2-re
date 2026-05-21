@@ -84,7 +84,7 @@ FUNCTION_DEF_RE = re.compile(
     r"^\s*(?!//)(?!.*;)(?:[\w:<>,~*&\s]+\s+)?[A-Za-z_]\w*::[~A-Za-z_]\w*\s*\([^;]*\)\s*(?:const)?\s*$"
 )
 FUNCTION_MARKER_RE = re.compile(
-    r"^\s*//\s*(?:0x[0-9A-Fa-f]+(?:\s+\(virtual\))?|NOTE:\s*(?:Inlined|Uninline)\.)\s*$"
+    r"^\s*//\s*(?:0x[0-9A-Fa-f]+(?:\s+\(virtual\))?|NOTE:\s*(?:Inlined|Probably inlined|Uninline|Convenience)\b.*)\s*$"
 )
 
 
@@ -205,6 +205,16 @@ def previous_nonblank_line(lines: list[str], line_no: int) -> str:
     return ""
 
 
+def next_nonblank_line(lines: list[str], line_no: int) -> str:
+    index = line_no
+    while index < len(lines):
+        candidate = lines[index].strip()
+        if candidate:
+            return lines[index]
+        index += 1
+    return ""
+
+
 def scan_file(path: Path, line_numbers: set[int], rules: list[PatternRule]) -> list[Issue]:
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -223,6 +233,10 @@ def scan_file(path: Path, line_numbers: set[int], rules: list[PatternRule]) -> l
                 issues.append(Issue(path, line_no, rule.code, rule.message, line))
 
         if FUNCTION_DEF_RE.match(line) and not disabled(line, "RE006"):
+            next_line = next_nonblank_line(lines, line_no).lstrip()
+            if next_line != "{" and not next_line.startswith(":"):
+                continue
+
             previous = previous_nonblank_line(lines, line_no)
             if not FUNCTION_MARKER_RE.match(previous):
                 issues.append(
