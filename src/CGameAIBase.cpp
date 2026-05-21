@@ -337,6 +337,10 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == CAIAction::SHOUT
         || m_curAction.m_actionID == CAIACTION_212) {
         actionReturn = Shout();
+    } else if (m_curAction.m_actionID == 0x1E
+        || m_curAction.m_actionID == 0x132) {
+        // 0x1E = SetGlobal, 0x132 = SetGlobalRandom (ACTION.IDS).
+        actionReturn = SetGlobal();
     } else if (m_curAction.m_actionID == CAIAction::TAKEPARTYGOLD) {
         actionReturn = TakePartyGold();
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
@@ -1393,6 +1397,81 @@ SHORT CGameAIBase::ClearActions(CGameObject* target)
 
     CMessage* message = new CMessageClearActions(m_id, target->GetId());
     g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+    return ACTION_DONE;
+}
+
+// 0x45EDE0 - handles SetGlobal (0x1E) and SetGlobalRandom (0x132).
+// TODO: Multiplayer broadcast (CMessage at vtable PTR_FUN_0084882c) skipped.
+SHORT CGameAIBase::SetGlobal()
+{
+    CString sName = m_curAction.GetString1();
+    CString sScope = m_curAction.GetString2();
+    LONG nValue = m_curAction.m_specificID;
+
+    if (m_curAction.m_actionID == 0x132) {
+        LONG lo = m_curAction.m_specificID;
+        LONG hi = m_curAction.m_specificID2;
+        if (lo < hi) {
+            nValue = rand() % (hi - lo + 1) + lo;
+        } else if (lo > hi) {
+            nValue = rand() % (lo - hi + 1) + hi;
+        } else {
+            nValue = lo;
+        }
+        m_curAction.m_specificID = nValue;
+    }
+
+    if (sScope == CString("GLOBAL")) {
+        CVariableHash* pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        CVariable* pVar = pHash->FindKey(sName);
+        if (pVar != NULL) {
+            pVar->m_intValue = nValue;
+        } else {
+            CVariable v;
+            v.SetName(sName);
+            v.m_intValue = nValue;
+            pHash->AddKey(v);
+        }
+        return ACTION_DONE;
+    }
+
+    if (sScope == CString("LOCALS")) {
+        if ((GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+            CVariableHash* pHash = pSprite->GetLocalVariables();
+            CVariable* pVar = pHash->FindKey(sName);
+            if (pVar != NULL) {
+                pVar->m_intValue = nValue;
+            } else {
+                CVariable v;
+                v.SetName(sName);
+                v.m_intValue = nValue;
+                pHash->AddKey(v);
+            }
+        }
+        return ACTION_DONE;
+    }
+
+    CString sAreaName = sScope;
+    if (sScope == CString("MYAREA") && m_pArea != NULL) {
+        // First bytes of CGameArea are CAreaFileHeader::m_areaName (RESREF).
+        sAreaName = CString(reinterpret_cast<LPCTSTR>(m_pArea));
+    }
+
+    CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sAreaName);
+    if (pArea != NULL) {
+        CVariableHash* pHash = pArea->GetVariables();
+        CVariable* pVar = pHash->FindKey(sName);
+        if (pVar != NULL) {
+            pVar->m_intValue = nValue;
+        } else {
+            CVariable v;
+            v.SetName(sName);
+            v.m_intValue = nValue;
+            pHash->AddKey(v);
+        }
+    }
 
     return ACTION_DONE;
 }
