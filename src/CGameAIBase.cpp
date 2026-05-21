@@ -705,6 +705,24 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xA2) {
+        // 0xA2 = ReputationSet (ACTION.IDS 162).  Binary computes the
+        // delta from m_specificID (1-20 scale) and current m_nReputation
+        // (10-200 internal), then calls ReputationAdjustment(delta*10).
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        SHORT delta = static_cast<SHORT>(m_curAction.m_specificID)
+            - pGame->m_nReputation / CInfGame::REPUTATION_MULTIPLIER;
+        pGame->ReputationAdjustment(
+            static_cast<SHORT>(delta * CInfGame::REPUTATION_MULTIPLIER), FALSE);
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xA3) {
+        // 0xA3 = ReputationInc (ACTION.IDS 163).  Pure adjustment by
+        // m_specificID * REPUTATION_MULTIPLIER.
+        g_pBaldurChitin->GetObjectGame()->ReputationAdjustment(
+            static_cast<SHORT>(m_curAction.m_specificID
+                * CInfGame::REPUTATION_MULTIPLIER),
+            FALSE);
+        actionReturn = ACTION_DONE;
     }
 
     SetLastActionReturn(actionReturn);
