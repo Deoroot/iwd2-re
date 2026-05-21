@@ -775,6 +775,55 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x99
+        || m_curAction.m_actionID == 0x9A
+        || m_curAction.m_actionID == 0x9B
+        || m_curAction.m_actionID == 0x9D
+        || m_curAction.m_actionID == 0x9E
+        || m_curAction.m_actionID == 0x9F) {
+        // 0x99-0x9F = ChangeEnemyAlly / ChangeGeneral / ChangeRace /
+        // ChangeSpecifics / ChangeGender / ChangeAlignment (ACTION.IDS
+        // 153-155, 157-159).  Binary cases 0x99-0x9F share a uniform
+        // shape: resolve target, build a copy of its AI type, mutate the
+        // single byte field that names the action, call SetAIType with
+        // updateLive=TRUE and updateStart=FALSE, then broadcast
+        // CMessageSpriteUpdate (gated on SP or host-matches-target in
+        // the binary; we always broadcast since observers expect the
+        // update).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+                CAIObjectType newType(pSprite->GetAIType());
+                BYTE value = static_cast<BYTE>(m_curAction.m_specificID);
+                switch (m_curAction.m_actionID) {
+                case 0x99: newType.SetEnemyAlly(value); break;
+                case 0x9A: newType.SetGeneral(value);   break;
+                case 0x9B: newType.SetRace(value);      break;
+                case 0x9D: newType.SetSpecific(value);  break;
+                case 0x9E: newType.SetGender(value);    break;
+                case 0x9F: newType.SetAlignment(value); break;
+                }
+                pSprite->SetAIType(newType, TRUE, FALSE);
+                CMessage* msg = new CMessageSpriteUpdate(pSprite, m_id, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x9C) {
+        // 0x9C = ChangeClass (ACTION.IDS 156).  Binary case 0x9C allocates
+        // three local CAIObjectTypes and immediately destructs them
+        // without any field write or SetAIType call -- the IWD2 build
+        // shipped this action as an effective no-op.  Preserve that
+        // behaviour (returns ACTION_DONE without mutating the target).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x103) {
         // 0x103 = SetVisualRange (ACTION.IDS 259).  Binary case 0x103
         // posts CMessage92(self, self, m_specificID) -- the message
