@@ -338,7 +338,8 @@ SHORT CGameAIBase::ExecuteAction()
         actionReturn = ChangeAIScript();
     } else if (m_curAction.m_actionID == CAIAction::STARTTIMER) {
         actionReturn = StartTimer();
-    } else if (m_curAction.m_actionID == CAIAction::WAIT) {
+    } else if (m_curAction.m_actionID == CAIAction::WAIT
+        || m_curAction.m_actionID == 0xCD) {
         actionReturn = Wait();
     } else if (m_curAction.m_actionID == CAIAction::SMALLWAIT) {
         actionReturn = SmallWait();
@@ -392,9 +393,33 @@ SHORT CGameAIBase::ExecuteAction()
         // script-slot index.
         m_curAction.m_specificID = static_cast<LONG>(m_curScriptNum);
         actionReturn = ChangeAIScript();
+    } else if (m_curAction.m_actionID == 0xA7) {
+        // 0xA7 = StartMovie.
+        actionReturn = StartMovie();
     } else if (m_curAction.m_actionID == 0xA9) {
         // 0xA9 = DestroyItem (ACTION.IDS).  Pure wire to existing helper.
         actionReturn = DestroyItem();
+    } else if (m_curAction.m_actionID == 0xAA) {
+        // 0xAA = RevealAreaOnMap.
+        actionReturn = RevealAreaOnMap();
+    } else if (m_curAction.m_actionID == 0xBB) {
+        // 0xBB = StartMusic.
+        actionReturn = StartMusic();
+    } else if (m_curAction.m_actionID == 0xBE) {
+        // 0xBE = FinalSave.
+        actionReturn = FinalSave();
+    } else if (m_curAction.m_actionID == 0xCA) {
+        // 0xCA = FadeToColor.
+        actionReturn = FadeToColor();
+    } else if (m_curAction.m_actionID == 0xCB) {
+        // 0xCB = FadeFromColor.
+        actionReturn = FadeFromColor();
+    } else if (m_curAction.m_actionID == 0xFD) {
+        // 0xFD = FadeColorActivate.
+        actionReturn = FadeColorActivate();
+    } else if (m_curAction.m_actionID == 0x144) {
+        // 0x144 = SetMusic.
+        actionReturn = SetMusic();
     } else if (m_curAction.m_actionID == 0xEB) {
         // 0xEB = PlaySequence (ACTION.IDS).  Resolves m_acteeID, then
         // broadcasts a CMessageSetSequence so the target plays the
