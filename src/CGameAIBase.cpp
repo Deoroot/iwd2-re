@@ -775,6 +775,30 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x120) {
+        // 0x120 = SetDoorFlag (ACTION.IDS 288).  Binary case 0x120 reads
+        // the resolved door's flags, OR-merges (when specifics2!=0) or
+        // AND-NOT-clears (when 0) bit-mask specifics1, then writes back
+        // and posts CMessageDoorStatus.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if (pObj->GetObjectType() == CGameObject::TYPE_DOOR) {
+                CGameDoor* pDoor = static_cast<CGameDoor*>(pObj);
+                DWORD flags = pDoor->GetFlags();
+                DWORD mask = static_cast<DWORD>(m_curAction.GetSpecifics());
+                if (m_curAction.GetSpecifics2() != 0) {
+                    flags |= mask;
+                } else {
+                    flags &= ~mask;
+                }
+                pDoor->SetFlags(flags);
+                CMessage* msg = new CMessageDoorStatus(pDoor, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x129) {
         // 0x129 = ScreenShake (ACTION.IDS 297).  Binary case 0x129 posts
         // CMessageScreenShake(duration=specifics1, magX=specifics2,
