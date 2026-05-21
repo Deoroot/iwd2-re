@@ -46,7 +46,7 @@ RULES = [
     ),
     PatternRule(
         "RE002",
-        re.compile(r"\bCString\s*\(\s*\""),
+        re.compile(r"\bCString\b\s*(?:[A-Za-z_]\w*\s*)?\(\s*\""),
         "CString constructed from a narrow literal; prefer _T(\"...\") when editing this code.",
     ),
     PatternRule(
