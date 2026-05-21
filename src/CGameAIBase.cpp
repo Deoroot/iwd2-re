@@ -429,6 +429,58 @@ SHORT CGameAIBase::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
+    } else if (m_curAction.m_actionID == 0xC9) {
+        // 0xC9 = DetectSecretDoor (ACTION.IDS).  Target is CGameDoor.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_DOOR) {
+            actionReturn = DetectSecretDoor(static_cast<CGameDoor*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0xD1) {
+        // 0xD1 = SpawnPtActivate (ACTION.IDS).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_SPAWNING) {
+            actionReturn = SpawnPtActivate(static_cast<CGameSpawning*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0xD2) {
+        // 0xD2 = SpawnPtDeactivate (ACTION.IDS).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_SPAWNING) {
+            actionReturn = SpawnPtDeactivate(static_cast<CGameSpawning*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0xD3) {
+        // 0xD3 = SpawnPtSpawn (ACTION.IDS).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_SPAWNING) {
+            actionReturn = SpawnPtSpawn(static_cast<CGameSpawning*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0xD5 || m_curAction.m_actionID == 0xD6) {
+        // 0xD5 = StartStatic, 0xD6 = StopStatic.  Binary pushes bStart = 1
+        // for 0xD5 and bStart = 0 for 0xD6 (0x450171 vs 0x45019C).
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_STATIC) {
+            actionReturn = StaticStart(static_cast<CGameStatic*>(pObj),
+                m_curAction.m_actionID == 0xD5 ? TRUE : FALSE);
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
     } else if (m_curAction.m_actionID == 0xC5) {
         // 0xC5 = MoveGlobal (ACTION.IDS).  Target is a CGameSprite.
         CGameObject* pObj = ResolveActionTarget();
