@@ -392,6 +392,23 @@ SHORT CGameAIBase::ExecuteAction()
         // script-slot index.
         m_curAction.m_specificID = static_cast<LONG>(m_curScriptNum);
         actionReturn = ChangeAIScript();
+    } else if (m_curAction.m_actionID == 0xEB) {
+        // 0xEB = PlaySequence (ACTION.IDS).  Resolves m_acteeID, then
+        // broadcasts a CMessageSetSequence so the target plays the
+        // requested animation sequence (m_specificID).
+        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        if (pObj != NULL) {
+            CMessage* msg = new CMessageSetSequence(
+                static_cast<BYTE>(m_curAction.m_specificID),
+                pObj->m_id,
+                m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x85) {
         // 0x85 = ClearActions (ACTION.IDS).  Resolves m_acteeID and forwards
         // to ClearActions(target), which queues a CMessageClearActions.
