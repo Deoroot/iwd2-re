@@ -393,6 +393,30 @@ SHORT CGameAIBase::ExecuteAction()
         // script-slot index.
         m_curAction.m_specificID = static_cast<LONG>(m_curScriptNum);
         actionReturn = ChangeAIScript();
+    } else if (m_curAction.m_actionID == 0x119) {
+        // 0x119 = MarkObject (ACTION.IDS).  Stores the resolved target's
+        // AI type in field_342 via SetAIType342; NOONE when unresolved.
+        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        if (pObj == NULL) {
+            SetAIType342(CAIObjectType::NOONE);
+        } else {
+            SetAIType342(pObj->GetAIType());
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x131) {
+        // 0x131 = SetMyTarget (ACTION.IDS).  Stores the resolved target's
+        // AI type in field_37E via SetAIType37E; NOONE when unresolved.
+        CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+        if (pObj == NULL) {
+            SetAIType37E(CAIObjectType::NOONE);
+        } else {
+            SetAIType37E(pObj->GetAIType());
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0xA7) {
         // 0xA7 = StartMovie.
         actionReturn = StartMovie();
