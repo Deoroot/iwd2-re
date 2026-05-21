@@ -775,6 +775,27 @@ SHORT CGameAIBase::ExecuteAction()
         // CScreenWorld::m_scrollLockId (sets to -1).
         g_pBaldurChitin->m_pEngineWorld->m_scrollLockId = -1;
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x11B) {
+        // 0x11B = SetCriticalPathObject (ACTION.IDS 283).  Binary case
+        // 0x11b toggles bit 0x2000 of the target sprite's
+        // m_baseStats.m_flags based on m_specificID (0 clears, nonzero
+        // sets), then posts CMessageSpriteUpdate in SP or matching-host
+        // mode.  We perform the bit toggle; the SpriteUpdate broadcast
+        // is a TODO until the MP-host comparison helper is recovered.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+                if (m_curAction.m_specificID == 0) {
+                    pSprite->m_baseStats.m_flags &= ~0x2000u;
+                } else {
+                    pSprite->m_baseStats.m_flags |= 0x2000u;
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x120) {
         // 0x120 = SetDoorFlag (ACTION.IDS 288).  Binary case 0x120 reads
         // the resolved door's flags, OR-merges (when specifics2!=0) or
