@@ -7,9 +7,19 @@
 #include <string.h>
 
 static const char* IWD2_DEBUG_LOG_FILE = ".\\iwd2-re-debug.log";
+static const char* IWD2_DEBUG_LOG_ENABLE_FILE = ".\\iwd2-re-debug.enabled";
+
+static BOOL Iwd2DebugLogIsEnabled()
+{
+    return GetFileAttributesA(IWD2_DEBUG_LOG_ENABLE_FILE) != INVALID_FILE_ATTRIBUTES;
+}
 
 void Iwd2DebugLog(const char* format, ...)
 {
+    if (!Iwd2DebugLogIsEnabled()) {
+        return;
+    }
+
     char message[1024];
 
     va_list args;
@@ -38,6 +48,10 @@ void Iwd2DebugLog(const char* format, ...)
 
 void Iwd2DebugLogReset()
 {
+    if (!Iwd2DebugLogIsEnabled()) {
+        return;
+    }
+
     FILE* fp = fopen(IWD2_DEBUG_LOG_FILE, "wb");
     if (fp != NULL) {
         fclose(fp);

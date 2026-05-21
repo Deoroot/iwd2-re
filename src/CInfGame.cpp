@@ -40,6 +40,8 @@
 
 #define FIFTY_THREE 53
 
+static BOOLEAN g_bSelectAllOnWorldActivation;
+
 // 0x851884
 const SHORT CInfGame::KILL_INNOCENT = 0;
 
@@ -2909,6 +2911,8 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     UTIL_ASSERT(m_sSaveGame != "");
 
     Iwd2DebugLogReset();
+    g_bSelectAllOnWorldActivation = FALSE;
+
     Iwd2DebugLog("LoadGame begin save=%s progressRequired=%d progressInPlace=%d chars=%d group=%u activeEngine=%p worldEngine=%p",
         static_cast<LPCSTR>(m_sSaveGame),
         bProgressBarRequired,
@@ -3112,6 +3116,8 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     Iwd2DebugLog("LoadGame after SelectAll group=%u activeEngine=%p",
         m_group.GetCount(),
         g_pBaldurChitin->GetActiveEngine());
+
+    g_bSelectAllOnWorldActivation = m_nCharacters > 0 && m_group.GetCount() == 0;
 
     g_pBaldurChitin->GetObjectGame()->m_cButtonArray.UpdateState();
 
@@ -4009,6 +4015,15 @@ void CInfGame::WorldEngineActivated(CVidMode* pVidMode)
     } else {
     }
     m_cButtonArray.ResetState();
+
+    if (g_bSelectAllOnWorldActivation) {
+        g_bSelectAllOnWorldActivation = FALSE;
+
+        if (m_nCharacters > 0 && m_group.GetCount() == 0 && GetVisibleArea() != NULL) {
+            SelectAll(FALSE);
+            m_cButtonArray.UpdateState();
+        }
+    }
 
     Iwd2DebugLog("WorldEngineActivated end visibleArea=%p group=%u selectedButton=%d",
         GetVisibleArea(),
