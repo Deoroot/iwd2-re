@@ -745,6 +745,20 @@ SHORT CGameAIBase::ExecuteAction()
         // binary call site pushes only 2 args; the C++ signature has an
         // extra BOOLEAN that defaults via m_bShowQuestXP fallback.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x10E) {
+        // 0x10E = ClearSpriteEffects (ACTION.IDS 270).  Binary resolves
+        // the target and calls ReapplyEquipmentEffects on it -- counter-
+        // intuitive name but the action's job is to drop transient effects
+        // and rebuild from equipment.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                static_cast<CGameSprite*>(pObj)->ReapplyEquipmentEffects();
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     }
 
     SetLastActionReturn(actionReturn);
