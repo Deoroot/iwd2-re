@@ -393,6 +393,52 @@ SHORT CGameAIBase::ExecuteAction()
         // script-slot index.
         m_curAction.m_specificID = static_cast<LONG>(m_curScriptNum);
         actionReturn = ChangeAIScript();
+    } else if (m_curAction.m_actionID == 0xAC) {
+        // 0xAC = ChangeTileState (ACTION.IDS).  Target is a CGameTiledObject.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_TILED_OBJECT) {
+            actionReturn = ChangeTileState(static_cast<CGameTiledObject*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0xB1) {
+        // 0xB1 = TriggerActivation (ACTION.IDS).  Target is a CGameTrigger.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_TRIGGER) {
+            actionReturn = TriggerActivation(static_cast<CGameTrigger*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0xC3) {
+        // 0xC3 = Lock (ACTION.IDS).  Target is door or container.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            actionReturn = Lock(static_cast<CGameAIBase*>(pObj));
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0xC4) {
+        // 0xC4 = Unlock (ACTION.IDS).  Target is door or container.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            actionReturn = Unlock(static_cast<CGameAIBase*>(pObj));
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    } else if (m_curAction.m_actionID == 0xC5) {
+        // 0xC5 = MoveGlobal (ACTION.IDS).  Target is a CGameSprite.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL && (pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+            actionReturn = MoveGlobal(static_cast<CGameSprite*>(pObj));
+        }
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
     } else if (m_curAction.m_actionID == 0x84) {
         // 0x84 = VerbalConstant (ACTION.IDS).  Resolves m_acteeID and
         // broadcasts CMessageVerbalConstant so the target plays the named
@@ -1633,7 +1679,7 @@ SHORT CGameAIBase::SetGlobal()
 // sprite with bit 0x40000 set in field_248.  Both are coverage TODOs.
 CGameObject* CGameAIBase::ResolveActionTarget()
 {
-    CGameObject* pObj = ResolveActionTarget();
+    CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
     if (pObj == NULL) {
         return NULL;
     }
