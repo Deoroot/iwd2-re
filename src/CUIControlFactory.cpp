@@ -3909,13 +3909,14 @@ BOOL CUIControlPortraitGeneral::Render(BOOL bForce)
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
+    CRect rPortraitClip(pt, m_size);
     g_pBaldurChitin->GetObjectGame()->RenderPortrait(m_nID,
         pt,
         m_size,
         m_bPressed,
         FALSE,
         FALSE,
-        m_rDirty,
+        rPortraitClip,
         m_pPanel->m_pManager->m_bDoubleSize);
 
     return TRUE;
@@ -4156,13 +4157,14 @@ BOOL CUIControlPortraitWorld::Render(BOOL bForce)
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
+    CRect rPortraitClip(pt, m_size);
     g_pBaldurChitin->GetObjectGame()->RenderPortrait(m_nID,
         pt,
         m_size,
         m_bPressed,
         m_bHighlighted,
         TRUE,
-        m_rDirty,
+        rPortraitClip,
         m_pPanel->m_pManager->m_bDoubleSize);
 
     return TRUE;
