@@ -442,6 +442,7 @@ public:
     void AIUpdateFly();
     void ChangeDirection();
     void CheckIfVisible();
+    BOOL CheckInvisibility(BOOL bSeesInvisible);
     void DropPath();
     void DropSearchRequest();
     BOOL MoveToBack();

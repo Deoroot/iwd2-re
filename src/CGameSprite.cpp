@@ -10549,6 +10549,27 @@ STRREF CGameSprite::GetNameRef()
     return strName;
 }
 
+// 0x727B80
+//
+// Visibility filter used by every targeting / "find-nearest" path. Returns
+// FALSE if this sprite is hidden from an observer described by
+// `bSeesInvisible`, TRUE otherwise.
+//
+// The sprite is hidden iff the observer cannot see invisible
+// (`bSeesInvisible == FALSE`), the sprite carries the regular invisibility
+// state (`m_generalState & STATE_INVISIBLE`), and the sprite has not been
+// re-exposed (`m_baseStats` byte at `+0x2FC` bit 0 clear, i.e. not currently
+// rendered visible to the local player).
+BOOL CGameSprite::CheckInvisibility(BOOL bSeesInvisible)
+{
+    if (bSeesInvisible == FALSE
+        && (m_derivedStats.m_generalState & STATE_INVISIBLE) != 0
+        && (*reinterpret_cast<BYTE*>(reinterpret_cast<BYTE*>(&m_baseStats) + 0x2FC) & 0x1) == 0) {
+        return FALSE;
+    }
+    return TRUE;
+}
+
 // 0x728270
 void CGameSprite::PlaySound(const CResRef& res)
 {
