@@ -412,8 +412,8 @@ void CVisibilityMap::PrivateAddCharacter(const CPoint& ptPos, BYTE visId, const 
     ptSearchMapView.x = ptPos.x / CPathSearch::GRID_SQUARE_SIZEX;
     ptSearchMapView.y = ptPos.y / CPathSearch::GRID_SQUARE_SIZEY;
 
-    sub_553800(ptView, ptOffset, ptSearchMapView, visId, pVisibleTerrainTable);
-    sub_553990(ptView, ptOffset, ptSearchMapView, visId, pVisibleTerrainTable);
+    StampHorizontalOctants(ptView, ptOffset, ptSearchMapView, visId, pVisibleTerrainTable);
+    StampVerticalOctants(ptView, ptOffset, ptSearchMapView, visId, pVisibleTerrainTable);
 
     g_pBaldurChitin->cSoundMixer.GetListenPosition(ptEar, earZ);
     if (ptEar.x == -1 && ptEar.y == -1) {
@@ -436,8 +436,8 @@ void CVisibilityMap::RemoveCharacter(const CPoint& pos, LONG charId, const BYTE*
 
             BYTE visId = 1 << nIndex;
             if (visId != -1) {
-                sub_553440(pt, visId);
-                sub_5535D0(pt, visId);
+                RemoveHorizontalOctantsStamp(pt, visId);
+                RemoveVerticalOctantsStamp(pt, visId);
             }
 
             break;
@@ -446,13 +446,13 @@ void CVisibilityMap::RemoveCharacter(const CPoint& pos, LONG charId, const BYTE*
 }
 
 // 0x553440
-void CVisibilityMap::sub_553440(const CPoint& pt, BYTE charId)
+void CVisibilityMap::RemoveHorizontalOctantsStamp(const CPoint& pt, BYTE charId)
 {
     // TODO: Incomplete.
 }
 
 // 0x5535D0
-void CVisibilityMap::sub_5535D0(const CPoint& pt, BYTE charId)
+void CVisibilityMap::RemoveVerticalOctantsStamp(const CPoint& pt, BYTE charId)
 {
     // TODO: Incomplete.
 }
@@ -476,13 +476,13 @@ void CVisibilityMap::SetAreaUnexplored()
 }
 
 // 0x553800
-void CVisibilityMap::sub_553800(const CPoint& ptView, const CPoint& ptOffset, const CPoint& ptSearchMapView, BYTE charId, const BYTE* pVisibleTerrainTable)
+void CVisibilityMap::StampHorizontalOctants(const CPoint& ptView, const CPoint& ptOffset, const CPoint& ptSearchMapView, BYTE charId, const BYTE* pVisibleTerrainTable)
 {
     // TODO: Incomplete.
 }
 
 // 0x553990
-void CVisibilityMap::sub_553990(const CPoint& ptView, const CPoint& ptOffset, const CPoint& ptSearchMapView, BYTE charId, const BYTE* pVisibleTerrainTable)
+void CVisibilityMap::StampVerticalOctants(const CPoint& ptView, const CPoint& ptOffset, const CPoint& ptSearchMapView, BYTE charId, const BYTE* pVisibleTerrainTable)
 {
     // TODO: Incomplete.
 }
@@ -511,8 +511,8 @@ void CVisibilityMap::UpDate(const CPoint& ptOldPos, const CPoint& ptNewPos, LONG
     BYTE visId = GetCharacterPos(charId);
 
     if (visId != -1) {
-        sub_553440(pt, visId);
-        sub_5535D0(pt, visId);
+        RemoveHorizontalOctantsStamp(pt, visId);
+        RemoveVerticalOctantsStamp(pt, visId);
         PrivateAddCharacter(ptNewPos, visId, pVisibleTerrainTable);
     }
 }

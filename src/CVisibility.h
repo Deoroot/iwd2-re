@@ -61,12 +61,12 @@ public:
     void MarkTileLine(const CPoint& ptView, const CPoint& ptSearchMapView, LONG nDestX, LONG nDestY, const CPoint& ptOffset, BYTE charId, const BYTE* pVisibleTerrainTable, BOOLEAN bLookingUp);
     void PrivateAddCharacter(const CPoint& ptPos, BYTE visId, const BYTE* pVisibleTerrainTable);
     void RemoveCharacter(const CPoint& pos, LONG charId, const BYTE* pVisibleTerrainTable);
-    void sub_553440(const CPoint& pt, BYTE charId);
-    void sub_5535D0(const CPoint& pt, BYTE charId);
+    void RemoveHorizontalOctantsStamp(const CPoint& pt, BYTE charId);
+    void RemoveVerticalOctantsStamp(const CPoint& pt, BYTE charId);
     void SetAreaExplored();
     void SetAreaUnexplored();
-    void sub_553800(const CPoint& ptView, const CPoint& ptSearchMapView, const CPoint& ptOffset, BYTE charId, const BYTE* pVisibleTerrainTable);
-    void sub_553990(const CPoint& ptView, const CPoint& ptSearchMapView, const CPoint& ptOffset, BYTE charId, const BYTE* pVisibleTerrainTable);
+    void StampHorizontalOctants(const CPoint& ptView, const CPoint& ptOffset, const CPoint& ptSearchMapView, BYTE charId, const BYTE* pVisibleTerrainTable);
+    void StampVerticalOctants(const CPoint& ptView, const CPoint& ptOffset, const CPoint& ptSearchMapView, BYTE charId, const BYTE* pVisibleTerrainTable);
     void Uninit();
     void UpDate(const CPoint& ptOldPos, const CPoint& ptNewPos, LONG charId, const BYTE* pVisibleTerrainTable);
     BOOLEAN IsTileExplored(LONG nIndex);
