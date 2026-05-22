@@ -2145,6 +2145,8 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
                         szName[SCRIPTNAME_SIZE] = '\0';
                         pSprite->m_sName = szName;
 
+                        pSprite->Unmarshal(reinterpret_cast<CSavedGamePartyCreature*>(pMember), TRUE, bProgressBarInPlace);
+
                         LONG nIndex = pSprite->m_id;
                         if (slotIndex >= 0 && slotIndex < 6) {
                             m_characters[slotIndex] = nIndex;
