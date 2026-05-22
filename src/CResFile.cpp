@@ -30,9 +30,9 @@ BOOL CResFile::AddCacheCount()
 {
     EnterCriticalSection(&(g_pChitin->m_critSectResCache));
 
-    while (g_pChitin->cDimm.m_nBusy == 1) {
+    while (g_pChitin->cDimm.cResCache.m_nBusy == 1) {
         LeaveCriticalSection(&(g_pChitin->m_critSectResCache));
-        while (g_pChitin->cDimm.m_nBusy == 1) {
+        while (g_pChitin->cDimm.cResCache.m_nBusy == 1) {
             SleepEx(50, FALSE);
         }
         EnterCriticalSection(&(g_pChitin->m_critSectResCache));
@@ -48,7 +48,7 @@ BOOL CResFile::AddCacheCount()
     }
     m_nCacheCount++;
 
-    g_pChitin->cDimm.m_nBusy = 1;
+    g_pChitin->cDimm.cResCache.m_nBusy = 1;
     LeaveCriticalSection(&(g_pChitin->m_critSectResCache));
 
     return TRUE;

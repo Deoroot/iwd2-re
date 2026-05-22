@@ -3430,13 +3430,13 @@ void CGameAIBase::SetDefaultScript(CAIScript* script)
 // 0x6F2C20
 SHORT CGameAIBase::GetVisualRange()
 {
-    return m_pArea->m_visibility.field_E * 32;
+    return m_pArea->m_visibility.m_nSearchRangeH * 32;
 }
 
 // 0x6F2C30
 SHORT CGameAIBase::GetHelpRange()
 {
-    return m_pArea->m_visibility.field_E * 48;
+    return m_pArea->m_visibility.m_nSearchRangeH * 48;
 }
 
 // NOTE: Inlined.

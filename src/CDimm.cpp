@@ -1392,10 +1392,10 @@ INT CDimm::GetResNumber(RESID nResID, CResRef resRef, USHORT nResType)
 
             CResCache* pResCache = &(g_pChitin->cDimm.cResCache);
             EnterCriticalSection(&(g_pChitin->m_critSectResCache));
-            while (pResCache->field_110 == 1) {
+            while (pResCache->m_nBusy == 1) {
                 LeaveCriticalSection(&(g_pChitin->m_critSectResCache));
 
-                while (pResCache->field_110 == 1) {
+                while (pResCache->m_nBusy == 1) {
                     SleepEx(50, FALSE);
                 }
 
@@ -1950,10 +1950,10 @@ int CDimm::Request(CRes* pRes)
 
         CResCache* pResCache = &(g_pChitin->cDimm.cResCache);
         EnterCriticalSection(&(g_pChitin->m_critSectResCache));
-        while (pResCache->field_110 == 1) {
+        while (pResCache->m_nBusy == 1) {
             LeaveCriticalSection(&(g_pChitin->m_critSectResCache));
 
-            while (pResCache->field_110 == 1) {
+            while (pResCache->m_nBusy == 1) {
                 SleepEx(50, FALSE);
             }
 

@@ -14041,8 +14041,8 @@ SHORT CGameSprite::SetExplorationRange(int a1)
         a1 = CVisibilityMap::EXPLORED_RANGE_3;
     }
 
-    m_pArea->m_visibility.field_E = static_cast<short>(a1);
-    m_pArea->m_visibility.field_10 = static_cast<short>(3 * a1 / 4);
+    m_pArea->m_visibility.m_nSearchRangeH = static_cast<short>(a1);
+    m_pArea->m_visibility.m_nSearchRangeV = static_cast<short>(3 * a1 / 4);
     m_pArea->m_visibility.UpdateVisibilityEllipses();
 
     return ACTION_DONE;
