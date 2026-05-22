@@ -22,6 +22,8 @@ public:
     BOOL EnterDialog(DWORD index, CGameSprite* pSprite, int a3);
     void AsynchronousUpdate();
     void UpdateDialogColors();
+    void Initialize(CResRef file, LONG characterIndex, LONG talkerIndex);
+    void LoadEntries(void* pData, DWORD nSize, LONG characterIndex, LONG talkerIndex);
 
     /* 0000 */ CResRef m_file;
     /* 0008 */ CTypedPtrArray<CPtrArray, CGameDialogEntry*> m_dialogEntries;

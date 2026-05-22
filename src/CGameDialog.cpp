@@ -2,8 +2,10 @@
 
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
+#include "CGameJournal.h"
 #include "CGameSprite.h"
 #include "CInfGame.h"
+#include "CResDLG.h"
 #include "CScreenWorld.h"
 #include "CUIControlTextDisplay.h"
 #include "CUtil.h"
@@ -76,12 +78,129 @@ BOOL CGameDialogSprite::StartDialog(CGameSprite* pSprite)
     return FALSE;
 }
 
+// 0x482210
+void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talkerIndex)
+{
+    if (file == "") {
+        ClearMarshal();
+        return;
+    }
+
+    if (file == m_file) {
+        m_characterIndex = characterIndex;
+        g_pBaldurChitin->GetObjectGame()->SetProtagonist(characterIndex);
+        // Multiplayer-host sync path queues a CMessageSetProtagonist
+        // (binary 0x482275..0x4822c8). Skipped in SP; restore with MP recovery.
+        m_talkerIndex = talkerIndex;
+        return;
+    }
+
+    CResRef cNewFile;
+    CResDLG* pRes = NULL;
+    BOOL bRequested = FALSE;
+
+    if (file != "") {
+        pRes = static_cast<CResDLG*>(g_pChitin->cDimm.GetResObject(file, 0x3F3, TRUE));
+        if (pRes == NULL) {
+            cNewFile = "";
+        } else {
+            bRequested = TRUE;
+            static_cast<CRes*>(pRes)->Request();
+            cNewFile = file;
+        }
+    }
+
+    BOOL bValid = FALSE;
+    DWORD nProbeSize = 0;
+    if (pRes != NULL && pRes->Demand() != NULL) {
+        nProbeSize = pRes->m_nResSizeActual;
+        static_cast<CRes*>(pRes)->Release();
+        bValid = (nProbeSize != 0);
+    }
+
+    if (!bValid) {
+        ClearMarshal();
+    } else {
+        m_file = file;
+
+        void* pData = NULL;
+        DWORD nSize = 0;
+        if (pRes != NULL) {
+            if (pRes->Demand() != NULL) {
+                nSize = pRes->m_nResSizeActual;
+                static_cast<CRes*>(pRes)->Release();
+            }
+            pData = pRes->Demand();
+        }
+
+        LoadEntries(pData, nSize, characterIndex, talkerIndex);
+
+        if (pRes != NULL) {
+            static_cast<CRes*>(pRes)->Release();
+        }
+    }
+
+    if (pRes != NULL && cNewFile != "") {
+        if (bRequested) {
+            static_cast<CRes*>(pRes)->CancelRequest();
+            bRequested = FALSE;
+        }
+        g_pChitin->cDimm.ReleaseResObject(pRes);
+    }
+}
+
+// 0x482a40
+void CGameDialogSprite::LoadEntries(void* pData, DWORD nSize, LONG characterIndex, LONG talkerIndex)
+{
+    // TODO: Incomplete. Full DLG-format parser (~694 lines of decomp) walks
+    // header (state count/offset, transition count/offset, state-trigger
+    // table, transition-trigger table, action table) and populates
+    // m_dialogEntries + m_dialogEntriesOrdered + per-entry replies.
+    m_characterIndex = characterIndex;
+    m_talkerIndex = talkerIndex;
+    (void)pData;
+    (void)nSize;
+}
+
 // 0x483B70
 BOOL CGameDialogSprite::FetchRumor(const CResRef& file, CGameSprite* pSprite, LONG& nIndex, STR_RES& strRes)
 {
-    // TODO: Incomplete.
+    Initialize(file, pSprite->GetId(), pSprite->GetId());
 
-    return FALSE;
+    CPtrArray validEntries;
+    for (INT i = 0; i < m_dialogEntriesOrdered.GetCount(); i++) {
+        CGameDialogEntry* pEntry = m_dialogEntriesOrdered.GetAt(i);
+        if (pEntry != NULL) {
+            CTypedPtrList<CPtrList, CAITrigger*> triggerList(10);
+            if (pEntry->m_startCondition.Hold(triggerList, pSprite)) {
+                validEntries.Add(pEntry);
+            }
+        }
+    }
+
+    if (validEntries.GetCount() < 1) {
+        return FALSE;
+    }
+
+    if (nIndex < 0) {
+        nIndex = rand() % validEntries.GetCount();
+    }
+    if (validEntries.GetCount() <= nIndex) {
+        nIndex %= validEntries.GetCount();
+    }
+
+    CGameDialogEntry* pEntry = static_cast<CGameDialogEntry*>(validEntries[nIndex]);
+    g_pBaldurChitin->GetTlkTable().Fetch(pEntry->m_dialogText, strRes);
+
+    if (pEntry->GetCount() > 0) {
+        CGameDialogReply* pReply = pEntry->GetAt(0);
+        if ((pReply->m_flags & 0x10) != 0) {
+            g_pBaldurChitin->GetObjectGame()->m_cJournal.AddEntry(pReply->m_journalEntry, 0);
+        }
+    }
+
+    nIndex++;
+    return TRUE;
 }
 
 // 0x483CF0
