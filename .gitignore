@@ -3,6 +3,11 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# Local Docker/agent environment files.
+.env
+.env.*
+!.env.example
+
 # User-specific files
 *.rsuser
 *.suo
@@ -399,3 +404,10 @@ FodyWeavers.xsd
 /libghidra/
 /build.log
 /OG_build.log
+# Added by code-review-graph
+.code-review-graph/
+.opencode.json
+.mcp.json
+.claude/
+.gemini/
+.qoder/
