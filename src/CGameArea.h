@@ -15,6 +15,8 @@
 #include "FileFormat.h"
 
 class CAIObjectType;
+class CGameEffect;
+class CGameObject;
 class CInfGame;
 class CObjectMarker;
 class CSpawnFile;
@@ -169,6 +171,7 @@ public:
     void GetAllInRangeBack(const CPoint& center, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOL lineOfSight, BOOL ignoreDead, BOOL checkForNonSprites);
     void GetAllInPoly(const CRect& rBounding, CPoint* pPoly, SHORT nPoly, const CAIObjectType& type, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOLEAN checkBackList);
     LONG sub_46DAE0(INT x, INT y, const CAIObjectType& type, int a4, const BYTE* terrainTable, int a6, int a7, int a8, int a9);
+    void ApplyEffect(CGameEffect* pEffect, BOOL bOnlyPC, BOOL bFilterByAlignment, BYTE alignSpecific, CGameObject* pExclude);
     BOOLEAN CanSaveGame(STRREF& strError);
     void AIUpdate();
     void CompressTime(DWORD deltaTime);

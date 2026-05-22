@@ -13,8 +13,10 @@
 #include "CGameStatic.h"
 #include "CGameTiledObject.h"
 #include "CGameTrigger.h"
+#include "CGameEffect.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
+#include "CMessage.h"
 #include "CObjectMarker.h"
 #include "CPathSearch.h"
 #include "CProjectile.h"
@@ -736,6 +738,73 @@ LONG CGameArea::sub_46DAE0(INT x, INT y, const CAIObjectType& type, int a4, cons
     // TODO: Incomplete.
 
     return -1;
+}
+
+// 0x46E130
+//
+// Iterates the area's vertically-sorted visible-sprite list and dispatches a
+// `CMessageAddEffect` (wrapping a clone of `pEffect`) to every sprite that
+// passes the active filters:
+//   - must be a sprite, not stealthed (`m_bStealthMode != 1`);
+//   - if `bOnlyPC` is set: must have a portrait slot, the game must be in
+//     `m_bSequenceMode`, and (in multiplayer) the sprite must be owned by the
+//     local player;
+//   - if `bFilterByAlignment` is set: `GetAIType().m_nSpecific` must match
+//     `alignSpecific`;
+//   - if `pExclude` is non-NULL: must not be that object.
+// Used by `CGameAIBase::ForceSpell` to broadcast a spell's per-cast effects to
+// the appropriate subset of the area.
+void CGameArea::ApplyEffect(CGameEffect* pEffect, BOOL bOnlyPC, BOOL bFilterByAlignment, BYTE alignSpecific, CGameObject* pExclude)
+{
+    CGameObjectArray* pObjectArray = m_pGame->GetObjectArray();
+
+    POSITION pos = m_lVertSort.GetHeadPosition();
+    while (pos != NULL) {
+        LONG nId = reinterpret_cast<LONG>(m_lVertSort.GetNext(pos));
+
+        CGameObject* pObject;
+        BYTE rc = pObjectArray->GetShare(nId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+        if (rc != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        BOOL bIncluded = pObject->GetObjectType() == CGameObject::TYPE_SPRITE
+            && static_cast<CGameSprite*>(pObject)->GetBaseStats()->m_bStealthMode != 1;
+
+        if (bIncluded && bOnlyPC) {
+            SHORT portrait = g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(nId);
+            if (portrait == -1) {
+                bIncluded = FALSE;
+            } else if (g_pBaldurChitin->GetObjectGame()->m_gameSave.m_bSequenceMode == 0) {
+                bIncluded = FALSE;
+            } else if (g_pChitin->cNetwork.m_nServiceProvider != 0
+                && g_pChitin->cNetwork.m_idLocalPlayer != pObject->m_remotePlayerID) {
+                bIncluded = FALSE;
+            }
+        }
+
+        if (bIncluded && bFilterByAlignment
+            && pObject->GetAIType().m_nSpecific != alignSpecific) {
+            bIncluded = FALSE;
+        }
+
+        if (bIncluded && pExclude != NULL && pObject == pExclude) {
+            bIncluded = FALSE;
+        }
+
+        if (bIncluded) {
+            CGameEffect* pEffectCopy = pEffect->Copy();
+            CMessage* pMsg = new CMessageAddEffect(pEffectCopy, nId, nId);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, 0);
+        }
+
+        pObjectArray->ReleaseShare(nId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
 }
 
 // 0x46F5A0
