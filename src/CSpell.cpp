@@ -1,7 +1,10 @@
 #include "CSpell.h"
 
+#include "CBaldurChitin.h"
 #include "CGameEffect.h"
 #include "CGameSprite.h"
+#include "CInfGame.h"
+#include "CRuleTables.h"
 #include "CUtil.h"
 
 // NOTE: Inlined.
@@ -104,6 +107,112 @@ SPELL_ABILITY* CSpell::GetAbility(LONG abilityNum) const
     }
 
     return pAbility;
+}
+
+// 0x54A510
+//
+// Builds a configured `CGameEffect` instance from this spell's ability-effect
+// slot at (`nAbility`, `nEffectIdx`), stamped for `pCaster` at `nLevel`
+// (autocalc from caster + nClass + nSpecialization when `nLevel == 0`).
+//
+// Output effect layout follows IWD2's CGameEffect packing (not BG2EE's):
+//   +0x48 -> spell school (`pHeader->school`)
+//   +0x4C -> secondaryType (`pHeader->secondaryType`)
+//   +0x8C -> set to 1 (cast-source marker)
+//   +0x98 -> spell itemFlags (`pHeader->itemFlags`)
+//   +0xC4 -> packed { byte 0: caster level, byte 1: nClass, byte 2: spec idx (cleric only) }
+//   +0xC8 -> Empower-Spell feat value * 2
+//   +0x40 -> damage bonus (+= specialization feat bonus, +2 when caster spec matches school)
+//
+// Returns NULL when: spell data unavailable, ability/effect index out of
+// range, or effect decode failed. Caller takes ownership of the returned
+// pointer.
+//
+// TODO: 2026-05-22 skeleton -- Empower-Spell-feat bonus block (decomp lines
+// 101-145, depends on `FUN_00547040` per-class caster-level lookup and the
+// `SPIN126-132` resref existence checks) is omitted; functional spells take
+// the base damage path without the bonus. Recover when feat-bonus mechanics
+// become testable.
+CGameEffect* CSpell::BuildAbilityEffect(LONG nAbility, LONG nEffectIdx, CGameObject* pCaster, BYTE nClass, DWORD nSpecialization, BYTE nLevel)
+{
+    if (GetResRef() == "") {
+        return NULL;
+    }
+    if (pRes == NULL) {
+        return NULL;
+    }
+    pRes->Demand();
+    if (pRes == NULL) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CSpell.cpp
+        // __LINE__: 310
+        UTIL_ASSERT(FALSE);
+        return NULL;
+    }
+    int nEffectCount = pRes->GetAbilityEffectNo(nAbility);
+    if (nEffectIdx >= nEffectCount) {
+        pRes->Release();
+        return NULL;
+    }
+    if (nLevel == 0) {
+        if (pCaster == NULL || pCaster->GetObjectType() != CGameObject::TYPE_SPRITE) {
+            nLevel = 10;
+        } else {
+            nLevel = static_cast<BYTE>(static_cast<CGameSprite*>(pCaster)->GetCasterLevel(this, nClass, nSpecialization));
+        }
+    }
+
+    CPoint ptSource(-1, -1);
+    CPoint ptTarget(-1, -1);
+    ITEM_EFFECT* pAbilityEffect = pRes->GetAbilityEffect(nAbility, nEffectIdx, nLevel);
+    CGameEffect* pEffect = CGameEffect::DecodeEffect(pAbilityEffect, ptSource, -1, ptTarget);
+    if (pEffect == NULL) {
+        pRes->Release();
+        return NULL;
+    }
+
+    BYTE* pEffectBytes = reinterpret_cast<BYTE*>(pEffect);
+    *reinterpret_cast<DWORD*>(pEffectBytes + 0x48) = pRes->m_pHeader->school;
+    *reinterpret_cast<DWORD*>(pEffectBytes + 0x8C) = 1;
+    *reinterpret_cast<DWORD*>(pEffectBytes + 0x4C) = pRes->m_pHeader->secondaryType;
+    pEffect->m_res = GetResRef();
+    *reinterpret_cast<DWORD*>(pEffectBytes + 0x98) = pRes->m_pHeader->itemFlags;
+
+    if (pCaster != NULL && pCaster->GetObjectType() == CGameObject::TYPE_SPRITE) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pCaster);
+        DWORD nEffectSchool = *reinterpret_cast<DWORD*>(pEffectBytes + 0x48);
+        if (nEffectSchool != 0) {
+            BYTE nSpecSchool = g_pBaldurChitin->GetObjectGame()->GetRuleTables().MapCharacterSpecializationToSchool(static_cast<WORD>(pSprite->m_baseStats.m_specialization));
+            UINT nSchoolFeat = 0;
+            switch (nEffectSchool) {
+            case 4: nSchoolFeat = 0x3C; break;
+            case 6: nSchoolFeat = 0x3D; break;
+            case 7: nSchoolFeat = 0x3E; break;
+            case 8: nSchoolFeat = 0x3F; break;
+            }
+            if (nSchoolFeat != 0 && pSprite->HasFeat(nSchoolFeat) != 0) {
+                INT nFeatValue = pSprite->GetFeatValue(nSchoolFeat);
+                *reinterpret_cast<LONG*>(pEffectBytes + 0x40) += nFeatValue * 2;
+            }
+            if (nSpecSchool == nEffectSchool) {
+                *reinterpret_cast<LONG*>(pEffectBytes + 0x40) += 2;
+            }
+        }
+
+        // TODO: Empower-Spell-feat damage bonus block (FUN_00547040 + SPIN126-132 lookup).
+
+        *reinterpret_cast<DWORD*>(pEffectBytes + 0xC4) = nLevel;
+        *reinterpret_cast<LONG*>(pEffectBytes + 0xC8) = pSprite->GetFeatValue(0x40) * 2;
+    } else {
+        *reinterpret_cast<DWORD*>(pEffectBytes + 0xC4) = 1;
+    }
+    *reinterpret_cast<DWORD*>(pEffectBytes + 0xC4) |= (static_cast<DWORD>(nClass) & 0xFF) << 8;
+    if (nClass == 3) {
+        BYTE nSpecIdx = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetSpecializationIndex(3, nSpecialization);
+        *reinterpret_cast<DWORD*>(pEffectBytes + 0xC4) |= static_cast<DWORD>(nSpecIdx) << 16;
+    }
+
+    pRes->Release();
+    return pEffect;
 }
 
 // 0x54A970

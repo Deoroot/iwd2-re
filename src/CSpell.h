@@ -4,6 +4,7 @@
 #include "CResSpell.h"
 
 class CGameEffect;
+class CGameObject;
 class CGameSprite;
 
 class CSpell : public CResHelper<CResSpell, 1006> {
@@ -23,6 +24,7 @@ public:
     SHORT GetCasterType() const;
     CGameEffect* GetCastingEffect(int nEffect) const;
     SHORT GetCastingEffectNo() const;
+    CGameEffect* BuildAbilityEffect(LONG nAbility, LONG nEffectIdx, CGameObject* pCaster, BYTE nClass, DWORD nSpecialization, BYTE nLevel);
     WORD GetAnimationType() const;
     DWORD GetItemFlags() const;
     BYTE GetSchool() const;
