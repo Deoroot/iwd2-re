@@ -1,207 +1,149 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Repo
 
-## What this repo is
+Community RE of **Icewind Dale 2** (2002). `src/` = hand-recovered C++ matching `IWD2.exe`. Ghidra = truth; source = translation. See `README.md`, `ARCHITECTURE.md`.
 
-A community reverse engineering of **Icewind Dale 2** (2002). `src/` contains hand-recovered C++ matching the original `IWD2.exe`. Ghidra holds the authoritative analysis of the binary; the C++ tree is a translation of that analysis. See `README.md` and `ARCHITECTURE.md` for the broader picture.
-
-## Build & run (Windows, Win32, VS 2019/2022, MFC)
+## Build & run (Win32, VS 2019)
 
 ```powershell
-# Configure once
 cmake -S . -B build -G "Visual Studio 16 2019" -A Win32
-
-# Kill any running instance before rebuilding (locks the exe)
 Get-Process -Name iwd2-re -ErrorAction SilentlyContinue | Stop-Process -Force
-
-# Rebuild after edits (default Debug; pass Release only if asked)
 cmake --build build --config Debug
-
-# Deploy (must be inside the IWD2 install dir for chitin.key + assets)
 Copy-Item -Path "build/Debug/iwd2-re.exe" -Destination "C:\GOG Games\Icewind Dale 2\" -Force
 & "C:\GOG Games\Icewind Dale 2\iwd2-re.exe"
-
-# Driver that launches the game and clicks Load + first save (smoke test)
-python scripts/click_load_original.py
+python scripts/click_load_original.py   # smoke test
 ```
 
-Build safety is non-negotiable: every `src/` commit must compile clean on VS 2019 Win32. Rename a field/function → update header + every `.cpp` referent in **one** atomic commit (`rg "oldName" src/`). On build failure, report the first error verbatim and stop.
+Every `src/` commit must compile clean VS2019 Win32. Rename field/fn → update `.h` + ALL `.cpp` in ONE atomic commit (`rg "oldName" src/`). Build fail → report first error, stop.
 
-After a clean Debug build, deploy to the IWD2 install dir so the next in-game test runs the fresh exe: `Copy-Item -Path "build/Debug/iwd2-re.exe" -Destination "C:\GOG Games\Icewind Dale 2\" -Force`.
+## Ghidra = truth
 
-## Ghidra is the source of truth
+`// 0xADDR` comments can be stale. Ghidra wins when conflicting. Verify address before reasoning. If address not in Ghidra `funcs` table → check vtable `DATA` xref (likely virtual method). See `memory/feedback_ghidra_truth.md`.
 
-The `// 0xADDR` comment above each function is best-effort and **can be stale or wrong**. When source and Ghidra disagree, Ghidra wins. Always re-derive the real address from Ghidra before reasoning about binary behavior. See `memory/feedback_ghidra_truth.md` for the incident that taught us this.
+## GhidraMCP (`http://127.0.0.1:8089`)
 
-If a function's `// 0xADDR` isn't found in Ghidra's `funcs` table, the function may be a virtual method that Ghidra never auto-detected — look for a `DATA` xref from a vtable pointing at that address to confirm the entry point exists, then probe instructions directly.
+Install: `C:\ghidra-mcp`. Ghidra GUI opens → plugin auto-starts.
 
-## GhidraMCP workflow
-
-GhidraMCP is installed at `C:\ghidra-mcp`. It exposes ~195 REST endpoints from a Ghidra plugin at **`http://127.0.0.1:8089`** and a thin MCP bridge for AI clients.
-
-### Launch
-
-GUI mode:
-
-```powershell
-# One-time install + first launch
-cd C:\ghidra-mcp
-python -m tools.setup deploy --ghidra-path "C:\ghidra_dist\ghidra_12.0.4_PUBLIC"
-
-# Subsequent launches: just open Ghidra and load the IWD2 project
-& "C:\ghidra_dist\ghidra_12.0.4_PUBLIC\ghidraRun.bat"
-```
-
-### Sanity gate
-
+**Sanity:**
 ```bash
 curl -s http://127.0.0.1:8089/check_connection
-# → Connected: GhidraMCP plugin running with program 'IWD2.exe'
-curl -s http://127.0.0.1:8089/list_open_programs
 curl -s http://127.0.0.1:8089/get_metadata
 ```
 
-If the program isn't bound, open IWD2.exe in Ghidra (GUI)
-
-### Schema discovery
-
+**Schema:**
 ```bash
 curl -s http://127.0.0.1:8089/mcp/schema -o tmp_schema.json
 python -c "import json; d=json.load(open('tmp_schema.json')); print(len(d['tools']))"
-# inspect a tool's params:
-python -c "import json; d=json.load(open('tmp_schema.json')); print(next(t for t in d['tools'] if t['path']=='/set_function_prototype'))"
 ```
 
-### Common queries
-
+**Decompile / disasm:**
 ```bash
-# Decompile
 curl -s "http://127.0.0.1:8089/decompile_function?address=0x6C9A50"
-
-# Disassemble whole function
 curl -s "http://127.0.0.1:8089/disassemble_function?address=0x6CA830"
+curl -s -X POST http://127.0.0.1:8089/disassemble_bytes -H "Content-Type: application/json" -d '{"start_address":"0x44CBC0","length":24}'
+```
 
-# Disassemble arbitrary byte range (POST + JSON body)
-curl -s -X POST http://127.0.0.1:8089/disassemble_bytes \
-  -H "Content-Type: application/json" \
-  -d '{"start_address":"0x44CBC0","length":24}'
-
-# Search by name pattern
+**Search:**
+```bash
 curl -s "http://127.0.0.1:8089/search_functions?name_pattern=CanSaveGame&limit=50"
-
-# Xrefs to / from
-curl -s "http://127.0.0.1:8089/get_xrefs_to?address=0x44CBC0&limit=20"
-curl -s "http://127.0.0.1:8089/get_xrefs_from?address=0x6C90B9&limit=10"
-
-# Find instructions by mnemonic + operand
 curl -s "http://127.0.0.1:8089/search_instructions?mnemonic=MOV&operand_pattern=0x4076&limit=20"
 ```
 
-### Mutations (rename / prototype / labels)
-
+**Xrefs:**
 ```bash
-# Rename function (accepts address or current name)
-curl -s -X POST http://127.0.0.1:8089/rename_function_by_address \
-  -H "Content-Type: application/json" \
-  -d '{"function_address":"0x6C8390","new_name":"CGameAnimationTypeCharacter::EquipWeapon"}'
-
-# Set prototype (use `void*` for CString-typed params — Ghidra can't always parse C++ types)
-curl -s -X POST http://127.0.0.1:8089/set_function_prototype \
-  -H "Content-Type: application/json" \
-  -d '{"function_address":"0x6CA830","prototype":"void __thiscall EquipOffHWeapon(void * resRef, byte * colorRangeValues)"}'
+curl -s "http://127.0.0.1:8089/get_xrefs_to?address=0x44CBC0&limit=20"
+curl -s "http://127.0.0.1:8089/get_xrefs_from?address=0x6C90B9&limit=10"
 ```
 
-Mutations commit immediately to the running Ghidra project. After a batch of renames, save the project (File → Save in GUI, or rely on autosave + `--shutdown save`).
-
-### MCP bridge (for MCP-aware AI tools)
-
+**Rename / prototype:**
 ```bash
-cd C:\ghidra-mcp
-python bridge_mcp_ghidra.py            # stdio
+curl -s -X POST http://127.0.0.1:8089/rename_function_by_address -H "Content-Type: application/json" -d '{"function_address":"0x6C8390","new_name":"CGamAnimationTypeCharacter::EquipWeapon"}'
+curl -s -X POST http://127.0.0.1:8089/set_function_prototype -H "Content-Type: application/json" -d '{"function_address":"0x6CA830","prototype":"void __thiscall EquipOffHWeapon(void * resRef, byte * colorRangeValues)"}'
 ```
 
-The bridge auto-connects to `127.0.0.1:8089` and registers all 195 tools. Wire it into `.mcp.json` to call endpoints directly as MCP tools rather than `curl`.
+Mutations commit immediately. Save Ghidra project after batches.
 
-### Reading raw bytes from `IWD2.exe`
+**MCP bridge:**
+```bash
+cd C:\ghidra-mcp && python bridge_mcp_ghidra.py   # stdio, registers 195 tools
+```
 
-GhidraMCP's `/memory_bytes` is slow on wide ranges. For known addresses (e.g. extracting a string at a vtable slot), read directly from the on-disk PE with `pefile`:
-
+**Read PE bytes (use pefile, not `/memory_bytes`):**
 ```python
 import pefile
 pe = pefile.PE(r"C:\GOG Games\Icewind Dale 2\IWD2.exe", fast_load=True)
 ib = pe.OPTIONAL_HEADER.ImageBase
-print(pe.get_data(0x8ABCA4 - ib, 16))   # bytes at .rdata 0x8ABCA4
+print(pe.get_data(0x8ABCA4 - ib, 16))
 ```
 
-## Game asset export (`data/near_infinity_export/`)
+## Game assets (`data/near_infinity_export/`)
 
-All IWD2 game files extracted via NearInfinity. **Reach for this directory whenever you need to reason about game content** (action IDs, spell IDs, rule tables, button mappings, what scripts actually do) — it's faster and more authoritative than guessing from binary patterns or BG2 conventions.
+Extracted via NearInfinity. Use for game content questions (action IDs, spell IDs, scripts, UI layouts).
 
 ```
 data/near_infinity_export/
-├── 2DA/         # rule tables — QSLOTS, XPLEVEL, MGSPLLVL, ANIMATE, etc.
-├── ACM/         # voice / ambient audio (compressed)
-├── ARE/         # area files — actors, doors, triggers, containers, spawn points
-├── BAM/         # raw BAM (zlib-wrapped — use BAM_DECOMP for parsable headers)
-├── BAM_DECOMP/  # decompressed BAMv1 — read frames with struct.unpack
-├── BCS/         # compiled creature scripts (exported as readable .BAF)
-├── BS/          # compiled PC/player scripts (.BAF form)
-├── CHR/         # player character templates
-├── CHU/         # UI panels (button frames, hotkeys, positions, control ids)
-├── CRE/         # creature templates — stats, items, spells, scripts, anim id
-├── DLG/         # dialogue trees (state graph + triggers/actions per node)
-├── EFF/         # standalone effect files (.eff opcodes)
-├── GAM/         # save-game shape (party state, journal, globals)
-├── IDS/         # symbol→id maps — ACTION, TRIGGER, OBJECT, STATS, SPLSTATE, etc.
-├── ITM/         # item files — type, flags, weight, equip effects, abilities
-├── MOS/         # raw MOS (use MOS_DECOMP)
-├── MOS_DECOMP/  # decompressed MOS images
-├── MUS/         # music playlists (ACM cue sheets)
-├── MVE/         # bink-format movies
-├── PLT/         # paperdoll layer templates
-├── RES/         # generic resource blobs
-├── SPL/         # spell files — school, level, range, abilities, effects
-├── SRC/         # random strings (rumour tables, voicelines)
-├── STO/         # store inventories
-├── TIS/         # area tileset images
-├── WAV/         # uncompressed sfx
-├── WED/         # area tile maps / overlays
-└── WMP/         # world map nodes + transitions
+├── 2DA/         rule tables (QSLOTS, XPLEVEL, ANIMATE, etc.)
+├── ARE/         areas — actors, doors, triggers, spawns
+├── BAM_DECOMP/  decompressed BAMv1 (read frames with struct.unpack)
+├── BCS/         creature scripts (exported as .BAF)
+├── BS/          player scripts (.BAF)
+├── CHU/         UI panels (button frames, control ids)
+├── CRE/         creature templates
+├── DLG/         dialogue trees
+├── EFF/         standalone effects
+├── IDS/         symbol→id maps (ACTION, TRIGGER, OBJECT, STATS, SPLSTATE)
+├── ITM/         items
+├── SPL/         spells
+├── STO/         stores
+├── WED/         tile maps
+└── WMP/         world map
 ```
-
-Common uses by question type:
 
 | Question | File |
 |---|---|
-| What's action id N? | `IDS/ACTION.IDS` |
-| What's trigger id N? | `IDS/TRIGGER.IDS` |
-| What's the canonical name of state/stat N? | `IDS/STATS.IDS`, `IDS/SPLSTATE.IDS` |
-| Which actions / triggers do real scripts use most? | grep / tally across `BCS/*.BAF` + `BS/*.BAF` |
-| What does spell SPxxx do? | `SPL/SPxxx.SPL` |
-| Which button slot is "select all"? | `CHU/<panel>.CHU` |
-| Which CRE uses script X? | grep `CRE/` decompiled output |
-| What's the QSlot layout? | `2DA/QSLOTS.2DA` |
-| What edges connect two areas? | `WMP/WORLDMAP.WMP` |
+| Action id N? | `IDS/ACTION.IDS` |
+| Trigger id N? | `IDS/TRIGGER.IDS` |
+| Stat/state name? | `IDS/STATS.IDS`, `IDS/SPLSTATE.IDS` |
+| Spell SPxxx? | `SPL/SPxxx.SPL` |
+| Button slot? | `CHU/<panel>.CHU` |
+| QSlot layout? | `2DA/QSLOTS.2DA` |
+| Area edges? | `WMP/WORLDMAP.WMP` |
+| Script usage? | grep `BCS/*.BAF` + `BS/*.BAF` |
 
-TODO: as we encounter new file shapes, document the parser path (struct.unpack signatures, NearInfinity GUI fields) below this table so the next person doesn't have to rediscover layouts.
+## External refs
 
-## Reference paths (outside the repo)
-
-| Path | Purpose |
-|------|---------|
-| `C:/projects/bg2-symbols/bg2_pdb_types.txt` | BG2EE PDB class layouts (field names match IWD2, offsets don't) |
-| `C:/projects/gemrb/` | GemRB source — useful for CGameSprite ↔ Actor, CInfGame ↔ Game mappings |
-| `C:/projects/NearInfinity/` | NearInfinity — IWD2 file formats (.CRE, .ARE, .ITM) |
-| `C:/projects/iesdp/` | IESDP — IWD2 effects, opcodes, STATS.IDS |
+| Path | Use |
+|-----|-----|
+| `C:/projects/bg2-symbols/bg2_pdb_types.txt` | BG2EE PDB layouts (field names match, offsets differ) |
+| `C:/projects/gemrb/` | GemRB source (CGameSprite↔Actor, CInfGame↔Game) |
+| `C:/projects/NearInfinity/` | File formats (.CRE/.ARE/.ITM) |
+| `C:/projects/iesdp/` | Effects, opcodes, STATS.IDS |
 | `C:\ghidra_projects\IWD2\` | Live Ghidra project |
 
-## Notes on temp files and noise
+## Temp files
 
-The repo root accumulates `tmp_*.txt`, `tmp_*.json`, and `chunk_*.sql` from prior RE sessions. They are not tracked. Do not include them in commits; if they get in the way, just delete them.
+`tmp_*.txt`, `tmp_*.json`, `chunk_*.sql` = RE session noise. Not tracked. Delete freely.
 
-## When making code changes
+## Code changes
 
-Don't touch a function's `// 0xADDR` comment unless you've verified the address against Ghidra. Don't refactor surrounding code while fixing a bug — keep diffs minimal so each change is auditable against the binary. Prefer named constants (`ITEM_FLAGS_TWOHANDED`) over magic numbers when they're already defined in the file.
+- Verify `// 0xADDR` against Ghidra before touching.
+- Minimal diffs. One bug = one change. No refactor in bugfix commits.
+- Prefer named constants over magic numbers when defined in file.
 
-Commits: no `Co-Authored-By` / AI attribution trailer.
+## code-review-graph MCP
+
+**Graph first, Grep/Glob/Read second.** Graph = faster + cheaper + structural context.
+
+| Tool | When |
+|------|------|
+| `detect_changes` | Review changes → risk-scored analysis |
+| `get_review_context` | Source snippets for review |
+| `get_impact_radius` | Blast radius of change |
+| `get_affected_flows` | Which execution paths impacted |
+| `query_graph` | Callers/callees/imports/tests |
+| `semantic_search_nodes` | Find functions/classes by name |
+| `get_architecture_overview` | High-level structure |
+| `refactor_tool` | Rename preview, dead code |
+
+Workflow: `detect_changes` → `get_affected_flows` → `query_graph pattern="tests_for"` for coverage.
