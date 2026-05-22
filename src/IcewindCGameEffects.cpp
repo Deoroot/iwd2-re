@@ -4,6 +4,7 @@
 #include "CGameSprite.h"
 #include "CInfGame.h"
 #include "CUtil.h"
+#include "Icewind586B70.h"
 #include "IcewindMisc.h"
 
 // NOTE: I'm not sure where these constants belong.
@@ -602,6 +603,103 @@ CGameEffect* IcewindCGameEffectSummon::Copy()
 void IcewindCGameEffectSummon::SetSummonDelay(int a1)
 {
     field_190 = a1;
+}
+
+// 0x55F710
+// SUMMONALLY (opcode 410) / SUMMONENEMY (opcode 411). Caller cached on first
+// apply (field_18C). Roll m_numDice d m_diceSize and add to m_effectAmount to
+// get total count. For each: bail with summon-limit feedback if the engine
+// rejects the new sprite, otherwise call SpawnFromResRef and (optionally)
+// attach an Unsummon effect bounded by m_duration.
+BOOL IcewindCGameEffectSummon::ApplyEffect(CGameSprite* pSprite)
+{
+    if (field_18C == 0) {
+        field_18C = reinterpret_cast<int>(pSprite);
+    }
+
+    int total = static_cast<int>(m_effectAmount);
+    for (DWORD i = 0; i < m_numDice; ++i) {
+        int roll = (m_diceSize == 0) ? 0 : (rand() % static_cast<int>(m_diceSize));
+        total += roll + 1;
+    }
+
+    CGameSprite* pCaster = reinterpret_cast<CGameSprite*>(field_18C);
+    for (int i = 0; i < total; ++i) {
+        if (!Icewind586B70::Instance()->CanJoinParty(pCaster)) {
+            pCaster->FeedBack(50, 0, 0, 0, -1, 0, 0);
+            break;
+        }
+
+        const char* resRef = m_res.GetResRefStr();
+        CGameSprite* pSpawned = SpawnFromResRef(resRef, &m_target);
+
+        if ((m_durationType == 0 || m_durationType == 0x1000 || m_durationType == 3)
+            && pSpawned != NULL && m_durationType != 1) {
+            DWORD now = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime;
+            DWORD secs = (m_duration - now) / 15;
+            CGameEffect* pUnsummon = IcewindMisc::CreateEffectSkillUnsummon(pSpawned, secs, 0);
+            pUnsummon->m_firstCall = m_firstCall;
+            pSpawned->AddEffect(pUnsummon, /*list*/ 1, /*noSave*/ TRUE, /*immediateApply*/ TRUE);
+        }
+
+        AddSummonVisualHit(pSpawned, (field_190 != 0) ? 0x15 : 0);
+    }
+
+    int vfxId;
+    switch (field_190) {
+    case 1: vfxId = 0x120; break;
+    case 2: vfxId = 0x121; break;
+    case 3: vfxId = 0x122; break;
+    case 4: vfxId = 0x123; break;
+    case 5: vfxId = 0x124; break;
+    case 6: vfxId = 0x168; break;
+    case 0:
+    case 7: vfxId = 0; break;
+    default:
+        UTIL_ASSERT(FALSE);
+        vfxId = 0;
+    }
+    PlayGroupVFX(vfxId);
+
+    // TODO(0x55F710): binary writes DWORD 1 to (this + 0x110) here as a
+    // completion flag. Offset lives in unmapped padding in CGameEffectBase --
+    // skip until the layout is reconciled.
+    return TRUE;
+}
+
+// 0x55FAD0
+// TODO: 120-line spawn helper. Walks CDimm + CCreatureFile to instantiate the
+// CRE template at the target tile, sets EA via IsGoodByEA, wires the new
+// sprite into the area via FUN_006EF990 (CGameArea creature-insert; 1000+
+// decomp lines, not yet recovered). Stub returns NULL so the summon path
+// builds and runs end-to-end without crashing -- no creature actually spawns
+// until this helper is implemented.
+CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const char* resRef, const CPoint* pTarget)
+{
+    (void)resRef;
+    (void)pTarget;
+    return NULL;
+}
+
+// 0x55FA10
+// TODO: reads a cached caller-object ID at (this + 0x10C) -- lives in
+// unmapped padding in CGameEffectBase -- resolves it via
+// CGameObjectArray::GetShare, then attaches a VisualSpellHit effect to the
+// newly spawned sprite. Stub is a no-op until the field is named.
+void IcewindCGameEffectSummon::AddSummonVisualHit(CGameSprite* pSpawned, int mode)
+{
+    (void)pSpawned;
+    (void)mode;
+}
+
+// 0x55F930
+// TODO: spawn a CProjectile-driven group VFX via FUN_0051EAF0 (5400-line
+// projectile factory, not yet recovered) and queue a CMessageFireProjectile.
+// Stub is a no-op so the summon path builds; the per-summon visual still
+// fires via AddSummonVisualHit, only the group-level swirl is missing.
+void IcewindCGameEffectSummon::PlayGroupVFX(int vfxId)
+{
+    (void)vfxId;
 }
 
 // -----------------------------------------------------------------------------

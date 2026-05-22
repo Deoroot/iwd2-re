@@ -208,8 +208,13 @@ class IcewindCGameEffectSummon : public CGameEffect {
 public:
     IcewindCGameEffectSummon(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
     CGameEffect* Copy() override;
+    BOOL ApplyEffect(CGameSprite* pSprite) override;
 
     void SetSummonDelay(int a1);
+
+    CGameSprite* SpawnFromResRef(const char* resRef, const CPoint* pTarget);
+    void AddSummonVisualHit(CGameSprite* pSpawned, int mode);
+    void PlayGroupVFX(int vfxId);
 
     /* 018C */ int field_18C;
     /* 0190 */ int field_190;
