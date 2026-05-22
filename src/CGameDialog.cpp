@@ -152,14 +152,197 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
 // 0x482a40
 void CGameDialogSprite::LoadEntries(void* pData, DWORD nSize, LONG characterIndex, LONG talkerIndex)
 {
-    // TODO: Incomplete. Full DLG-format parser (~694 lines of decomp) walks
-    // header (state count/offset, transition count/offset, state-trigger
-    // table, transition-trigger table, action table) and populates
-    // m_dialogEntries + m_dialogEntriesOrdered + per-entry replies.
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameDialog.cpp
+    // __LINE__: 0x1ab
+    UTIL_ASSERT(pData != NULL);
+
+    if (pData == NULL) {
+        return;
+    }
+
+    ClearMarshal();
+
+    // __LINE__: 0x1c0
+    UTIL_ASSERT(nSize > 0x30);
+
+    // DLG V1.0 header layout (40 bytes starting at offset 8, after the "DLG V1.0" magic).
+    struct DLGHeader {
+        DWORD numStates;
+        DWORD statesOffset;
+        DWORD numTransitions;
+        DWORD transitionsOffset;
+        DWORD stateTriggersOffset;
+        DWORD numStateTriggers;
+        DWORD transitionTriggersOffset;
+        DWORD numTransitionTriggers;
+        DWORD actionsOffset;
+        DWORD numActions;
+    } hdr;
+    memcpy(&hdr, static_cast<BYTE*>(pData) + 8, sizeof(hdr));
+
+    // Raw record tables (allocated as flat byte buffers; freed at function exit).
+    CPtrArray arrStates;
+    CPtrArray arrTrans;
+    CPtrArray arrSTrig;
+    CPtrArray arrTTrig;
+    CPtrArray arrActions;
+
+    if (hdr.numStates != 0) {
+        DWORD* src = reinterpret_cast<DWORD*>(static_cast<BYTE*>(pData) + hdr.statesOffset);
+        for (DWORD i = 0; i < hdr.numStates; i++) {
+            DWORD* rec = static_cast<DWORD*>(malloc(16));
+            UTIL_ASSERT(rec != NULL);
+            memset(rec, 0, 16);
+            memcpy(rec, src, 16);
+            arrStates.Add(rec);
+            src += 4;
+        }
+    }
+
+    if (hdr.numTransitions != 0) {
+        DWORD* src = reinterpret_cast<DWORD*>(static_cast<BYTE*>(pData) + hdr.transitionsOffset);
+        for (DWORD i = 0; i < hdr.numTransitions; i++) {
+            DWORD* rec = static_cast<DWORD*>(malloc(32));
+            UTIL_ASSERT(rec != NULL);
+            memset(rec, 0, 32);
+            memcpy(rec, src, 32);
+            arrTrans.Add(rec);
+            src += 8;
+        }
+    }
+
+    if (hdr.numStateTriggers != 0) {
+        DWORD* src = reinterpret_cast<DWORD*>(static_cast<BYTE*>(pData) + hdr.stateTriggersOffset);
+        for (DWORD i = 0; i < hdr.numStateTriggers; i++) {
+            DWORD* rec = static_cast<DWORD*>(malloc(8));
+            UTIL_ASSERT(rec != NULL);
+            memset(rec, 0, 8);
+            memcpy(rec, src, 8);
+            arrSTrig.Add(rec);
+            src += 2;
+        }
+    }
+
+    if (hdr.numTransitionTriggers != 0) {
+        DWORD* src = reinterpret_cast<DWORD*>(static_cast<BYTE*>(pData) + hdr.transitionTriggersOffset);
+        for (DWORD i = 0; i < hdr.numTransitionTriggers; i++) {
+            DWORD* rec = static_cast<DWORD*>(malloc(8));
+            UTIL_ASSERT(rec != NULL);
+            memset(rec, 0, 8);
+            memcpy(rec, src, 8);
+            arrTTrig.Add(rec);
+            src += 2;
+        }
+    }
+
+    if (hdr.numActions != 0) {
+        DWORD* src = reinterpret_cast<DWORD*>(static_cast<BYTE*>(pData) + hdr.actionsOffset);
+        for (DWORD i = 0; i < hdr.numActions; i++) {
+            DWORD* rec = static_cast<DWORD*>(malloc(8));
+            UTIL_ASSERT(rec != NULL);
+            memset(rec, 0, 8);
+            memcpy(rec, src, 8);
+            arrActions.Add(rec);
+            src += 2;
+        }
+    }
+
     m_characterIndex = characterIndex;
     m_talkerIndex = talkerIndex;
-    (void)pData;
-    (void)nSize;
+
+    // Resolve the talker's portrait color + display name (best-effort: skipped
+    // if the sprite isn't currently in the object array).
+    CGameSprite* pSprite = NULL;
+    BYTE rc;
+    do {
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->m_cObjectArray.GetShare(characterIndex,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::TIMEOUT);
+    } while (rc == CGameObjectArray::DELETED);
+    if (rc == CGameObjectArray::SUCCESS) {
+        // Player portrait color table lives at .rdata 0x85e8d8; index =
+        // sprite byte at offset 0x5CA (party-slot color id).
+        m_playerColor = (reinterpret_cast<const COLORREF*>(0x85e8d8))[
+            *(reinterpret_cast<const BYTE*>(pSprite) + 0x5ca)];
+        m_playerName = pSprite->GetName();
+        g_pBaldurChitin->GetObjectGame()->m_cObjectArray.ReleaseShare(characterIndex,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    // CAIScriptFile aScript;  // reused to parse condition / response strings.
+    // TODO: condition (state[3]) + per-reply condition (trans[3]) + response
+    // (trans[4]) string parsing via CAIScriptFile::ParseConditionalString /
+    // ParseResponseString. Without it, m_startCondition/m_condition/m_response
+    // stay default-constructed (Hold() returns TRUE on empty trigger list, so
+    // entries appear unconditional).
+
+    for (DWORD stateIdx = 0; stateIdx < hdr.numStates; stateIdx++) {
+        DWORD* state = static_cast<DWORD*>(arrStates[stateIdx]);
+
+        CGameDialogEntry* pEntry = new CGameDialogEntry();
+        UTIL_ASSERT(pEntry != NULL);
+
+        pEntry->m_dialogText = static_cast<STRREF>(state[0]);
+
+        for (DWORD j = 0; j < state[2]; j++) {
+            DWORD* trans = static_cast<DWORD*>(arrTrans[state[1] + j]);
+
+            CGameDialogReply* pReply = new CGameDialogReply();
+            UTIL_ASSERT(pReply != NULL);
+            pReply->m_flags = trans[0];
+            pReply->m_replyText = (trans[0] & 1) ? static_cast<STRREF>(trans[1]) : static_cast<STRREF>(-1);
+            pReply->m_journalEntry = (trans[0] & 0x10) ? static_cast<STRREF>(trans[2]) : static_cast<STRREF>(-1);
+            // trans[3] = transition trigger index (when flag 0x2). TODO parse via CAIScriptFile.
+            // trans[4] = action index             (when flag 0x4). TODO parse via CAIScriptFile.
+            pReply->m_nextDialog = reinterpret_cast<BYTE*>(&trans[5]);
+            pReply->m_nextEntryIndex = trans[7];
+            pReply->m_displayPosition = NULL;
+            pReply->m_removeIfPicked = FALSE;
+            pReply->m_displayListId = 0xFF;
+
+            pEntry->Add(pReply);
+        }
+
+        // state[3] = state trigger index (or -1 for unconditional).
+        // m_conditionPriority drives the m_dialogEntriesOrdered ordering: lower
+        // values first; -1 (0xFFFFFFFF unsigned) sinks unconditional entries to
+        // the back.
+        pEntry->m_conditionPriority = state[3];
+        pEntry->m_dialogIndex = m_dialogEntries.GetCount();
+        m_dialogEntries.Add(pEntry);
+
+        BOOL bInserted = FALSE;
+        for (INT k = 0; k < m_dialogEntriesOrdered.GetCount(); k++) {
+            if (pEntry->m_conditionPriority < m_dialogEntriesOrdered.GetAt(k)->m_conditionPriority) {
+                m_dialogEntriesOrdered.InsertAt(k, pEntry);
+                bInserted = TRUE;
+                break;
+            }
+        }
+        if (!bInserted) {
+            m_dialogEntriesOrdered.Add(pEntry);
+        }
+    }
+
+    for (INT i = 0; i < arrStates.GetCount(); i++) {
+        free(arrStates[i]);
+    }
+    for (INT i = 0; i < arrTrans.GetCount(); i++) {
+        free(arrTrans[i]);
+    }
+    for (INT i = 0; i < arrSTrig.GetCount(); i++) {
+        free(arrSTrig[i]);
+    }
+    for (INT i = 0; i < arrTTrig.GetCount(); i++) {
+        free(arrTTrig[i]);
+    }
+    for (INT i = 0; i < arrActions.GetCount(); i++) {
+        free(arrActions[i]);
+    }
 }
 
 // 0x483B70
