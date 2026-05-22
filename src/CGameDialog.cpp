@@ -517,5 +517,68 @@ void CGameDialogEntry::RemoveReplies(LONG lMarker, COLORREF rgbNameColor, const 
 // 0x484900
 void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3)
 {
-    // TODO: Incomplete.
+    m_bDisplayButton = FALSE;
+
+    STR_RES strRes;
+    g_pBaldurChitin->GetTlkTable().Fetch(m_dialogText, strRes);
+
+    // Speaker portrait color (party-slot table at .rdata 0x85e8d8, indexed by
+    // sprite byte 0x5ca).
+    COLORREF rgbSpeaker = (reinterpret_cast<const COLORREF*>(0x85e8d8))[
+        *(reinterpret_cast<const BYTE*>(pSprite) + 0x5ca)];
+
+    g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
+        strRes.szText,
+        rgbSpeaker,
+        RGB(190, 215, 215),
+        -1,
+        FALSE);
+    g_pBaldurChitin->m_pEngineWorld->DisplayText(pSprite->GetName(),
+        CString(""),
+        -1,
+        FALSE);
+
+    // TODO: area-switch / scroll-to-speaker / pause-mode branching / dialog
+    // sound playback (binary 0x484a50..0x484ed0) deferred for later commits.
+
+    INT nValid = 0;
+    for (INT i = 0; i < GetCount(); i++) {
+        CGameDialogReply* pReply = GetAt(i);
+        if (pReply == NULL) {
+            continue;
+        }
+
+        // Flag 0x20 = inline-text reply (renders into the speaker bubble, not
+        // the button list). TODO: emit those via DisplayText as part of the
+        // main text block.
+        if ((pReply->m_flags & 0x20) != 0) {
+            continue;
+        }
+
+        // TODO: per-reply m_condition gate. Without a parsed condition the
+        // reply always shows.
+
+        nValid++;
+
+        STR_RES rrep;
+        g_pBaldurChitin->GetTlkTable().Fetch(pReply->m_replyText, rrep);
+
+        CString sLine;
+        sLine.Format("%d. %s", nValid, static_cast<LPCTSTR>(rrep.szText));
+
+        pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
+            sLine,
+            CString(""),
+            -1,
+            FALSE);
+        pReply->m_displayListId = static_cast<BYTE>(nValid);
+    }
+
+    if (nValid == 0) {
+        m_bDisplayButton = TRUE;
+        // Binary also pushes a "End dialog" auto-continue button here; deferred.
+    }
+
+    (void)playerColor;
+    (void)a3;
 }
