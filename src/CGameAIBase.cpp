@@ -745,6 +745,27 @@ SHORT CGameAIBase::ExecuteAction()
         // binary call site pushes only 2 args; the C++ signature has an
         // extra BOOLEAN that defaults via m_bShowQuestXP fallback.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x10A) {
+        // 0x10A = DisplayMessage (ACTION.IDS 266, signature
+        // `DisplayMessage(I:StrRef*)`).  Binary fetches the TLK string for
+        // m_specificID, then queues a CBaldurMessage::DisplayText with the
+        // pre-fetched CString -- this routes through the TLK-override path
+        // (CBaldurMessage::DisplayTextRef would skip overrides).  Name is
+        // empty, marker is the -1 "no journal entry" sentinel, both color
+        // slots use the standard NPC-chat tint 0xD7C8A0.
+        STR_RES strRes;
+        if (g_pBaldurChitin->GetTlkTable().Fetch(m_curAction.m_specificID, strRes)) {
+            CString sName("");
+            g_pBaldurChitin->GetBaldurMessage()->DisplayText(
+                sName,
+                strRes.szText,
+                0xD7C8A0,
+                0xD7C8A0,
+                -1,
+                m_id,
+                m_id);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x10E) {
         // 0x10E = ClearSpriteEffects (ACTION.IDS 270).  Binary resolves
         // the target and calls ReapplyEquipmentEffects on it -- counter-
