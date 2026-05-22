@@ -180,7 +180,7 @@ void CScreenSpellbook::EngineActivated()
     m_preLoadFontTool.RegisterFont();
 
     if (m_nSelectedCharacter != -1) {
-        sub_669830(m_nSelectedCharacter);
+        UpdateSpellList(m_nSelectedCharacter);
     }
 
     UpdateMainPanel();
@@ -472,7 +472,7 @@ BYTE* CScreenSpellbook::GetVirtualKeysFlags()
 }
 
 // 0x669830
-void CScreenSpellbook::sub_669830(DWORD nPortrait)
+void CScreenSpellbook::UpdateSpellList(DWORD nPortrait)
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CUIPanel* pPanel = m_cUIManager.GetPanel(2);
@@ -651,7 +651,7 @@ void CScreenSpellbook::OnPortraitLClick(DWORD nPortrait)
             DWORD nOldPortrait = m_nSelectedCharacter;
             m_nSelectedCharacter = nPortrait;
 
-            sub_669830(nPortrait);
+            UpdateSpellList(nPortrait);
             CheckMultiPlayerViewable();
 
             UpdateCursorShape(0);
@@ -1699,7 +1699,7 @@ void CScreenSpellbook::OnErrorButtonClick(INT nButton)
                 DismissPopup();
 
                 UnmemorizeSpell(pSprite, field_582);
-                sub_669830(GetSelectedCharacter());
+                UpdateSpellList(GetSelectedCharacter());
                 UpdateMainPanel();
                 m_cUIManager.GetPanel(2)->InvalidateRect(NULL);
                 break;
@@ -2398,7 +2398,7 @@ void CUIControlButtonSpellbookLevelSelection::OnLButtonClick(CPoint pt)
     CScreenSpellbook* pSpellbook = g_pBaldurChitin->m_pEngineSpellbook;
 
     pSpellbook->SetSpellLevel(m_nID - 55);
-    pSpellbook->sub_669830(pSpellbook->GetSelectedCharacter());
+    pSpellbook->UpdateSpellList(pSpellbook->GetSelectedCharacter());
     pSpellbook->UpdateMainPanel();
 }
 
@@ -2443,14 +2443,14 @@ void CUIControlButtonSpellbookClassSelection::OnLButtonClick(CPoint pt)
             pSpellbook->SetClassIndex(nNewClassIndex);
         }
 
-        pSpellbook->sub_669830(pSpellbook->GetSelectedCharacter());
+        pSpellbook->UpdateSpellList(pSpellbook->GetSelectedCharacter());
         pSpellbook->UpdateMainPanel();
         break;
     case 92:
         // Scroll class tabs left.
         if (nClassIndex >= 4) {
             pSpellbook->SetClassIndex(nClassIndex - 4);
-            pSpellbook->sub_669830(pSpellbook->GetSelectedCharacter());
+            pSpellbook->UpdateSpellList(pSpellbook->GetSelectedCharacter());
             pSpellbook->UpdateMainPanel();
         }
         break;
@@ -2459,7 +2459,7 @@ void CUIControlButtonSpellbookClassSelection::OnLButtonClick(CPoint pt)
         if (nClassIndex < 4 && pSpellbook->m_nNumberOfSpellClasses > 4) {
             nNewClassIndex = min(nClassIndex + 4, pSpellbook->m_nNumberOfSpellClasses - 1);
             pSpellbook->SetClassIndex(nNewClassIndex);
-            pSpellbook->sub_669830(pSpellbook->GetSelectedCharacter());
+            pSpellbook->UpdateSpellList(pSpellbook->GetSelectedCharacter());
             pSpellbook->UpdateMainPanel();
         }
         break;

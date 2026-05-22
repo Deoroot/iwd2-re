@@ -45,7 +45,7 @@ public:
     /* 00F0 */ void OnRestButtonClick() override;
     /* 0104 */ void CancelEngine() override;
 
-    void sub_669830(DWORD nPortrait);
+    void UpdateSpellList(DWORD nPortrait);
     int GetClassSpellCount(DWORD nIndex);
     void SetSpellLevel(INT nLevel);
     void SetClassIndex(DWORD nNewClassIndex);
