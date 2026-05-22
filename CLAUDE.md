@@ -28,6 +28,8 @@ python scripts/click_load_original.py
 
 Build safety is non-negotiable: every `src/` commit must compile clean on VS 2019 Win32. Rename a field/function → update header + every `.cpp` referent in **one** atomic commit (`rg "oldName" src/`). On build failure, report the first error verbatim and stop.
 
+After a clean Debug build, deploy to the IWD2 install dir so the next in-game test runs the fresh exe: `Copy-Item -Path "build/Debug/iwd2-re.exe" -Destination "C:\GOG Games\Icewind Dale 2\" -Force`.
+
 ## Ghidra is the source of truth
 
 The `// 0xADDR` comment above each function is best-effort and **can be stale or wrong**. When source and Ghidra disagree, Ghidra wins. Always re-derive the real address from Ghidra before reasoning about binary behavior. See `memory/feedback_ghidra_truth.md` for the incident that taught us this.
