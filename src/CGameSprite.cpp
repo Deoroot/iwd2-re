@@ -10615,6 +10615,114 @@ void CGameSprite::ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st*
     g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
 }
 
+// 0x755A70
+//
+// Main cast-completion handler, called by ForceSpellAction (and its
+// ForceSpellPoint / scripted-projectile siblings) when m_actionCount
+// crosses the cast-time threshold.  Three layers of work in the binary:
+//   1. Chant voice cue ("CHA_" + gender + casterType + randomised
+//      variant tag, with a HARPY06 special case for harpy callers)
+//      loaded into m_sndVoice on channel 2 -- gated on the cast being
+//      slow enough (speedFactor - mentalSpeed >= 3) AND the caster being
+//      a standard race.
+//   2. Pre-cast audio cue ("PRE_" + casterType + "0N") loaded into
+//      m_sndMagic on channel 4 and broadcast via CMessagePlaySoundRef.
+//   3. Projectile-spawn visual: builds an ITEM_EFFECT template (opcode
+//      0x29 SpawnCreature or 0xEB VisualSpellHit depending on animation
+//      type), runs CGameEffect::DecodeEffect against the target's CPoint
+//      with the Empower-feat / mage-bonus-level-adjusted duration, then
+//      queues a CMessageAddEffect on self.
+//   4. The 8-case casting-effect dispatch loop -- iterates CSpell's
+//      casting-effect list (GetCastingEffectNo / GetCastingEffect) and
+//      forwards each effect by m_targetType into either a per-target
+//      CMessageAddEffect (case 1), ApplyEffectToParty (case 3), or one
+//      of five CGameArea::ApplyEffect filters (cases 4-8).
+//
+// Layers 1-3 still TODO (sound + projectile-visual only -- no gameplay
+// impact when missing).  Layer 4 is the gameplay-critical bit that
+// actually applies damage / status / buffs and is fully wired here so
+// ForceSpell stops dropping spell effects on the floor.
+void CGameSprite::ApplyCastingEffect(CSpell* pSpell,
+    const Spell_ability_st* pAbility,
+    const CPoint& targetPos)
+{
+    (void)targetPos;
+    if (pSpell == NULL || pAbility == NULL) {
+        return;
+    }
+
+    // TODO (multi-session): chant voice block (m_sndVoice / channel 2,
+    // "CHA_"/HARPY06 resref family, random %s0%c/%s1%c variant tag,
+    // IsStandardRace gate, speedFactor-vs-mentalSpeed gate).
+
+    // TODO (multi-session): pre-cast audio block (m_sndMagic / channel 4,
+    // "PRE_" + casterType + "0N", same SetResRef + Play +
+    // CMessagePlaySoundRef pattern as ApplyCastingEffectPost).
+
+    // TODO (multi-session): projectile-spawn ITEM_EFFECT + DecodeEffect
+    // queue (opcode 0x29 / 0xEB depending on GetAnimationType, duration
+    // = speedFactor*10 - mentalSpeed adjusted by Empower-Spell feat 0x20,
+    // CMessageAddEffect on self).
+
+    // Casting-effect dispatch -- iterate CSpell::GetCastingEffect and
+    // forward each effect by m_targetType.
+    SHORT nCount = pSpell->GetCastingEffectNo();
+    for (LONG i = 0; i < nCount; ++i) {
+        CGameEffect* pEffect = pSpell->GetCastingEffect(i);
+        if (pEffect == NULL) {
+            continue;
+        }
+
+        pEffect->m_source = m_pos;
+        pEffect->m_sourceID = m_id;
+        pEffect->m_target = m_pos;
+
+        switch (pEffect->m_targetType) {
+        case 1:
+            // Self-targeted -- queue add-effect on caster.  Ownership
+            // transfers to CMessageAddEffect.
+            {
+                CMessage* msg = new CMessageAddEffect(pEffect, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            }
+            continue;
+        case 2:
+            // Reserved for in-flight projectile attach (CProjectile::AddEffect).
+            // Binary asserts here -- unreachable at cast completion.
+            break;
+        case 3:
+            ApplyEffectToParty(pEffect);
+            break;
+        case 4:
+            m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, NULL);
+            break;
+        case 5:
+            m_pArea->ApplyEffect(pEffect, TRUE, FALSE, 0, NULL);
+            break;
+        case 6:
+            m_pArea->ApplyEffect(pEffect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
+            break;
+        case 7:
+            // Binary reads m_typeAI.m_nSpecific via the GetAIType() vtable
+            // entry rather than the direct +0x33 offset of case 6 -- same
+            // value, same caster, different access path.  Preserve the
+            // GetAIType() reading for binary fidelity.
+            m_pArea->ApplyEffect(pEffect, FALSE, TRUE, GetAIType().m_nSpecific, NULL);
+            break;
+        case 8:
+            m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, this);
+            break;
+        default:
+            break;
+        }
+
+        // Cases 3-8 (and default) get a deleting destructor invocation in
+        // the binary -- the dispatch helpers all copy the effect before
+        // queueing, so the locally-decoded copy must be released.
+        delete pEffect;
+    }
+}
+
 // 0x728270
 void CGameSprite::PlaySound(const CResRef& res)
 {

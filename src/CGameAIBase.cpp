@@ -2607,10 +2607,15 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         return ACTION_INTERRUPTABLE;
     }
 
-    // TODO (multi-session): 8-case effect dispatch matrix and
-    // CMessageFireProjectile spawn.  For now delegate to FireSpell so the
-    // legacy stub still runs at completion.
-    FireSpell(resRef, target);
+    // Stage 3: fire and complete.  CGameSprite::ApplyCastingEffect handles
+    // the 8-case effect-dispatch matrix and (still-TODO) the chant / pre-
+    // cast audio + projectile-spawn visual.  Non-sprite callers fall back
+    // to the legacy FireSpell stub.
+    if (isSprite) {
+        static_cast<CGameSprite*>(this)->ApplyCastingEffect(pSpell, pAbility, target->GetPos());
+    } else {
+        FireSpell(resRef, target);
+    }
 
     pSpell->Release();
     delete pSpell;
