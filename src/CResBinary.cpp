@@ -3,7 +3,7 @@
 // 0x4028F0
 CResBinary::CResBinary()
 {
-    field_54 = 0;
+    m_resVersion = 0;
 }
 
 // 0x402930

@@ -102,17 +102,17 @@ POLYCOLOR CVisibilityMap::CLEARSHADE;
 // 0x551770
 CVisibilityMap::CVisibilityMap()
 {
-    field_4 = 0;
+    m_nHorzArcCount = 0;
     m_nWidth = 0;
     m_nHeight = 0;
-    field_1A = 0;
+    m_nVertArcCount = 0;
     memset(m_aCharacterIds, 0, sizeof(m_aCharacterIds));
     m_pMap = NULL;
     m_pSearchMap = NULL;
-    field_12 = 0;
-    field_16 = 0;
-    field_E = 14;
-    field_10 = 10;
+    m_pHorzArcPixels = 0;
+    m_pVertArcPixels = 0;
+    m_nSearchRangeH = 14;
+    m_nSearchRangeV = 10;
     UpdateVisibilityEllipses();
     m_bOutDoor = FALSE;
 }
@@ -120,12 +120,12 @@ CVisibilityMap::CVisibilityMap()
 // 0x551800
 CVisibilityMap::~CVisibilityMap()
 {
-    if (field_12) {
-        delete field_12;
+    if (m_pHorzArcPixels) {
+        delete m_pHorzArcPixels;
     }
 
-    if (field_16) {
-        delete field_16;
+    if (m_pVertArcPixels) {
+        delete m_pVertArcPixels;
     }
 }
 
@@ -145,24 +145,24 @@ BOOL CVisibilityMap::AddCharacter(const CPoint& pos, LONG charId, const BYTE* pV
 // 0x5518A0
 void CVisibilityMap::UpdateVisibilityEllipses()
 {
-    if (field_12 != NULL) {
-        delete field_12;
+    if (m_pHorzArcPixels != NULL) {
+        delete m_pHorzArcPixels;
     }
 
-    if (field_16 != NULL) {
-        delete field_16;
+    if (m_pVertArcPixels != NULL) {
+        delete m_pVertArcPixels;
     }
 
-    field_12 = new BYTE[field_E];
-    field_16 = new BYTE[field_10];
+    m_pHorzArcPixels = new BYTE[m_nSearchRangeH];
+    m_pVertArcPixels = new BYTE[m_nSearchRangeV];
 
-    field_4 = static_cast<BYTE>(g_pBaldurChitin->GetCurrentVideoMode()->GetEllipseArcPixelList(field_E,
-        field_10,
-        field_12));
+    m_nHorzArcCount = static_cast<BYTE>(g_pBaldurChitin->GetCurrentVideoMode()->GetEllipseArcPixelList(m_nSearchRangeH,
+        m_nSearchRangeV,
+        m_pHorzArcPixels));
 
-    field_1A = static_cast<BYTE>(g_pBaldurChitin->GetCurrentVideoMode()->GetEllipseArcPixelList(field_10,
-        field_E,
-        field_16));
+    m_nVertArcCount = static_cast<BYTE>(g_pBaldurChitin->GetCurrentVideoMode()->GetEllipseArcPixelList(m_nSearchRangeV,
+        m_nSearchRangeH,
+        m_pVertArcPixels));
 }
 
 // 0x551950

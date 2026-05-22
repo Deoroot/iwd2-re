@@ -9,12 +9,12 @@ CResFile::CResFile()
     m_pHeader = NULL;
     m_pVarEntries = NULL;
     m_pFixedEntries = NULL;
-    field_20 = NULL;
+    m_pFileBuffer = NULL;
     m_bOpen = FALSE;
     field_4 = 0;
     m_nCacheCount = 0;
     m_nRefCount = 0;
-    field_38 = 0;
+    m_bFromCD = 0;
 }
 
 // 0x7898F0
@@ -30,9 +30,9 @@ BOOL CResFile::AddCacheCount()
 {
     EnterCriticalSection(&(g_pChitin->m_critSectResCache));
 
-    while (g_pChitin->cDimm.cResCache.field_110 == 1) {
+    while (g_pChitin->cDimm.m_nBusy == 1) {
         LeaveCriticalSection(&(g_pChitin->m_critSectResCache));
-        while (g_pChitin->cDimm.cResCache.field_110 == 1) {
+        while (g_pChitin->cDimm.m_nBusy == 1) {
             SleepEx(50, FALSE);
         }
         EnterCriticalSection(&(g_pChitin->m_critSectResCache));
@@ -48,7 +48,7 @@ BOOL CResFile::AddCacheCount()
     }
     m_nCacheCount++;
 
-    g_pChitin->cDimm.cResCache.field_110 = 1;
+    g_pChitin->cDimm.m_nBusy = 1;
     LeaveCriticalSection(&(g_pChitin->m_critSectResCache));
 
     return TRUE;
@@ -73,14 +73,14 @@ BOOL CResFile::CloseFile()
             m_pFixedEntries = NULL;
         }
 
-        if (field_20 != NULL) {
-            delete field_20;
-            field_20 = NULL;
+        if (m_pFileBuffer != NULL) {
+            delete m_pFileBuffer;
+            m_pFileBuffer = NULL;
         }
 
         m_cFile.Close();
         m_bOpen = FALSE;
-        field_38 = 0;
+        m_bFromCD = 0;
     }
 
     return TRUE;
@@ -108,9 +108,9 @@ DWORD CResFile::GetFileSize(RESID resID)
         }
     }
 
-    if (field_20 != NULL) {
+    if (m_pFileBuffer != NULL) {
         // TODO: Object/structure?
-        return reinterpret_cast<DWORD>(reinterpret_cast<unsigned char*>(field_20) + 2);
+        return reinterpret_cast<DWORD>(reinterpret_cast<unsigned char*>(m_pFileBuffer) + 2);
     }
 
     return 0;
@@ -265,7 +265,7 @@ BOOL CResFile::OpenFile()
     m_bOpen = TRUE;
 
     if (sResFileName.Left(2).Compare("cd") == 0) {
-        field_38 = TRUE;
+        m_bFromCD = TRUE;
     }
 
     return TRUE;
@@ -316,7 +316,7 @@ UINT CResFile::ReadResource(RESID resID, LPVOID lpBuf, UINT nCount, UINT nOffset
         }
     }
 
-    if (field_20 != NULL) {
+    if (m_pFileBuffer != NULL) {
         m_cFile.Seek(0, CFile::SeekPosition::begin);
         return m_cFile.Read(static_cast<unsigned char*>(lpBuf) + nOffset, nCount);
     }

@@ -22,10 +22,10 @@ public:
     /* 0014 */ BIFF_HEADER* m_pHeader; // #guess
     /* 0018 */ BIFF_VARTABLEENTRY* m_pVarEntries; // #guess
     /* 001C */ BIFF_FIXEDTABLEENTRY* m_pFixedEntries; // #guess
-    /* 0020 */ void* field_20;
+    /* 0020 */ void* m_pFileBuffer;
     /* 0024 */ BOOL m_bOpen; // #guess
     /* 0028 */ CFile m_cFile; // #guess
-    /* 0038 */ BOOLEAN field_38;
+    /* 0038 */ BOOLEAN m_bFromCD;
 };
 
 #endif /* CRESFILE_H_ */

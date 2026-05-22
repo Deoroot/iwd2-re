@@ -478,9 +478,9 @@ void* CDimm::InternalDemand(CRes* pRes)
     if ((nResID >> 20) < m_nResFiles && (nResID & 0xFFF00000) < 0xFC000000) {
         CResFile* pResFile = m_ppResFiles[nResID >> 20];
         EnterCriticalSection(&(g_pChitin->m_critSectResCache));
-        while (g_pChitin->cDimm.cResCache.field_110 == 1) {
+        while (g_pChitin->cDimm.cResCache.m_nBusy == 1) {
             LeaveCriticalSection(&(g_pChitin->m_critSectResCache));
-            while (g_pChitin->cDimm.cResCache.field_110 == 1) {
+            while (g_pChitin->cDimm.cResCache.m_nBusy == 1) {
                 SleepEx(50, 0);
             }
             EnterCriticalSection(&(g_pChitin->m_critSectResCache));

@@ -8,7 +8,7 @@ public:
     CResBinary();
     ~CResBinary();
 
-    /* 0054 */ int field_54;
+    /* 0054 */ int m_resVersion;
 };
 
 #endif /* CRESBINARY_H_ */

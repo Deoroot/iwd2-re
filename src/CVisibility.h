@@ -85,15 +85,15 @@ public:
     void SetTileVisible(LONG nIndex, BYTE charId);
 
     /* 0000 */ BYTE* m_pMap;
-    /* 0004 */ BYTE field_4;
+    /* 0004 */ BYTE m_nHorzArcCount;
     /* 0006 */ SHORT m_nWidth;
     /* 0008 */ SHORT m_nHeight;
     /* 000A */ LONG m_nMapSize;
-    /* 000E */ short field_E;
-    /* 0010 */ short field_10;
-    /* 0012 */ BYTE* field_12;
-    /* 0016 */ BYTE* field_16;
-    /* 001A */ BYTE field_1A;
+    /* 000E */ short m_nSearchRangeH;
+    /* 0010 */ short m_nSearchRangeV;
+    /* 0012 */ BYTE* m_pHorzArcPixels;
+    /* 0016 */ BYTE* m_pVertArcPixels;
+    /* 001A */ BYTE m_nVertArcCount;
     /* 001B */ BOOLEAN m_bOutDoor;
     /* 001C */ CCriticalSection m_critSect;
     /* 003C */ CSearchBitmap* m_pSearchMap;
