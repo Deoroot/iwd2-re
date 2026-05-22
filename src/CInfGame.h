@@ -131,7 +131,7 @@ public:
     INT EndListManipulation(CGameArea* pArea);
     void WaitForEngine(BOOL a1);
     void DestroyGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace);
-    void sub_5A0160();
+    void ValidateCache();
     LONG CachingRequirements(const CString& areaName);
     void CacheResFileWithResource(const CString& areaName);
     LONG ImportCharacter(const CString& sFileName, INT nIndex);
