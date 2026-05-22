@@ -745,6 +745,31 @@ SHORT CGameAIBase::ExecuteAction()
         // binary call site pushes only 2 args; the C++ signature has an
         // extra BOOLEAN that defaults via m_bShowQuestXP fallback.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x83) {
+        // 0x83 = Kill (ACTION.IDS 131).  Resolves target, skips work if
+        // the derivedStats already carry STATE_DEAD, runs the sub_761650
+        // prep, builds a CGameEffectDeath (inlined default ctor: effectID
+        // 13 + field_18C 1 over the CGameEffect base ctor's zeroing) with
+        // m_dwFlags 4 (instant equip-style timing) and m_sourceID set to
+        // the target itself (the binary writes target.m_id, not caster's,
+        // into the source slot -- preserved as-is), then queues a
+        // CMessageAddEffect on the target.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
+            if ((pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0) {
+                pSprite->sub_761650();
+                CGameEffectDeath* pEffect = new CGameEffectDeath();
+                pEffect->m_effectAmount = 0;
+                pEffect->m_dwFlags = 4;
+                pEffect->m_sourceID = pObj->m_id;
+                CMessage* msg = new CMessageAddEffect(pEffect, m_id, pObj->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x102) {
         // 0x102 = RestUntilHealed (ACTION.IDS 258).  Binary asks
         // CanRestParty (passing bit 1 of action flags as the
