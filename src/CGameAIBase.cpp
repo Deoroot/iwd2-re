@@ -745,6 +745,37 @@ SHORT CGameAIBase::ExecuteAction()
         // binary call site pushes only 2 args; the C++ signature has an
         // extra BOOLEAN that defaults via m_bShowQuestXP fallback.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x102) {
+        // 0x102 = RestUntilHealed (ACTION.IDS 258).  Binary asks
+        // CanRestParty (passing bit 1 of action flags as the
+        // ignore-encounters arg), then either toggles m_bHealPartyOnRest
+        // around a RestParty call or displays the rejection strref the
+        // out-param carried back, tinted green (the standard rest-feedback
+        // color 0x00FF00).
+        STRREF strError = 0;
+        unsigned char ignoreEncounters
+            = (m_curAction.GetFlags() & 0x2) != 0 ? 1 : 0;
+        BOOL canRest = g_pBaldurChitin->GetObjectGame()->CanRestParty(
+            strError, 0, 1, ignoreEncounters);
+        if (canRest == TRUE) {
+            CInfGame::m_bHealPartyOnRest = TRUE;
+            g_pBaldurChitin->GetObjectGame()->RestParty(1, 1);
+            CInfGame::m_bHealPartyOnRest = FALSE;
+        } else {
+            STR_RES strRes;
+            if (g_pBaldurChitin->GetTlkTable().Fetch(strError, strRes)) {
+                CString sName("");
+                g_pBaldurChitin->GetBaldurMessage()->DisplayText(
+                    sName,
+                    strRes.szText,
+                    0x00FF00,
+                    0x00FF00,
+                    -1,
+                    m_id,
+                    m_id);
+            }
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x10A) {
         // 0x10A = DisplayMessage (ACTION.IDS 266, signature
         // `DisplayMessage(I:StrRef*)`).  Binary fetches the TLK string for
