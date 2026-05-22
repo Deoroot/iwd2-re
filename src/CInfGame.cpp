@@ -2060,6 +2060,7 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     m_gameSave.m_nPartyGold = *reinterpret_cast<DWORD*>(pGame + 0x18);
 
     // View area of party member (offset 0x1C)
+    SHORT nViewAreaMember = *reinterpret_cast<SHORT*>(pGame + 0x1C);
 
     // Weather (offset 0x1E)
 
@@ -2146,6 +2147,10 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
                         pSprite->m_sName = szName;
 
                         pSprite->Unmarshal(reinterpret_cast<CSavedGamePartyCreature*>(pMember), TRUE, bProgressBarInPlace);
+
+                        if (i == nViewAreaMember && pSprite->m_pArea != NULL) {
+                            m_visibleArea = pSprite->m_pArea->m_id;
+                        }
 
                         LONG nIndex = pSprite->m_id;
                         if (slotIndex >= 0 && slotIndex < 6) {
