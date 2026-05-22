@@ -10570,6 +10570,51 @@ BOOL CGameSprite::CheckInvisibility(BOOL bSeesInvisible)
     return TRUE;
 }
 
+// 0x7564E0
+//
+// Followup half of `CGameSprite::ApplyCastingEffect`.  Called when the cast
+// enters the burst visual stage (DAT_0085BBB2 marker) and on a couple of
+// projectile-completion paths.  Builds the casting-feedback sound resref
+// ("CAS_M0N" for arcane casters, "CAS_P0N" for divine, where N selects the
+// caster's animation variant), parks it in `m_sndMagic` so the sprite can
+// replay it without re-loading, plays the 3D-positioned local sound, and
+// queues a CMessagePlaySoundRef on channel 4 so remote clients hear the
+// same cue.
+void CGameSprite::ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st* pAbility)
+{
+    if (pSpell == NULL || pAbility == NULL) {
+        return;
+    }
+    SHORT casterType = pSpell->GetCasterType();
+
+    CString resName("CAS_");
+    resName += (casterType == 2) ? 'P' : 'M';
+    switch (pSpell->GetAnimationType()) {
+    case 9:  resName += "07"; break;
+    case 10: resName += "08"; break;
+    case 11: resName += "05"; break;
+    case 12: resName += "02"; break;
+    case 13: resName += "01"; break;
+    case 14: resName += "03"; break;
+    case 15: resName += "06"; break;
+    case 16: resName += "04"; break;
+    default:
+        return;
+    }
+
+    m_sndMagic.Stop();
+    m_sndMagic.SetChannel(4, reinterpret_cast<DWORD>(m_pArea));
+
+    CResRef newResRef = static_cast<LPCSTR>(resName);
+    m_sndMagic.SetResRef(newResRef, TRUE, TRUE);
+
+    m_sndMagic.Play(m_pos.x, m_pos.y, m_posZ, FALSE);
+
+    CMessagePlaySoundRef* msg = new CMessagePlaySoundRef(newResRef, m_id, m_id);
+    msg->m_nChannel = 4;
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+}
+
 // 0x728270
 void CGameSprite::PlaySound(const CResRef& res)
 {

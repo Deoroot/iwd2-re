@@ -161,6 +161,7 @@ class CProjectile;
 class CSearchBitmap;
 class CSearchRequest;
 class CSpell;
+struct Spell_ability_st;
 class CUIControlBase;
 class CUIControlTextDisplay;
 class CVariableHash;
@@ -443,6 +444,7 @@ public:
     void ChangeDirection();
     void CheckIfVisible();
     BOOL CheckInvisibility(BOOL bSeesInvisible);
+    void ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st* pAbility);
     void DropPath();
     void DropSearchRequest();
     BOOL MoveToBack();
@@ -764,6 +766,8 @@ public:
     /* 4DFF */ BYTE m_currSndArmor;
     /* 4E00 */ CSound m_sndReady;
     /* 4E64 */ CSound m_sndDeath;
+    /* 4EC8 */ CSound m_sndMagic;
+    /* 4F2C */ CSound m_sndVoice;
     /* 4F90 */ CSound m_sndSpriteEffect;
     /* 4FF4 */ int m_nNumberOfTimesTalkedTo;
     /* 4FF8 */ BOOL m_bSeenPartyBefore;

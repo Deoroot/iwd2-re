@@ -2496,17 +2496,35 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
     // Cast-time gate.  speedFactor is per-ability cast time in 1/10ths of an
     // AI tick; the binary computes castTime = speedFactor*100/10 == *10 and
     // splits the gate into two visual stages:
-    //   m_actionCount < castTime - 4 : raise-hands state (DAT_0085BBB3)
-    //   m_actionCount < castTime     : cast-burst state (DAT_0085BBB2) +
-    //                                  FUN_007564E0 cancel-anim hook
+    //   m_actionCount < castTime - 4 : raise-hands state (SEQ_CONJURE)
+    //   m_actionCount < castTime     : cast-burst state (SEQ_CAST) +
+    //                                  CGameSprite::ApplyCastingEffectPost
     //   otherwise                    : fire and complete.
     // Both not-yet-done branches return ACTION_INTERRUPTABLE.  The visual
-    // state-change message (PTR_FUN_008488C4) and the first-frame cast-anim
-    // start (FUN_00755A70 + invisibility-break + concentration checks at
-    // m_actionCount == 0) are still TODO -- without them casts complete
-    // silently, but the action's duration now matches the binary.
+    // state-change message (PTR_FUN_008488C4, unrecovered CMessage class) and
+    // the first-frame cast-anim start (FUN_00755A70 + invisibility-break +
+    // concentration checks at m_actionCount == 0) are still TODO -- without
+    // them casts complete silently, but the action's duration matches the
+    // binary and the cast-burst sound cue plays.
     WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
+    BOOL isSprite = (GetObjectType() & CGameObject::TYPE_SPRITE) != 0;
+    SHORT currentSeq = isSprite
+        ? static_cast<CGameSprite*>(this)->m_nSequence
+        : static_cast<SHORT>(0);
+
+    if (m_actionCount < static_cast<SHORT>(castTime - 4)) {
+        // Stage 1: raise hands.  State-change CMessage (PTR_FUN_008488C4)
+        // skipped pending recovery.
+        pSpell->Release();
+        delete pSpell;
+        return ACTION_INTERRUPTABLE;
+    }
     if (m_actionCount < static_cast<SHORT>(castTime)) {
+        // Stage 2: cast burst.  Only on state transition: queue burst sound
+        // cue.
+        if (isSprite && currentSeq != CGameSprite::SEQ_CAST) {
+            static_cast<CGameSprite*>(this)->ApplyCastingEffectPost(pSpell, pAbility);
+        }
         pSpell->Release();
         delete pSpell;
         return ACTION_INTERRUPTABLE;
