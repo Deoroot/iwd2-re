@@ -4,6 +4,28 @@
 
 Community RE of **Icewind Dale 2** (2002). `src/` = hand-recovered C++ matching `IWD2.exe`. Ghidra = truth; source = translation. See `README.md`, `ARCHITECTURE.md`.
 
+## code-review-graph MCP — MANDATORY for `src/` lookups
+
+**RULE: searching `src/` → graph MCP FIRST. Grep/Glob/Read forbidden until graph returns 0 results.** Graph parsed src tree; structural + cheap. Grep over src/ wastes tokens + misses callers/callees.
+
+Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, ghidra curl, raw binaries.
+
+| Want | Tool |
+|------|------|
+| Find fn/class by name | `semantic_search_nodes` |
+| Callers of X | `query_graph pattern=callers_of target=X` |
+| Callees of X | `query_graph pattern=callees_of target=X` |
+| File contents tree | `query_graph pattern=file_summary target=path` |
+| Blast radius | `get_impact_radius` |
+| Exec paths hit | `get_affected_flows` |
+| Free traversal | `traverse_graph` |
+| Quick repo stats | `get_minimal_context` |
+| Review diff | `detect_changes` → `get_affected_flows` |
+
+Workflow: `semantic_search_nodes` → `query_graph callers/callees` → Read only specific lines from result.
+
+Violation flagged 2026-05-23. See `memory/feedback_graph_first.md`.
+
 ## Build & run (Win32, VS 2019)
 
 ```powershell
@@ -131,19 +153,3 @@ data/near_infinity_export/
 - Minimal diffs. One bug = one change. No refactor in bugfix commits.
 - Prefer named constants over magic numbers when defined in file.
 
-## code-review-graph MCP
-
-**Graph first, Grep/Glob/Read second.** Graph = faster + cheaper + structural context.
-
-| Tool | When |
-|------|------|
-| `detect_changes` | Review changes → risk-scored analysis |
-| `get_review_context` | Source snippets for review |
-| `get_impact_radius` | Blast radius of change |
-| `get_affected_flows` | Which execution paths impacted |
-| `query_graph` | Callers/callees/imports/tests |
-| `semantic_search_nodes` | Find functions/classes by name |
-| `get_architecture_overview` | High-level structure |
-| `refactor_tool` | Rename preview, dead code |
-
-Workflow: `detect_changes` → `get_affected_flows` → `query_graph pattern="tests_for"` for coverage.
