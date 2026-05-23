@@ -1025,6 +1025,8 @@ void CInfGame::InitGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     m_appearanceHelmet = "";
 
     m_pGameAreaMaster = NULL;
+    memset(m_gameAreas, 0, sizeof(m_gameAreas));
+    m_visibleArea = 0;
     m_bPartyAI = TRUE;
     m_bShowAreaNotes = TRUE;
     m_bTriggerOutline = 0;
@@ -6198,22 +6200,29 @@ void CInfGame::AddPartyGold(LONG dwAddPartyGold)
 // 0x5BF6A0
 void CInfGame::SetupCharacters(BOOLEAN bProgressBarInPlace)
 {
-
     CResRef cResArea;
     CPoint ptView;
     GetRuleTables().GetStartArea(cResArea, ptView);
 
     CString sAreaName;
-    cResArea.CopyToString(sAreaName);
-
-    CGameArea* pArea = LoadArea(sAreaName, -1, TRUE, bProgressBarInPlace);
-    if (pArea == NULL) {
-        return;
+    CGameArea* pArea;
+    if (!m_bFromNewGame) {
+        // Load path: area name comes from MultiplayerSettings so LoadArea is a cache hit; don't touch m_visibleArea (Unmarshal already set it from save header).
+        sAreaName = GetMultiplayerSettings()->GetAreaStartName();
+        pArea = LoadArea(sAreaName, -1, TRUE, bProgressBarInPlace);
+        if (pArea == NULL) {
+            return;
+        }
+    } else {
+        cResArea.CopyToString(sAreaName);
+        pArea = LoadArea(sAreaName, -1, TRUE, bProgressBarInPlace);
+        if (pArea == NULL) {
+            return;
+        }
+        m_visibleArea = pArea->m_id;
+        pArea->m_visibility.SetAreaExplored();
+        pArea->m_visibility.SetAreaVisible(TRUE);
     }
-
-    m_visibleArea = pArea->m_id;
-    pArea->m_visibility.SetAreaExplored();
-    pArea->m_visibility.SetAreaVisible(TRUE);
 
     for (SHORT nPortrait = 0; nPortrait < m_nCharacters; nPortrait++) {
         LONG nCharacterId = m_characterPortraits[nPortrait];
@@ -6224,12 +6233,20 @@ void CInfGame::SetupCharacters(BOOLEAN bProgressBarInPlace)
                 reinterpret_cast<CGameObject**>(&pSprite),
                 INFINITE);
             if (rc == CGameObjectArray::SUCCESS) {
-                CPoint ptStart = GetRuleTables().GetStartPoint(nPortrait);
-                WORD nFacing = static_cast<WORD>(GetRuleTables().GetStartRotation(nPortrait));
-                pSprite->SetFacing(nFacing);
-                pSprite->AddToArea(pArea, ptStart, 0, CGAMEOBJECT_LIST_FRONT);
-                pSprite->SetIdleSequence();
-                pSprite->m_canBeSeen = 4 * (CGameObject::VISIBLE_DELAY + 1);
+                CPoint ptPos = pSprite->GetPos();
+                if (ptPos.x == -1 && ptPos.y == -1) {
+                    CPoint ptStart;
+                    if (m_bFromNewGame) {
+                        ptStart = GetRuleTables().GetStartPoint(nPortrait);
+                        WORD nFacing = static_cast<WORD>(GetRuleTables().GetStartRotation(nPortrait));
+                        pSprite->SetFacing(nFacing);
+                    } else {
+                        ptStart = CPoint(-1, -1);
+                    }
+                    pSprite->AddToArea(pArea, ptStart, 0, CGAMEOBJECT_LIST_FRONT);
+                    pSprite->SetIdleSequence();
+                    pSprite->m_canBeSeen = 4 * (CGameObject::VISIBLE_DELAY + 1);
+                }
                 m_cObjectArray.ReleaseDeny(nCharacterId,
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
@@ -6237,11 +6254,11 @@ void CInfGame::SetupCharacters(BOOLEAN bProgressBarInPlace)
         }
     }
 
-
-    // Center view on start position (matching original Ghidra decomp: CInfinity__SetViewPosition)
-    CInfinity* pInfinity = pArea->GetInfinity();
-    CRect rView(pInfinity->rViewPort);
-    pInfinity->SetViewPosition(ptView.x + rView.Width() / -2, ptView.y + rView.Height() / -2, TRUE);
+    if (m_bFromNewGame) {
+        CInfinity* pInfinity = pArea->GetInfinity();
+        CRect rView(pInfinity->rViewPort);
+        pInfinity->SetViewPosition(ptView.x + rView.Width() / -2, ptView.y + rView.Height() / -2, TRUE);
+    }
 }
 
 // 0x5BFC40
