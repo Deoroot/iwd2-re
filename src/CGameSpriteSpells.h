@@ -17,7 +17,7 @@ public:
     /* 0000 */ UINT m_nID;
     /* 0004 */ unsigned int m_nMax;
     /* 0008 */ unsigned int m_nCurrent;
-    /* 000C */ unsigned int field_C;
+    /* 000C */ unsigned int m_nShared;
 };
 
 class CGameSpriteSpellList {
@@ -38,9 +38,9 @@ public:
     void Clear();
 
     /* 0000 */ std::vector<CGameSpriteSpellListEntry> m_List;
-    /* 0010 */ unsigned int field_10;
-    /* 0014 */ unsigned int field_14;
-    /* 0018 */ unsigned int field_18;
+    /* 0010 */ unsigned int m_nSharedCurrent;
+    /* 0014 */ unsigned int m_nSharedMax;
+    /* 0018 */ unsigned int m_nSharedTotal;
 };
 
 class CGameSpriteGroupedSpellList {

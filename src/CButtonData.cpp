@@ -9,11 +9,11 @@ CAbilityId::CAbilityId()
     m_res = "";
     m_targetType = 0;
     m_strDescription = -1;
-    field_14 = -1;
-    field_18 = -1;
+    m_strTooltipName = -1;
+    m_strTooltipDesc = -1;
     m_nClass = 0;
-    field_1D = 0;
-    field_1E = 0;
+    m_bCanUse = 0;
+    m_nTooltip = 0;
 }
 
 // 0x4B9270
@@ -25,11 +25,11 @@ CAbilityId& CAbilityId::operator=(const CAbilityId& other)
     m_res = other.m_res;
     m_targetType = other.m_targetType;
     m_strDescription = other.m_strDescription;
-    field_14 = other.field_14;
-    field_18 = other.field_18;
+    m_strTooltipName = other.m_strTooltipName;
+    m_strTooltipDesc = other.m_strTooltipDesc;
     m_nClass = other.m_nClass;
-    field_1D = other.field_1D;
-    field_1E = other.field_1E;
+    m_bCanUse = other.m_bCanUse;
+    m_nTooltip = other.m_nTooltip;
     return *this;
 }
 

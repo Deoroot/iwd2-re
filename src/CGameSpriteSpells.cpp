@@ -5,17 +5,17 @@
 // 0x443350
 CGameSpriteSpellList::CGameSpriteSpellList()
 {
-    field_10 = 0;
-    field_14 = 0;
-    field_18 = 0;
+    m_nSharedCurrent = 0;
+    m_nSharedMax = 0;
+    m_nSharedTotal = 0;
 }
 
 // 0x443370
 CGameSpriteSpellList::~CGameSpriteSpellList()
 {
     if (m_List.size() != 0) {
-        field_14 = 0;
-        field_18 = 0;
+        m_nSharedMax = 0;
+        m_nSharedTotal = 0;
     }
 }
 
@@ -43,12 +43,12 @@ BOOLEAN CGameSpriteSpellList::Add(const UINT& nID, const unsigned int& a2, const
         entry.m_nID = nID;
         entry.m_nMax = a2;
         entry.m_nCurrent = a3;
-        entry.field_C = a4;
+        entry.m_nShared = a4;
         m_List.push_back(entry);
     }
 
     if (a3 != 0) {
-        field_10 += a3;
+        m_nSharedCurrent += a3;
     }
 
     return TRUE;
@@ -92,7 +92,7 @@ BOOLEAN CGameSpriteSpellList::Remove(const UINT& nID, BOOLEAN a2, const unsigned
             }
 
             if (v2 != 0) {
-                field_10 -= v2;
+                m_nSharedCurrent -= v2;
             }
 
             return TRUE;
@@ -127,9 +127,9 @@ BOOLEAN CGameSpriteSpellList::AddToCurrentCount(const UINT& nID, const unsigned 
         v2 = entry.m_nMax;
     }
 
-    field_10 -= v1;
+    m_nSharedCurrent -= v1;
     entry.m_nCurrent = v2;
-    field_10 += v2;
+    m_nSharedCurrent += v2;
 
     return TRUE;
 }
@@ -155,9 +155,9 @@ BOOLEAN CGameSpriteSpellList::SubtractFromCurrentCount(const UINT& nID, const un
         v2 = 0;
     }
 
-    field_10 -= v1;
+    m_nSharedCurrent -= v1;
     entry.m_nCurrent = v2;
-    field_10 += v2;
+    m_nSharedCurrent += v2;
 
     return TRUE;
 }
@@ -165,14 +165,14 @@ BOOLEAN CGameSpriteSpellList::SubtractFromCurrentCount(const UINT& nID, const un
 // 0x725D30
 BOOLEAN CGameSpriteSpellList::AddToSharedCurrentCount(const unsigned int& a1, const BOOLEAN& a2)
 {
-    unsigned int v1 = field_18 + a1;
+    unsigned int v1 = m_nSharedTotal + a1;
 
     // NOTE: Unsigned compare.
-    if (a2 == 1 || v1 > field_14) {
-        v1 = field_14;
+    if (a2 == 1 || v1 > m_nSharedMax) {
+        v1 = m_nSharedMax;
     }
 
-    field_18 = v1;
+    m_nSharedTotal = v1;
 
     for (UINT nIndex = 0; nIndex < m_List.size(); nIndex++) {
         AddToCurrentCount(m_List[nIndex].m_nID, v1 - m_List[nIndex].m_nCurrent, FALSE);
@@ -184,14 +184,14 @@ BOOLEAN CGameSpriteSpellList::AddToSharedCurrentCount(const unsigned int& a1, co
 // 0x725DB0
 BOOLEAN CGameSpriteSpellList::SubtractFromSharedCurrentCount(const unsigned int& a1, const BOOLEAN& a2)
 {
-    int v1 = field_18 - a1;
+    int v1 = m_nSharedTotal - a1;
 
     // NOTE: Signed compare.
     if (a2 == 1 || v1 < 0) {
         v1 = 0;
     }
 
-    field_18 = v1;
+    m_nSharedTotal = v1;
 
     for (UINT nIndex = 0; nIndex < m_List.size(); nIndex++) {
         // NOTE: Uninline.
@@ -296,7 +296,7 @@ UINT CGameSpriteGroupedSpellList::GetTotalCurrentCount()
     UINT nCount = 0;
 
     for (UINT nIndex = 0; nIndex < m_nHighestLevel; nIndex++) {
-        nCount += m_lists[nIndex].field_10;
+        nCount += m_lists[nIndex].m_nSharedCurrent;
     }
 
     return nCount;

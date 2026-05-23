@@ -1,4 +1,4 @@
-﻿#include "CInfGame.h"
+#include "CInfGame.h"
 #include <process.h>
 
 #include "CAIScript.h"
@@ -5591,8 +5591,8 @@ void CInfGame::UseMagicOnGround(CPoint pt)
                     string,
                     pt,
                     0,
-                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.field_1E << 8));
-                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.field_1D;
+                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.m_nTooltip << 8));
+                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.m_bCanUse;
                 addAction = TRUE;
             }
             break;
@@ -5605,8 +5605,8 @@ void CInfGame::UseMagicOnGround(CPoint pt)
                     string,
                     pt,
                     0,
-                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.field_1E << 8));
-                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.field_1D;
+                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.m_nTooltip << 8));
+                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.m_bCanUse;
                 addAction = TRUE;
             }
             break;
@@ -5622,8 +5622,8 @@ void CInfGame::UseMagicOnGround(CPoint pt)
                     string,
                     pt,
                     0,
-                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.field_1E << 8));
-                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.field_1D;
+                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.m_nTooltip << 8));
+                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.m_bCanUse;
                 addAction = TRUE;
             }
             break;
@@ -5689,8 +5689,8 @@ void CInfGame::UseMagicOnObject(LONG target)
                     targetType,
                     string,
                     0,
-                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.field_1E << 8));
-                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.field_1D;
+                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.m_nTooltip << 8));
+                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.m_bCanUse;
                 addAction = TRUE;
             }
             break;
@@ -5703,8 +5703,8 @@ void CInfGame::UseMagicOnObject(LONG target)
                     targetType,
                     string,
                     0,
-                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.field_1E << 8));
-                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.field_1D;
+                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.m_nTooltip << 8));
+                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.m_bCanUse;
                 addAction = TRUE;
             }
             break;
@@ -5738,8 +5738,8 @@ void CInfGame::UseMagicOnObject(LONG target)
                     targetType,
                     string,
                     0,
-                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.field_1E << 8));
-                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.field_1D;
+                    pSprite->m_currentUseButton.m_abilityId.m_nClass | (pSprite->m_currentUseButton.m_abilityId.m_nTooltip << 8));
+                action.m_specificID3 = pSprite->m_currentUseButton.m_abilityId.m_bCanUse;
                 addAction = TRUE;
             }
             break;

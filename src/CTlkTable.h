@@ -57,10 +57,10 @@ public:
 
     CTypedPtrMap<CMapWordToPtr, USHORT, CTlkFile*> m_mapTlkFiles;
     CMapStringToString m_mapTokens;
-    CCriticalSection field_38;
+    CCriticalSection m_csAccess;
     unsigned char field_58;
     CTlkFileOverride m_override;
-    unsigned char field_A4;
+    unsigned char m_bLoaded;
 };
 
 #endif /* CTLKTABLE_H_ */

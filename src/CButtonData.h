@@ -15,11 +15,11 @@ public:
     /* 0006 */ CResRef m_res;
     /* 000E */ short m_targetType;
     /* 0010 */ int m_strDescription;
-    /* 0014 */ int field_14;
-    /* 0018 */ int field_18;
+    /* 0014 */ int m_strTooltipName;
+    /* 0018 */ int m_strTooltipDesc;
     /* 001C */ BYTE m_nClass;
-    /* 001D */ unsigned char field_1D;
-    /* 001E */ short field_1E;
+    /* 001D */ unsigned char m_bCanUse;
+    /* 001E */ short m_nTooltip;
 };
 
 class CButtonData {

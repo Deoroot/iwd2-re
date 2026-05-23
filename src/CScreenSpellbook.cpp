@@ -548,7 +548,7 @@ void CScreenSpellbook::UpdateSpellList(DWORD nPortrait)
         if (pList != NULL) {
             for (UINT s = 0; s < pList->m_List.size() && field_1488 < 24; s++) {
                 CGameSpriteSpellListEntry& entry = pList->m_List[s];
-                if (entry.m_nMax != 0 && (entry.field_C & 1) == 0) {
+                if (entry.m_nMax != 0 && (entry.m_nShared & 1) == 0) {
                     if (entry.m_nID < pGame->m_spells.m_nCount) {
                         field_148C[field_1488] = pGame->m_spells.Get(entry.m_nID);
                         field_154C[field_1488] = entry.m_nCurrent;
@@ -969,7 +969,7 @@ static INT GetSelectedSpellLabelValue(CScreenSpellbook* pSpellbook, CGameSprite*
 
     BYTE nClass = static_cast<BYTE>(pSpellbook->GetClassSpellCount(pSpellbook->m_nClassIndex));
     if (nClass == 2 || nClass == 10) {
-        return static_cast<INT>(pList->field_18);
+        return static_cast<INT>(pList->m_nSharedTotal);
     }
 
     INT nCurrent = 0;
@@ -1141,13 +1141,13 @@ void CScreenSpellbook::UpdateMainPanel()
         if (pList != NULL) {
             INT nLabelValue = GetSelectedSpellLabelValue(this, pSprite);
             if (nClass == 2 || nClass == 10) {
-                UpdateLabel(pPanel, 0x10000004, "%d/%d", nLabelValue, pList->field_14);
+                UpdateLabel(pPanel, 0x10000004, "%d/%d", nLabelValue, pList->m_nSharedMax);
             } else {
                 UpdateLabel(pPanel, 0x10000004, "%d", nLabelValue);
             }
 
             UINT nListSize = static_cast<UINT>(pList->m_List.size());
-            INT nSharedCurrent = static_cast<INT>(pList->field_10);
+            INT nSharedCurrent = static_cast<INT>(pList->m_nSharedCurrent);
 
             for (int i = 0; i < 24; i++) {
                 CUIControlButtonSpellbookSpell* pButton = static_cast<CUIControlButtonSpellbookSpell*>(pPanel->GetControl(6 + i));

@@ -30,7 +30,7 @@ CTlkFile::CTlkFile()
 // 0x793DB0
 CTlkTable::CTlkTable()
 {
-    field_A4 = 0;
+    m_bLoaded = 0;
     field_58 = byte_8FB954;
 }
 
@@ -92,7 +92,7 @@ BOOL CTlkTable::AddTlkFile(const CString& filePath, BYTE a3, BYTE a4, BOOLEAN bO
 // 0x7941D0
 BOOLEAN CTlkTable::Fetch(DWORD dwStrId, STR_RES& strRes)
 {
-    CSingleLock lock(&field_38, FALSE);
+    CSingleLock lock(&m_csAccess, FALSE);
     lock.Lock(INFINITE);
 
     CString sText;

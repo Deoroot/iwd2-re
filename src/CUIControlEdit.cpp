@@ -53,7 +53,7 @@ CUIControlEdit::CUIControlEdit(CUIPanel* panel, UI_CONTROL_EDIT* controlInfo, in
     m_cVidFont.SetResRef(CResRef(controlInfo->refFont), m_pPanel->m_pManager->m_bDoubleSize, FALSE);
     m_cVidFont.SetColor(RGB(200, 200, 200), RGB(60, 60, 60), 0);
     field_89C = a3;
-    field_36 = 1;
+    m_nControlType = 1;
     field_8A0 = 1;
 }
 

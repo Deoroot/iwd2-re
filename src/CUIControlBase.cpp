@@ -14,7 +14,7 @@ CUIControlBase::CUIControlBase(CUIPanel* pPanel, UI_CONTROL* controlInfo, int a4
     // __LINE__: 104
     UTIL_ASSERT(controlInfo != NULL);
 
-    field_4 = 0;
+    m_bEnabled = 0;
 
     m_pPanel = pPanel;
     m_nID = controlInfo->nID;
@@ -38,7 +38,7 @@ CUIControlBase::CUIControlBase(CUIPanel* pPanel, UI_CONTROL* controlInfo, int a4
     m_nToolTipStrRef = -1;
     m_nSecondaryToolTipStrRef = -1;
     m_nTertiaryToolTipStrRef = -1;
-    field_36 = a4;
+    m_nControlType = a4;
     m_bNeedMouseMove = FALSE;
     m_bInactiveRender = FALSE;
     m_bToolTipActive = FALSE;

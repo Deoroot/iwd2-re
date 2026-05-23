@@ -3,9 +3,9 @@
 // 0x77F330
 CResPLT::CResPLT()
 {
-    field_50 = 0;
-    field_54 = 0;
-    field_58 = 0;
+    m_pPaletteData = 0;
+    m_pHeader = 0;
+    m_nSize = 0;
 }
 
 // 0x77F370

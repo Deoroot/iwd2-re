@@ -54,7 +54,7 @@ CUIControlEditMultiLine::CUIControlEditMultiLine(CUIPanel* panel, UI_CONTROL_EDI
     field_888 = 0;
     m_rgbForegroundColor = RGB(200, 200, 200);
     m_rgbBackgroundColor = RGB(60, 60, 60);
-    field_36 = 1;
+    m_nControlType = 1;
     field_876 = 1;
 
     // NOTE: Uninline.
@@ -319,7 +319,7 @@ CUIControlEditMultiLineScroller::CUIControlEditMultiLineScroller(CUIPanel* panel
     field_897 = 0;
     field_898 = 0;
     field_899 = 0;
-    field_892 = field_36;
+    field_892 = m_nControlType;
 }
 
 // 0x4E18D0

@@ -1648,10 +1648,10 @@ void CScreenCreateChar::ResetMemorizeArcaneSpellsPanel(CUIPanel* pPanel, CGameSp
             }
 
             // NOTE: Uninline.
-            pSprite->m_spells.GetSpellsAtLevel(nClassIndex, nLevel)->field_14 = nMaxKnownSpells;
+            pSprite->m_spells.GetSpellsAtLevel(nClassIndex, nLevel)->m_nSharedMax = nMaxKnownSpells;
 
             // NOTE: Uninline.
-            pSprite->m_spells.GetSpellsAtLevel(nClassIndex, nLevel)->field_18 = 0;
+            pSprite->m_spells.GetSpellsAtLevel(nClassIndex, nLevel)->m_nSharedTotal = 0;
         }
     }
 
@@ -1724,16 +1724,16 @@ void CScreenCreateChar::ResetMemorizeDivineSpellsPanel(CUIPanel* pPanel, CGameSp
     for (nClassIndex = 0; nClassIndex < CSPELLLIST_NUM_CLASSES; nClassIndex++) {
         for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
             // NOTE: Uninline.
-            pSprite->m_spells.GetSpellsAtLevel(nClassIndex, nLevel)->field_14 = 0;
+            pSprite->m_spells.GetSpellsAtLevel(nClassIndex, nLevel)->m_nSharedMax = 0;
 
             // NOTE: Uninline.
-            pSprite->m_spells.GetSpellsAtLevel(nClassIndex, nLevel)->field_18 = 0;
+            pSprite->m_spells.GetSpellsAtLevel(nClassIndex, nLevel)->m_nSharedTotal = 0;
         }
     }
 
     for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
-        pSprite->m_domainSpells.m_lists[nLevel].field_14 = 0;
-        pSprite->m_domainSpells.m_lists[nLevel].field_18 = 0;
+        pSprite->m_domainSpells.m_lists[nLevel].m_nSharedMax = 0;
+        pSprite->m_domainSpells.m_lists[nLevel].m_nSharedTotal = 0;
     }
 
     pSprite->field_562C = 1;

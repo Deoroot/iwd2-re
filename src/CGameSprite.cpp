@@ -6433,28 +6433,28 @@ void CGameSprite::ClearMarshal(BOOL unequip)
     for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
         if (m_domainSpells.m_lists[nLevel].m_List.size() > 0) {
             m_domainSpells.m_lists[nLevel].m_List.clear();
-            m_domainSpells.m_lists[nLevel].field_14 = 0;
-            m_domainSpells.m_lists[nLevel].field_18 = 0;
+            m_domainSpells.m_lists[nLevel].m_nSharedMax = 0;
+            m_domainSpells.m_lists[nLevel].m_nSharedTotal = 0;
         }
     }
     m_domainSpells.m_nHighestLevel = 0;
 
     if (m_innateSpells.m_List.size() > 0) {
         m_innateSpells.m_List.clear();
-        m_innateSpells.field_14 = 0;
-        m_innateSpells.field_18 = 0;
+        m_innateSpells.m_nSharedMax = 0;
+        m_innateSpells.m_nSharedTotal = 0;
     }
 
     if (m_songs.m_List.size() > 0) {
         m_songs.m_List.clear();
-        m_songs.field_14 = 0;
-        m_songs.field_18 = 0;
+        m_songs.m_nSharedMax = 0;
+        m_songs.m_nSharedTotal = 0;
     }
 
     if (m_shapeshifts.m_List.size() > 0) {
         m_shapeshifts.m_List.clear();
-        m_shapeshifts.field_14 = 0;
-        m_shapeshifts.field_18 = 0;
+        m_shapeshifts.m_nSharedMax = 0;
+        m_shapeshifts.m_nSharedTotal = 0;
     }
 
     // NOTE: Uninline.
@@ -6685,8 +6685,8 @@ void CGameSprite::Marshal(CSavedGamePartyCreature& partyCreature, BOOLEAN bNetwo
     for (nIndex = 0; nIndex < 9; nIndex++) {
         m_quickSpells[nIndex].m_abilityId.m_res.GetResRef(partyCreature.m_quickSpellsSpellId[nIndex]);
         partyCreature.m_quickSpellsClass[nIndex] = m_quickSpells[nIndex].m_abilityId.m_nClass;
-        partyCreature.field_280[nIndex] = m_quickSpells[nIndex].m_abilityId.field_1D;
-        partyCreature.field_29E[nIndex] = static_cast<unsigned char>(m_quickSpells[nIndex].m_abilityId.field_1E);
+        partyCreature.field_280[nIndex] = m_quickSpells[nIndex].m_abilityId.m_bCanUse;
+        partyCreature.field_29E[nIndex] = static_cast<unsigned char>(m_quickSpells[nIndex].m_abilityId.m_nTooltip);
     }
 
     for (nIndex = 0; nIndex < 3; nIndex++) {
@@ -7002,7 +7002,7 @@ void CGameSprite::Unmarshal(CSavedGamePartyCreature* pCreature, BOOLEAN bPartyMe
                 // __LINE__: 1751
                 UTIL_ASSERT(nClassIndex < CSPELLLIST_NUM_CLASSES);
 
-                m_spells.m_spellsByClass[nClassIndex].m_lists[nLevel].field_14 = nMaxSpells + nBonus;
+                m_spells.m_spellsByClass[nClassIndex].m_lists[nLevel].m_nSharedMax = nMaxSpells + nBonus;
             }
         }
     } else {
@@ -7017,7 +7017,7 @@ void CGameSprite::Unmarshal(CSavedGamePartyCreature* pCreature, BOOLEAN bPartyMe
 
     INT nDruidLevel = m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_DRUID);
     if (nDruidLevel > 0) {
-        INT nMaxShapeshifts = pGame->GetRuleTables().GetMaxDruidShapeshifts(m_baseStats, nDruidLevel) - m_shapeshifts.field_14;
+        INT nMaxShapeshifts = pGame->GetRuleTables().GetMaxDruidShapeshifts(m_baseStats, nDruidLevel) - m_shapeshifts.m_nSharedMax;
         if (nMaxShapeshifts) {
             AllocateShapeshiftSlots(nMaxShapeshifts);
             m_shapeshifts.AddToSharedCurrentCount(nMaxShapeshifts, FALSE);
@@ -7260,11 +7260,11 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
 
             // NOTE: There are some inlining.
 
-            m_spells.m_spellsByClass[nClass].m_lists[nLevel].field_14 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+            m_spells.m_spellsByClass[nClass].m_lists[nLevel].m_nSharedMax = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
             nOffset += sizeof(unsigned int);
             creatureSize -= sizeof(unsigned int);
 
-            m_spells.m_spellsByClass[nClass].m_lists[nLevel].field_18 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+            m_spells.m_spellsByClass[nClass].m_lists[nLevel].m_nSharedTotal = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
             nOffset += sizeof(unsigned int);
             creatureSize -= sizeof(unsigned int);
         }
@@ -7293,11 +7293,11 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
         }
         creatureSize -= sizeof(CCreatureFileSpell) * offsets->m_domainListCount[nLevel];
 
-        m_domainSpells.m_lists[nLevel].field_14 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+        m_domainSpells.m_lists[nLevel].m_nSharedMax = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
         nOffset += sizeof(unsigned int);
         creatureSize -= sizeof(unsigned int);
 
-        m_domainSpells.m_lists[nLevel].field_18 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+        m_domainSpells.m_lists[nLevel].m_nSharedTotal = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
         nOffset += sizeof(unsigned int);
         creatureSize -= sizeof(unsigned int);
     }
@@ -7322,11 +7322,11 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     }
     creatureSize -= sizeof(CCreatureFileSpell) * offsets->m_innateListCount;
 
-    m_innateSpells.field_14 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+    m_innateSpells.m_nSharedMax = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
     nOffset += sizeof(unsigned int);
     creatureSize -= sizeof(unsigned int);
 
-    m_innateSpells.field_18 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+    m_innateSpells.m_nSharedTotal = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
     nOffset += sizeof(unsigned int);
     creatureSize -= sizeof(unsigned int);
 
@@ -7350,11 +7350,11 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     }
     creatureSize -= sizeof(CCreatureFileSpell) * offsets->m_songListCount;
 
-    m_songs.field_14 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+    m_songs.m_nSharedMax = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
     nOffset += sizeof(unsigned int);
     creatureSize -= sizeof(unsigned int);
 
-    m_songs.field_18 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+    m_songs.m_nSharedTotal = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
     nOffset += sizeof(unsigned int);
     creatureSize -= sizeof(unsigned int);
 
@@ -7378,11 +7378,11 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     }
     creatureSize -= sizeof(CCreatureFileSpell) * offsets->m_shapeListCount;
 
-    m_shapeshifts.field_14 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+    m_shapeshifts.m_nSharedMax = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
     nOffset += sizeof(unsigned int);
     creatureSize -= sizeof(unsigned int);
 
-    m_shapeshifts.field_18 = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
+    m_shapeshifts.m_nSharedTotal = *reinterpret_cast<unsigned int*>(pCreature + nOffset);
     nOffset += sizeof(unsigned int);
     creatureSize -= sizeof(unsigned int);
 
@@ -7927,16 +7927,16 @@ void CGameSprite::InitQuickSpellData(CResRef resRef, BYTE type, CButtonData& cBu
         cButtonData.m_name = cSpell.GetGenericName();
         cButtonData.m_abilityId.m_itemType = 1;
         cButtonData.m_abilityId.m_targetType = pBestAbility->actionType;
-        cButtonData.m_abilityId.field_1D = a5;
+        cButtonData.m_abilityId.m_bCanUse = a5;
         cButtonData.m_abilityId.m_nClass = nClass;
-        cButtonData.m_abilityId.field_1E = nKitIndex;
+        cButtonData.m_abilityId.m_nTooltip = nKitIndex;
         cButtonData.m_abilityId.m_strDescription = cSpell.GetGenericName();
 
         if (type == 1) {
-            cButtonData.m_abilityId.field_18 = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassSuffixStringRef(nClass);
+            cButtonData.m_abilityId.m_strTooltipDesc = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassSuffixStringRef(nClass);
             if (!CanCast(nClass, 0, &cSpell)) {
                 cButtonData.m_bDisabled = TRUE;
-                cButtonData.m_abilityId.field_18 = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassBeyondCastingAbilityStringRef(nClass);
+                cButtonData.m_abilityId.m_strTooltipDesc = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassBeyondCastingAbilityStringRef(nClass);
             }
         }
 
@@ -8599,8 +8599,8 @@ void CGameSprite::ReadySpell(SHORT buttonNum, INT nType, BOOLEAN firstCall)
                 m_typeAI,
                 string,
                 0,
-                m_currentUseButton.m_abilityId.m_nClass | (m_currentUseButton.m_abilityId.field_1E << 8));
-            action.m_specificID3 = m_currentUseButton.m_abilityId.field_1D;
+                m_currentUseButton.m_abilityId.m_nClass | (m_currentUseButton.m_abilityId.m_nTooltip << 8));
+            action.m_specificID3 = m_currentUseButton.m_abilityId.m_bCanUse;
             ClearActions(FALSE);
             m_userCommandPause = 75;
             m_triggerId = CGameObjectArray::INVALID_INDEX;
@@ -8725,9 +8725,9 @@ void CGameSprite::UseButtonAction(CButtonData buttonData, BOOLEAN firstCall)
                 m_typeAI,
                 string,
                 0,
-                m_currentUseButton.m_abilityId.m_nClass | (m_currentUseButton.m_abilityId.field_1E << 8));
+                m_currentUseButton.m_abilityId.m_nClass | (m_currentUseButton.m_abilityId.m_nTooltip << 8));
 
-            action.m_specificID3 = m_currentUseButton.m_abilityId.field_1D;
+            action.m_specificID3 = m_currentUseButton.m_abilityId.m_bCanUse;
             ClearActions(FALSE);
             m_userCommandPause = 75;
             m_triggerId = CGameObjectArray::INVALID_INDEX;
@@ -8770,7 +8770,7 @@ void CGameSprite::UseButtonItem(CButtonData buttonData, BOOLEAN firstCall)
                 m_typeAI,
                 string,
                 0,
-                m_currentUseButton.m_abilityId.m_nClass | (m_currentUseButton.m_abilityId.field_1E << 8));
+                m_currentUseButton.m_abilityId.m_nClass | (m_currentUseButton.m_abilityId.m_nTooltip << 8));
 
             ClearActions(FALSE);
             m_userCommandPause = 75;
@@ -8790,8 +8790,8 @@ void CGameSprite::UseButtonItem(CButtonData buttonData, BOOLEAN firstCall)
                 m_typeAI,
                 string,
                 0,
-                m_currentUseButton.m_abilityId.m_nClass | (m_currentUseButton.m_abilityId.field_1E << 8));
-            action.m_specificID3 = m_currentUseButton.m_abilityId.field_1D;
+                m_currentUseButton.m_abilityId.m_nClass | (m_currentUseButton.m_abilityId.m_nTooltip << 8));
+            action.m_specificID3 = m_currentUseButton.m_abilityId.m_bCanUse;
             ClearActions(FALSE);
             m_userCommandPause = 75;
             m_triggerId = CGameObjectArray::INVALID_INDEX;
@@ -16073,13 +16073,13 @@ BOOLEAN CGameSprite::AddShapeshift(const CResRef& resRef, const unsigned int& a2
 // 0x724C40
 BOOLEAN CGameSprite::AllocateShapeshiftSlots(const unsigned int& a1)
 {
-    m_shapeshifts.field_14 += a1;
+    m_shapeshifts.m_nSharedMax += a1;
 
     for (UINT nIndex = 0; nIndex < m_shapeshifts.m_List.size(); nIndex++) {
         CGameSpriteSpellListEntry* pEntry = m_shapeshifts.Get(nIndex);
 
         m_shapeshifts.Add(pEntry->m_nID,
-            m_shapeshifts.field_14 - pEntry->m_nMax,
+            m_shapeshifts.m_nSharedMax - pEntry->m_nMax,
             0,
             0);
     }

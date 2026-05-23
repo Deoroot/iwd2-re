@@ -49,7 +49,7 @@ public:
             && pt.y >= m_ptOrigin.y && pt.y <= m_ptOrigin.y + m_size.cy;
     }
 
-    /* 0004 */ unsigned char field_4;
+    /* 0004 */ unsigned char m_bEnabled;
     /* 0008 */ CUIPanel* m_pPanel; // #guess
     /* 000A */ DWORD m_nID; // #guess
     /* 000E */ CPoint m_ptOrigin;
@@ -59,7 +59,7 @@ public:
     /* 0020 */ BOOLEAN m_bNeedMouseMove;
     /* 0022 */ CRect m_rDirty;
     /* 0032 */ BOOL m_bInactiveRender; // #guess
-    /* 0036 */ int field_36;
+    /* 0036 */ int m_nControlType;
     /* 003A */ BOOL m_bToolTipActive;
     /* 003E */ STRREF m_nToolTipStrRef; // #guess
     /* 0042 */ STRREF m_nSecondaryToolTipStrRef; // #guess
