@@ -57,8 +57,18 @@ public:
     /* 0040 */ BOOLEAN m_bDisplayButton;
 };
 
+// Returned by CGameDialogReply::Apply; heap-allocated 12-byte POD that the
+// caller frees. Carries the next-state info the binary uses to build the
+// CMessageContinueDialog. NULL return means "reply ends the conversation".
+struct CGameDialogContinuation {
+    /* 0000 */ CResRef m_nextDialog;
+    /* 0008 */ DWORD m_nextEntryIndex;
+};
+
 class CGameDialogReply {
 public:
+    CGameDialogContinuation* Apply(CGameSprite* pSprite);
+
     /* 0000 */ DWORD m_flags;
     /* 0004 */ STRREF m_replyText;
     /* 0008 */ STRREF m_journalEntry;

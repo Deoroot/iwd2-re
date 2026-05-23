@@ -512,6 +512,63 @@ BOOL CGameDialogSprite::EnterDialog(DWORD index, CGameSprite* pSprite, int a3)
     return TRUE;
 }
 
+// 0x485750
+CGameDialogContinuation* CGameDialogReply::Apply(CGameSprite* pSprite)
+{
+    if ((m_flags & 0x4) != 0) {
+        if (m_response.m_actionList.GetCount() != 0) {
+            // The reply carries an AI response; queue it on the talker so the
+            // actions execute next AI tick, then pause the actor's command
+            // queue while the dialog window stays open.
+            CMessageInsertResponse* pInsertMsg = new CMessageInsertResponse(
+                m_response,
+                /*checkCurrentResponse*/ 0,
+                /*clearActions*/ 1,
+                /*field_38*/ 1,
+                pSprite->GetId(),
+                pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pInsertMsg, FALSE);
+
+            CMessageSetCommandPause* pPauseMsg = new CMessageSetCommandPause(
+                75,
+                pSprite->GetId(),
+                pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pPauseMsg, FALSE);
+        }
+
+        // CMessageSetDialogWait fires whether or not there were responses --
+        // it nulls out the dialog-wait timer on the actor.
+        CMessageSetDialogWait* pWaitMsg = new CMessageSetDialogWait(
+            0,
+            CGameObjectArray::INVALID_INDEX,
+            pSprite->GetId(),
+            pSprite->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pWaitMsg, FALSE);
+    }
+
+    if ((m_flags & 0x10) != 0) {
+        if (g_pBaldurChitin->GetObjectGame()->m_cJournal.AddEntry(m_journalEntry, 0)) {
+            // TODO: binary at 0x4858a0..0x485900 fetches STRREF 0x2c5f
+            // ("Journal entry added") and plays it as a notification sound
+            // via a stack-local CSound. Skipped: minor UI feature.
+        }
+    }
+
+    if (m_displayPosition != NULL) {
+        g_pBaldurChitin->m_pEngineWorld->SetItemMarker(m_displayPosition, -1);
+    }
+
+    if ((m_flags & 0x8) != 0) {
+        // Reply ends the conversation; no next-state info to return.
+        return NULL;
+    }
+
+    CGameDialogContinuation* pCont = new CGameDialogContinuation;
+    pCont->m_nextDialog = m_nextDialog;
+    pCont->m_nextEntryIndex = m_nextEntryIndex;
+    return pCont;
+}
+
 // 0x483F00
 void CGameDialogSprite::AsynchronousUpdate()
 {
