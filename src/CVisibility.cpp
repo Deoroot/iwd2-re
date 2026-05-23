@@ -9,6 +9,129 @@
 #include "CUtil.h"
 #include "CVidMode.h"
 
+// 0x84EDC4
+static const BYTE gSearchMapYToVisibilityY[8] = { 0, 0, 1, 1, 1, 2, 2, 2 };
+
+// 0x84EDCC
+static const BYTE gVisibilityYToSearchMapY[3] = { 0, 2, 5 };
+
+static LONG SearchMapYToVisibilityY(LONG nSearchMapY)
+{
+    return gSearchMapYToVisibilityY[nSearchMapY & 0x7] + (nSearchMapY >> 3) * 3;
+}
+
+static LONG VisibilityYToSearchMapY(LONG nVisibilityY)
+{
+    return gVisibilityYToSearchMapY[nVisibilityY % 3] + (nVisibilityY / 3) * 8;
+}
+
+static void SetTileInvisible(CVisibilityMap* pVisibility, LONG nIndex, BYTE charId)
+{
+    UTIL_ASSERT_MSG((nIndex >= 0 && nIndex < pVisibility->m_nMapSize), "Index into vis map out of range in SetTileInvisible");
+
+    pVisibility->m_pMap[nIndex] &= static_cast<BYTE>(~charId);
+}
+
+static void MarkVisibilityTile(CVisibilityMap* pVisibility, LONG nTileX, LONG nTileY, BYTE charId, LONG& nLastTileX, LONG& nLastTileY)
+{
+    if (nTileX != nLastTileX || nTileY != nLastTileY) {
+        pVisibility->SetTileVisible(pVisibility->m_nWidth * nTileY + nTileX, charId);
+        nLastTileX = nTileX;
+        nLastTileY = nTileY;
+    }
+}
+
+static void ClearVisibilityRow(CVisibilityMap* pVisibility, LONG nTileY, LONG nLeft, LONG nRight, BYTE charId)
+{
+    if (nTileY < 0 || nTileY >= pVisibility->m_nHeight) {
+        return;
+    }
+
+    if (nLeft < 0) {
+        nLeft = 0;
+    }
+
+    if (nRight > pVisibility->m_nWidth - 1) {
+        nRight = pVisibility->m_nWidth - 1;
+    }
+
+    for (LONG nTileX = nLeft; nTileX <= nRight; nTileX++) {
+        SetTileInvisible(pVisibility, pVisibility->m_nWidth * nTileY + nTileX, charId);
+    }
+}
+
+static BOOLEAN ProcessVisibilitySearchPoint(CVisibilityMap* pVisibility,
+    LONG nSearchMapX,
+    LONG nSearchMapY,
+    LONG nDestX,
+    LONG nDestY,
+    BYTE charId,
+    const BYTE* pVisibleTerrainTable,
+    BOOLEAN bLookingUp,
+    BOOLEAN& bBlocked,
+    SHORT& nHighest,
+    LONG& nLastTileX,
+    LONG& nLastTileY)
+{
+    if (nDestX == pVisibility->m_nWidth - 1 && !bBlocked) {
+        MarkVisibilityTile(pVisibility,
+            nDestX,
+            SearchMapYToVisibilityY(nSearchMapY),
+            charId,
+            nLastTileX,
+            nLastTileY);
+    } else if (nDestY == pVisibility->m_nHeight - 1 && !bBlocked) {
+        MarkVisibilityTile(pVisibility,
+            nSearchMapX >> 1,
+            nDestY,
+            charId,
+            nLastTileX,
+            nLastTileY);
+    } else {
+        SHORT nTableIndex;
+        if (pVisibility->m_pSearchMap->GetLOSCost(CPoint(nSearchMapX, nSearchMapY),
+                pVisibleTerrainTable,
+                nTableIndex,
+                pVisibility->m_bOutDoor)
+            == CPathSearch::COST_IMPASSABLE) {
+            bBlocked = TRUE;
+
+            SHORT nHeight = pVisibility->m_pSearchMap->GetStructureHeight(nTableIndex);
+            if (nHeight < nHighest) {
+                return FALSE;
+            }
+
+            nHighest = nHeight;
+
+            if (bLookingUp) {
+                LONG nTileX = nSearchMapX >> 1;
+                LONG nTileY = SearchMapYToVisibilityY(nSearchMapY);
+
+                if (nTileX != nLastTileX || nTileY != nLastTileY) {
+                    pVisibility->ClimbWall(CPoint(nTileX, nTileY),
+                        CPoint(nDestX, nDestY),
+                        charId,
+                        pVisibleTerrainTable,
+                        nHeight);
+                    nLastTileX = nTileX;
+                    nLastTileY = nTileY;
+                }
+            }
+        } else if (bBlocked) {
+            return FALSE;
+        }
+    }
+
+    MarkVisibilityTile(pVisibility,
+        nSearchMapX >> 1,
+        SearchMapYToVisibilityY(nSearchMapY),
+        charId,
+        nLastTileX,
+        nLastTileY);
+
+    return TRUE;
+}
+
 // 0x84EDCF
 const BYTE CVisibilityMap::EXPLORED_RANGE_0 = 4;
 
@@ -391,7 +514,155 @@ void CVisibilityMap::Unmarshal(BYTE* pData, DWORD nData)
 // 0x552A50
 void CVisibilityMap::MarkTileLine(const CPoint& ptView, const CPoint& ptSearchMapView, LONG nDestX, LONG nDestY, const CPoint& ptOffset, BYTE charId, const BYTE* pVisibleTerrainTable, BOOLEAN bLookingUp)
 {
-    // TODO: Incomplete.
+    INT nStartX = ptView.x;
+    INT nStartY = ptView.y;
+    INT nEndX = nDestX;
+    INT nEndY = nDestY;
+    CRect rClip(0, 0, m_nWidth - 1, m_nHeight - 1);
+    CVidMode::ClipLine(nStartX, nStartY, nEndX, nEndY, rClip);
+    CPoint ptEnd(nEndX, nEndY);
+
+    LONG nSearchMapX = ptSearchMapView.x;
+    LONG nSearchMapY = ptSearchMapView.y;
+    LONG nEndSearchMapX = ptEnd.x * 2;
+    LONG nEndSearchMapY = VisibilityYToSearchMapY(ptEnd.y);
+    LONG nDeltaX = nEndSearchMapX - nSearchMapX;
+    LONG nDeltaY = nEndSearchMapY - nSearchMapY;
+    SHORT nStepX = 1;
+    SHORT nStepY = 1;
+
+    if (nDeltaX < 0) {
+        nStepX = -1;
+        nDeltaX = -nDeltaX;
+    }
+
+    if (nDeltaY < 0) {
+        nStepY = -1;
+        nDeltaY = -nDeltaY;
+    }
+
+    SHORT nHighest = 0;
+    BOOLEAN bBlocked = FALSE;
+    LONG nLastTileX = -1;
+    LONG nLastTileY = -1;
+
+    if (nDeltaY < nDeltaX) {
+        LONG nErrorStepA = nDeltaY * 2;
+        LONG nError = nErrorStepA - nDeltaX;
+        LONG nErrorStepB = (nDeltaY - nDeltaX) * 2;
+
+        while (nSearchMapX != nEndSearchMapX || nSearchMapY != nEndSearchMapY) {
+            if (!ProcessVisibilitySearchPoint(this,
+                    nSearchMapX,
+                    nSearchMapY,
+                    ptEnd.x,
+                    ptEnd.y,
+                    charId,
+                    pVisibleTerrainTable,
+                    bLookingUp,
+                    bBlocked,
+                    nHighest,
+                    nLastTileX,
+                    nLastTileY)) {
+                return;
+            }
+
+            if (nError < 1) {
+                nError += nErrorStepA;
+                nSearchMapX += nStepX;
+            } else {
+                nError += nErrorStepB;
+                nSearchMapX += nStepX;
+                nSearchMapY += nStepY;
+            }
+        }
+    } else {
+        LONG nErrorStepA = nDeltaX * 2;
+        LONG nError = nErrorStepA - nDeltaY;
+        LONG nErrorStepB = (nDeltaX - nDeltaY) * 2;
+
+        while (nSearchMapX != nEndSearchMapX || nSearchMapY != nEndSearchMapY) {
+            if (!ProcessVisibilitySearchPoint(this,
+                    nSearchMapX,
+                    nSearchMapY,
+                    ptEnd.x,
+                    ptEnd.y,
+                    charId,
+                    pVisibleTerrainTable,
+                    bLookingUp,
+                    bBlocked,
+                    nHighest,
+                    nLastTileX,
+                    nLastTileY)) {
+                return;
+            }
+
+            if (nError < 1) {
+                nError += nErrorStepA;
+                nSearchMapY += nStepY;
+            } else {
+                nError += nErrorStepB;
+                nSearchMapX += nStepX;
+                nSearchMapY += nStepY;
+            }
+        }
+    }
+
+    if (ptEnd.x == m_nWidth - 1) {
+        MarkVisibilityTile(this,
+            ptEnd.x,
+            SearchMapYToVisibilityY(nSearchMapY),
+            charId,
+            nLastTileX,
+            nLastTileY);
+    } else if (ptEnd.y == m_nHeight - 1) {
+        MarkVisibilityTile(this,
+            nSearchMapX >> 1,
+            ptEnd.y,
+            charId,
+            nLastTileX,
+            nLastTileY);
+    } else {
+        SHORT nTableIndex;
+        if (m_pSearchMap->GetLOSCost(CPoint(nSearchMapX, nSearchMapY),
+                pVisibleTerrainTable,
+                nTableIndex,
+                m_bOutDoor)
+            == CPathSearch::COST_IMPASSABLE) {
+            SHORT nHeight = m_pSearchMap->GetStructureHeight(nTableIndex);
+            if (nHeight < nHighest) {
+                return;
+            }
+
+            LONG nTileX = nSearchMapX >> 1;
+            LONG nTileY = SearchMapYToVisibilityY(nSearchMapY);
+            if (nTileX == nLastTileX && nTileY == nLastTileY) {
+                return;
+            }
+
+            if (bLookingUp) {
+                ClimbWall(CPoint(nTileX, nTileY),
+                    ptEnd,
+                    charId,
+                    pVisibleTerrainTable,
+                    nHeight);
+                return;
+            }
+
+            MarkVisibilityTile(this, nTileX, nTileY, charId, nLastTileX, nLastTileY);
+        } else {
+            if (bBlocked) {
+                return;
+            }
+
+            MarkVisibilityTile(this,
+                nSearchMapX >> 1,
+                SearchMapYToVisibilityY(nSearchMapY),
+                charId,
+                nLastTileX,
+                nLastTileY);
+        }
+    }
 }
 
 // 0x553290
@@ -448,13 +719,65 @@ void CVisibilityMap::RemoveCharacter(const CPoint& pos, LONG charId, const BYTE*
 // 0x553440
 void CVisibilityMap::RemoveHorizontalOctantsStamp(const CPoint& pt, BYTE charId)
 {
-    // TODO: Incomplete.
+    LONG nTileY = pt.y - m_nSearchRangeV;
+    SHORT nStepY = 1;
+
+    for (SHORT nPass = 0; nPass < 2; nPass++) {
+        LONG nLeft = pt.x;
+        LONG nRight = pt.x + 1;
+
+        for (SHORT nArc = 0; nArc < m_nHorzArcCount; nArc++) {
+            ClearVisibilityRow(this, nTileY, nLeft, nRight, charId);
+
+            if (m_pHorzArcPixels[nArc] != 0) {
+                nTileY += nStepY;
+            }
+
+            nLeft--;
+            nRight++;
+        }
+
+        nTileY = pt.y + m_nSearchRangeV;
+        nStepY = -1;
+    }
 }
 
 // 0x5535D0
 void CVisibilityMap::RemoveVerticalOctantsStamp(const CPoint& pt, BYTE charId)
 {
-    // TODO: Incomplete.
+    BYTE* pArc = m_pVertArcPixels;
+    LONG nTileY = pt.y;
+    LONG nLeft = pt.x - m_nSearchRangeH + 1;
+    LONG nRight = pt.x + m_nSearchRangeH;
+    SHORT nStepY = -1;
+    UINT nArcCount = m_nVertArcCount;
+
+    for (SHORT nPass = 0; nPass < 2; nPass++) {
+        if (static_cast<SHORT>(nArcCount) >= 0) {
+            LONG nCount = static_cast<SHORT>(nArcCount) + 1;
+
+            while (nCount > 0) {
+                ClearVisibilityRow(this, nTileY, nLeft, nRight, charId);
+
+                if (*pArc != 0) {
+                    nLeft++;
+                    nRight--;
+                }
+
+                pArc++;
+                nTileY += nStepY;
+                nCount--;
+            }
+        }
+
+        BYTE nFirstArc = m_pVertArcPixels[0];
+        pArc = m_pVertArcPixels + 1;
+        nTileY = pt.y + 1;
+        nLeft = pt.x + nFirstArc - m_nSearchRangeH + 1;
+        nRight = pt.x - nFirstArc + m_nSearchRangeH;
+        nStepY = 1;
+        nArcCount = m_nVertArcCount - 1;
+    }
 }
 
 // 0x553740
@@ -478,13 +801,141 @@ void CVisibilityMap::SetAreaUnexplored()
 // 0x553800
 void CVisibilityMap::StampHorizontalOctants(const CPoint& ptView, const CPoint& ptOffset, const CPoint& ptSearchMapView, BYTE charId, const BYTE* pVisibleTerrainTable)
 {
-    // TODO: Incomplete.
+    BYTE* pArc = m_pHorzArcPixels;
+    LONG nDestY = ptView.y - m_nSearchRangeV;
+    BOOLEAN bLookingUp = TRUE;
+    SHORT nStepY = 1;
+
+    for (SHORT nPass = 0; nPass < 2; nPass++) {
+        LONG nLeft = ptView.x;
+        LONG nRight = ptView.x;
+
+        for (SHORT nArc = 0; nArc < m_nHorzArcCount; nArc++) {
+            nRight++;
+
+            MarkTileLine(ptView,
+                ptSearchMapView,
+                nLeft,
+                nDestY,
+                ptOffset,
+                charId,
+                pVisibleTerrainTable,
+                bLookingUp);
+            MarkTileLine(ptView,
+                ptSearchMapView,
+                nRight,
+                nDestY,
+                ptOffset,
+                charId,
+                pVisibleTerrainTable,
+                bLookingUp);
+
+            nLeft--;
+
+            if (*pArc != 0) {
+                nDestY += nStepY;
+
+                MarkTileLine(ptView,
+                    ptSearchMapView,
+                    nLeft + 1,
+                    nDestY,
+                    ptOffset,
+                    charId,
+                    pVisibleTerrainTable,
+                    bLookingUp);
+                MarkTileLine(ptView,
+                    ptSearchMapView,
+                    nRight,
+                    nDestY,
+                    ptOffset,
+                    charId,
+                    pVisibleTerrainTable,
+                    bLookingUp);
+            }
+
+            pArc++;
+        }
+
+        pArc = m_pHorzArcPixels;
+        nDestY = ptView.y + m_nSearchRangeV;
+        bLookingUp = FALSE;
+        nStepY = -1;
+    }
 }
 
 // 0x553990
 void CVisibilityMap::StampVerticalOctants(const CPoint& ptView, const CPoint& ptOffset, const CPoint& ptSearchMapView, BYTE charId, const BYTE* pVisibleTerrainTable)
 {
-    // TODO: Incomplete.
+    BYTE* pArc = m_pVertArcPixels;
+    LONG nDestY = ptView.y;
+    LONG nLeft = ptView.x - m_nSearchRangeH + 1;
+    LONG nRight = ptView.x + m_nSearchRangeH;
+    BOOLEAN bLookingUp = TRUE;
+    SHORT nStepY = -1;
+    UINT nArcCount = m_nVertArcCount;
+
+    for (SHORT nPass = 0; nPass < 2; nPass++) {
+        if (static_cast<SHORT>(nArcCount) >= 0) {
+            LONG nCount = static_cast<SHORT>(nArcCount) + 1;
+
+            while (nCount > 0) {
+                MarkTileLine(ptView,
+                    ptSearchMapView,
+                    nLeft,
+                    nDestY,
+                    ptOffset,
+                    charId,
+                    pVisibleTerrainTable,
+                    bLookingUp);
+                MarkTileLine(ptView,
+                    ptSearchMapView,
+                    nRight,
+                    nDestY,
+                    ptOffset,
+                    charId,
+                    pVisibleTerrainTable,
+                    bLookingUp);
+
+                if (pArc != NULL && *pArc != 0) {
+                    nLeft++;
+                    nRight--;
+
+                    MarkTileLine(ptView,
+                        ptSearchMapView,
+                        nLeft,
+                        nDestY,
+                        ptOffset,
+                        charId,
+                        pVisibleTerrainTable,
+                        bLookingUp);
+                    MarkTileLine(ptView,
+                        ptSearchMapView,
+                        nRight,
+                        nDestY,
+                        ptOffset,
+                        charId,
+                        pVisibleTerrainTable,
+                        bLookingUp);
+                }
+
+                if (pArc != NULL) {
+                    pArc++;
+                }
+
+                nDestY += nStepY;
+                nCount--;
+            }
+        }
+
+        BYTE nFirstArc = m_pVertArcPixels[0];
+        pArc = m_pVertArcPixels + 1;
+        nDestY = ptView.y + 1;
+        nLeft = ptView.x + nFirstArc - m_nSearchRangeH + 1;
+        nRight = ptView.x - nFirstArc + m_nSearchRangeH;
+        bLookingUp = FALSE;
+        nStepY = 1;
+        nArcCount = m_nVertArcCount - 1;
+    }
 }
 
 // 0x553B10
@@ -504,13 +955,13 @@ void CVisibilityMap::Uninit()
 void CVisibilityMap::UpDate(const CPoint& ptOldPos, const CPoint& ptNewPos, LONG charId, const BYTE* pVisibleTerrainTable)
 {
     CPoint pt;
-    pt.x = ptNewPos.x / 32;
-    pt.y = ptNewPos.y / 32;
+    pt.x = ptOldPos.x / 32;
+    pt.y = ptOldPos.y / 32;
 
     // NOTE: Uninline.
     BYTE visId = GetCharacterPos(charId);
 
-    if (visId != -1) {
+    if (visId != static_cast<BYTE>(-1)) {
         RemoveHorizontalOctantsStamp(pt, visId);
         RemoveVerticalOctantsStamp(pt, visId);
         PrivateAddCharacter(ptNewPos, visId, pVisibleTerrainTable);
