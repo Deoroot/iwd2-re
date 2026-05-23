@@ -5,11 +5,15 @@
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CGameJournal.h"
+#include "CGameObjectArray.h"
 #include "CGameSprite.h"
 #include "CInfGame.h"
+#include "CMessage.h"
 #include "CResDLG.h"
 #include "CScreenWorld.h"
 #include "CUIControlTextDisplay.h"
+#include "CUIManager.h"
+#include "CUIPanel.h"
 #include "CUtil.h"
 
 // Splits a raw DLG script blob (one or more BIOC-style "Trigger(args)"
@@ -570,26 +574,87 @@ void CGameDialogSprite::AsynchronousUpdate()
 
     m_dialogFreezeCounter = 6;
 
-    // TODO: end-dialog button visibility (binary 0x484025..0x4840a2). Sets
-    // panel 9 control 0 visible/invisible based on
-    // pEntry->m_bDisplayButton && currentMode == 0x502, then invalidates.
+    CGameDialogEntry* pEntry = m_dialogEntries[m_currentEntryIndex];
 
-    // TODO: response-marker dispatch (binary 0x4840a8..0x484498). Acquires a
-    // deny lock on m_talkerIndex, then:
-    //   m_responseMarker == -1 -> no pick yet (the common case while waiting);
-    //                             fall through to release.
-    //   m_responseMarker == -2 -> pEntry->m_picked = 1 with no reply ->
-    //                             allocate a CMessageRemoveReplies, post it,
-    //                             then CScreenWorld::EndDialog(0, 1).
-    //   m_responseMarker >= 0  -> FUN_00485750 builds a CAIResponse-bearing
-    //                             message for the picked reply, then a
-    //                             CMessage (vtable 0x84905c) carrying the
-    //                             reply's m_nextDialog + m_nextEntryIndex is
-    //                             pushed; m_responseMarker resets to -1.
-    //
-    // Until that lands, picking a reply doesn't advance state. ClearMarshal
-    // sets m_responseMarker = -1 so the no-pick path runs every tick without
-    // side effects, which is safe.
+    // End-dialog button visibility (binary 0x484025..0x4840a2). Panel 9 /
+    // control 0 is the auto-continue button: activated when the entry has no
+    // live replies (pEntry->m_bDisplayButton) AND the engine is still in
+    // dialog mode. The binary skips redundant SetActive calls when the state
+    // already matches; we do the same to keep InvalidateRect noise down.
+    CUIPanel* pPanel = g_pBaldurChitin->m_pEngineWorld->GetManager()->GetPanel(9);
+    CUIControlBase* pButton = pPanel->GetControl(0);
+    BOOLEAN bShouldActivate = (pEntry->m_bDisplayButton && currentMode == 0x502)
+        ? TRUE
+        : FALSE;
+    if (pButton->m_bActive != bShouldActivate) {
+        pButton->SetActive(bShouldActivate);
+        g_pBaldurChitin->m_pEngineWorld->GetManager()->GetPanel(9)->InvalidateRect(NULL);
+    }
+    g_pBaldurChitin->m_pEngineWorld->GetManager()->GetPanel(9)->InvalidateRect(NULL);
+
+    // Acquire a deny lock on the talker so we can mutate pEntry->m_picked
+    // and dispatch a state-change message under the same critical section.
+    CGameSprite* pSprite = NULL;
+    BYTE rc;
+    LONG talkerIndex = m_talkerIndex;
+    do {
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->m_cObjectArray.GetDeny(
+                talkerIndex,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::TIMEOUT);
+    } while (rc == CGameObjectArray::DELETED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    LONG marker = m_responseMarker;
+
+    if (marker == -1) {
+        // No pick yet -- the common case while waiting for input.
+        pEntry->m_picked = FALSE;
+    } else {
+        pEntry->m_picked = TRUE;
+
+        // Path B (m_responseMarker >= 0, reply with a CAIResponse) is not
+        // implemented: the binary at 0x484158..0x484287 calls
+        // CGameDialogReply::FUN_00485750 (build a CAIResponse-bearing
+        // CMessage, vtable 0x848bb0, sizeof 60) and then allocates a second
+        // CMessage (vtable 0x84905c, sizeof 50, ctor at 0x4f5400) carrying
+        // m_currentEntryIndex / m_responseMarker / m_playerColor / m_playerName /
+        // sprite-id / m_nextDialog (CString) / m_talkerIndex / m_characterIndex /
+        // reply-orig-sprite / 0-byte; both messages get AddMessage'd, then
+        // m_responseMarker is reset to -1.  Both classes still need to be
+        // declared in CMessage.h before this path can be wired.
+        //
+        // Until then, every reply pick falls through to Path A: post
+        // CMessageRemoveReplies and end the conversation cleanly. The player
+        // can finish a dialogue tree (or "Goodbye" out) but branching to a
+        // next state will end the conversation instead.
+    }
+
+    if (pEntry->m_picked) {
+        // Path A (binary 0x484281..0x4842f0). Post CMessageRemoveReplies so
+        // every reply's m_displayPosition gets removed and the picked reply's
+        // text echoes back as the player line, then end dialog.
+        CMessageRemoveReplies* pMsg = new CMessageRemoveReplies(
+            static_cast<LONG>(m_currentEntryIndex),
+            m_responseMarker,
+            m_playerColor,
+            m_playerName,
+            pSprite->GetId(),
+            pSprite->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+        g_pBaldurChitin->m_pEngineWorld->EndDialog(FALSE, TRUE);
+    }
+
+    g_pBaldurChitin->GetObjectGame()->m_cObjectArray.ReleaseDeny(
+        talkerIndex,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
 // 0x4845C0
