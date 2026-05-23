@@ -1,5 +1,7 @@
 #include "CGameDialog.h"
 
+#include "CAIResponse.h"
+#include "CAIScriptFile.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CGameJournal.h"
@@ -9,6 +11,34 @@
 #include "CScreenWorld.h"
 #include "CUIControlTextDisplay.h"
 #include "CUtil.h"
+
+// Splits a raw DLG script blob (one or more BIOC-style "Trigger(args)"
+// expressions juxtaposed without separators) into the line-per-call shape
+// CAIScriptFile::Parse{Conditional,Response}String expects. Binary at
+// 0x483527..0x4836f0 keeps two CStrings -- a shrinking source and a growing
+// accumulator -- and walks ')' to ')'.
+static CString DLGNormalize(const char* pBytes, int nLen)
+{
+    CString sSource(pBytes, nLen);
+    sSource.TrimLeft();
+    sSource.TrimRight();
+
+    CString sOut;
+    while (sSource.GetLength() > 0) {
+        INT pos = sSource.Find(')');
+        if (pos < 0) {
+            // Binary logs a "Error found while parsing dialog conditional"
+            // assertion here; we let ParseConditionalString swallow the tail.
+            sOut += sSource;
+            break;
+        }
+        sOut += sSource.Left(pos + 1);
+        sOut += '\n';
+        sSource = sSource.Right(sSource.GetLength() - pos - 1);
+        sSource.TrimLeft();
+    }
+    return sOut;
+}
 
 // NOTE: Inlined.
 CGameDialogSprite::CGameDialogSprite()
@@ -273,12 +303,9 @@ void CGameDialogSprite::LoadEntries(void* pData, DWORD nSize, LONG characterInde
             INFINITE);
     }
 
-    // CAIScriptFile aScript;  // reused to parse condition / response strings.
-    // TODO: condition (state[3]) + per-reply condition (trans[3]) + response
-    // (trans[4]) string parsing via CAIScriptFile::ParseConditionalString /
-    // ParseResponseString. Without it, m_startCondition/m_condition/m_response
-    // stay default-constructed (Hold() returns TRUE on empty trigger list, so
-    // entries appear unconditional).
+    // One CAIScriptFile drives all three parses; it gets reset in each
+    // Parse{Conditional,Response}String call via Clear().
+    CAIScriptFile aScript;
 
     for (DWORD stateIdx = 0; stateIdx < hdr.numStates; stateIdx++) {
         DWORD* state = static_cast<DWORD*>(arrStates[stateIdx]);
@@ -296,8 +323,46 @@ void CGameDialogSprite::LoadEntries(void* pData, DWORD nSize, LONG characterInde
             pReply->m_flags = trans[0];
             pReply->m_replyText = (trans[0] & 1) ? static_cast<STRREF>(trans[1]) : static_cast<STRREF>(-1);
             pReply->m_journalEntry = (trans[0] & 0x10) ? static_cast<STRREF>(trans[2]) : static_cast<STRREF>(-1);
-            // trans[3] = transition trigger index (when flag 0x2). TODO parse via CAIScriptFile.
-            // trans[4] = action index             (when flag 0x4). TODO parse via CAIScriptFile.
+
+            // Per-reply trigger (flag 0x2). trans[3] = transition trigger
+            // index, or -1 (no record assigned) which the binary swaps for
+            // "False()\n" so the reply Hold()s false rather than firing
+            // unconditionally.
+            if ((trans[0] & 0x2) != 0) {
+                CString sCondText;
+                if (trans[3] == 0xFFFFFFFF) {
+                    sCondText = "False()\n";
+                } else {
+                    DWORD* ttrig = static_cast<DWORD*>(arrTTrig[trans[3]]);
+                    sCondText = DLGNormalize(static_cast<const char*>(pData) + ttrig[0],
+                        static_cast<int>(ttrig[1]));
+                    if (sCondText.IsEmpty()) {
+                        sCondText = "False()\n";
+                    }
+                }
+                aScript.ParseConditionalString(sCondText);
+                pReply->m_condition.Set(*aScript.m_curCondition);
+            }
+
+            // Per-reply action (flag 0x4). trans[4] = action index, or -1
+            // which the binary maps to "\n" -- ParseResponseString swallows
+            // the empty line and m_curResponse stays the empty default.
+            if ((trans[0] & 0x4) != 0) {
+                CString sActionText;
+                if (trans[4] == 0xFFFFFFFF) {
+                    sActionText = "\n";
+                } else {
+                    DWORD* aRec = static_cast<DWORD*>(arrActions[trans[4]]);
+                    sActionText = DLGNormalize(static_cast<const char*>(pData) + aRec[0],
+                        static_cast<int>(aRec[1]));
+                    if (sActionText.IsEmpty()) {
+                        sActionText = "\n";
+                    }
+                }
+                aScript.ParseResponseString(sActionText);
+                pReply->m_response.Set(*aScript.m_curResponse);
+            }
+
             pReply->m_nextDialog = reinterpret_cast<BYTE*>(&trans[5]);
             pReply->m_nextEntryIndex = trans[7];
             pReply->m_displayPosition = NULL;
@@ -307,10 +372,26 @@ void CGameDialogSprite::LoadEntries(void* pData, DWORD nSize, LONG characterInde
             pEntry->Add(pReply);
         }
 
-        // state[3] = state trigger index (or -1 for unconditional).
-        // m_conditionPriority drives the m_dialogEntriesOrdered ordering: lower
-        // values first; -1 (0xFFFFFFFF unsigned) sinks unconditional entries to
-        // the back.
+        // state[3] = state trigger index (or -1 -- binary substitutes
+        // "False()\n" same as the reply path, so entries with no trigger
+        // record are inert until something explicitly enters them by index).
+        // m_conditionPriority drives the m_dialogEntriesOrdered ordering:
+        // lower values first; -1 (0xFFFFFFFF unsigned) sinks unconditional
+        // entries to the back.
+        CString sStateCondText;
+        if (state[3] == 0xFFFFFFFF) {
+            sStateCondText = "False()\n";
+        } else {
+            DWORD* strig = static_cast<DWORD*>(arrSTrig[state[3]]);
+            sStateCondText = DLGNormalize(static_cast<const char*>(pData) + strig[0],
+                static_cast<int>(strig[1]));
+            if (sStateCondText.IsEmpty()) {
+                sStateCondText = "False()\n";
+            }
+        }
+        aScript.ParseConditionalString(sStateCondText);
+        pEntry->m_startCondition.Set(*aScript.m_curCondition);
+
         pEntry->m_conditionPriority = state[3];
         pEntry->m_dialogIndex = m_dialogEntries.GetCount();
         m_dialogEntries.Add(pEntry);
