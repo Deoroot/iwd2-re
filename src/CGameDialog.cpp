@@ -542,15 +542,55 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
     // sound playback (binary 0x484a50..0x484ed0) deferred for later commits.
 
     INT nValid = 0;
+
+    // First pass: inline-text replies (flag 0x20). Binary 0x484f10..0x4850b0.
+    // These render directly under the speaker text rather than as numbered
+    // buttons, but still increment the shared counter so m_displayListId stays
+    // aligned with the press-1..N keymap.
+    for (INT i = 0; i < GetCount(); i++) {
+        CGameDialogReply* pReply = GetAt(i);
+        if (pReply == NULL || (pReply->m_flags & 0x20) == 0) {
+            continue;
+        }
+
+        if ((pReply->m_flags & 0x2) != 0) {
+            CTypedPtrList<CPtrList, CAITrigger*> triggerList(10);
+            if (!pReply->m_condition.Hold(triggerList, pSprite)) {
+                pReply->m_displayListId = 0xFF;
+                continue;
+            }
+        }
+
+        nValid++;
+
+        CString sInline;
+        if ((pReply->m_flags & 0x1) != 0) {
+            STR_RES rrep;
+            g_pBaldurChitin->GetTlkTable().Fetch(pReply->m_replyText, rrep);
+            sInline = rrep.szText;
+            pReply->m_removeIfPicked = FALSE;
+            pReply->m_displayListId = static_cast<BYTE>(nValid);
+        }
+
+        // TODO: per-reply sound (CSound::SetChannel/Play on rrep.cSound).
+        // Color also flips to RGB(255,46,33) when pause-mode is active; both
+        // deferred until task #4.
+        pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
+            CString(""),
+            sInline,
+            playerColor,
+            RGB(190, 215, 215),
+            -1,
+            FALSE);
+    }
+
+    // Second pass: numbered reply buttons. Binary 0x4850b0..0x4855c0.
     for (INT i = 0; i < GetCount(); i++) {
         CGameDialogReply* pReply = GetAt(i);
         if (pReply == NULL) {
             continue;
         }
 
-        // Flag 0x20 = inline-text reply (renders into the speaker bubble, not
-        // the button list). TODO: emit those via DisplayText as part of the
-        // main text block.
         if ((pReply->m_flags & 0x20) != 0) {
             continue;
         }
