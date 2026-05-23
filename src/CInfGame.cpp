@@ -782,7 +782,7 @@ CInfGame::CInfGame()
     g_pChitin->cDimm.AddToDirectoryList(m_sCharactersDir, TRUE);
 
     m_gameSave.m_curFormation = TRUE;
-    m_gameSave.m_bSequenceMode = FALSE;
+    m_gameSave.m_bArenaMode = FALSE;
 
     m_zoomLevel = 48;
     m_zoomEnabled = 48;
@@ -1015,7 +1015,7 @@ void CInfGame::InitGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
         EnablePortrait(nIndex, FALSE);
     }
 
-    m_gameSave.field_1B0 = 0;
+    m_gameSave.m_nGroupInventoryNumber = 0;
     memset(m_gameSave.m_groupInventory, 0, sizeof(m_gameSave.m_groupInventory));
     m_gameSave.m_mode = -1;
     m_gameSave.m_cutScene = FALSE;
@@ -6606,7 +6606,7 @@ void CInfGame::StartCharacterTerminationSequence()
 // 0x5C2570
 void CInfGame::ReadyCharacterTerminationSequence(int a1, int a2)
 {
-    if (!m_gameSave.m_bSequenceMode) {
+    if (!m_gameSave.m_bArenaMode) {
         // FIXME: What for (this function is not static as
         // `StartCharacterTerminationSequence`).
         CInfGame* pGame = g_pBaldurChitin->GetObjectGame();

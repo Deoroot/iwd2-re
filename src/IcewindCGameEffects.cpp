@@ -585,7 +585,7 @@ BOOL IcewindCGameEffectColorGlowDissipate::ApplyEffect(CGameSprite* pSprite)
 IcewindCGameEffectSummon::IcewindCGameEffectSummon(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target)
     : CGameEffect(effect, source, sourceID, target, FALSE)
 {
-    field_18C = 0;
+    m_pSprite = NULL;
     field_190 = 0;
 }
 
@@ -607,14 +607,14 @@ void IcewindCGameEffectSummon::SetSummonDelay(int a1)
 
 // 0x55F710
 // SUMMONALLY (opcode 410) / SUMMONENEMY (opcode 411). Caller cached on first
-// apply (field_18C). Roll m_numDice d m_diceSize and add to m_effectAmount to
+// apply (m_pSprite). Roll m_numDice d m_diceSize and add to m_effectAmount to
 // get total count. For each: bail with summon-limit feedback if the engine
 // rejects the new sprite, otherwise call SpawnFromResRef and (optionally)
 // attach an Unsummon effect bounded by m_duration.
 BOOL IcewindCGameEffectSummon::ApplyEffect(CGameSprite* pSprite)
 {
-    if (field_18C == 0) {
-        field_18C = reinterpret_cast<int>(pSprite);
+    if (m_pSprite == NULL) {
+        m_pSprite = pSprite;
     }
 
     int total = static_cast<int>(m_effectAmount);
@@ -623,7 +623,7 @@ BOOL IcewindCGameEffectSummon::ApplyEffect(CGameSprite* pSprite)
         total += roll + 1;
     }
 
-    CGameSprite* pCaster = reinterpret_cast<CGameSprite*>(field_18C);
+    CGameSprite* pCaster = m_pSprite;
     for (int i = 0; i < total; ++i) {
         if (!Icewind586B70::Instance()->CanJoinParty(pCaster)) {
             pCaster->FeedBack(50, 0, 0, 0, -1, 0, 0);

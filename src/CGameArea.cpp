@@ -747,7 +747,7 @@ LONG CGameArea::sub_46DAE0(INT x, INT y, const CAIObjectType& type, int a4, cons
 // passes the active filters:
 //   - must be a sprite, not stealthed (`m_bStealthMode != 1`);
 //   - if `bOnlyPC` is set: must have a portrait slot, the game must be in
-//     `m_bSequenceMode`, and (in multiplayer) the sprite must be owned by the
+//     `m_bArenaMode`, and (in multiplayer) the sprite must be owned by the
 //     local player;
 //   - if `bFilterByAlignment` is set: `GetAIType().m_nSpecific` must match
 //     `alignSpecific`;
@@ -778,7 +778,7 @@ void CGameArea::ApplyEffect(CGameEffect* pEffect, BOOL bOnlyPC, BOOL bFilterByAl
             SHORT portrait = g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(nId);
             if (portrait == -1) {
                 bIncluded = FALSE;
-            } else if (g_pBaldurChitin->GetObjectGame()->m_gameSave.m_bSequenceMode == 0) {
+            } else if (g_pBaldurChitin->GetObjectGame()->m_gameSave.m_bArenaMode == 0) {
                 bIncluded = FALSE;
             } else if (g_pChitin->cNetwork.m_nServiceProvider != 0
                 && g_pChitin->cNetwork.m_idLocalPlayer != pObject->m_remotePlayerID) {

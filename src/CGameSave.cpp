@@ -10,8 +10,8 @@ CGameSave::CGameSave()
         m_quickFormations[nFormation] = nFormation;
     }
     memset(m_groupInventory, 0, sizeof(m_groupInventory));
-    m_bSequenceMode = 0;
-    field_1B0 = 0;
+    m_bArenaMode = 0;
+    m_nGroupInventoryNumber = 0;
     field_1B2 = 0;
     m_mode = 0;
     m_cutScene = FALSE;

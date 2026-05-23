@@ -45,7 +45,7 @@ CGameAnimationType::CGameAnimationType()
     m_rEllipse.right = 16;
     m_rEllipse.bottom = 12;
     m_animationID = 0;
-    field_3E8 = 0;
+    m_bBrightest = 0;
     field_3FB = 0;
     field_3FC = 0;
     m_moveScale = 0;

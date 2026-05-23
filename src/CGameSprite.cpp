@@ -1363,7 +1363,7 @@ void CGameSprite::RemoveReplacementFromArea()
         }
 
         if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1) {
-            if (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode || InControl()) {
+            if (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bArenaMode || InControl()) {
                 if (Animate()) {
                     m_pArea->m_visibility.RemoveCharacter(m_pos,
                         m_id,
@@ -1493,7 +1493,7 @@ void CGameSprite::RemoveFromArea()
         }
 
         if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1) {
-            if (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode || InControl()) {
+            if (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bArenaMode || InControl()) {
                 if (Animate()) {
                     m_pArea->m_visibility.RemoveCharacter(m_pos,
                         m_id,
@@ -3019,7 +3019,7 @@ void CGameSprite::AIUpdateWalk()
     if ((m_posLastVisMapEntry.x / CVisibilityMap::SQUARE_SIZEX != m_pos.x / CVisibilityMap::SQUARE_SIZEX
             || m_posLastVisMapEntry.y / CVisibilityMap::SQUARE_SIZEY != m_pos.y / CVisibilityMap::SQUARE_SIZEY)
         && g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1
-        && (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode || InControl())) {
+        && (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bArenaMode || InControl())) {
         SHORT nTableIndex;
         if (m_pArea->m_search.GetLOSCost(CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX, m_pos.y / CPathSearch::GRID_SQUARE_SIZEY), m_terrainTable, nTableIndex, FALSE) != CPathSearch::COST_IMPASSABLE) {
             m_pArea->m_visibility.UpDate(m_posLastVisMapEntry,
@@ -3484,7 +3484,7 @@ void CGameSprite::OnActionButton(const CPoint& pt)
             if (pGame->GetCharacterPortraitNum(m_id) != -1
                 || pGame->IsAlly(m_id)
                 || pGame->IsFamiliar(m_id)) {
-                if (!pGame->GetGameSave()->m_bSequenceMode || InControl()) {
+                if (!pGame->GetGameSave()->m_bArenaMode || InControl()) {
                     if (InControl()) {
                         // NOTE: Uninline.
                         pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
@@ -4796,7 +4796,7 @@ void CGameSprite::RenderPortrait(const CPoint& cpRenderPosition, const CSize& sz
     static int s_renderPortraitLogCount = 0;
     BOOL bDead = FALSE;
     BOOLEAN bInControl = InControl();
-    BOOL bSequenceMode = g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode;
+    BOOL bSequenceMode = g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bArenaMode;
     BOOL bLogRenderPortrait = s_renderPortraitLogCount < 600;
 
     if (bLogRenderPortrait) {
@@ -5165,7 +5165,7 @@ void CGameSprite::RenderToMapScreen(const CRect& rClipBase, const CPoint& ptChar
 {
     CRect rClip(rClipBase);
     INT nScale = g_pBaldurChitin->m_bUseNewGui ? 2 : 1;
-    if (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode
+    if (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bArenaMode
         || InControl()) {
         if (!IcewindMisc::IsDead(this)) {
             CPoint center;
@@ -5379,7 +5379,7 @@ void CGameSprite::SetCursor(LONG nToolTip)
                             || pGame->IsAlly(m_id)
                             || pGame->IsFamiliar(m_id)
                             || m_typeAI.GetEnemyAlly() <= CAIObjectType::EA_CONTROLCUTOFF)
-                        && (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bSequenceMode || InControl())) {
+                        && (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bArenaMode || InControl())) {
                         if (InControl()) {
                             g_pBaldurChitin->GetObjectCursor()->SetCursor(0, FALSE);
                         } else {

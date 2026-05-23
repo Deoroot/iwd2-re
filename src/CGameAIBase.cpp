@@ -1823,7 +1823,7 @@ void CGameAIBase::ApplyEffectToParty(CGameEffect* pEffect)
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     for (SHORT nPortrait = 0; nPortrait < pGame->GetNumCharacters(); nPortrait++) {
         LONG nCharacterId = pGame->GetCharacterId(nPortrait);
-        if (pGame->GetGameSave()->m_bSequenceMode) {
+        if (pGame->GetGameSave()->m_bArenaMode) {
             CGameSprite* pSprite;
             BYTE rc = pGame->GetObjectArray()->GetShare(nCharacterId,
                 CGameObjectArray::THREAD_ASYNCH,
