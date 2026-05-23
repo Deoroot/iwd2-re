@@ -2476,31 +2476,42 @@ void CGameAIBase::SpellIdToResRef(int spellId, CString& outResRef)
 }
 
 // 0x461190 - ForceSpell (0x71) and ReallyForceSpell (0xB5) action handler.
-// FULL RECOVERY IN PROGRESS -- multi-session arc.  This step expands the
-// shell to match the binary's entry-guard, resref-resolution, ability-
-// selection, and CheckAppropriateTarget logic.  The tail (cast-time
-// gating + 8-way effect dispatch + projectile spawn) remains a TODO; on
-// completion we still delegate to the FireSpell stub so callers observe
-// a single-tick cast.
+// This step wires the cast-animation state machine -- the binary's three
+// visual stages now drive CMessageSetSequence on the caster so the sprite
+// raises hands during the wind-up and fires the cast-burst pose on the
+// release tick.  ApplyCastingEffect moves from the fire branch to the
+// first cast tick to match the binary (pre-cast SPL feature blocks run
+// once at cast start, not at completion).
 //
 // Recovered field offsets on caster (param_1 in the decomp):
 //   +0x25  -> m_typeAI.m_nGeneral (binary compares against DAT_00847C48,
-//             which is the G_DEAD marker written by 0x4ACFB2 / 0x70D4F6
-//             when m_baseStats.m_generalState has STATE_DEAD bit 0x800)
+//             the G_DEAD marker written by 0x4ACFB2 / 0x70D4F6 when
+//             m_baseStats.m_generalState has STATE_DEAD bit 0x800)
 //   +0x33  -> m_typeAI.m_nSpecific (used as effect.casterParty in case 6)
 //   +0x11D -> m_actionCount (cast-frame counter; CGameAIBase 0x474)
 //   +0x14D2-> m_nSequence (CGameSprite animation sequence; 0x5348)
 //   +0x283 -> m_derivedStats.m_spellStates dword0 (bit 0x100000 == lost
 //             concentration; CGameSprite 0xA0C)
+//   +0x476 -> m_curAction.m_actionID (only the 0xB5 fast-path check uses it)
 //   +0x966 -> m_derivedStats.m_nLevel (CGameSprite 0x920+0x46)
 //
+// Sequence ids match the DAT_0085BBB2/DAT_0085BBB3 byte constants:
+//   SEQ_CAST    = 2 (DAT_0085BBB2, cast-burst pose)
+//   SEQ_CONJURE = 3 (DAT_0085BBB3, raise-hands wind-up)
+//
 // Helpers still pending (see memory/project_forcespell_recovery.md):
-//   FUN_0051EAF0 - projectile/visual-effect factory (~5400 lines)
-//   FUN_00755A70 - cast animation start
-//   FUN_007564E0 - cast animation cancel
-//   FUN_0054A510 - effect-instance allocator
-//   FUN_0046E130 - CGameArea-scoped effect dispatch
-//   FUN_00727720 - cast-target point + flags extraction
+//   FUN_0051EAF0 - projectile/visual-effect factory (~5400 lines).  Until
+//                  recovered the binary's projectile launch path
+//                  (CMessageFireProjectile + CProjectile::Launch vfn at
+//                  +0x6c) cannot fire -- offensive ability effects still
+//                  apply via the targetType 1/4-8 dispatch below, but the
+//                  projectile-attach (case 2) and visible bolt are absent.
+//   FUN_00727720 - per-class memorization lookup; supplies the byte the
+//                  binary parks at projectile +0x186 (caster-class index
+//                  used by saving-throw + damage scaling).
+//   FUN_00727B80 - silence/spell-state filter consulted on the first cast
+//                  tick before queueing the concentration / dispel
+//                  ITEM_EFFECT broadcasts.
 SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
 {
     // Dead casters short-circuit (binary 0x4611BA).
@@ -2580,57 +2591,97 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         return ACTION_INTERRUPTABLE;
     }
 
-    // Cast-time gate.  speedFactor is per-ability cast time in 1/10ths of an
-    // AI tick; the binary computes castTime = speedFactor*100/10 == *10 and
-    // splits the gate into two visual stages:
-    //   m_actionCount < castTime - 4 : raise-hands state (SEQ_CONJURE)
-    //   m_actionCount < castTime     : cast-burst state (SEQ_CAST) +
+    // Cast-time gate.  speedFactor is the per-ability cast time in 1/10ths
+    // of an AI tick; the binary computes castTime = speedFactor*100/10 ==
+    // *10 and walks the caster through three visual stages:
+    //   m_actionCount == 0           : first tick -- queue the SPL pre-cast
+    //                                  feature blocks (ApplyCastingEffect)
+    //                                  and emit concentration/dispel
+    //                                  ITEM_EFFECT broadcasts if the caster
+    //                                  is silenced or has lost concentration
+    //   m_actionCount < castTime - 4 : raise-hands (SEQ_CONJURE)
+    //   m_actionCount < castTime     : cast-burst (SEQ_CAST) +
     //                                  CGameSprite::ApplyCastingEffectPost
     //   otherwise                    : fire and complete.
-    // Both not-yet-done branches return ACTION_INTERRUPTABLE.  The visual
-    // state-change message (PTR_FUN_008488C4, unrecovered CMessage class) and
-    // the first-frame cast-anim start (FUN_00755A70 + invisibility-break +
-    // concentration checks at m_actionCount == 0) are still TODO -- without
-    // them casts complete silently, but the action's duration matches the
-    // binary and the cast-burst sound cue plays.
-    WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
+    // The stage-1/2 branches return ACTION_INTERRUPTABLE so the action
+    // executor re-enters this case next tick.  ReallyForceSpell (0xB5)
+    // and non-sprite callers skip the cast-time machine entirely and
+    // resolve in a single tick (binary 0x46139A check on +0x476).
     BOOL isSprite = (GetObjectType() & CGameObject::TYPE_SPRITE) != 0;
-    SHORT currentSeq = isSprite
-        ? static_cast<CGameSprite*>(this)->m_nSequence
-        : static_cast<SHORT>(0);
+    BOOL bInstantCast = !isSprite || m_curAction.m_actionID == 0xB5;
+    CGameSprite* pSprite = isSprite ? static_cast<CGameSprite*>(this) : NULL;
+    CPoint targetPos = target->GetPos();
 
-    if (m_actionCount < static_cast<SHORT>(castTime - 4)) {
-        // Stage 1: raise hands.  State-change CMessage (PTR_FUN_008488C4)
-        // skipped pending recovery.
-        pSpell->Release();
-        delete pSpell;
-        return ACTION_INTERRUPTABLE;
-    }
-    if (m_actionCount < static_cast<SHORT>(castTime)) {
-        // Stage 2: cast burst.  Only on state transition: queue burst sound
-        // cue.
-        if (isSprite && currentSeq != CGameSprite::SEQ_CAST) {
-            static_cast<CGameSprite*>(this)->ApplyCastingEffectPost(pSpell, pAbility);
+    if (!bInstantCast) {
+        WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
+        SHORT currentSeq = pSprite->m_nSequence;
+
+        // First-tick pre-cast hook.  Binary 0x46139A: queue the SPL's
+        // pre-cast feature blocks (visuals, chant, projectile-spawn) before
+        // any animation runs so they overlap with the cast-time wind-up.
+        if (m_actionCount == 0) {
+            pSprite->ApplyCastingEffect(pSpell, pAbility, targetPos);
+            // TODO (multi-session): FUN_00727B80 silence/spell-state gate ->
+            // concentration ITEM_EFFECT (opcode 0x88) broadcast against
+            // target sprite, and m_spellStates bit 0x100000 -> dispel
+            // ITEM_EFFECT (opcode 0xA0) on self.  Both queue a
+            // CMessageAddEffect via PTR_FUN_008487CC.  No gameplay impact
+            // while missing -- the caster simply doesn't visibly lose
+            // concentration when struck mid-cast.
         }
-        pSpell->Release();
-        delete pSpell;
-        return ACTION_INTERRUPTABLE;
+
+        if (m_actionCount < static_cast<SHORT>(castTime - 4)) {
+            // Stage 1: raise hands.  Self-queued CMessageSetSequence so the
+            // animation system picks up SEQ_CONJURE on the next render
+            // (binary 0x461795 path, PTR_FUN_008488C4 vtable -> CMessageSetSequence).
+            if (currentSeq != CGameSprite::SEQ_CONJURE) {
+                CMessage* msg = new CMessageSetSequence(
+                    CGameSprite::SEQ_CONJURE, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            }
+            pSpell->Release();
+            delete pSpell;
+            return ACTION_INTERRUPTABLE;
+        }
+
+        if (m_actionCount < static_cast<SHORT>(castTime)) {
+            // Stage 2: cast burst.  On entry transition send SEQ_CAST and
+            // play the burst sound cue (ApplyCastingEffectPost).
+            if (currentSeq != CGameSprite::SEQ_CAST) {
+                CMessage* msg = new CMessageSetSequence(
+                    CGameSprite::SEQ_CAST, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+                pSprite->ApplyCastingEffectPost(pSpell, pAbility);
+            }
+            pSpell->Release();
+            delete pSpell;
+            return ACTION_INTERRUPTABLE;
+        }
+
+        // Stage 3 entry: cast-time exhausted.  If the cast was instant
+        // enough to skip stage 2 (speedFactor*10 <= 4 + first tick), the
+        // burst sequence + sound still need to fire here.
+        if (currentSeq != CGameSprite::SEQ_CAST) {
+            CMessage* msg = new CMessageSetSequence(
+                CGameSprite::SEQ_CAST, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            pSprite->ApplyCastingEffectPost(pSpell, pAbility);
+        }
+    } else if (isSprite) {
+        // ReallyForceSpell single-tick path: still queue the SPL pre-cast
+        // feature blocks so visuals and the gameplay 8-way dispatch see a
+        // consistent state, but skip every sequence-change message.
+        pSprite->ApplyCastingEffect(pSpell, pAbility, targetPos);
     }
 
-    // Stage 3: fire and complete.  CGameSprite::ApplyCastingEffect handles
-    // the SPL's *pre-cast* feature blocks (visuals, projectile-launcher).
-    // The ability's own feature blocks (the gameplay payload -- damage,
-    // buff, status) live in pAbility->effects[] and need a separate
-    // BuildAbilityEffect + targetType dispatch loop (binary FUN_00461190
-    // lines 262-339).  Non-sprite callers fall back to the legacy stub.
+    // Fire path -- ability's gameplay-payload effects.  The 8-way targetType
+    // dispatch matches binary FUN_00461190 lines 262-339.  Non-sprite
+    // callers fall back to the legacy stub (FireSpell) since they don't
+    // have an area pointer for the AoE / party cases.
     if (isSprite) {
-        CGameSprite* pSprite = static_cast<CGameSprite*>(this);
-        pSprite->ApplyCastingEffect(pSpell, pAbility, target->GetPos());
-
         BYTE nClass = static_cast<BYTE>(m_curAction.m_specificID2 & 0xFF);
         DWORD nSpec = pSprite->m_baseStats.m_specialization;
         BYTE nLevel = static_cast<BYTE>(specificLevel);
-        CPoint targetPos = target->GetPos();
         for (LONG e = 0; e < static_cast<LONG>(pAbility->effectCount); ++e) {
             CGameEffect* pEffect = pSpell->BuildAbilityEffect(
                 nAbilityIndex, e, this, nClass, nSpec, nLevel);
@@ -2676,6 +2727,34 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
             }
             delete pEffect;
         }
+
+        // Cast-success feedback line -- "<caster> casts <SpellName>".
+        // Binary 0x4619E5: only sprite casters emit FEEDBACK_SPELL.
+        STRREF strSpellName = pSpell->GetGenericName();
+        pSprite->FeedBack(CGameSprite::FEEDBACK_SPELL, 0, 0, 0,
+            static_cast<LONG>(strSpellName), 0, 0);
+
+        // Projectile launch -- TODO (FUN_0051EAF0 + CMessageFireProjectile
+        // + CProjectile::Launch vfn at +0x6c).  Binary 0x4619CA flow:
+        //   pProjectile = FUN_0051EAF0(pAbility->projectileType, this, 0);
+        //   if (FUN_00727720(pSpell, ..., &classByte) == 1) {
+        //       pProjectile->casterClass = classByte;
+        //   }
+        //   msg = new CMessageFireProjectile(pProjectile->m_projectileType,
+        //       target->m_id, target->m_pos,
+        //       CProjectile::DetermineHeight(pSprite),
+        //       m_id, m_id, 0);
+        //   if (pProjectile->m_projectileType == 0x130) {
+        //       int seed = rand() % 1000000;
+        //       pProjectile->seed = seed;
+        //       msg->field_20 = seed;
+        //   }
+        //   AddMessage(msg, FALSE);
+        //   pProjectile->vftbl[0x6c/4](dir, m_id, target->m_id, target->m_pos,
+        //                               0x1E, 0);  // CProjectile::Launch
+        // Blocked on the 5400-line projectile factory recovery.  Without
+        // this block offensive spells still apply their ability effects
+        // (the 8-way dispatch above) but no visible bolt/missile flies.
     } else {
         FireSpell(resRef, target);
     }
