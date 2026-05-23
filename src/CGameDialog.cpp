@@ -878,8 +878,37 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         -1,
         FALSE);
 
-    // TODO: area-switch / scroll-to-speaker / pause-mode branching / dialog
-    // sound playback (binary 0x484a50..0x484ed0) deferred for later commits.
+    // Area-switch + scroll-to-speaker (binary 0x484a50..0x484c50). If the
+    // speaker isn't in the currently visible area, swap the visible area
+    // before scrolling so the dialog renders against the right backdrop.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pSprite->m_pArea != pGame->GetVisibleArea()) {
+        CGameArea* pOld = pGame->GetVisibleArea();
+        if (pOld != NULL) {
+            // Binary 0x484ad9..0x484afd: clear the old area's per-pick state
+            // before deactivating so stale picks don't render on top of the
+            // dialog window.
+            pOld->m_bPicked = FALSE;
+            pOld->m_iPicked = -1;
+            pOld->m_nToolTip = 0;
+            pOld->OnDeactivation();
+        }
+        pGame->m_visibleArea = pSprite->m_pArea->m_id;
+        pSprite->m_pArea->OnActivation();
+    }
+
+    if (pSprite->m_pArea == pGame->GetVisibleArea()) {
+        // Snap or smooth scroll to the speaker. Binary at 0x484b88..0x484bf5
+        // computes the squared distance to the speaker in screen-space; if
+        // it's below DIALOG_JUMP_CUT_OFF (= 0x77a11 in the binary) the
+        // scroll is smooth, otherwise it's a hard jump. We always smooth
+        // scroll for now -- the snap variant is a polish-only difference.
+        g_pBaldurChitin->m_pEngineWorld->StartScroll(pSprite->GetPos(), 5);
+    }
+
+    // TODO: pause-mode SetMessageScreen overlay (binary 0x484c00..0x484c50),
+    // dialog sound playback (binary 0x484978..0x4849cf), and pause-mode
+    // color flip for reply lines deferred for task #4.
 
     INT nValid = 0;
 
