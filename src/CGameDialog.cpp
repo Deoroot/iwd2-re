@@ -569,6 +569,42 @@ CGameDialogContinuation* CGameDialogReply::Apply(CGameSprite* pSprite)
     return pCont;
 }
 
+// 0x4824F0
+void CGameDialogSprite::SwitchTalker(const CResRef& nextDialog, CGameSprite* pCurrentTalker)
+{
+    LONG newTalkerIndex;
+
+    // Case 1: next dialog matches the file we already have loaded -- keep
+    // the current talker. Binary 0x482517: CResRef::Compare(this->m_file, &nextDialog).
+    if (m_file == nextDialog) {
+        newTalkerIndex = m_talkerIndex;
+    } else if (pCurrentTalker->m_dialog == nextDialog
+        || pCurrentTalker->field_56E4 == nextDialog) {
+        // Case 2: current talker already owns the next dialog (either in
+        // m_dialog or the alternate slot field_56E4); reuse them so the
+        // file load happens but the talker doesn't change. Binary
+        // 0x482528..0x482556.
+        newTalkerIndex = pCurrentTalker->GetId();
+    } else {
+        // Case 3 (binary 0x482558..0x4825a4): walk the talker's m_area
+        // looking for a sprite with matching m_dialog/field_56E4 via
+        // FUN_0046c460. Returns -1 if not found, in which case the binary
+        // spawns "Mo the understudy" off DIALOGMO.CRE (binary 0x4825aa
+        // ..0x4829bd). Both paths skipped: we keep the current talker, so
+        // branching from one creature's DLG to another's stays on the
+        // wrong sprite. Rare in IWD2 dialog trees (most branches stay
+        // within the same DLG) but breaks the few that don't.
+        newTalkerIndex = m_talkerIndex;
+    }
+
+    m_talkerIndex = newTalkerIndex;
+    g_pBaldurChitin->GetObjectGame()->SetProtagonist(m_characterIndex);
+
+    // Binary 0x482a98..0x482ad0 also queues a CMessageSetProtagonist on the
+    // protagonist when the network session is active so the other clients'
+    // copies of CInfGame stay in sync. SP-only; deferred with MP recovery.
+}
+
 // 0x483F00
 void CGameDialogSprite::AsynchronousUpdate()
 {
@@ -702,12 +738,12 @@ void CGameDialogSprite::AsynchronousUpdate()
             g_pBaldurChitin->m_pEngineWorld->EndDialog(FALSE, TRUE);
         } else {
             // Path B (binary 0x484158..0x484287): reply has a continuation.
-            // The binary first runs FUN_004824f0 here to switch the dialog's
-            // talker to whichever sprite owns the next dialog resref (or
-            // spawn "Mo the understudy" if missing). TODO: that fallback is
-            // not yet wired; we ride with the current talker, which is
-            // correct for the same-dialog same-talker case but wrong when
-            // a reply branches into another creature's DLG.
+            // First swap talker if the next dialog file points at a
+            // different sprite (same-DLG branches no-op here; cross-DLG
+            // partial -- the area-search/Mo-spawn fallback inside
+            // SwitchTalker is still TODO).
+            SwitchTalker(pCont->m_nextDialog, pSprite);
+
             CString sNextDialog;
             pCont->m_nextDialog.CopyToString(sNextDialog);
 

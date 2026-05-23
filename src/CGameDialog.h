@@ -24,6 +24,7 @@ public:
     void UpdateDialogColors();
     void Initialize(CResRef file, LONG characterIndex, LONG talkerIndex);
     void LoadEntries(void* pData, DWORD nSize, LONG characterIndex, LONG talkerIndex);
+    void SwitchTalker(const CResRef& nextDialog, CGameSprite* pCurrentTalker);
 
     /* 0000 */ CResRef m_file;
     /* 0008 */ CTypedPtrArray<CPtrArray, CGameDialogEntry*> m_dialogEntries;
