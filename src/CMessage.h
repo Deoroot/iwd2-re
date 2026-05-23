@@ -57,6 +57,7 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_FIRE_PROJECTILE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_INSERT_ACTION;
     static const BYTE MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG;
     static const BYTE MSG_SUBTYPE_CMESSAGE_LEAVE_PARTY;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PARTY_GOLD;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PLAY_SOUND;
@@ -859,6 +860,44 @@ public:
     /* 0010 */ LONG m_entryIndex;
     /* 0014 */ LONG m_marker;
     /* 0018 */ COLORREF m_nameColor;
+};
+
+// Carries the next dialog state when a reply is picked. Built inline in
+// CGameDialogSprite::AsynchronousUpdate (binary 0x4841a2..0x484248) and out
+// of line at 0x4f5400; Run dispatches to the target sprite to enter the new
+// state.
+class CMessageContinueDialog : public CMessage {
+public:
+    CMessageContinueDialog(LONG entryIndex,
+        LONG marker,
+        COLORREF nameColor,
+        const CString& name,
+        LONG sourceSpriteId,
+        const CString& nextDialog,
+        LONG talkerIndex,
+        LONG characterIndex,
+        LONG nextEntryIndex,
+        BYTE flag,
+        LONG caller,
+        LONG target);
+    ~CMessageContinueDialog() override;
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ CString m_name;
+    /* 0010 */ LONG m_entryIndex;
+    /* 0014 */ LONG m_marker;
+    /* 0018 */ COLORREF m_nameColor;
+    /* 001C */ LONG m_sourceSpriteId;
+    /* 0020 */ CString m_nextDialog;
+    /* 0024 */ LONG m_talkerIndex;
+    /* 0028 */ LONG m_characterIndex;
+    /* 002C */ LONG m_nextEntryIndex;
+    /* 0030 */ BYTE m_flag;
 };
 
 class CMessageReputationChange : public CMessage {

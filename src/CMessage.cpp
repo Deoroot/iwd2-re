@@ -152,6 +152,9 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_ACTION = 27;
 // 0x84CEF3
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE = 28;
 
+// 0x84CF48
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG = 113;
+
 // 0x84CEF4
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LEAVE_PARTY = 29;
 
@@ -8811,6 +8814,89 @@ void CMessageRemoveReplies::Run()
     g_pBaldurChitin->m_pEngineWorld->m_internalLoadedDialog.m_dialogEntries[m_entryIndex]->RemoveReplies(m_marker,
         m_nameColor,
         m_name);
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x4F5400 (out-of-line ctor; binary also inlines this in
+// CGameDialogSprite::AsynchronousUpdate at 0x4841a2..0x484248).
+CMessageContinueDialog::CMessageContinueDialog(LONG entryIndex,
+    LONG marker,
+    COLORREF nameColor,
+    const CString& name,
+    LONG sourceSpriteId,
+    const CString& nextDialog,
+    LONG talkerIndex,
+    LONG characterIndex,
+    LONG nextEntryIndex,
+    BYTE flag,
+    LONG caller,
+    LONG target)
+    : CMessage(caller, target)
+{
+    m_name = name;
+    m_entryIndex = entryIndex;
+    m_marker = marker;
+    m_nameColor = nameColor;
+    m_sourceSpriteId = sourceSpriteId;
+    m_nextDialog = nextDialog;
+    m_talkerIndex = talkerIndex;
+    m_characterIndex = characterIndex;
+    m_nextEntryIndex = nextEntryIndex;
+    m_flag = flag;
+}
+
+// 0x4844D0
+CMessageContinueDialog::~CMessageContinueDialog()
+{
+}
+
+// 0x40A0D0
+SHORT CMessageContinueDialog::GetCommType()
+{
+    return SEND;
+}
+
+// 0x40A0E0
+BYTE CMessageContinueDialog::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x4844C0
+BYTE CMessageContinueDialog::GetMsgSubType()
+{
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG;
+}
+
+// 0x4FDD30
+void CMessageContinueDialog::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    // TODO: marshal layout per binary at 0x4FDF80; mirrors the CMessage
+    // remote-id + CString pattern used in CMessageRemoveReplies but with
+    // the extra ResRef/index pair.
+    (void)pData;
+    (void)dwSize;
+}
+
+// 0x4FDF80
+BOOL CMessageContinueDialog::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    // TODO: unmarshal companion. Binary at 0x4FDF80 / 0x4FDD30 inverse.
+    (void)pData;
+    (void)dwSize;
+    return FALSE;
+}
+
+// 0x4FD930
+void CMessageContinueDialog::Run()
+{
+    // TODO: dispatch to target sprite to enter the new dialog state.
+    // Binary at 0x4FD930 acquires a share lock on m_targetId, then either
+    // reloads m_nextDialog into m_pEngineWorld->m_internalLoadedDialog (if
+    // it differs from the current file) and enters m_nextEntryIndex via
+    // CGameDialogSprite::EnterDialog, or just enters m_nextEntryIndex on
+    // the current dialog.
 }
 
 // -----------------------------------------------------------------------------
