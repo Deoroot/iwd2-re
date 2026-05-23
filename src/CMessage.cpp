@@ -5117,12 +5117,21 @@ SHORT CMessageHandler::AddMessage(CMessage* message, BOOL bForcePassThrough, SHO
     }
 }
 
+// Subtypes whose Run() is safely recovered.  Anything not in this list is
+// silently dropped (the unrecovered stubs would crash or no-op).  Extend as
+// each CMessage subclass gets its Run() filled in.
+static BOOL Iwd2MessageRunRecovered(BYTE subType)
+{
+    return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT;
+}
+
 // 0x4F7620
 SHORT CMessageHandler::Broadcast(CMessage* message, BOOLEAN bSendMessageToSelf, BOOLEAN bIgnoreObjectControl)
 {
-    // TODO: Incomplete — only CMessageAddAction processed for now
+    // TODO: Incomplete — only whitelisted subtypes have working Run().
     if (message != NULL) {
-        if (message->GetMsgSubType() == 0) { // CMessageAddAction type
+        if (Iwd2MessageRunRecovered(message->GetMsgSubType())) {
             message->Run();
         }
         delete message;
@@ -5133,9 +5142,9 @@ SHORT CMessageHandler::Broadcast(CMessage* message, BOOLEAN bSendMessageToSelf, 
 // 0x4F7830
 SHORT CMessageHandler::Send(CMessage* message)
 {
-    // TODO: Incomplete — only CMessageAddAction processed for now
+    // TODO: Incomplete — only whitelisted subtypes have working Run().
     if (message != NULL) {
-        if (message->GetMsgSubType() == 0) { // CMessageAddAction type
+        if (Iwd2MessageRunRecovered(message->GetMsgSubType())) {
             message->Run();
         }
         delete message;

@@ -22,6 +22,7 @@
 #include "CTimerWorld.h"
 #include "CUtil.h"
 #include "CVariableHash.h"
+#include "FileFormat.h"
 
 // 0x8485C4
 const SHORT CGameAIBase::ACTION_DONE = -1;
@@ -429,10 +430,19 @@ SHORT CGameAIBase::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
-    } else if (m_curAction.m_actionID == 0x71 || m_curAction.m_actionID == 0xB5) {
-        // 0x71 = ForceSpell, 0xB5 = ReallyForceSpell.  Shell handler --
-        // binary FUN_00461190 recovery is multi-session, see ForceSpellAction
-        // for the gap list.
+    } else if (m_curAction.m_actionID == 0x1F
+        || m_curAction.m_actionID == 0x71
+        || m_curAction.m_actionID == 0xB5) {
+        // 0x1F = Spell, 0x71 = ForceSpell, 0xB5 = ReallyForceSpell.
+        // 0x1F is aliased to ForceSpellAction as a stopgap: binary
+        // FUN_00461190 (the real 0x1F handler) shares the resref-load /
+        // ability-pick / ApplyCastingEffect spine with FUN_00461660
+        // (ForceSpellAction).  Self-cast buffs from the action bar
+        // (e.g. Armor of Faith via UseButtonAction queueing CAIAction::SPELL)
+        // were silently dropped before this alias because 0x1F had no case.
+        // Full recovery of FUN_00461190 (cast-time gate, FUN_00727720
+        // target-point extraction, FUN_0054A510 + CMessageFireProjectile
+        // for non-self targets) is still TODO.
         CGameObject* pObj = ResolveActionTarget();
         actionReturn = ForceSpellAction(pObj);
         if (pObj != NULL) {
@@ -2608,13 +2618,92 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
     }
 
     // Stage 3: fire and complete.  CGameSprite::ApplyCastingEffect handles
-    // the 8-case effect-dispatch matrix and (still-TODO) the chant / pre-
-    // cast audio + projectile-spawn visual.  Non-sprite callers fall back
-    // to the legacy FireSpell stub.
+    // the SPL's *pre-cast* feature blocks (visuals, projectile-launcher).
+    // The ability's own feature blocks (the gameplay payload -- damage,
+    // buff, status) live in pAbility->effects[] and need a separate
+    // BuildAbilityEffect + targetType dispatch loop (binary FUN_00461190
+    // lines 262-339).  Non-sprite callers fall back to the legacy stub.
     if (isSprite) {
-        static_cast<CGameSprite*>(this)->ApplyCastingEffect(pSpell, pAbility, target->GetPos());
+        CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+        pSprite->ApplyCastingEffect(pSpell, pAbility, target->GetPos());
+
+        BYTE nClass = static_cast<BYTE>(m_curAction.m_specificID2 & 0xFF);
+        DWORD nSpec = pSprite->m_baseStats.m_specialization;
+        BYTE nLevel = static_cast<BYTE>(specificLevel);
+        CPoint targetPos = target->GetPos();
+        for (LONG e = 0; e < static_cast<LONG>(pAbility->effectCount); ++e) {
+            CGameEffect* pEffect = pSpell->BuildAbilityEffect(
+                nAbilityIndex, e, this, nClass, nSpec, nLevel);
+            if (pEffect == NULL) {
+                continue;
+            }
+            pEffect->m_source = pSprite->GetPos();
+            pEffect->m_sourceID = m_id;
+            pEffect->m_target = targetPos;
+            switch (pEffect->m_targetType) {
+            case 1: {
+                CMessage* msg = new CMessageAddEffect(pEffect, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+                continue;
+            }
+            case 2:
+                // Projectile attach -- skipped (binary asserts unreachable
+                // here; effect would have been attached to in-flight
+                // projectile during launch).
+                break;
+            case 3:
+                pSprite->ApplyEffectToParty(pEffect);
+                break;
+            case 4:
+                pSprite->m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, NULL);
+                break;
+            case 5:
+                pSprite->m_pArea->ApplyEffect(pEffect, TRUE, FALSE, 0, NULL);
+                break;
+            case 6:
+                pSprite->m_pArea->ApplyEffect(
+                    pEffect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
+                break;
+            case 7:
+                pSprite->m_pArea->ApplyEffect(
+                    pEffect, FALSE, TRUE, GetAIType().m_nSpecific, NULL);
+                break;
+            case 8:
+                pSprite->m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, pSprite);
+                break;
+            default:
+                break;
+            }
+            delete pEffect;
+        }
     } else {
         FireSpell(resRef, target);
+    }
+
+    // Consume the memorized slot.  Binary path lives in the
+    // FUN_00740270 / FUN_00742840 quickspell wrappers (still TODO) -- here
+    // we try the three slot kinds the sprite can own (per-class memorized,
+    // cleric/paladin domain, innate) and stop at the first match.
+    if (isSprite) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+        SHORT nSpellLevel = pSpell->GetLevel();
+        if (nSpellLevel >= 1) {
+            UINT nLvl = static_cast<UINT>(nSpellLevel - 1);
+            BOOLEAN consumed = FALSE;
+            for (UINT nIdx = 0; nIdx < CSPELLLIST_NUM_CLASSES && !consumed; ++nIdx) {
+                BYTE nCasterClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nIdx);
+                if (nCasterClass == 0) { continue; }
+                if (pSprite->SubtractFromSpellCount(nCasterClass, nLvl, resRef, 1, 0)) {
+                    consumed = TRUE;
+                }
+            }
+            if (!consumed && pSprite->SubtractFromDomainSpellCount(nLvl, resRef, 1, 0)) {
+                consumed = TRUE;
+            }
+            if (!consumed) {
+                pSprite->SubtractFromInnateSpellCount(resRef, 1, 0);
+            }
+        }
     }
 
     pSpell->Release();
