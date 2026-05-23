@@ -59,6 +59,7 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG;
     static const BYTE MSG_SUBTYPE_CMESSAGE_LEAVE_PARTY;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PARTY_GOLD;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PLAY_SOUND;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PLAY_SOUND_REF;
@@ -798,6 +799,23 @@ public:
     void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
     BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
     void Run() override;
+};
+
+// Loads a DLG file into m_pEngineWorld->m_internalLoadedDialog under deny
+// locks on caller + NPC. Posted by CMessageContinueDialog::Run when a reply
+// branches into a different creature's dialog file.
+class CMessageLoadDialog : public CMessage {
+public:
+    CMessageLoadDialog(const CString& dialog, LONG npcId, LONG caller, LONG target);
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ CString m_dialogRes;
+    /* 0010 */ LONG m_NPCId;
 };
 
 class CMessagePartyGold : public CMessage {

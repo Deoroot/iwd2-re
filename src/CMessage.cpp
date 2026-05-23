@@ -158,6 +158,9 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG = 113;
 // 0x84CEF4
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LEAVE_PARTY = 29;
 
+// 0x84CEF5
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG = 30;
+
 // 0x84CEF6
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PARTY_GOLD = 31;
 
@@ -8205,6 +8208,98 @@ void CMessageLeaveParty::Run()
 
 // -----------------------------------------------------------------------------
 
+// 0x4F5A90
+CMessageLoadDialog::CMessageLoadDialog(const CString& dialog, LONG npcId, LONG caller, LONG target)
+    : CMessage(caller, target)
+{
+    m_dialogRes = dialog;
+    m_NPCId = npcId;
+}
+
+// 0x43E170
+SHORT CMessageLoadDialog::GetCommType()
+{
+    return BROADCAST_FORCED;
+}
+
+// 0x40A0E0
+BYTE CMessageLoadDialog::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x4F5B10
+BYTE CMessageLoadDialog::GetMsgSubType()
+{
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG;
+}
+
+// 0x502B40
+void CMessageLoadDialog::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    // TODO: marshal m_dialogRes + m_NPCId. Binary at 0x502B40.
+    (void)pData;
+    (void)dwSize;
+}
+
+// 0x502D60
+BOOL CMessageLoadDialog::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    // TODO: unmarshal companion. Binary at 0x502D60.
+    (void)pData;
+    (void)dwSize;
+    return FALSE;
+}
+
+// 0x502EB0
+void CMessageLoadDialog::Run()
+{
+    if (m_targetId == CGameObjectArray::INVALID_INDEX
+        || m_NPCId == CGameObjectArray::INVALID_INDEX) {
+        return;
+    }
+
+    CGameSprite* pTarget;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pTarget),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        CGameSprite* pNpc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_NPCId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pNpc),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            // Binary at 0x502EB0 also calls CAIObjectType::Set on both
+            // sprites here before releasing the NPC lock; skipped pending
+            // CAIObjectType recovery.
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_NPCId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            CResRef cResRef;
+            cResRef = m_dialogRes;
+            g_pBaldurChitin->GetScreenWorld()->GetInternalLoadedDialog()->Initialize(cResRef,
+                m_targetId,
+                m_NPCId);
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x4F5B90
 CMessagePartyGold::CMessagePartyGold(BOOLEAN bFeedback, BOOLEAN bAdj, LONG gold, LONG caller, LONG target)
     : CMessage(caller, target)
@@ -8869,34 +8964,51 @@ BYTE CMessageContinueDialog::GetMsgSubType()
     return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG;
 }
 
-// 0x4FDD30
+// 0x4FD930
 void CMessageContinueDialog::MarshalMessage(BYTE** pData, DWORD* dwSize)
 {
-    // TODO: marshal layout per binary at 0x4FDF80; mirrors the CMessage
+    // TODO: marshal layout per binary at 0x4FD930; mirrors the CMessage
     // remote-id + CString pattern used in CMessageRemoveReplies but with
     // the extra ResRef/index pair.
     (void)pData;
     (void)dwSize;
 }
 
-// 0x4FDF80
+// 0x4FDD30
 BOOL CMessageContinueDialog::UnmarshalMessage(BYTE* pData, DWORD dwSize)
 {
-    // TODO: unmarshal companion. Binary at 0x4FDF80 / 0x4FDD30 inverse.
+    // TODO: unmarshal companion. Binary at 0x4FDD30.
     (void)pData;
     (void)dwSize;
     return FALSE;
 }
 
-// 0x4FD930
+// 0x4FDF80
 void CMessageContinueDialog::Run()
 {
-    // TODO: dispatch to target sprite to enter the new dialog state.
-    // Binary at 0x4FD930 acquires a share lock on m_targetId, then either
-    // reloads m_nextDialog into m_pEngineWorld->m_internalLoadedDialog (if
-    // it differs from the current file) and enters m_nextEntryIndex via
-    // CGameDialogSprite::EnterDialog, or just enters m_nextEntryIndex on
-    // the current dialog.
+    // Repost three smaller messages that together drive the state
+    // transition on the receiving side: clear the reply list, load the new
+    // dialog file under deny locks, then enter the new state by index.
+
+    CMessageRemoveReplies* pRemove = new CMessageRemoveReplies(m_entryIndex,
+        m_marker,
+        m_nameColor,
+        m_name,
+        m_sourceSpriteId,
+        m_sourceSpriteId);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pRemove, FALSE);
+
+    CMessageLoadDialog* pLoad = new CMessageLoadDialog(m_nextDialog,
+        m_talkerIndex,
+        m_characterIndex,
+        m_characterIndex);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pLoad, FALSE);
+
+    CMessageEnterDialog* pEnter = new CMessageEnterDialog(m_nextEntryIndex,
+        m_flag,
+        m_targetId,
+        m_targetId);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pEnter, FALSE);
 }
 
 // -----------------------------------------------------------------------------
