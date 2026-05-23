@@ -879,12 +879,16 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         // TODO: per-reply sound (CSound::SetChannel/Play on rrep.cSound).
         // Color also flips to RGB(255,46,33) when pause-mode is active; both
         // deferred until task #4.
+        //
+        // lMarker = i (array index) so CUIControlTextDisplayDialog::OnItemSelected
+        // can hand the same value to AsynchronousUpdate, which feeds it back
+        // into pEntry->GetAt(marker)->Apply(pSprite).
         pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
             CString(""),
             sInline,
             playerColor,
             RGB(190, 215, 215),
-            -1,
+            i,
             FALSE);
     }
 
@@ -919,10 +923,12 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         CString sLine;
         sLine.Format("%d. %s", nValid, static_cast<LPCTSTR>(rrep.szText));
 
+        // lMarker = i (array index) so OnItemSelected can hand the same
+        // value to AsynchronousUpdate -> pEntry->GetAt(marker)->Apply(...).
         pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
             sLine,
             CString(""),
-            -1,
+            i,
             FALSE);
         pReply->m_displayListId = static_cast<BYTE>(nValid);
     }
