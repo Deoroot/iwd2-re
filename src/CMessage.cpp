@@ -8052,29 +8052,59 @@ BYTE CMessageInsertResponse::GetMsgSubType()
     return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE;
 }
 
-// 0x501FE0
+// 0x5017E0
 void CMessageInsertResponse::MarshalMessage(BYTE** pData, DWORD* dwSize)
 {
-    // TODO: marshal m_response + 3 trailing ints. Binary at 0x501FE0.
+    // TODO: marshal m_response + 3 trailing ints. Binary at 0x5017E0.
     (void)pData;
     (void)dwSize;
 }
 
-// 0x502570
+// 0x501FE0
 BOOL CMessageInsertResponse::UnmarshalMessage(BYTE* pData, DWORD dwSize)
 {
-    // TODO: unmarshal companion to MarshalMessage. Binary at 0x502570.
+    // TODO: unmarshal companion to MarshalMessage. Binary at 0x501FE0.
     (void)pData;
     (void)dwSize;
     return FALSE;
 }
 
-// 0x5017E0
+// 0x502570
 void CMessageInsertResponse::Run()
 {
-    // TODO: target sprite -> InsertResponse(m_response) under deny lock,
-    // honouring m_checkCurrentResponse + m_clearActions + field_38.
-    // Binary at 0x5017E0.
+    CGameAIBase* pSprite;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    if ((pSprite->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
+        // TODO: when field_38 == 1 the binary at 0x5025F0..0x5026F0 walks
+        // m_response.m_actionList, copies each CAIAction with the sprite's
+        // own AIObjectType slots overlaid (m_aiObjectType / m_lastObject /
+        // ...), then calls InsertResponse for each. Skipped: that path
+        // exists for scripted FireSpell-style responses where the caster's
+        // object refs need to be substituted in; the simpler unconditional
+        // InsertResponse below still applies the response, just without
+        // the per-action object rewrite.
+
+        if (m_response.m_actionList.GetCount() > 0) {
+            pSprite->InsertResponse(m_response,
+                m_checkCurrentResponse,
+                m_clearActions);
+        }
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
 // -----------------------------------------------------------------------------
