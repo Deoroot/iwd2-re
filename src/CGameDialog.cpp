@@ -669,43 +669,66 @@ void CGameDialogSprite::AsynchronousUpdate()
     }
 
     LONG marker = m_responseMarker;
+    CGameDialogContinuation* pCont = NULL;
 
     if (marker == -1) {
         // No pick yet -- the common case while waiting for input.
         pEntry->m_picked = FALSE;
     } else {
         pEntry->m_picked = TRUE;
-
-        // Path B (m_responseMarker >= 0, reply with a CAIResponse) is not
-        // implemented: the binary at 0x484158..0x484287 calls
-        // CGameDialogReply::FUN_00485750 (build a CAIResponse-bearing
-        // CMessage, vtable 0x848bb0, sizeof 60) and then allocates a second
-        // CMessage (vtable 0x84905c, sizeof 50, ctor at 0x4f5400) carrying
-        // m_currentEntryIndex / m_responseMarker / m_playerColor / m_playerName /
-        // sprite-id / m_nextDialog (CString) / m_talkerIndex / m_characterIndex /
-        // reply-orig-sprite / 0-byte; both messages get AddMessage'd, then
-        // m_responseMarker is reset to -1.  Both classes still need to be
-        // declared in CMessage.h before this path can be wired.
-        //
-        // Until then, every reply pick falls through to Path A: post
-        // CMessageRemoveReplies and end the conversation cleanly. The player
-        // can finish a dialogue tree (or "Goodbye" out) but branching to a
-        // next state will end the conversation instead.
+        if (marker != -2) {
+            // Real reply pick (-2 is the "auto-continue button" marker that
+            // skips Apply and goes straight to Path A). Apply fires the AI
+            // response on the talker and returns the next-dialog info, or
+            // NULL when the reply ends the conversation (flag 0x8).
+            pCont = pEntry->GetAt(marker)->Apply(pSprite);
+        }
     }
 
     if (pEntry->m_picked) {
-        // Path A (binary 0x484281..0x4842f0). Post CMessageRemoveReplies so
-        // every reply's m_displayPosition gets removed and the picked reply's
-        // text echoes back as the player line, then end dialog.
-        CMessageRemoveReplies* pMsg = new CMessageRemoveReplies(
-            static_cast<LONG>(m_currentEntryIndex),
-            m_responseMarker,
-            m_playerColor,
-            m_playerName,
-            pSprite->GetId(),
-            pSprite->GetId());
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-        g_pBaldurChitin->m_pEngineWorld->EndDialog(FALSE, TRUE);
+        if (pCont == NULL) {
+            // Path A (binary 0x484281..0x4842f0): reply has no continuation.
+            // Post CMessageRemoveReplies so every reply's m_displayPosition
+            // gets removed + the picked reply's text echoes back as the
+            // player line, then end dialog.
+            CMessageRemoveReplies* pMsg = new CMessageRemoveReplies(
+                static_cast<LONG>(m_currentEntryIndex),
+                m_responseMarker,
+                m_playerColor,
+                m_playerName,
+                pSprite->GetId(),
+                pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            g_pBaldurChitin->m_pEngineWorld->EndDialog(FALSE, TRUE);
+        } else {
+            // Path B (binary 0x484158..0x484287): reply has a continuation.
+            // The binary first runs FUN_004824f0 here to switch the dialog's
+            // talker to whichever sprite owns the next dialog resref (or
+            // spawn "Mo the understudy" if missing). TODO: that fallback is
+            // not yet wired; we ride with the current talker, which is
+            // correct for the same-dialog same-talker case but wrong when
+            // a reply branches into another creature's DLG.
+            CString sNextDialog;
+            pCont->m_nextDialog.CopyToString(sNextDialog);
+
+            CMessageContinueDialog* pMsg = new CMessageContinueDialog(
+                static_cast<LONG>(m_currentEntryIndex),
+                m_responseMarker,
+                m_playerColor,
+                m_playerName,
+                pSprite->GetId(),
+                sNextDialog,
+                m_talkerIndex,
+                m_characterIndex,
+                static_cast<LONG>(pCont->m_nextEntryIndex),
+                /*flag*/ 0,
+                m_talkerIndex,
+                m_talkerIndex);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+
+            m_responseMarker = -1;
+            delete pCont;
+        }
     }
 
     g_pBaldurChitin->GetObjectGame()->m_cObjectArray.ReleaseDeny(
