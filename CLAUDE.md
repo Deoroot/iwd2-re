@@ -55,8 +55,8 @@ curl -s http://127.0.0.1:8089/get_metadata
 
 **Schema:**
 ```bash
-curl -s http://127.0.0.1:8089/mcp/schema -o tmp_schema.json
-python -c "import json; d=json.load(open('tmp_schema.json')); print(len(d['tools']))"
+curl -s http://127.0.0.1:8089/mcp/schema -o ghidra_mcp_schema.json
+python -c "import json; d=json.load(open('ghidra_mcp_schema.json')); print(len(d['tools']))"
 ```
 
 **Decompile / disasm:**
@@ -84,7 +84,10 @@ curl -s -X POST http://127.0.0.1:8089/rename_function_by_address -H "Content-Typ
 curl -s -X POST http://127.0.0.1:8089/set_function_prototype -H "Content-Type: application/json" -d '{"function_address":"0x6CA830","prototype":"void __thiscall EquipOffHWeapon(void * resRef, byte * colorRangeValues)"}'
 ```
 
-Mutations commit immediately. Save Ghidra project after batches.
+Mutations are in-memory until saved. Persist with:
+```bash
+curl -s -X POST http://127.0.0.1:8089/save_program -H "Content-Type: application/json" -d '{"program":"IWD2.exe"}'
+```
 
 **MCP bridge:**
 ```bash
@@ -98,6 +101,8 @@ pe = pefile.PE(r"C:\GOG Games\Icewind Dale 2\IWD2.exe", fast_load=True)
 ib = pe.OPTIONAL_HEADER.ImageBase
 print(pe.get_data(0x8ABCA4 - ib, 16))
 ```
+
+**Schema reference:** `ghidra_mcp_schema.json`.
 
 ## Game assets (`data/near_infinity_export/`)
 
@@ -137,10 +142,10 @@ data/near_infinity_export/
 
 | Path | Use |
 |-----|-----|
-| `C:/projects/bg2-symbols/bg2_pdb_types.txt` | BG2EE PDB layouts (field names match, offsets differ) |
-| `C:/projects/gemrb/` | GemRB source (CGameSprite↔Actor, CInfGame↔Game) |
-| `C:/projects/NearInfinity/` | File formats (.CRE/.ARE/.ITM) |
-| `C:/projects/iesdp/` | Effects, opcodes, STATS.IDS |
+| `data/pdb/bg2_pdb_types.txt` | BG2EE PDB layouts (field names match, offsets differ) |
+| `refs/gemrb/` | GemRB source (CGameSprite↔Actor, CInfGame↔Game) |
+| `refs/NearInfinity/` | File formats (.CRE/.ARE/.ITM) |
+| `refs/iesdp/` | Effects, opcodes, STATS.IDS |
 | `C:\ghidra_projects\IWD2\` | Live Ghidra project |
 
 ## Temp files

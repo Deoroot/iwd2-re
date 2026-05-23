@@ -28,7 +28,7 @@ Init submodules: `git submodule update --init --recursive`
 ## Not bundled (too large / require installation)
 
 - **Baldur.pdb** (29 MB) — `C:\projects\bg2-symbols\Baldur.pdb`
-- **Ghidra 12.0.4** — `C:\ghidra_dist\ghidra_12.0.4_PUBLIC`
+- **Ghidra 12.1** — `C:\ghidra_dist\ghidra_12.1_PUBLIC`
 - **GhidraSQL** — `C:\ghidrasql-repo\build\bin\Release\ghidrasql.exe`
 - **Visual Studio 2019** — Win32, C++17, MFC, DirectDraw, SDK 10.0.19041
 

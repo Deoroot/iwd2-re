@@ -193,14 +193,6 @@ python scripts/ghidra_re.py bookmark 0x5D2DE0 review "Check blend flags."
 python scripts/ghidra_re.py source-notes --replace
 ```
 
-For large batches (>200 renames), shut down the HTTP server and use the CLI directly:
-
-```powershell
-curl -X POST http://127.0.0.1:8081/shutdown
-ghidrasql --ghidra "$env:GHIDRA_INSTALL_DIR" --project C:\ghidra_projects\IWD2 --project-name IWD2 --program IWD2.exe --no-analyze -f rename_batch.sql
-C:\ghidra_projects\IWD2\start_ghidrasql.bat
-```
-
 Full workflow: [decomp_ref/ghidra_rename_annotate.md](decomp_ref/ghidra_rename_annotate.md)
 
 ---
@@ -228,7 +220,7 @@ Run `data/restore.ps1` after clone to extract to `C:\projects\` and `C:\ghidra_p
 ### External Tools
 | Tool | Purpose | Link |
 |------|---------|------|
-| **Ghidra 12.0.4** | Reverse engineering framework | [ghidra-sre.org](https://ghidra-sre.org/) |
+| **Ghidra 12.1** | Reverse engineering framework | [ghidra-sre.org](https://ghidra-sre.org/) |
 | **GhidraSQL** | SQL interface to Ghidra DB | bundled with LibGhidraHost |
 | **Visual Studio 2019** | Build compiler (Win32, C++17, MFC) | — |
 
