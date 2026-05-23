@@ -555,8 +555,17 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
             continue;
         }
 
-        // TODO: per-reply m_condition gate. Without a parsed condition the
-        // reply always shows.
+        // Flag 0x2 = reply has a trigger; gate via m_condition.Hold(). With
+        // an empty m_triggerList (no condition string parsed yet) Hold
+        // returns TRUE, so the reply still shows. Once LoadEntries wires up
+        // CAIScriptFile::ParseConditionalString the gate becomes active.
+        if ((pReply->m_flags & 0x2) != 0) {
+            CTypedPtrList<CPtrList, CAITrigger*> triggerList(10);
+            if (!pReply->m_condition.Hold(triggerList, pSprite)) {
+                pReply->m_displayListId = 0xFF;
+                continue;
+            }
+        }
 
         nValid++;
 
