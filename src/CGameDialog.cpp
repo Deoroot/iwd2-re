@@ -867,6 +867,18 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
     COLORREF rgbSpeaker = (reinterpret_cast<const COLORREF*>(0x85e8d8))[
         *(reinterpret_cast<const BYTE*>(pSprite) + 0x5ca)];
 
+    // Per-text VO. Binary 0x484978..0x4849cf: pin the strRes sound on channel 6
+    // (CHAN_DIALOG), mark fire-and-forget unless it loops, then SleepEx(10) +
+    // Play. The Sleep is the engine's hack to let the previous channel-6 sound
+    // get cancelled before the new one fires.
+    strRes.cSound.SetChannel(6,
+        reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+    if (strRes.cSound.m_nLooping == 0) {
+        strRes.cSound.SetFireForget(TRUE);
+    }
+    SleepEx(10, 0);
+    strRes.cSound.Play(FALSE);
+
     g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
         strRes.szText,
         rgbSpeaker,
@@ -933,17 +945,26 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         nValid++;
 
         CString sInline;
+        STR_RES rrep;
         if ((pReply->m_flags & 0x1) != 0) {
-            STR_RES rrep;
             g_pBaldurChitin->GetTlkTable().Fetch(pReply->m_replyText, rrep);
             sInline = rrep.szText;
             pReply->m_removeIfPicked = FALSE;
             pReply->m_displayListId = static_cast<BYTE>(nValid);
+
+            // Per-reply VO; same channel-6 pin + fire-and-forget pattern as
+            // the entry text. Binary 0x485019..0x485047.
+            rrep.cSound.SetChannel(6,
+                reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+            if (rrep.cSound.m_nLooping == 0) {
+                rrep.cSound.SetFireForget(TRUE);
+            }
+            SleepEx(10, 0);
+            rrep.cSound.Play(FALSE);
         }
 
-        // TODO: per-reply sound (CSound::SetChannel/Play on rrep.cSound).
-        // Color also flips to RGB(255,46,33) when pause-mode is active; both
-        // deferred until task #4.
+        // TODO: pause-mode color flip (RGB(255,46,33) when
+        // m_bInControlOfDialog is set). Binary 0x485097..0x4850b0.
         //
         // lMarker = i (array index) so CUIControlTextDisplayDialog::OnItemSelected
         // can hand the same value to AsynchronousUpdate, which feeds it back
@@ -987,6 +1008,16 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
         CString sLine;
         sLine.Format("%d. %s", nValid, static_cast<LPCTSTR>(rrep.szText));
+
+        // Per-reply VO; same channel-6 pin + fire-and-forget pattern as
+        // the entry text. Binary 0x485468..0x485496.
+        rrep.cSound.SetChannel(6,
+            reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+        if (rrep.cSound.m_nLooping == 0) {
+            rrep.cSound.SetFireForget(TRUE);
+        }
+        SleepEx(10, 0);
+        rrep.cSound.Play(FALSE);
 
         // lMarker = i (array index) so OnItemSelected can hand the same
         // value to AsynchronousUpdate -> pEntry->GetAt(marker)->Apply(...).
