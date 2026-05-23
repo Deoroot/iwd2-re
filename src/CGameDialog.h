@@ -38,8 +38,7 @@ public:
     /* 004C */ LONG m_dialogFreezeCounter;
     /* 0050 */ LONG m_dialogFreezeMultiplayer;
     /* 0054 */ unsigned char m_bDialogActive;
-    /* 0055 */ unsigned char field_55;
-    /* 0056 */ CString field_56;
+    /* 0056 */ CString m_sScrollMarker;
     /* 005A */ BOOL m_bMusicThreadPriorityChanged;
     /* 005E */ int m_nMusicThreadPriority;
 };

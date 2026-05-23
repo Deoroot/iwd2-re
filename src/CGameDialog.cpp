@@ -103,7 +103,7 @@ BOOL CGameDialogSprite::StartDialog(CGameSprite* pSprite)
             g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
 
             m_bDialogActive = 1;
-            field_56 = "";
+            m_sScrollMarker = "";
 
             return TRUE;
         }
@@ -483,7 +483,7 @@ void CGameDialogSprite::EndDialog()
     m_waitingForResponse = FALSE;
     m_responseMarker = -1;
     m_bDialogActive = 0;
-    field_56 = "";
+    m_sScrollMarker = "";
 
     CResRef cResRef("SilentDH");
 
@@ -567,10 +567,10 @@ void CGameDialogSprite::AsynchronousUpdate()
 
     // Waiting on player input.
     //
-    // TODO: scroll-to-marker (binary 0x483f5a..0x483ff7). When field_56 is
+    // TODO: scroll-to-marker (binary 0x483f5a..0x483ff7). When m_sScrollMarker is
     // non-empty the binary walks the active dialog display list looking for
-    // a line whose text matches field_56 and snaps the scroll to it -- used
-    // for "you said earlier..." quoteback. We just leave field_56 alone.
+    // a line whose text matches m_sScrollMarker and snaps the scroll to it -- used
+    // for "you said earlier..." quoteback. We just leave m_sScrollMarker alone.
 
     m_dialogFreezeCounter = 6;
 
