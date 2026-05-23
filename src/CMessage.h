@@ -7,6 +7,7 @@
 
 #include "BalDataTypes.h"
 #include "CAIAction.h"
+#include "CAIResponse.h"
 #include "CAITrigger.h"
 #include "CChatBuffer.h"
 #include "CColorEffects.h"
@@ -55,6 +56,7 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_EXIT_STORE_MODE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_FIRE_PROJECTILE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_INSERT_ACTION;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_LEAVE_PARTY;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PARTY_GOLD;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PLAY_SOUND;
@@ -762,6 +764,28 @@ public:
     void Run() override;
 
     /* 000C */ CAIAction m_action;
+};
+
+class CMessageInsertResponse : public CMessage {
+public:
+    CMessageInsertResponse(const CAIResponse& response,
+        int checkCurrentResponse,
+        int clearActions,
+        int field38,
+        LONG caller,
+        LONG target);
+    ~CMessageInsertResponse() override;
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ CAIResponse m_response;
+    /* 0030 */ int m_checkCurrentResponse;
+    /* 0034 */ int m_clearActions;
+    /* 0038 */ int field_38;
 };
 
 class CMessageLeaveParty : public CMessage {

@@ -149,6 +149,9 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FIRE_PROJECTILE = 26;
 // 0x84CEF2
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_ACTION = 27;
 
+// 0x84CEF3
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE = 28;
+
 // 0x84CEF4
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LEAVE_PARTY = 29;
 
@@ -8001,6 +8004,71 @@ void CMessageInsertAction::Run()
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
     }
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x4F59D0 (out-of-line ctor; binary also inlines this at FUN_00485750 / FUN_00462f90).
+CMessageInsertResponse::CMessageInsertResponse(const CAIResponse& response,
+    int checkCurrentResponse,
+    int clearActions,
+    int field38,
+    LONG caller,
+    LONG target)
+    : CMessage(caller, target)
+{
+    m_response.Set(response);
+    m_checkCurrentResponse = checkCurrentResponse;
+    m_clearActions = clearActions;
+    field_38 = field38;
+}
+
+// 0x463290
+CMessageInsertResponse::~CMessageInsertResponse()
+{
+}
+
+// 0x40A0D0
+SHORT CMessageInsertResponse::GetCommType()
+{
+    return SEND;
+}
+
+// 0x40A0E0
+BYTE CMessageInsertResponse::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x463280
+BYTE CMessageInsertResponse::GetMsgSubType()
+{
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE;
+}
+
+// 0x501FE0
+void CMessageInsertResponse::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    // TODO: marshal m_response + 3 trailing ints. Binary at 0x501FE0.
+    (void)pData;
+    (void)dwSize;
+}
+
+// 0x502570
+BOOL CMessageInsertResponse::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    // TODO: unmarshal companion to MarshalMessage. Binary at 0x502570.
+    (void)pData;
+    (void)dwSize;
+    return FALSE;
+}
+
+// 0x5017E0
+void CMessageInsertResponse::Run()
+{
+    // TODO: target sprite -> InsertResponse(m_response) under deny lock,
+    // honouring m_checkCurrentResponse + m_clearActions + field_38.
+    // Binary at 0x5017E0.
 }
 
 // -----------------------------------------------------------------------------
