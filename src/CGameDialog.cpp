@@ -511,7 +511,85 @@ BOOL CGameDialogSprite::EnterDialog(DWORD index, CGameSprite* pSprite, int a3)
 // 0x483F00
 void CGameDialogSprite::AsynchronousUpdate()
 {
-    // TODO: Incomplete.
+    // CInfGame::m_gameSave::m_mode (offset 0x422c + 0x1b6 = 0x43e2). Value
+    // 0x502 means the engine is in dialog mode; anything else and we either
+    // wait or bail.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    DWORD currentMode = *reinterpret_cast<const DWORD*>(
+        reinterpret_cast<const BYTE*>(pGame) + 0x43E2);
+
+    if (!m_waitingForResponse) {
+        // No reply pending. Tick the freeze counter and -- once it expires
+        // -- post EndDialog. The counter prevents instantaneously ending the
+        // dialog when the entry text/replies are still being processed.
+        if (currentMode != 0x502) {
+            return;
+        }
+
+        // CChitin field at offset 0x1032 is the game-pause flag. When the
+        // game is unpaused we tick once per AU; when paused we slow down to
+        // one tick per 10 AU bumps so dialog doesn't race.
+        BYTE bPaused = *(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032);
+
+        if (bPaused == 0) {
+            LONG counterBefore = m_dialogFreezeCounter--;
+            if (counterBefore > 0) {
+                return;
+            }
+            m_dialogFreezeCounter = 6;
+        } else {
+            if (currentMode != 0x502) {
+                return;
+            }
+            LONG multiBefore = m_dialogFreezeMultiplayer++;
+            if (multiBefore < 10) {
+                return;
+            }
+            m_dialogFreezeMultiplayer = 0;
+            LONG counterBefore = m_dialogFreezeCounter--;
+            if (counterBefore > 0) {
+                return;
+            }
+            // Binary at 0x484340..0x48448d logs "Sprite trying to execute
+            // dialog without sprite" / "Unknown sprite trying to execute"
+            // via the TRACE channel here, after a GetShare on m_talkerIndex.
+            // Skipped: we just reset the counter and proceed to EndDialog.
+            m_dialogFreezeCounter = 6;
+        }
+
+        g_pBaldurChitin->m_pEngineWorld->EndDialog(0, 1);
+        return;
+    }
+
+    // Waiting on player input.
+    //
+    // TODO: scroll-to-marker (binary 0x483f5a..0x483ff7). When field_56 is
+    // non-empty the binary walks the active dialog display list looking for
+    // a line whose text matches field_56 and snaps the scroll to it -- used
+    // for "you said earlier..." quoteback. We just leave field_56 alone.
+
+    m_dialogFreezeCounter = 6;
+
+    // TODO: end-dialog button visibility (binary 0x484025..0x4840a2). Sets
+    // panel 9 control 0 visible/invisible based on
+    // pEntry->m_bDisplayButton && currentMode == 0x502, then invalidates.
+
+    // TODO: response-marker dispatch (binary 0x4840a8..0x484498). Acquires a
+    // deny lock on m_talkerIndex, then:
+    //   m_responseMarker == -1 -> no pick yet (the common case while waiting);
+    //                             fall through to release.
+    //   m_responseMarker == -2 -> pEntry->m_picked = 1 with no reply ->
+    //                             allocate a CMessageRemoveReplies, post it,
+    //                             then CScreenWorld::EndDialog(0, 1).
+    //   m_responseMarker >= 0  -> FUN_00485750 builds a CAIResponse-bearing
+    //                             message for the picked reply, then a
+    //                             CMessage (vtable 0x84905c) carrying the
+    //                             reply's m_nextDialog + m_nextEntryIndex is
+    //                             pushed; m_responseMarker resets to -1.
+    //
+    // Until that lands, picking a reply doesn't advance state. ClearMarshal
+    // sets m_responseMarker = -1 so the no-pick path runs every tick without
+    // side effects, which is safe.
 }
 
 // 0x4845C0
