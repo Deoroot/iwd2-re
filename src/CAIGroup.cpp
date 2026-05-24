@@ -8,6 +8,7 @@
 #include "CInfGame.h"
 #include "CPathSearch.h"
 #include "CSearchBitmap.h"
+#include "DebugLog.h"
 
 // 0x8479E4
 const LONG CAIGroup::OFFSET_MULTIPLIER = 1000;
@@ -678,8 +679,12 @@ void CAIGroup::Sort()
 void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType, CPoint cursor)
 {
     if (m_memberList.IsEmpty()) {
+        Iwd2DebugLog("CAIGroup::GroupSetTarget emptyList target=%ld,%ld", target.x, target.y);
         return;
     }
+
+    Iwd2DebugLog("CAIGroup::GroupSetTarget target=%ld,%ld additive=%d formation=%d count=%d",
+        target.x, target.y, (int)additive, (int)formationType, m_memberList.GetCount());
 
     // Formation/cursor positioning (simplified — use target directly)
     if (formationType == 0) {

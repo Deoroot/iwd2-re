@@ -506,8 +506,8 @@ SHORT CPathSearch::BuildPathList(CPathNode* startNode, CSearchBitmap* pSearchBit
             directionStep = currentNode->m_gridPosition - m_pathBegin[m_nPathNodes - 1];
         }
 
-        for (cnt = 2; cnt < m_nPathNodes; cnt++) {
-            m_pathBegin[m_nPathNodes - cnt] = -currentNode->m_gridPosition;
+        for (cnt = 2; cnt <= m_nPathNodes; cnt++) {
+            m_pathBegin[m_nPathNodes - cnt] = currentNode->m_gridPosition;
             currentNode = currentNode->m_pathNodePrev;
 
             if (m_pathSmooth) {

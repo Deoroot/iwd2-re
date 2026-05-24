@@ -28,6 +28,7 @@
 #include "CTiledObject.h"
 #include "CUtil.h"
 #include "CVidPoly.h"
+#include "DebugLog.h"
 // 0x8D212C
 INT CGameArea::dword_8D212C;
 
@@ -2853,6 +2854,7 @@ void CGameArea::OnActionButtonDown(const CPoint& pt)
             && m_iPicked == CGameObjectArray::INVALID_INDEX
             && !m_visibility.IsTileExplored(m_visibility.PointToTile(ptWorld))
             && m_search.GetLOSCost(mouseSearchSquare, m_terrainTable, searchSquareCode, FALSE) == CPathSearch::COST_IMPASSABLE) {
+            Iwd2DebugLog("CGameArea::OnActionButtonDown fog gate pt=%ld,%ld", ptWorld.x, ptWorld.y);
             return;
         }
 
@@ -2863,6 +2865,9 @@ void CGameArea::OnActionButtonDown(const CPoint& pt)
         m_iPickedOnDown = m_iPicked;
         m_moveDest = ptWorld;
         field_241 = CTimerWorld::TIMESCALE_MSEC_PER_SEC;
+
+        Iwd2DebugLog("CGameArea::OnActionButtonDown state=%d ptWorld=%ld,%ld picked=%d",
+            m_pGame->GetState(), ptWorld.x, ptWorld.y, (int)m_iPickedOnDown);
 
         if (g_pBaldurChitin->GetObjectCursor()->m_nCurrentCursor == 4) {
             m_pGame->GetGroup()->GroupDrawMove(ptWorld,
@@ -2876,6 +2881,10 @@ void CGameArea::OnActionButtonDown(const CPoint& pt)
                 m_pGame->GetButtonArray()->ResetState();
             }
         }
+    } else {
+        Iwd2DebugLog("CGameArea::OnActionButtonDown viewport gate pt=%ld,%ld view=%ld,%ld,%ld,%ld",
+            pt.x, pt.y, m_cInfinity.rViewPort.left, m_cInfinity.rViewPort.top,
+            m_cInfinity.rViewPort.right, m_cInfinity.rViewPort.bottom);
     }
 }
 
@@ -2885,6 +2894,10 @@ void CGameArea::OnActionButtonUp(const CPoint& pt)
     CPoint ptWorld = m_cInfinity.GetWorldCoordinates(pt);
     SHORT gameState = m_pGame->GetState();
     BOOL firstSelect = TRUE;
+
+    Iwd2DebugLog("CGameArea::OnActionButtonUp state=%d selectSq=(%ld,%ld,%ld,%ld) w=%d h=%d pickedDown=%d",
+        gameState, m_selectSquare.left, m_selectSquare.top, m_selectSquare.right, m_selectSquare.bottom,
+        (int)m_selectSquare.Width(), (int)m_selectSquare.Height(), (int)m_iPickedOnDown);
 
     if (m_selectSquare.left != -1) {
         m_selectSquare.NormalizeRect();
@@ -3098,6 +3111,10 @@ void CGameArea::OnActionButtonClickGround(const CPoint& pt)
     CAIGroup* pGroup = pGame->GetGroup();
     SHORT nTableIndex;
 
+    Iwd2DebugLog("CGameArea::OnActionButtonClickGround state=%d icon=%d groupCount=%d groupMove=%d travel=%d pt=%ld,%ld",
+        pGame->GetState(), pGame->GetIconIndex(), pGroup->GetCount(),
+        (int)m_groupMove, (int)m_bTravelSquare, pt.x, pt.y);
+
     switch (pGame->GetState()) {
     case 0:
         if (pGroup->m_groupChanged || pGame->m_lastClick != pt) {
@@ -3107,6 +3124,8 @@ void CGameArea::OnActionButtonClickGround(const CPoint& pt)
             pGame->SetLastClick(pt);
 
             if (pGroup->GetCount() > 0) {
+                Iwd2DebugLog("CGameArea::OnActionButtonClickGround groupCount=%d groupChanged=%d lastClick=%ld,%ld pt=%ld,%ld",
+                    pGroup->GetCount(), (int)pGroup->m_groupChanged, pGame->m_lastClick.x, pGame->m_lastClick.y, pt.x, pt.y);
                 BOOL bShift = g_pBaldurChitin->GetScreenWorld()->GetShiftKey();
                 if (!bShift) {
                     pGroup->ClearActions();
@@ -3136,6 +3155,8 @@ void CGameArea::OnActionButtonClickGround(const CPoint& pt)
                     }
                 }
             }
+        } else {
+            Iwd2DebugLog("CGameArea::OnActionButtonClickGround SKIP same-click pt=%ld,%ld", pt.x, pt.y);
         }
         break;
     case 1:

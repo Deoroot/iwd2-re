@@ -168,7 +168,7 @@ Copy-Item -Path "build/Debug/iwd2-re.exe" -Destination "C:\GOG Games\Icewind Dal
 Or use the `iwd2-build-deploy` agent.
 
 Smoke test:
-- `python scripts/click_load_original.py` — loads first save automatically.
+- `python scripts/auto_start_game.py` — loads first save automatically.
 - Click party portraits → action bar should refresh. Select single PC vs full group.
 - Right-click a quick spell slot → state 0x75 customize menu (right click 0x24 → 0x77 class picker).
 - Cast Spell click on cleric with domain spells → Cleric/Domain picker. Click Cleric → cleric spellbook. Click Domain → domain spellbook.

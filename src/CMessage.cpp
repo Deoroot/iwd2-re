@@ -5134,7 +5134,8 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
 {
     return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT;
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH;
 }
 
 // 0x4F7620
@@ -5211,13 +5212,20 @@ void CMessageAddAction::Run()
 
     if (rc == CGameObjectArray::SUCCESS) {
         if ((pSprite->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
+            Iwd2DebugLog("CMessageAddAction::Run added action=%d targetId=%ld interrupt=%d",
+                (int)m_action.m_actionID, m_targetId, (int)pSprite->m_interrupt);
             pSprite->AddAction(m_action);
             pSprite->m_interrupt = TRUE;
+        } else {
+            Iwd2DebugLog("CMessageAddAction::Run notAIBASE targetId=%ld type=%d",
+                m_targetId, (int)pSprite->GetObjectType());
         }
 
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
+    } else {
+        Iwd2DebugLog("CMessageAddAction::Run GetDenyFailed targetId=%ld rc=%d", m_targetId, (int)rc);
     }
 }
 
@@ -10741,6 +10749,7 @@ CMessageSetPath::CMessageSetPath(LONG position, LONG* pPath, SHORT nPath, SHORT 
     }
 
     m_currDest = currDest;
+    m_position = position;
     m_sAreaString = sAreaString;
     if (nPath > 0) {
         m_currPath = currPath;
@@ -10778,6 +10787,76 @@ BYTE CMessageSetPath::GetMsgType()
 BYTE CMessageSetPath::GetMsgSubType()
 {
     return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH;
+}
+
+// 0x5084C0
+void CMessageSetPath::Run()
+{
+    CGameObject* pObject;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+
+            if (pSprite->GetArea() != NULL) {
+                CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(m_sAreaString);
+                if (pArea == pSprite->GetArea()) {
+                    CPoint pathStart;
+                    CPathSearch::PositionToPoint(m_position, &pathStart);
+
+                    CPoint spritePos = pSprite->GetPos();
+                    if (spritePos.x / CPathSearch::GRID_SQUARE_SIZEX != pathStart.x
+                        || spritePos.y / CPathSearch::GRID_SQUARE_SIZEY != pathStart.y) {
+                        Iwd2DebugLog("CMessageSetPath::Run posMismatch spriteId=%ld spritePos=%ld,%ld grid=%ld,%ld pathStart=%ld,%ld",
+                            m_targetId, spritePos.x, spritePos.y,
+                            spritePos.x / CPathSearch::GRID_SQUARE_SIZEX, spritePos.y / CPathSearch::GRID_SQUARE_SIZEY,
+                            pathStart.x, pathStart.y);
+                        if (g_pChitin->cNetwork.GetSessionOpen()) {
+                            pSprite->JumpToPoint(CPoint(pathStart.x * CPathSearch::GRID_SQUARE_SIZEX,
+                                                     pathStart.y * CPathSearch::GRID_SQUARE_SIZEY),
+                                FALSE);
+                        } else {
+                            Iwd2DebugLog("CMessageSetPath::Run posMismatch DROPPING spriteId=%ld (singlePlayer)",
+                                m_targetId);
+                            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+                                CGameObjectArray::THREAD_ASYNCH,
+                                INFINITE);
+                            return;
+                        }
+                    }
+
+                    Iwd2DebugLog("CMessageSetPath::Run SetPath spriteId=%ld nPath=%d currPath=%d pos=%ld",
+                        m_targetId, (int)m_nPath, (int)m_currPath, m_position);
+                    pSprite->SetPath(m_pPath, m_nPath);
+                    pSprite->m_currPath = m_currPath;
+                    pSprite->InitializeWalkingSound();
+                    m_pPath = NULL;
+                } else {
+                    Iwd2DebugLog("CMessageSetPath::Run areaMismatch spriteId=%ld area=%p lookup=%p areaStr='%s'",
+                        m_targetId, pSprite->GetArea(), pArea, (const char*)m_sAreaString);
+                }
+            } else {
+                Iwd2DebugLog("CMessageSetPath::Run noArea spriteId=%ld", m_targetId);
+            }
+        } else {
+            Iwd2DebugLog("CMessageSetPath::Run notSprite targetId=%ld type=%d",
+                m_targetId, (int)pObject->GetObjectType());
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    } else {
+        Iwd2DebugLog("CMessageSetPath::Run GetDenyFailed targetId=%ld rc=%d", m_targetId, (int)rc);
+    }
 }
 
 // -----------------------------------------------------------------------------

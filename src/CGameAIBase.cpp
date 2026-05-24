@@ -8,6 +8,7 @@
 #include "CGameArea.h"
 #include "CGameContainer.h"
 #include "CGameDoor.h"
+#include "DebugLog.h"
 #include "CGameEffect.h"
 #include "CGameSpawning.h"
 #include "CGameSprite.h"
@@ -316,11 +317,7 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == CAIAction::MOVETOPOINT) {
         CGameSprite* pSprite = static_cast<CGameSprite*>(this);
         if (pSprite != NULL) {
-            pSprite->m_targetPoint = m_curAction.m_dest;
-            pSprite->m_posDest = m_curAction.m_dest;
-            // Set walk animation sequence and face destination
-            pSprite->SetDirection(m_curAction.m_dest);
-            pSprite->SetSequence(CGAMESPRITE_SEQ_WALK);
+            actionReturn = pSprite->MoveToPoint();
         }
     } else if (m_curAction.m_actionID == CAIAction::MOVEVIEWPOINT
         || m_curAction.m_actionID == CAIACTION_MOVEVIEWPOINTUNTILDONE) {
@@ -1360,6 +1357,9 @@ void CGameAIBase::ProcessAI()
         return;
     }
     if (m_nLastActionReturn == 0) {
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX) {
+            Iwd2DebugLog("ProcessAI blocked m_nLastActionReturn==0 spriteId=%ld", m_id);
+        }
         return;
     }
 
@@ -1397,8 +1397,8 @@ void CGameAIBase::ProcessAI()
                 m_pendingTriggers.RemoveAll();
             }
             delete found;
+            return;
         }
-        return;
     }
 
     BOOL bTryNextScript = TRUE;
@@ -1467,6 +1467,10 @@ void CGameAIBase::ProcessAI()
         ResetCurrResponse();
     }
     if (m_curAction.m_actionID != CAIAction::NO_ACTION) {
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX) {
+            Iwd2DebugLog("ProcessAI DoAction spriteId=%ld action=%d port=%d",
+                m_id, (int)m_curAction.m_actionID, (int)g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id));
+        }
         DoAction();
     }
 }

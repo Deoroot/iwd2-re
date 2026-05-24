@@ -1834,6 +1834,7 @@ void CGameSprite::AIUpdate()
     }
 
     if (m_AIInhibitor) {
+        Iwd2DebugLog("AIUpdate INHIBITED spriteId=%ld portrait=%d", m_id, (int)pGame->GetCharacterPortraitNum(m_id));
         return;
     }
 
@@ -2652,6 +2653,13 @@ void CGameSprite::AIUpdateWalk()
     CSingleLock pathLock(&(g_pBaldurChitin->GetObjectGame()->field_1B58), FALSE);
     CMessage* message;
 
+    if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX
+        && (m_pPath != NULL || m_currentSearchRequest != NULL || (m_posDest.x != 0 || m_posDest.y != 0))) {
+        Iwd2DebugLog("AIUpdateWalk entry spriteId=%ld hasPath=%d hasSearch=%d posDest=%ld,%ld",
+            m_id, (int)(m_pPath != NULL), (int)(m_currentSearchRequest != NULL),
+            m_posDest.x, m_posDest.y);
+    }
+
     // Direct movement: no pathfinding, walk straight to destination
     if (m_pPath == NULL && m_currentSearchRequest == NULL) {
         if (m_posDest.x != 0 || m_posDest.y != 0) {
@@ -2680,7 +2688,7 @@ void CGameSprite::AIUpdateWalk()
 
         if (m_currentSearchRequest->m_serviceState == CSearchRequest::STATE_WAITING) {
             if (m_currentSearchRequest->m_collisionDelay > 1) {
-                m_currentSearchRequest--;
+                m_currentSearchRequest->m_collisionDelay--;
                 pathLock.Unlock();
                 return;
             }
@@ -2743,6 +2751,11 @@ void CGameSprite::AIUpdateWalk()
                 m_curDest,
                 m_id,
                 m_id);
+
+            Iwd2DebugLog("AIUpdateWalk SET_PATH spriteId=%ld nPath=%d searchRc=%d follow=%d pos=%ld,%ld dest=%ld,%ld",
+                m_id, (int)nPath, (int)m_currentSearchRequest->m_searchRc,
+                (int)m_followLeader, m_pos.x, m_pos.y, m_curDest.x, m_curDest.y);
+
             g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
             if (m_currentSearchRequest->m_searchRc != 0 || nPath == 1) {
@@ -12785,6 +12798,14 @@ SHORT CGameSprite::MoveToPoint()
         y = m_baseStats.field_2E6;
     }
 
+    if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX) {
+        Iwd2DebugLog("MoveToPoint enter spriteId=%ld dest=%ld,%ld pos=%ld,%ld enc=%d area=%d,%d count=%d hasPath=%d hasSearch=%d spec=%ld interrupt=%d",
+            m_id, x, y, m_pos.x, m_pos.y, (int)m_derivedStats.m_nEncumberance,
+            (int)m_pArea->GetInfinity()->nAreaX, (int)m_pArea->GetInfinity()->nAreaY,
+            (int)m_actionCount, (int)(m_pPath != NULL), (int)(m_currentSearchRequest != NULL),
+            m_curAction.m_specificID, (int)m_interrupt);
+    }
+
     if (x / CPathSearch::GRID_SQUARE_SIZEX == m_pos.x / CPathSearch::GRID_SQUARE_SIZEX
         && y / CPathSearch::GRID_SQUARE_SIZEY == m_pos.y / CPathSearch::GRID_SQUARE_SIZEY) {
         return ACTION_DONE;
@@ -12801,6 +12822,9 @@ SHORT CGameSprite::MoveToPoint()
         && m_currentSearchRequest == NULL
         && m_actionCount > 0
         && m_curAction.m_specificID != CAIAction::BACKGROUND) {
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX) {
+            Iwd2DebugLog("MoveToPoint C1 retry spriteId=%ld count=%d spec2=%ld", m_id, (int)m_actionCount, m_curAction.m_specificID2);
+        }
         m_curAction.m_specificID2++;
         if (m_curAction.m_specificID2 > 4) {
             return ACTION_ERROR;
@@ -12846,9 +12870,13 @@ SHORT CGameSprite::MoveToPoint()
         return ACTION_ERROR;
     }
 
-    if (x != m_curDest.x || y != m_bPlayedEncumberedStopped) {
+    if (x != m_curDest.x || y != m_curDest.y) {
         m_curDest.x = x;
         m_curDest.y = y;
+
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX) {
+            Iwd2DebugLog("MoveToPoint C2 createSearch spriteId=%ld dest=%ld,%ld", m_id, x, y);
+        }
 
         CSearchRequest* pSearchRequest = new CSearchRequest();
         if (pSearchRequest == NULL) {

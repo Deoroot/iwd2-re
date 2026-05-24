@@ -618,10 +618,17 @@ void CScreenWorld::OnLButtonDown(CPoint pt)
     if ((g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode & 0x1) != 0) {
         CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetVisibleArea();
         if (pArea != NULL) {
+            Iwd2DebugLog("CScreenWorld::OnLButtonDown mode=0x%lx area=%p pt=%ld,%ld",
+                g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode, pArea, pt.x, pt.y);
             pArea->OnActionButtonDown(pt);
+        } else {
+            Iwd2DebugLog("CScreenWorld::OnLButtonDown area=NULL pt=%ld,%ld", pt.x, pt.y);
         }
 
         g_pBaldurChitin->GetObjectCursor()->m_nState = 1;
+    } else {
+        Iwd2DebugLog("CScreenWorld::OnLButtonDown GATED mode=0x%lx pt=%ld,%ld",
+            g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode, pt.x, pt.y);
     }
 }
 
@@ -638,7 +645,10 @@ void CScreenWorld::OnLButtonUp(CPoint pt)
 
         CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetVisibleArea();
         if (pArea != NULL) {
+            Iwd2DebugLog("CScreenWorld::OnLButtonUp area=%p pt=%ld,%ld", pArea, pt.x, pt.y);
             pArea->OnActionButtonUp(pt);
+        } else {
+            Iwd2DebugLog("CScreenWorld::OnLButtonUp area=NULL pt=%ld,%ld", pt.x, pt.y);
         }
 
         g_pBaldurChitin->GetObjectCursor()->m_nState = 0;

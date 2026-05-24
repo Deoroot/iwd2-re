@@ -8,6 +8,7 @@
 #include "CInfGame.h"
 #include "CPathSearch.h"
 #include "CUtil.h"
+#include "DebugLog.h"
 
 // 0x84EBD8
 const BYTE CSearchBitmap::COST_BASE_MELEE = 100;
@@ -439,6 +440,19 @@ BYTE CSearchBitmap::SnapshotGetCost(CPoint point, BOOL bBump)
 {
     BYTE terrainCost;
     SHORT totalCost;
+
+    {
+        static int s_gcDbg = 0;
+        if (s_gcDbg < 60) {
+            s_gcDbg++;
+            int rawCenter = m_resSearch.GetPixelValue(point.x, point.y, TRUE);
+            BYTE shiftDbg = (m_resSearch.GetBitCount(TRUE) == 8) ? 4 : 0;
+            Iwd2DebugLog("GetCost dbg pt=%ld,%ld raw=%d tCenter=%d dyn=0x%02x PS=%d side=%d",
+                point.x, point.y, rawCenter, (int)m_snapshotTerrainTable[rawCenter >> shiftDbg],
+                (int)m_snapshotDynamicCost[point.y * m_GridSquareDimensions.cx + point.x],
+                (int)m_snapshotPersonalSpace, (int)m_sourceSide);
+        }
+    }
 
     if (m_sourceSide <= CAIObjectType::EA_CONTROLCUTOFF) {
         CPoint pt(point.x * CPathSearch::GRID_SQUARE_SIZEX, point.y * CPathSearch::GRID_SQUARE_SIZEY);
@@ -957,6 +971,8 @@ void SearchThreadMain(void* userInfo)
                                             goalPts[cnt].x = -1;
                                             goalPts[cnt].y = -1;
                                         } else {
+                                            goalPts[cnt].x /= CPathSearch::GRID_SQUARE_SIZEX;
+                                            goalPts[cnt].y /= CPathSearch::GRID_SQUARE_SIZEY;
                                             if (pArea->SnapshotAdjustTarget(CPoint(startPt), &(goalPts[cnt]), bBump, 10) == TRUE) {
                                                 targetPointPresent = TRUE;
                                             } else {
@@ -968,6 +984,23 @@ void SearchThreadMain(void* userInfo)
                                 }
 
                                 if (targetPointPresent || targetIdPresent) {
+                                    Iwd2DebugLog("SearchThread preFind src=%ld start=%ld,%ld goal=%ld,%ld startCost=%d goalCost=%d minN=%ld maxN=%ld listEmpty=%d",
+                                        searchRequest->m_sourceId, startPt.x, startPt.y, goalPts[0].x, goalPts[0].y,
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(goalPts[0]), bBump),
+                                        searchRequest->m_minNodes, searchRequest->m_maxNodes,
+                                        (int)g_pBaldurChitin->GetObjectGame()->m_searchRequestListEmpty);
+                                    Iwd2DebugLog("SearchThread startNbrs src=%ld nw=%d n=%d ne=%d w=%d c=%d e=%d sw=%d s=%d se=%d",
+                                        searchRequest->m_sourceId,
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x - 1, startPt.y - 1), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x, startPt.y - 1), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x + 1, startPt.y - 1), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x - 1, startPt.y), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x, startPt.y), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x + 1, startPt.y), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x - 1, startPt.y + 1), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x, startPt.y + 1), bBump),
+                                        (int)searchRequest->m_searchBitmap->SnapshotGetCost(CPoint(startPt.x + 1, startPt.y + 1), bBump));
                                     if (!g_pBaldurChitin->GetObjectGame()->m_bInDestroyGame) {
                                         if (searchRequest->m_frontList == CSearchRequest::LIST_FRONT) {
                                             searchRequest->m_searchRc = g_pBaldurChitin->GetObjectGame()->m_pathSearch->FindPath(&startPt,
@@ -996,6 +1029,8 @@ void SearchThreadMain(void* userInfo)
                                             searchLock.Lock(INFINITE);
 
                                             searchRequest->m_pPath = g_pBaldurChitin->GetObjectGame()->m_pathSearch->GetPath(&(searchRequest->m_nPath));
+                                            Iwd2DebugLog("SearchThread postFind src=%ld rc=%d nPath=%d",
+                                                searchRequest->m_sourceId, (int)searchRequest->m_searchRc, (int)searchRequest->m_nPath);
                                             if (searchRequest->m_serviceState != CSearchRequest::STATE_STALE) {
                                                 searchRequest->m_serviceState = CSearchRequest::STATE_DONE;
                                             } else {
