@@ -147,8 +147,8 @@ public:
     void ResetCustomizeBiographyPanel(CUIPanel* pPanel, CGameSprite* pSprite);
     void ResetSkillsPanel(CUIPanel* pPanel, CGameSprite* pSprite, int a3);
     void RestoreFeatSelection(CGameSprite* pSprite);
-    void sub_5F8C90(int a1);
-    void sub_5F91F0(int a1);
+    void SelectInformationCategory(int nCategory);
+    void SelectInformationItem(int nItem);
 
     static void ResetBiography(CGameSprite* pSprite);
 
@@ -247,10 +247,10 @@ public:
     /* 1800 */ int field_1800;
     /* 1840 */ int field_1840;
     /* 1844 */ unsigned char field_1844;
-    /* 1846 */ int field_1846;
-    /* 184A */ int field_184A;
-    /* 184E */ int field_184E;
-    /* 1852 */ int field_1852;
+    /* 1846 */ int m_nInfoCategory;
+    /* 184A */ int m_nInfoSelectedItem;
+    /* 184E */ int m_nInfoItemCount;
+    /* 1852 */ int m_nInfoScrollPos;
 };
 
 class CUIControlButtonCharacterSpecializationSelection : public CUIControlButton3State {

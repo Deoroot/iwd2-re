@@ -49,6 +49,14 @@ const INT WEAPON_PROFICIENCY_HIT_COLUMN = 0;
 const INT TWO_WEAPON_MAIN_HAND_PENALTY = -6;
 const INT TWO_WEAPON_OFF_HAND_PENALTY = -10;
 const INT NON_PROFICIENCY_PENALTY = -4;
+const INT INFORMATION_PANEL_CATEGORY_COUNT = 6;
+const INT INFORMATION_PANEL_ITEM_COUNT = 11;
+const DWORD INFORMATION_PANEL_CATEGORY_LABEL_START = 0x10000004;
+const DWORD INFORMATION_PANEL_UNUSED_LABEL_START = 0x1000000A;
+const DWORD INFORMATION_PANEL_ITEM_LABEL_START = 0x10000030;
+const DWORD INFORMATION_PANEL_CATEGORY_HOTAREA_START = 27;
+const DWORD INFORMATION_PANEL_UNUSED_HOTAREA_START = 33;
+const DWORD INFORMATION_PANEL_UNUSED_HOTAREA_END = 37;
 
 BOOL IsShieldItemType(WORD nItemType)
 {
@@ -60,6 +68,11 @@ CString FormatSigned(INT nValue)
     CString sValue;
     sValue.Format("%+d", nValue);
     return sValue;
+}
+
+STRREF GetInformationPanelStringRef(const C2DArray& table, INT nColumn, INT nRow)
+{
+    return static_cast<STRREF>(atol(table.GetAt(CPoint(nColumn, nRow))));
 }
 
 CString FormatAttackCascade(INT nBaseAttack, INT nAttackStep, INT nAttacks)
@@ -694,10 +707,10 @@ CScreenCharacter::CScreenCharacter()
     m_hatedRaces[15] = CAIObjectType::R_YUANTI;
     field_1B8 = 0;
     field_1844 = 0;
-    field_1846 = 0;
-    field_184A = 0;
-    field_184E = 0;
-    field_1852 = 0;
+    m_nInfoCategory = 0;
+    m_nInfoSelectedItem = 0;
+    m_nInfoItemCount = 0;
+    m_nInfoScrollPos = 0;
 }
 
 // 0x5D63B0
@@ -3717,7 +3730,50 @@ void CScreenCharacter::ResetPopupPanel(DWORD dwPanelId, CGameSprite* pSprite, in
 // 0x5E0B20
 void CScreenCharacter::UpdatePopupPanel(DWORD dwPanelId, CGameSprite* pSprite)
 {
-    // TODO: Incomplete.
+    switch (dwPanelId) {
+    case 57: {
+        CUIPanel* pPanel = m_cUIManager.GetPanel(57);
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+        // __LINE__: 6807
+        UTIL_ASSERT(pPanel != NULL);
+
+        UpdateLabel(pPanel, INFORMATION_PANEL_CATEGORY_LABEL_START, "%s", (LPCSTR)FetchString(17088)); // "Abilities"
+        UpdateLabel(pPanel, INFORMATION_PANEL_CATEGORY_LABEL_START + 1, "%s", (LPCSTR)FetchString(23998)); // "Classes"
+        UpdateLabel(pPanel, INFORMATION_PANEL_CATEGORY_LABEL_START + 2, "%s", (LPCSTR)FetchString(36361)); // "Feats"
+        UpdateLabel(pPanel, INFORMATION_PANEL_CATEGORY_LABEL_START + 3, "%s", (LPCSTR)FetchString(41403)); // "Orders"
+        UpdateLabel(pPanel, INFORMATION_PANEL_CATEGORY_LABEL_START + 4, "%s", (LPCSTR)FetchString(41393)); // "Races"
+        UpdateLabel(pPanel, INFORMATION_PANEL_CATEGORY_LABEL_START + 5, "%s", (LPCSTR)FetchString(11983)); // "Skills"
+
+        for (INT nLabel = 0; nLabel < 5; nLabel++) {
+            UpdateLabel(pPanel, INFORMATION_PANEL_UNUSED_LABEL_START + nLabel, "");
+        }
+
+        for (DWORD nControlID = INFORMATION_PANEL_UNUSED_HOTAREA_START; nControlID <= INFORMATION_PANEL_UNUSED_HOTAREA_END; nControlID++) {
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pPanel->GetControl(nControlID));
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+            // __LINE__: 6830
+            UTIL_ASSERT(pButton != NULL);
+
+            pButton->SetEnabled(FALSE);
+        }
+
+        SelectInformationCategory(m_nInfoCategory);
+        SelectInformationItem(m_nInfoSelectedItem);
+
+        CUIControlScrollBar* pScrollBar = static_cast<CUIControlScrollBar*>(pPanel->GetControl(4));
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+        // __LINE__: 6837
+        UTIL_ASSERT(pScrollBar != NULL);
+
+        pScrollBar->AdjustScrollBar(m_nInfoScrollPos, m_nInfoItemCount, INFORMATION_PANEL_ITEM_COUNT);
+        break;
+    }
+    default:
+        break;
+    }
 }
 
 // 0x5E0E50
@@ -3847,13 +3903,23 @@ BOOL CScreenCharacter::IsDoneButtonClickable(CGameSprite* pSprite)
 // 0x5E2210
 void CScreenCharacter::OnDoneButtonClick()
 {
-    // TODO: Incomplete.
+    CUIPanel* pPanel = GetTopPopup();
+
+    if (pPanel != NULL && pPanel->m_nID == 57) {
+        DismissPopup(NULL);
+    }
 }
 
 // 0x5E3B80
 BOOL CScreenCharacter::OnCancelButtonClick()
 {
-    // TODO: Incomplete.
+    CUIPanel* pPanel = GetTopPopup();
+
+    if (pPanel != NULL && pPanel->m_nID == 57) {
+        DismissPopup(NULL);
+        m_cUIManager.InvalidateRect(NULL);
+        return TRUE;
+    }
 
     return FALSE;
 }
@@ -5600,15 +5666,182 @@ void CScreenCharacter::RestoreFeatSelection(CGameSprite* pSprite)
 }
 
 // 0x5F8C90
-void CScreenCharacter::sub_5F8C90(int a1)
+void CScreenCharacter::SelectInformationCategory(int a1)
 {
-    // TODO: Incomplete.
+    CUIPanel* pPanel = m_cUIManager.GetPanel(57);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 19030
+    UTIL_ASSERT(pPanel != NULL);
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 19032
+    UTIL_ASSERT(pGame != NULL);
+
+    const CRuleTables& ruleTables = pGame->GetRuleTables();
+
+    INT nVisibleItems = 0;
+
+    switch (a1) {
+    case 0:
+        m_nInfoItemCount = ruleTables.m_tHelp01.GetHeight();
+        nVisibleItems = min(m_nInfoItemCount, INFORMATION_PANEL_ITEM_COUNT);
+        for (INT nIndex = 0; nIndex < nVisibleItems; nIndex++) {
+            STRREF strLabel = GetInformationPanelStringRef(ruleTables.m_tHelp01, 0, nIndex);
+            UpdateLabel(pPanel,
+                INFORMATION_PANEL_ITEM_LABEL_START + nIndex,
+                "%s",
+                (LPCSTR)FetchString(strLabel));
+        }
+        break;
+    case 1:
+        m_nInfoItemCount = ruleTables.m_tHelp02.GetHeight();
+        nVisibleItems = min(m_nInfoItemCount, INFORMATION_PANEL_ITEM_COUNT);
+        for (INT nIndex = 0; nIndex < nVisibleItems; nIndex++) {
+            STRREF strLabel = GetInformationPanelStringRef(ruleTables.m_tHelp02, 0, nIndex);
+            UpdateLabel(pPanel,
+                INFORMATION_PANEL_ITEM_LABEL_START + nIndex,
+                "%s",
+                (LPCSTR)FetchString(strLabel));
+        }
+        break;
+    case 2:
+        m_nInfoItemCount = ruleTables.m_tFeats.GetHeight();
+        nVisibleItems = min(m_nInfoItemCount, INFORMATION_PANEL_ITEM_COUNT);
+        for (INT nIndex = 0; nIndex < nVisibleItems; nIndex++) {
+            DWORD id = ruleTables.GetFeatId(m_nInfoScrollPos + nIndex);
+            STRREF strLabel = static_cast<STRREF>(ruleTables.GetFeatName(id));
+            UpdateLabel(pPanel,
+                INFORMATION_PANEL_ITEM_LABEL_START + nIndex,
+                "%s",
+                (LPCSTR)FetchString(strLabel));
+        }
+        break;
+    case 3:
+        m_nInfoItemCount = ruleTables.m_tHelp03.GetHeight();
+        nVisibleItems = min(m_nInfoItemCount, INFORMATION_PANEL_ITEM_COUNT);
+        for (INT nIndex = 0; nIndex < nVisibleItems; nIndex++) {
+            STRREF strLabel = GetInformationPanelStringRef(ruleTables.m_tHelp03, 0, m_nInfoScrollPos + nIndex);
+            UpdateLabel(pPanel,
+                INFORMATION_PANEL_ITEM_LABEL_START + nIndex,
+                "%s",
+                (LPCSTR)FetchString(strLabel));
+        }
+        break;
+    case 4:
+        m_nInfoItemCount = ruleTables.m_tHelp04.GetHeight();
+        nVisibleItems = min(m_nInfoItemCount, INFORMATION_PANEL_ITEM_COUNT);
+        for (INT nIndex = 0; nIndex < nVisibleItems; nIndex++) {
+            STRREF strLabel = GetInformationPanelStringRef(ruleTables.m_tHelp04, 0, m_nInfoScrollPos + nIndex);
+            UpdateLabel(pPanel,
+                INFORMATION_PANEL_ITEM_LABEL_START + nIndex,
+                "%s",
+                (LPCSTR)FetchString(strLabel));
+        }
+        break;
+    case 5:
+        m_nInfoItemCount = ruleTables.m_tSkills.GetHeight();
+        nVisibleItems = min(m_nInfoItemCount, INFORMATION_PANEL_ITEM_COUNT);
+        for (INT nIndex = 0; nIndex < nVisibleItems; nIndex++) {
+            DWORD id = ruleTables.GetSkillId(m_nInfoScrollPos + nIndex);
+            STRREF strLabel = static_cast<STRREF>(ruleTables.GetSkillName(id));
+            UpdateLabel(pPanel,
+                INFORMATION_PANEL_ITEM_LABEL_START + nIndex,
+                "%s",
+                (LPCSTR)FetchString(strLabel));
+        }
+        break;
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+        // __LINE__: 19126
+        UTIL_ASSERT(FALSE);
+    }
+
+    for (INT nIndex = nVisibleItems; nIndex < INFORMATION_PANEL_ITEM_COUNT; nIndex++) {
+        UpdateLabel(pPanel, INFORMATION_PANEL_ITEM_LABEL_START + nIndex, "");
+    }
+
+    for (INT nIndex = 0; nIndex < INFORMATION_PANEL_CATEGORY_COUNT; nIndex++) {
+        HighlightLabel(pPanel,
+            INFORMATION_PANEL_CATEGORY_LABEL_START + nIndex,
+            a1 == nIndex,
+            COLOR_LABEL_HIGHLIGHT_BONUS);
+    }
+
+    if (m_nInfoCategory != a1) {
+        m_nInfoCategory = a1;
+        m_nInfoScrollPos = 0;
+        SelectInformationItem(0);
+
+        CUIControlScrollBar* pScrollBar = static_cast<CUIControlScrollBar*>(pPanel->GetControl(4));
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+        // __LINE__: 19090
+        UTIL_ASSERT(pScrollBar != NULL);
+
+        pScrollBar->AdjustScrollBar(m_nInfoScrollPos, m_nInfoItemCount, INFORMATION_PANEL_ITEM_COUNT);
+    }
 }
 
 // 0x5F91F0
-void CScreenCharacter::sub_5F91F0(int a1)
+void CScreenCharacter::SelectInformationItem(int a1)
 {
-    // TODO: Incomplete.
+    CUIPanel* pPanel = m_cUIManager.GetPanel(57);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 19168
+    UTIL_ASSERT(pPanel != NULL);
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 19170
+    UTIL_ASSERT(pGame != NULL);
+
+    const CRuleTables& ruleTables = pGame->GetRuleTables();
+
+    STRREF strDescription = -1;
+
+    switch (m_nInfoCategory) {
+    case 0:
+        strDescription = GetInformationPanelStringRef(ruleTables.m_tHelp01, 1, a1);
+        break;
+    case 1:
+        strDescription = GetInformationPanelStringRef(ruleTables.m_tHelp02, 1, a1);
+        break;
+    case 2:
+        strDescription = static_cast<STRREF>(ruleTables.GetFeatDescription(a1));
+        break;
+    case 3:
+        strDescription = GetInformationPanelStringRef(ruleTables.m_tHelp03, 1, a1);
+        break;
+    case 4:
+        strDescription = GetInformationPanelStringRef(ruleTables.m_tHelp04, 1, a1);
+        break;
+    case 5:
+        strDescription = static_cast<STRREF>(ruleTables.GetSkillDescription(a1));
+        break;
+    default:
+        break;
+    }
+
+    m_nInfoSelectedItem = a1;
+
+    for (INT nIndex = 0; nIndex < INFORMATION_PANEL_ITEM_COUNT; nIndex++) {
+        HighlightLabel(pPanel,
+            INFORMATION_PANEL_ITEM_LABEL_START + nIndex,
+            m_nInfoSelectedItem - m_nInfoScrollPos == nIndex,
+            COLOR_LABEL_HIGHLIGHT_BONUS);
+
+        CUIControlButton* pButton = static_cast<CUIControlButton*>(pPanel->GetControl(71 + nIndex));
+        if (pButton != NULL) {
+            pButton->SetEnabled(nIndex < m_nInfoItemCount);
+        }
+    }
+
+    UpdateHelp(57, 2, strDescription);
 }
 
 // -----------------------------------------------------------------------------
@@ -8373,10 +8606,10 @@ void CUIControlCharacterHotArea778ED0::OnHotAreaClick(CPoint pt)
     UTIL_ASSERT(pCharacter != NULL);
 
     if (m_nID >= 27 && m_nID <= 37) {
-        pCharacter->sub_5F8C90(m_nID - 37);
+        pCharacter->SelectInformationCategory(m_nID - INFORMATION_PANEL_CATEGORY_HOTAREA_START);
         pCharacter->UpdatePopupPanel(57, NULL);
     } else if (m_nID >= 71 && m_nID <= 81) {
-        pCharacter->sub_5F91F0(pCharacter->field_1852 + m_nID - 71);
+        pCharacter->SelectInformationItem(pCharacter->m_nInfoScrollPos + m_nID - 71);
         pCharacter->UpdatePopupPanel(57, NULL);
     }
 }
@@ -8453,7 +8686,7 @@ void CUIControlScrollbarCharacter5F9410::UpdateScrollBar()
     // __LINE__: 19222
     UTIL_ASSERT(pCharacter);
 
-    AdjustScrollBar(pCharacter->field_1852, pCharacter->field_184E, 11);
+    AdjustScrollBar(pCharacter->m_nInfoScrollPos, pCharacter->m_nInfoItemCount, 11);
 }
 
 // 0x5F9430
@@ -8465,7 +8698,7 @@ void CUIControlScrollbarCharacter5F9410::OnScrollUp()
     // __LINE__: 19250
     UTIL_ASSERT(pCharacter);
 
-    pCharacter->field_1852 = max(pCharacter->field_1852 - 1, 0);
+    pCharacter->m_nInfoScrollPos = max(pCharacter->m_nInfoScrollPos - 1, 0);
 
     pCharacter->UpdatePopupPanel(57, NULL);
 
@@ -8482,9 +8715,9 @@ void CUIControlScrollbarCharacter5F9410::OnScrollDown()
     // __LINE__: 19277
     UTIL_ASSERT(pCharacter);
 
-    if (pCharacter->field_1852 < pCharacter->field_184E - 11) {
+    if (pCharacter->m_nInfoScrollPos < pCharacter->m_nInfoItemCount - 11) {
         // NOTE: Original code is slightly different.
-        pCharacter->field_1852 = min(pCharacter->field_1852 + 1, pCharacter->field_184E - 11);
+        pCharacter->m_nInfoScrollPos = min(pCharacter->m_nInfoScrollPos + 1, pCharacter->m_nInfoItemCount - 11);
     }
 
     pCharacter->UpdatePopupPanel(57, NULL);
@@ -8502,10 +8735,10 @@ void CUIControlScrollbarCharacter5F9410::OnPageUp(DWORD nLines)
     // __LINE__: 19310
     UTIL_ASSERT(pCharacter);
 
-    if (pCharacter->field_184E > 11) {
+    if (pCharacter->m_nInfoItemCount > 11) {
         // NOTE: Original code is slightly different.
         INT nStep = min(nLines, 10);
-        pCharacter->field_1852 = max(pCharacter->field_1852 - nLines, 0);
+        pCharacter->m_nInfoScrollPos = max(pCharacter->m_nInfoScrollPos - nLines, 0);
 
         pCharacter->UpdatePopupPanel(57, NULL);
 
@@ -8523,10 +8756,10 @@ void CUIControlScrollbarCharacter5F9410::OnPageDown(DWORD nLines)
     // __LINE__: 19353
     UTIL_ASSERT(pCharacter);
 
-    if (pCharacter->field_184E > 11) {
+    if (pCharacter->m_nInfoItemCount > 11) {
         // NOTE: Original code is slightly different.
         INT nStep = min(nLines, 11);
-        pCharacter->field_1852 = min(pCharacter->field_1852 + nStep, pCharacter->field_184E - 11);
+        pCharacter->m_nInfoScrollPos = min(pCharacter->m_nInfoScrollPos + nStep, pCharacter->m_nInfoItemCount - 11);
 
         pCharacter->UpdatePopupPanel(57, NULL);
 
@@ -8544,10 +8777,10 @@ void CUIControlScrollbarCharacter5F9410::OnScroll()
     // __LINE__: 19396
     UTIL_ASSERT(pCharacter);
 
-    int v1 = max(pCharacter->field_184E - 1, 0) * field_144 / field_142;
-    pCharacter->field_1852 = min(max(v1, 0), pCharacter->field_184E - 11);
+    int v1 = max(pCharacter->m_nInfoItemCount - 1, 0) * field_144 / field_142;
+    pCharacter->m_nInfoScrollPos = min(max(v1, 0), pCharacter->m_nInfoItemCount - 11);
 
-    if (pCharacter->field_184E > 11) {
+    if (pCharacter->m_nInfoItemCount > 11) {
         pCharacter->UpdatePopupPanel(57, NULL);
     }
 
