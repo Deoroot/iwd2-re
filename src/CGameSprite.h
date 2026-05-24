@@ -424,6 +424,7 @@ public:
     /* 004C */ void Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface) override;
     /* 0058 */ void SetCursor(LONG nToolTip) override;
     /* 007C */ void ClearAI(BOOLEAN bSetSequence) override;
+    /* 0084 */ SHORT ExecuteAction() override;
     /* 0094 */ void SetScript(SHORT level, CAIScript* script) override;
     /* 009C */ const BYTE* GetVisibleTerrainTable() override;
     /* 00A0 */ const BYTE* GetTerrainTable() override;

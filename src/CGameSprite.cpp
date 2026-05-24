@@ -12838,6 +12838,46 @@ SHORT CGameSprite::MoveToPoint()
     return ACTION_INTERRUPTABLE;
 }
 
+// 0x728F80 (partial)
+//
+// CGameSprite replaces the base action dispatcher with a jump table covering
+// the sprite-specific actions.  Only the Dialogue action (id 8) is wired here
+// so far; every other id falls through to CGameAIBase::ExecuteAction, which is
+// exactly what the binary's jump-table default case does (0x72B2EB ->
+// 0x44DC10).
+SHORT CGameSprite::ExecuteAction()
+{
+    // ActionOverride (id 1) is a queue marker -- dequeue and dispatch the real
+    // action this tick, same as the base dispatcher.
+    if (m_curAction.m_actionID == 1) {
+        SetCurrAction(GetNextAction(m_aiAction));
+    }
+
+    if (m_curAction.m_actionID == 8) {
+        // Dialogue(O:Object*): approach the target sprite and start talking.
+        SHORT actionReturn = ACTION_DONE;
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if (pObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
+                // Skip targets whose base or derived state blocks conversation
+                // (STATE bit 0x800).
+                if (!(pTarget->m_baseStats.m_generalState & 0x800)
+                    && !(pTarget->m_derivedStats.m_generalState & 0x800)) {
+                    actionReturn = Dialogue(pTarget);
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        // DEFERRED: when no target resolves, the binary (0x729296..0x729378)
+        // walks the party list for an eligible talker.
+        return actionReturn;
+    }
+
+    return CGameAIBase::ExecuteAction();
+}
+
 // 0x752DD0
 SHORT CGameSprite::Dialogue(CGameSprite* pTarget)
 {
