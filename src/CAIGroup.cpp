@@ -428,13 +428,21 @@ void CAIGroup::GroupAction(CAIAction action, BOOL override, CAIAction* leaderAct
         return;
     }
 
+    BOOL bLeader = TRUE;
     POSITION pos = m_memberList.GetHeadPosition();
     while (pos != NULL) {
         LONG memberId = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
 
-        // Dispatch via message handler
-        CMessageAddAction* pMsg = new CMessageAddAction(action, memberId, memberId);
+        // The first member is the group leader and receives leaderAction (the
+        // "then" action, e.g. PLAYERDIALOG); the remaining members receive the
+        // primary action.
+        CAIAction& memberAction =
+            (bLeader && leaderAction != NULL) ? *leaderAction : action;
+
+        CMessageAddAction* pMsg = new CMessageAddAction(memberAction, memberId, memberId);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+
+        bLeader = FALSE;
     }
 }
 
