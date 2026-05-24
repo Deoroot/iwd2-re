@@ -5133,7 +5133,8 @@ SHORT CMessageHandler::AddMessage(CMessage* message, BOOL bForcePassThrough, SHO
 static BOOL Iwd2MessageRunRecovered(BYTE subType)
 {
     return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT;
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT;
 }
 
 // 0x4F7620
