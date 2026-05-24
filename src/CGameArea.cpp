@@ -1873,10 +1873,10 @@ COLORREF CGameArea::GetTintColor(const CPoint& cPoint, BYTE listType)
             colorBottomRight = colorTopLeft;
         }
 
-        topLeft = RGB(colorTopLeft.rgbBlue, colorTopLeft.rgbGreen, colorTopLeft.rgbRed);
-        topRight = RGB(colorTopRight.rgbBlue, colorTopRight.rgbGreen, colorTopRight.rgbRed);
-        bottomLeft = RGB(colorBottomLeft.rgbBlue, colorBottomLeft.rgbGreen, colorBottomLeft.rgbRed);
-        bottomRight = RGB(colorBottomRight.rgbBlue, colorBottomRight.rgbGreen, colorBottomRight.rgbRed);
+        topLeft = RGB(colorTopLeft.rgbRed, colorTopLeft.rgbGreen, colorTopLeft.rgbBlue);
+        topRight = RGB(colorTopRight.rgbRed, colorTopRight.rgbGreen, colorTopRight.rgbBlue);
+        bottomLeft = RGB(colorBottomLeft.rgbRed, colorBottomLeft.rgbGreen, colorBottomLeft.rgbBlue);
+        bottomRight = RGB(colorBottomRight.rgbRed, colorBottomRight.rgbGreen, colorBottomRight.rgbBlue);
     }
 
     if ((renderCode & CInfTileSet::byte_851931) != 0) {
@@ -1908,10 +1908,10 @@ COLORREF CGameArea::GetTintColor(const CPoint& cPoint, BYTE listType)
                 colorBottomRight = colorTopLeft;
             }
 
-            nightTopLeft = RGB(colorTopLeft.rgbBlue, colorTopLeft.rgbGreen, colorTopLeft.rgbRed);
-            nightTopRight = RGB(colorTopRight.rgbBlue, colorTopRight.rgbGreen, colorTopRight.rgbRed);
-            nightBottomLeft = RGB(colorBottomLeft.rgbBlue, colorBottomLeft.rgbGreen, colorBottomLeft.rgbRed);
-            nightBottomRight = RGB(colorBottomRight.rgbBlue, colorBottomRight.rgbGreen, colorBottomRight.rgbRed);
+            nightTopLeft = RGB(colorTopLeft.rgbRed, colorTopLeft.rgbGreen, colorTopLeft.rgbBlue);
+            nightTopRight = RGB(colorTopRight.rgbRed, colorTopRight.rgbGreen, colorTopRight.rgbBlue);
+            nightBottomLeft = RGB(colorBottomLeft.rgbRed, colorBottomLeft.rgbGreen, colorBottomLeft.rgbBlue);
+            nightBottomRight = RGB(colorBottomRight.rgbRed, colorBottomRight.rgbGreen, colorBottomRight.rgbBlue);
 
             if ((renderCode & CInfTileSet::byte_851930) == 0) {
                 int topRed = (GetRValue(nightTopLeft) * (16 - xRemainder) + GetRValue(nightTopRight) * xRemainder) / 16;
