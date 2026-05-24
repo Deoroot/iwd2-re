@@ -7485,7 +7485,7 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     // __LINE__: 13227
     UTIL_ASSERT(creatureSize == 0);
 
-    HandleEffects();
+    m_derivedStats.Reload(this, &m_baseStats, &m_spells, &m_domainSpells);
     m_tempStats = m_derivedStats;
     m_bonusStats.BonusInit();
 
@@ -10504,7 +10504,17 @@ INT CGameSprite::GetAttacksPerRound()
 // 0x72DE60
 void CGameSprite::sub_72DE60()
 {
-    // TODO: Incomplete.
+    ProcessEffectList();
+}
+
+// 0x72B9A0 (virtual)
+void CGameSprite::ProcessAI()
+{
+    if (!ProcessEffectList()) {
+        return;
+    }
+
+    CGameAIBase::ProcessAI();
 }
 
 // 0x71E760
@@ -11058,7 +11068,7 @@ BOOL CGameSprite::ProcessEffectList()
     m_derivedStats.m_nSaveVSReflex += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nDEX);
     m_derivedStats.m_nSaveVSWill += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nWIS);
 
-    if (m_derivedStats.m_paladinLevel != 0) {
+    if (m_typeAI.IsClassValid(CAIOBJECTTYPE_C_PALADIN)) {
         INT nCharismaBonus = ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nCHR);
         if (nCharismaBonus > 0) {
             m_derivedStats.m_nSaveVSFortitude += static_cast<SHORT>(nCharismaBonus);
@@ -11159,8 +11169,13 @@ BOOL CGameSprite::HandleEffects()
 
         // TODO: Incomplete.  Original handles many more passes and status
         // side-effects; this restores the core equipped/timed list pass.
+        m_bonusStats.BonusInit();
+
         v1 = m_equipedEffectList.HandleList(this);
         v2 = m_timedEffectList.HandleList(this);
+
+        m_derivedStats += m_bonusStats;
+
         bRetry = m_equipedEffectList.m_retry || m_timedEffectList.m_retry;
     } while (bRetry);
 

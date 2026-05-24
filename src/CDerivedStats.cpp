@@ -414,8 +414,7 @@ void CDerivedStats::BonusInit()
     m_nACCrushingMod = 0;
     m_nACMissileMod = 0;
     m_nACPiercingMod = 0;
-
-    // TODO: Incomplete.
+    m_nACSlashingMod = 0;
 
     m_nCriticalHitBonus = 0;
     m_nTHAC0 = 0;
