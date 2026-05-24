@@ -576,6 +576,7 @@ public:
     SHORT GetTHAC0();
     SHORT GetProficiencyTHAC0Bonus(CItem* curWeapon);
     SHORT MoveToPoint();
+    SHORT MoveToObject(CGameObject* pTarget);
     SHORT OneSwing();
     SHORT Recoil();
     SHORT PlayDead();

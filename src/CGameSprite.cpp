@@ -1,6 +1,7 @@
 #include "CGameSprite.h"
 
 #include "CAIScript.h"
+#include "CAIUtil.h"
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
 #include "CBlood.h"
@@ -12573,6 +12574,121 @@ SHORT CGameSprite::GetProficiencyTHAC0Bonus(CItem* curWeapon)
     }
 
     return mod;
+}
+
+// 0x73EDD0
+SHORT CGameSprite::MoveToObject(CGameObject* pTarget)
+{
+    if (m_derivedStats.m_nEncumberance == 2) {
+        FeedBack(FEEDBACK_TOOHEAVY_STOPPED, 0, 0, 0, -1, 0, 0);
+        return ACTION_ERROR;
+    }
+
+    if (pTarget == NULL) {
+        return ACTION_ERROR;
+    }
+
+    if (pTarget->m_pArea == NULL) {
+        return ACTION_DONE;
+    }
+
+    // Action 0x107 (MoveToObjectUntilSee) stops early once the target is within
+    // half the visual range and in line of sight, posting a follow message
+    // (vtable 0x848998 @ binary 0x73EFD3).  DEFERRED -- needs that CMessage
+    // subclass plus the GetAIType()/m_liveTypeAI field comparison; until then
+    // the action falls through to the generic approach below.
+
+    CPoint targetPt;
+    pTarget->GetNextWaypoint(&targetPt);
+
+    if (m_curAction.m_actionID == 0x69) {
+        // AttackOneRound: bail out if the target square itself is impassable.
+        SHORT searchSquareCode;
+        if (m_pArea->m_search.GetLOSCost(
+                CPoint(targetPt.x / CPathSearch::GRID_SQUARE_SIZEX,
+                    targetPt.y / CPathSearch::GRID_SQUARE_SIZEY),
+                m_terrainTable, searchSquareCode, FALSE) == CPathSearch::COST_IMPASSABLE) {
+            return ACTION_ERROR;
+        }
+    }
+
+    CPoint selfPos = GetPos();
+    CPoint targetCell(targetPt.x / CPathSearch::GRID_SQUARE_SIZEX,
+        targetPt.y / CPathSearch::GRID_SQUARE_SIZEY);
+    CPoint selfCell(selfPos.x / CPathSearch::GRID_SQUARE_SIZEX,
+        selfPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    LONG distSquares = CAIUtil::CountSquares(selfCell, targetCell);
+    distSquares = distSquares * distSquares;
+
+    // The combined personal space is truncated to a byte before the radius
+    // math (binary masks with 0xFF), so keep it in a BYTE here.
+    BYTE range = m_animation.GetPersonalSpace();
+    if (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE) {
+        BYTE targetSpace = static_cast<CGameSprite*>(pTarget)->m_animation.GetPersonalSpace();
+        range = static_cast<BYTE>(((targetSpace - 1) >> 1) + ((range - 1) >> 1) - 1);
+    }
+
+    // 0xD0 keeps moving with ACTION_NORMAL; every other variant uses
+    // ACTION_INTERRUPTABLE while still approaching.
+    SHORT actionID = m_curAction.m_actionID;
+
+    if (actionID == 0xB4 && distSquares <= (range + 4) * (range + 4)) {
+        // MoveToObjectFollow: close enough on the loose follow distance.
+        if (m_pPath != NULL) {
+            // DEFERRED: post the clear-search message (vtable 0x84C44C @ binary
+            // 0x73F1D4) so the follower halts its current path.
+        }
+        return actionID == 0xD0 ? ACTION_NORMAL : ACTION_INTERRUPTABLE;
+    }
+
+    if (distSquares <= (range + 1) * (range + 1)) {
+        return actionID == 0xB4 ? ACTION_INTERRUPTABLE : ACTION_DONE;
+    }
+
+    // --- Out of range: (re)issue a path search toward the target object. ---
+    m_followRange = 0;
+
+    if (targetPt.x / CPathSearch::GRID_SQUARE_SIZEX == m_curDest.x / CPathSearch::GRID_SQUARE_SIZEX
+        && targetPt.y / CPathSearch::GRID_SQUARE_SIZEY == m_curDest.y / CPathSearch::GRID_SQUARE_SIZEY
+        && field_5618 != 0
+        && (m_pPath != NULL || m_currentSearchRequest != NULL)) {
+        // Already pathing toward the same destination cell -- keep moving.
+        return actionID == 0xD0 ? ACTION_NORMAL : ACTION_INTERRUPTABLE;
+    }
+    field_5618 = 0;
+
+    // The binary forks on a "<16 cells" vs ">=16 cells" distance test (binary
+    // 0x73F2C0 / 0x73F3F0); both arms run the identical request build and differ
+    // only in SEH unwind state, so they collapse to one throttled block here.
+    if (field_5616 % 8 == 0) {
+        m_curDest.x = targetPt.x;
+        m_curDest.y = targetPt.y;
+
+        CSearchRequest* pSearchRequest = new CSearchRequest();
+        if (pSearchRequest == NULL) {
+            return ACTION_ERROR;
+        }
+
+        pSearchRequest->m_searchBitmap = &(m_pArea->m_search);
+        memcpy(pSearchRequest->m_terrainTable, m_terrainTable, sizeof(m_terrainTable));
+        pSearchRequest->m_pathSmooth = m_animation.GetPathSmooth();
+        pSearchRequest->m_sourceId = m_id;
+        pSearchRequest->m_nTargetIds = 1;
+
+        pSearchRequest->m_targetIds = new LONG[pSearchRequest->m_nTargetIds];
+        if (pSearchRequest->m_targetIds == NULL) {
+            delete pSearchRequest;
+            return ACTION_ERROR;
+        }
+
+        pSearchRequest->m_targetIds[0] = pTarget->m_id;
+        pSearchRequest->m_sourceSide = m_typeAI.GetEnemyAlly();
+        field_5618 = 1;
+        SetTarget(pSearchRequest, FALSE, LIST_FRONT);
+    }
+    field_5616++;
+
+    return actionID == 0xD0 ? ACTION_NORMAL : ACTION_INTERRUPTABLE;
 }
 
 // 0x73F560
