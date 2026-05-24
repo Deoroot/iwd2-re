@@ -11015,9 +11015,42 @@ BOOL CGameSprite::ProcessEffectList()
 
     // NOTE: This functions is huge. The next function call is necessary to
     // move on with character editor.
-    HandleEffects();
+    BOOL bResult = HandleEffects();
 
-    return FALSE;
+    const CRuleTables& ruleTables = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+
+    m_derivedStats.m_nSaveVSFortitude += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nCON);
+    m_derivedStats.m_nSaveVSReflex += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nDEX);
+    m_derivedStats.m_nSaveVSWill += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nWIS);
+
+    if (m_derivedStats.m_paladinLevel != 0) {
+        INT nCharismaBonus = ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nCHR);
+        if (nCharismaBonus > 0) {
+            m_derivedStats.m_nSaveVSFortitude += static_cast<SHORT>(nCharismaBonus);
+            m_derivedStats.m_nSaveVSReflex += static_cast<SHORT>(nCharismaBonus);
+            m_derivedStats.m_nSaveVSWill += static_cast<SHORT>(nCharismaBonus);
+        }
+    }
+
+    if (m_derivedStats.m_nACArmorBonus == 0
+        && m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
+        m_derivedStats.m_nACArmorBonus += static_cast<SHORT>(m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetEquippedACBonus());
+    }
+
+    INT nOffHandSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet + 1;
+    if (m_derivedStats.m_nACDeflectionBonus == 0
+        && nOffHandSlot >= 0
+        && nOffHandSlot < CGameSpriteEquipment::NUM_SLOT
+        && m_equipment.m_items[nOffHandSlot] != NULL) {
+        WORD nItemType = m_equipment.m_items[nOffHandSlot]->GetItemType();
+        if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
+            m_derivedStats.m_nACDeflectionBonus = static_cast<SHORT>(m_equipment.m_items[nOffHandSlot]->GetEquippedACBonus());
+        }
+    }
+
+    m_derivedStats.CheckLimits();
+
+    return bResult;
 }
 
 // 0x733290

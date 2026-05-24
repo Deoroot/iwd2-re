@@ -3413,10 +3413,103 @@ INT CRuleTables::GetEncumbranceMod(CGameSprite* pSprite) const
     return nEncMod;
 }
 
+static INT GetBaseCombatTableValue(const C2DArray& table, INT nClassLevel)
+{
+    INT nRow = nClassLevel - 1;
+    if (nRow < 0 || table.GetWidth() < 1 || table.GetHeight() <= nRow) {
+        return atol(table.GetDefault());
+    }
+
+    return atol(table.GetAt(CPoint(0, nRow)));
+}
+
 // 0x546B60
 void CRuleTables::GetBaseCombatValues(CGameSprite* pSprite, int& a2, int& a3, int& a4, BOOL a5) const
 {
-    // TODO: Incomplete.
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CRuleTables.cpp
+    // __LINE__: 6731
+    UTIL_ASSERT(pSprite != NULL);
+
+    const CAIObjectType& typeAI = pSprite->GetAIType();
+    CDerivedStats* pDStats = pSprite->GetDerivedStats();
+
+    a2 = 0;
+    a3 = 0;
+    a4 = 5;
+
+    if ((typeAI.m_nClassMask & CLASSMASK_BARBARIAN) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATFGT, pDStats->GetClassLevel(CAIOBJECTTYPE_C_BARBARIAN));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_BARD) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATNFG, pDStats->GetClassLevel(CAIOBJECTTYPE_C_BARD));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_CLERIC) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATNFG, pDStats->GetClassLevel(CAIOBJECTTYPE_C_CLERIC));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_DRUID) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATNFG, pDStats->GetClassLevel(CAIOBJECTTYPE_C_DRUID));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_FIGHTER) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATFGT, pDStats->GetClassLevel(CAIOBJECTTYPE_C_FIGHTER));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_PALADIN) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATFGT, pDStats->GetClassLevel(CAIOBJECTTYPE_C_PALADIN));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_RANGER) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATFGT, pDStats->GetClassLevel(CAIOBJECTTYPE_C_RANGER));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_ROGUE) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATNFG, pDStats->GetClassLevel(CAIOBJECTTYPE_C_ROGUE));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_SORCERER) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATMAG, pDStats->GetClassLevel(CAIOBJECTTYPE_C_SORCERER));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_WIZARD) != 0) {
+        a2 += GetBaseCombatTableValue(m_tBAATMAG, pDStats->GetClassLevel(CAIOBJECTTYPE_C_WIZARD));
+    }
+
+    if ((typeAI.m_nClassMask & CLASSMASK_MONK) != 0) {
+        const C2DArray* pTable = &m_tBAATNFG;
+        if (a2 == 0
+            && pSprite->m_equipment.m_selectedWeapon == CGameSpriteEquipment::SLOT_FIST
+            && pSprite->m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] == NULL) {
+            a4 = 3;
+            pTable = &m_tBAATMKU;
+        }
+
+        a2 += GetBaseCombatTableValue(*pTable, pDStats->GetClassLevel(CAIOBJECTTYPE_C_MONK));
+    }
+
+    if (a5 == TRUE && pDStats->m_spellStates[SPLSTATE_FEAT_RAPID_SHOT]) {
+        CItem* pWeapon = pSprite->m_equipment.m_items[pSprite->m_equipment.m_selectedWeapon];
+        if (pWeapon != NULL) {
+            pWeapon->Demand();
+
+            ITEM_ABILITY* pAbility = pWeapon->GetAbility(pSprite->m_equipment.m_selectedWeaponAbility);
+            if (pAbility != NULL && (pAbility->type == 2 || pAbility->type == 4)) {
+                a2 += 5;
+            }
+
+            pWeapon->Release();
+        }
+    }
+
+    a3 = (a2 - 1) / a4 + 1;
+    if (a3 > 4) {
+        a3 = 4;
+    }
+    if (a3 < 1) {
+        a3 = 0;
+    }
 }
 
 // FIXME: For unknown reason `nClass` and `nLevel` params are passed as

@@ -7,6 +7,15 @@
 #include "CInfGame.h"
 #include "CUtil.h"
 
+namespace {
+
+BOOL IsDerivedStatsShieldItemType(WORD nItemType)
+{
+    return nItemType == 47 || nItemType == 53 || nItemType == 49 || nItemType == 41;
+}
+
+} // namespace
+
 // 0x443B30
 CDerivedStats::CDerivedStats()
 {
@@ -208,6 +217,33 @@ void CDerivedStats::Reload(CGameSprite* pSprite, CCreatureFileHeader* pCreature,
 
         if (pSprite->m_derivedStats.m_monkLevel >= 11) {
             m_naturalImmunities.insert(CGAMEEFFECT_POISON);
+        }
+
+        if (pSprite->m_equipment.m_selectedWeapon != '*') {
+            INT nOffHandSlot = pSprite->GetWeaponSlot();
+            CItem* pOffHand = pSprite->m_equipment.m_items[nOffHandSlot];
+            if (pOffHand != NULL
+                && !IsDerivedStatsShieldItemType(pOffHand->GetItemType())
+                && m_nNumberOfAttacks < 5) {
+                m_nNumberOfAttacks++;
+            }
+        }
+
+        if (pSprite->GetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT) > 0
+            && pSprite->m_equipment.m_selectedWeapon < CGameSpriteEquipment::NUM_SLOT) {
+            CItem* pWeapon = pSprite->m_equipment.m_items[pSprite->m_equipment.m_selectedWeapon];
+            if (pWeapon != NULL) {
+                pWeapon->Demand();
+
+                ITEM_ABILITY* pAbility = pWeapon->GetAbility(pSprite->m_equipment.m_selectedWeaponAbility);
+                if (pAbility != NULL
+                    && (pAbility->type == 2 || pAbility->type == 4)
+                    && m_nNumberOfAttacks < 5) {
+                    m_nNumberOfAttacks++;
+                }
+
+                pWeapon->Release();
+            }
         }
 
         // TODO: Incomplete.

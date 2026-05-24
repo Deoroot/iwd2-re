@@ -3,6 +3,7 @@
 #include "CAIObjectType.h"
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
+#include "CGameEffect.h"
 #include "CGameSprite.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
@@ -41,6 +42,421 @@ const CString CScreenCharacter::TOKEN_MAXIMUM("MAXIMUM");
 //
 // 0x8F3338
 CString CScreenCharacter::SAVE_NAME("default");
+
+namespace {
+
+const INT WEAPON_PROFICIENCY_HIT_COLUMN = 0;
+const INT TWO_WEAPON_MAIN_HAND_PENALTY = -6;
+const INT TWO_WEAPON_OFF_HAND_PENALTY = -10;
+const INT NON_PROFICIENCY_PENALTY = -4;
+
+BOOL IsShieldItemType(WORD nItemType)
+{
+    return nItemType == 47 || nItemType == 53 || nItemType == 49 || nItemType == 41;
+}
+
+CString FormatSigned(INT nValue)
+{
+    CString sValue;
+    sValue.Format("%+d", nValue);
+    return sValue;
+}
+
+CString FormatAttackCascade(INT nBaseAttack, INT nAttackStep, INT nAttacks)
+{
+    CString sValue;
+
+    for (INT nAttack = 0; nAttack < nAttacks; nAttack++) {
+        if (nAttack != 0) {
+            sValue += "/";
+        }
+
+        INT nRoll = nBaseAttack - nAttackStep * nAttack;
+        if (nRoll < 0) {
+            nRoll = 0;
+        }
+
+        sValue += FormatSigned(nRoll);
+    }
+
+    return sValue;
+}
+
+void UpdateIndentedBonus(CUIControlTextDisplay* pText, STRREF strLabel, INT nValue)
+{
+    CBaldurEngine::UpdateTextNoTrim(pText,
+        "   %s: %+d",
+        (LPCSTR)CBaldurEngine::FetchString(strLabel),
+        nValue);
+}
+
+void UpdateIndentedPercent(CUIControlTextDisplay* pText, STRREF strLabel, INT nValue)
+{
+    CBaldurEngine::UpdateTextNoTrim(pText,
+        "   %s: %+d%%",
+        (LPCSTR)CBaldurEngine::FetchString(strLabel),
+        nValue);
+}
+
+INT GetWeaponProficiencyHitBonus(CGameSprite* pSprite, CItem* pWeapon, const ITEM_ABILITY* pAbility)
+{
+    const CRuleTables& rule = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+
+    SHORT nRank = pSprite->GetProficiencyTHAC0Bonus(pWeapon);
+
+    SHORT nLauncherSlot;
+    CItem* pLauncher = pSprite->GetLauncher(pAbility, nLauncherSlot);
+    if (pLauncher != NULL) {
+        pLauncher->Demand();
+        nRank = max(nRank, pSprite->GetProficiencyTHAC0Bonus(pLauncher));
+        pLauncher->Release();
+    }
+
+    if (nRank < 0) {
+        return nRank;
+    }
+
+    if (nRank == 0) {
+        if ((pAbility->abilityFlags & 0x10000) == 0) {
+            return NON_PROFICIENCY_PENALTY;
+        }
+        return 0;
+    }
+
+    return atol(rule.m_tWeaponSpecialization.GetAt(CPoint(WEAPON_PROFICIENCY_HIT_COLUMN, nRank)));
+}
+
+INT GetTwoWeaponPenalty(CGameSprite* pSprite, BOOL bOffHand)
+{
+    if (pSprite->m_equipment.m_selectedWeapon == '*') {
+        return 0;
+    }
+
+    BYTE nMainHandSlot = static_cast<BYTE>(CGameSpriteEquipment::SLOT_WEAPON + 2 * pSprite->m_nWeaponSet);
+    BYTE nOffHandSlot = static_cast<BYTE>(nMainHandSlot + 1);
+    CItem* pMainHand = pSprite->m_equipment.m_items[nMainHandSlot];
+    CItem* pOffHand = pSprite->m_equipment.m_items[nOffHandSlot];
+    if (pMainHand == NULL || pOffHand == NULL) {
+        return 0;
+    }
+
+    WORD nOffHandType = pOffHand->GetItemType();
+    if (IsShieldItemType(nOffHandType)) {
+        return 0;
+    }
+
+    INT nPenalty = bOffHand ? TWO_WEAPON_OFF_HAND_PENALTY : TWO_WEAPON_MAIN_HAND_PENALTY;
+
+    BOOL bRogueLightArmorBonus = pSprite->GetClassLevel(CAIOBJECTTYPE_C_ROGUE) >= 1
+        && !pSprite->HasArmorType(3)
+        && !pSprite->HasArmorType(2);
+
+    if (bRogueLightArmorBonus || pSprite->HasFeat(CGAMESPRITE_FEAT_AMBIDEXTERITY)) {
+        if (bOffHand) {
+            nPenalty += 4;
+        }
+    }
+
+    if (bRogueLightArmorBonus || pSprite->HasFeat(CGAMESPRITE_FEAT_TWO_WEAPON_FIGHTING)) {
+        nPenalty += 2;
+    }
+
+    if (nOffHandType == 16 || nOffHandType == 19) {
+        nPenalty += 2;
+    }
+
+    return nPenalty;
+}
+
+INT GetItemCriticalRangeBonus(CItem* pItem, const ITEM_ABILITY* pAbility)
+{
+    INT nBonus = 0;
+
+    switch (pItem->GetItemType()) {
+    case 16:
+    case 19:
+    case 20:
+    case 23:
+    case 27:
+    case 31:
+    case 57:
+    case 69:
+        nBonus = 1;
+        break;
+    }
+
+    if (pAbility != NULL && (pAbility->abilityFlags & 0x20000) != 0) {
+        nBonus++;
+    }
+
+    return nBonus;
+}
+
+STRREF GetDamageTypeStrRef(DWORD dwFlags)
+{
+    switch (dwFlags & 0xFFFF0000) {
+    case 0x00000000:
+    case 0x04000000:
+        return 11770; // "Bludgeoning"
+    case 0x00010000:
+        return 15578; // "Acid"
+    case 0x00020000:
+        return 15546; // "Cold"
+    case 0x00040000:
+        return 15577; // "Electricity"
+    case 0x00080000:
+        return 15545; // "Fire"
+    case 0x00100000:
+    case 0x02000000:
+        return 11769; // "Piercing"
+    case 0x00200000:
+        return 38135; // "Poison"
+    case 0x00400000:
+        return 40319; // "Magic Damage"
+    case 0x01000000:
+        return 11768; // "Slashing"
+    case 0x08000000:
+        return 14043; // "Magic Fire"
+    case 0x20000000:
+        return 39609; // "Magic Cold"
+    case 0x40000000:
+        return 39575; // "Missile (Bludgeoning)"
+    default:
+        return -1;
+    }
+}
+
+void AppendDamageEffect(CUIControlTextDisplay* pText, const ITEM_ABILITY* pAbility, CGameEffect* pEffect, INT& nMinDamage, INT& nMaxDamage)
+{
+    STRREF strType;
+    if (pEffect->m_effectID == CGAMEEFFECT_DAMAGE) {
+        strType = GetDamageTypeStrRef(pEffect->m_dwFlags);
+    } else if (pEffect->m_effectID == 241) {
+        strType = 41410; // "Vampiric"
+    } else {
+        return;
+    }
+
+    if (strType == -1) {
+        return;
+    }
+
+    DWORD nChance = pEffect->m_probabilityUpper - pEffect->m_probabilityLower + 1;
+    if (nChance > 100) {
+        nChance = 100;
+    }
+    if (pEffect->m_probabilityLower == 0 && pEffect->m_probabilityUpper != 100) {
+        nChance--;
+    }
+
+    CString sDamage;
+    sDamage.Format("%s: ", (LPCSTR)CBaldurEngine::FetchString(strType));
+
+    if (pEffect->m_numDice != 0 && pEffect->m_diceSize != 0) {
+        CString sRoll;
+        if (pEffect->m_effectAmount != 0) {
+            sRoll.Format(pAbility->damageDiceCount == 0 ? "%dd%d%+d" : " +%dd%d%+d",
+                pEffect->m_numDice,
+                pEffect->m_diceSize,
+                pEffect->m_effectAmount);
+        } else {
+            sRoll.Format(pAbility->damageDiceCount == 0 ? "%dd%d" : " +%dd%d",
+                pEffect->m_numDice,
+                pEffect->m_diceSize);
+        }
+        sDamage += sRoll;
+    } else if (pEffect->m_effectAmount != 0) {
+        sDamage += FormatSigned(pEffect->m_effectAmount);
+    }
+
+    if (nChance == 100) {
+        nMinDamage += pEffect->m_numDice + pEffect->m_effectAmount;
+    }
+    nMaxDamage += pEffect->m_numDice * pEffect->m_diceSize + pEffect->m_effectAmount;
+
+    if (nChance != 100) {
+        CString sChance;
+        sChance.Format(" (%d%%)", nChance);
+        sDamage += sChance;
+    }
+
+    CBaldurEngine::UpdateTextNoTrim(pText, "%s", (LPCSTR)sDamage);
+}
+
+void UpdateWeaponInformation(CUIControlTextDisplay* pText, CGameSprite* pSprite, CItem* pWeapon, ITEM_ABILITY* pAbility, BOOL bMainHand)
+{
+    if (pWeapon == NULL) {
+        return;
+    }
+
+    STRREF strHand;
+    if (!bMainHand) {
+        strHand = 733; // "Off Hand"
+    } else if (pAbility != NULL && pAbility->type == 2) {
+        strHand = 41123; // "Ranged"
+    } else {
+        strHand = 734; // "Main Hand"
+    }
+
+    CBaldurEngine::UpdateText(pText,
+        "%s - %s",
+        (LPCSTR)CBaldurEngine::FetchString(strHand),
+        (LPCSTR)CBaldurEngine::FetchString(pWeapon->GetGenericName()));
+
+    if ((pWeapon->m_flags & 0x1) == 0) {
+        CBaldurEngine::UpdateTextNoTrim(pText,
+            "   %s",
+            (LPCSTR)CBaldurEngine::FetchString(41121)); // "Unidentified - Details Unknown"
+        return;
+    }
+
+    if (pAbility == NULL) {
+        return;
+    }
+
+    INT nLauncherDamageBonus = 0;
+    SHORT nLauncherSlot;
+    CItem* pLauncher = pSprite->GetLauncher(pAbility, nLauncherSlot);
+    if (pLauncher != NULL) {
+        pLauncher->Demand();
+        ITEM_ABILITY* pLauncherAbility = pLauncher->GetAbility(0);
+        if (pLauncherAbility != NULL) {
+            nLauncherDamageBonus = pLauncherAbility->damageDiceBonus;
+        }
+        pLauncher->Release();
+    }
+
+    if (pAbility->damageDiceCount == 0) {
+        CBaldurEngine::UpdateTextNoTrim(pText,
+            "   %s: %s",
+            (LPCSTR)CBaldurEngine::FetchString(39518), // "Damage"
+            (LPCSTR)CBaldurEngine::FetchString(41409)); // "Special"
+    } else if (pAbility->damageDiceBonus == 0) {
+        CBaldurEngine::UpdateTextNoTrim(pText,
+            "   %s: %dd%d",
+            (LPCSTR)CBaldurEngine::FetchString(39518), // "Damage"
+            pAbility->damageDiceCount,
+            pAbility->damageDice);
+    } else {
+        CBaldurEngine::UpdateTextNoTrim(pText,
+            "   %s: %dd%d%+d",
+            (LPCSTR)CBaldurEngine::FetchString(39518), // "Damage"
+            pAbility->damageDiceCount,
+            pAbility->damageDice,
+            pAbility->damageDiceBonus);
+    }
+
+    INT nMinDamage = pAbility->damageDiceCount + pAbility->damageDiceBonus;
+    INT nMaxDamage = pAbility->damageDiceCount * pAbility->damageDice + pAbility->damageDiceBonus;
+
+    LONG nEffect = 0;
+    CGameEffect* pEffect = pWeapon->GetAbilityEffect(pSprite->m_equipment.m_selectedWeaponAbility, nEffect, NULL);
+    while (pEffect != NULL) {
+        AppendDamageEffect(pText, pAbility, pEffect, nMinDamage, nMaxDamage);
+        delete pEffect;
+
+        nEffect++;
+        pEffect = pWeapon->GetAbilityEffect(pSprite->m_equipment.m_selectedWeaponAbility, nEffect, NULL);
+    }
+
+    if (nLauncherDamageBonus != 0) {
+        UpdateIndentedBonus(pText, 41408, nLauncherDamageBonus); // "Launcher"
+        nMinDamage += nLauncherDamageBonus;
+        nMaxDamage += nLauncherDamageBonus;
+    }
+
+    INT nStrengthBonus = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(pSprite->m_derivedStats.m_nSTR);
+    if ((pAbility->abilityFlags & 0x1) != 0 && nStrengthBonus != 0) {
+        if (!bMainHand) {
+            if (nStrengthBonus > 1) {
+                nStrengthBonus /= 2;
+            }
+        } else if ((pWeapon->GetFlagsFile() & 0x2) != 0
+            && pWeapon->GetItemIcon() != "FIST"
+            && nStrengthBonus > 0) {
+            nStrengthBonus = static_cast<INT>(static_cast<float>(nStrengthBonus) * 1.5f);
+        }
+
+        nMinDamage += nStrengthBonus;
+        nMaxDamage += nStrengthBonus;
+        UpdateIndentedBonus(pText, 1145, nStrengthBonus); // "Strength"
+    }
+
+    INT nDamageBonus = bMainHand ? pSprite->m_derivedStats.m_DamageBonusRight : pSprite->m_derivedStats.m_DamageBonusLeft;
+    if (nDamageBonus != 0) {
+        nMinDamage += nDamageBonus;
+        nMaxDamage += nDamageBonus;
+        UpdateIndentedBonus(pText, 32561, nDamageBonus); // "Proficiency"
+    }
+
+    INT nPowerAttackBonus = pSprite->GetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK);
+    if (nPowerAttackBonus > 0
+        && (pAbility->type & 0x1) != 0
+        && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+        nMinDamage += nPowerAttackBonus;
+        nMaxDamage += nPowerAttackBonus;
+        UpdateIndentedBonus(pText,
+            g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetFeatName(CGAMESPRITE_FEAT_POWER_ATTACK),
+            nPowerAttackBonus);
+    }
+
+    if (nMaxDamage != 0) {
+        if (nMinDamage < 1) {
+            nMinDamage = 1;
+        }
+        if (nMaxDamage < 1) {
+            nMaxDamage = 1;
+        }
+
+        if (nMinDamage == nMaxDamage) {
+            CBaldurEngine::UpdateTextNoTrim(pText,
+                "   %s: %d",
+                (LPCSTR)CBaldurEngine::FetchString(41120), // "Damage Potential"
+                nMaxDamage);
+        } else {
+            CBaldurEngine::UpdateTextNoTrim(pText,
+                "   %s: %d-%d",
+                (LPCSTR)CBaldurEngine::FetchString(41120), // "Damage Potential"
+                nMinDamage,
+                nMaxDamage);
+        }
+    }
+
+    INT nCriticalRangeBonus = GetItemCriticalRangeBonus(pWeapon, pAbility) + pSprite->GetCriticalHitBonus();
+    DWORD nCriticalMultiplier = pWeapon->GetCriticalHitMultiplier();
+    if (nCriticalRangeBonus == 0) {
+        CBaldurEngine::UpdateTextNoTrim(pText,
+            "   %s: 20 / x%d",
+            (LPCSTR)CBaldurEngine::FetchString(41122), // "Critical Hit"
+            nCriticalMultiplier);
+    } else {
+        INT nCriticalThreat = 20 - nCriticalRangeBonus;
+        if (nCriticalThreat < 1) {
+            nCriticalThreat = 1;
+        }
+        CBaldurEngine::UpdateTextNoTrim(pText,
+            "   %s: %d-20 / x%d",
+            (LPCSTR)CBaldurEngine::FetchString(41122), // "Critical Hit"
+            nCriticalThreat,
+            nCriticalMultiplier);
+    }
+}
+
+INT GetDexterityArmorClassBonus(CGameSprite* pSprite)
+{
+    const CRuleTables& rule = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+    INT nDexterityBonus = pSprite->GetMaxDexterityBonus(rule.GetAbilityScoreModifier(pSprite->m_derivedStats.m_nDEX));
+
+    if ((pSprite->m_derivedStats.m_generalState & STATE_BLIND) != 0
+        && nDexterityBonus > 0
+        && !pSprite->HasFeat(CGAMESPRITE_FEAT_BLIND_FIGHT)) {
+        nDexterityBonus = 0;
+    }
+
+    return nDexterityBonus;
+}
+
+} // namespace
 
 // 0x5D50F0
 void CScreenCharacter::ResetBiography(CGameSprite* pSprite)
@@ -2638,7 +3054,462 @@ void CScreenCharacter::UpdateGeneralInformation(CUIControlTextDisplay* pText, CG
 // 0x5DE2C0
 void CScreenCharacter::UpdateEquipmentInformation(CUIControlTextDisplay* pText, CGameSprite* pSprite)
 {
-    // TODO: Incomplete.
+    const CRuleTables& rule = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+    CDerivedStats* pDStats = pSprite->GetDerivedStats();
+    CCreatureFileHeader* pBStats = pSprite->GetBaseStats();
+
+    pSprite->GetSpecialization();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 5386
+    UTIL_ASSERT(pDStats != NULL);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 5388
+    UTIL_ASSERT(pBStats != NULL);
+
+    INT nBaseAttack;
+    INT nBaseAttacks;
+    INT nAttackStep;
+    rule.GetBaseCombatValues(pSprite, nBaseAttack, nBaseAttacks, nAttackStep, TRUE);
+
+    CItem* pMainWeapon = NULL;
+    CItem* pOffHandWeapon = NULL;
+    BOOL bMainWeaponDemanded = FALSE;
+    BOOL bOffHandDemanded = FALSE;
+
+    if (pSprite->m_equipment.m_selectedWeapon != '*') {
+        pMainWeapon = pSprite->m_equipment.m_items[pSprite->m_equipment.m_selectedWeapon];
+        pOffHandWeapon = pSprite->m_equipment.m_items[pSprite->GetWeaponSlot()];
+
+        if (pMainWeapon != NULL) {
+            pMainWeapon->Demand();
+            bMainWeaponDemanded = TRUE;
+        }
+
+        if (pOffHandWeapon != NULL) {
+            pOffHandWeapon->Demand();
+            bOffHandDemanded = TRUE;
+        }
+
+        if (pOffHandWeapon != NULL && IsShieldItemType(pOffHandWeapon->GetItemType())) {
+            pOffHandWeapon->Release();
+            bOffHandDemanded = FALSE;
+            pOffHandWeapon = NULL;
+        }
+    }
+
+    if (pMainWeapon == NULL) {
+        pSprite->SelectWeaponAbility(CGameSpriteEquipment::SLOT_FIST, 0, 0, TRUE);
+        pMainWeapon = pSprite->m_equipment.m_items[pSprite->m_equipment.m_selectedWeapon];
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+        // __LINE__: 5425
+        UTIL_ASSERT(pMainWeapon != NULL);
+
+        pMainWeapon->Demand();
+        bMainWeaponDemanded = TRUE;
+    }
+
+    INT nArmorCheckPenalty = pSprite->GetArmorCheckPenalty();
+    INT nShieldCheckPenalty = pSprite->GetShieldCheckPenalty();
+
+    ITEM_ABILITY* pMainAttack = pMainWeapon->GetAbility(pSprite->m_equipment.m_selectedWeaponAbility);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 5440
+    UTIL_ASSERT(pMainAttack != NULL);
+
+    INT nMainWeaponBonus = pSprite->GetWeaponStyleBonus(pMainWeapon, pMainAttack)
+        + pSprite->GetTHAC0Bonuses(pMainWeapon, pMainAttack);
+    INT nMainProficiencyBonus = pSprite->GetHalflingSlingBonus(pMainWeapon, pMainAttack)
+        + GetWeaponProficiencyHitBonus(pSprite, pMainWeapon, pMainAttack)
+        + GetTwoWeaponPenalty(pSprite, FALSE);
+    INT nMainAbilityBonus = pSprite->GetAbilityHitBonus(pMainWeapon, pMainAttack);
+
+    ITEM_ABILITY* pOffHandAttack = NULL;
+    INT nOffHandWeaponBonus = 0;
+    INT nOffHandProficiencyBonus = 0;
+    INT nOffHandAbilityBonus = 0;
+
+    if (pOffHandWeapon != NULL) {
+        CButtonData cButtonData;
+        pSprite->GetQuickWeapon(static_cast<BYTE>(pSprite->GetWeaponSlot() - CGameSpriteEquipment::SLOT_WEAPON), cButtonData);
+
+        pOffHandAttack = pOffHandWeapon->GetAbility(cButtonData.m_abilityId.m_abilityNum);
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+        // __LINE__: 5464
+        UTIL_ASSERT(pOffHandAttack != NULL);
+
+        nOffHandWeaponBonus = pSprite->GetHalflingSlingBonus(pOffHandWeapon, pOffHandAttack)
+            + pSprite->GetWeaponStyleBonus(pOffHandWeapon, pOffHandAttack)
+            + pSprite->GetTHAC0Bonuses(pOffHandWeapon, pOffHandAttack);
+        nOffHandProficiencyBonus = GetWeaponProficiencyHitBonus(pSprite, pOffHandWeapon, pOffHandAttack)
+            + GetTwoWeaponPenalty(pSprite, TRUE);
+        nOffHandAbilityBonus = pSprite->GetAbilityHitBonus(pOffHandWeapon, pOffHandAttack);
+    }
+
+    INT nGenericAttackBonus = pSprite->GetTHAC0()
+        + pSprite->GetRacialAttackPenalty()
+        + pSprite->GetFlankingBonus();
+
+    BOOL bHasLauncher = FALSE;
+    SHORT nLauncherSlot;
+    CItem* pLauncher = pSprite->GetLauncher(pMainAttack, nLauncherSlot);
+    if (pLauncher != NULL) {
+        pLauncher->Demand();
+        bHasLauncher = pLauncher->GetAbility(0) != NULL;
+        pLauncher->Release();
+    }
+
+    BOOL bRangedAttack = bHasLauncher || pMainAttack->type == 2;
+    BOOL bRapidShot = pDStats->m_spellStates[SPLSTATE_FEAT_RAPID_SHOT] && bRangedAttack;
+
+    INT nDisplayedMainAttacks = pDStats->m_nNumberOfAttacks;
+    if (pMainWeapon != NULL
+        && pOffHandWeapon != NULL
+        && pMainWeapon != pOffHandWeapon
+        && !IsShieldItemType(pOffHandWeapon->GetItemType())) {
+        nDisplayedMainAttacks--;
+    }
+
+    UpdateTextForceColor(pText,
+        RGB(200, 200, 0),
+        "%s",
+        (LPCSTR)FetchString(9457)); // "Attack Roll Modifiers"
+
+    if (pMainWeapon != NULL && pMainWeapon != pOffHandWeapon) {
+        INT nMainTotalBonus = nGenericAttackBonus
+            + nArmorCheckPenalty
+            + nShieldCheckPenalty
+            + nMainWeaponBonus
+            + nMainProficiencyBonus
+            + nMainAbilityBonus;
+
+        CString sMainAttacks;
+        for (INT nAttack = 0; nAttack < nDisplayedMainAttacks; nAttack++) {
+            if (nAttack != 0) {
+                sMainAttacks += "/";
+            }
+
+            INT nAttackBase = nBaseAttack;
+            if (bRapidShot && nAttack == 0) {
+                nAttackBase -= 5;
+            }
+
+            INT nAttackRoll = nAttackBase - nAttackStep * nAttack;
+            if (nAttackRoll < 0) {
+                nAttackRoll = 0;
+            }
+
+            nAttackRoll += nMainTotalBonus;
+            if (bRapidShot) {
+                nAttackRoll -= 2;
+            }
+
+            sMainAttacks += FormatSigned(nAttackRoll);
+        }
+
+        UpdateText(pText,
+            "%s: %s",
+            (LPCSTR)FetchString(734), // "Main Hand"
+            (LPCSTR)sMainAttacks);
+
+        CString sMainBaseAttacks;
+        INT nDisplayedBaseAttacks = min(nDisplayedMainAttacks, nBaseAttacks);
+        for (INT nAttack = 0; nAttack < nDisplayedBaseAttacks; nAttack++) {
+            if (nAttack != 0) {
+                sMainBaseAttacks += "/";
+            }
+
+            INT nAttackBase = nBaseAttack;
+            if (bRapidShot) {
+                if (nAttack == 0) {
+                    nAttackBase -= 5;
+                }
+                nAttackBase -= 2;
+            }
+
+            INT nAttackRoll = nAttackBase - nAttackStep * nAttack;
+            if (nAttackRoll < 0) {
+                nAttackRoll = 0;
+            }
+
+            sMainBaseAttacks += FormatSigned(nAttackRoll);
+        }
+
+        UpdateTextNoTrim(pText,
+            "   %s: %s",
+            (LPCSTR)FetchString(31353), // "Base"
+            (LPCSTR)sMainBaseAttacks);
+
+        if (nMainWeaponBonus != 0) {
+            UpdateIndentedBonus(pText, 32560, nMainWeaponBonus); // "Weapon"
+        }
+
+        if (nMainProficiencyBonus != 0) {
+            UpdateIndentedBonus(pText, 32561, nMainProficiencyBonus); // "Proficiency"
+        }
+
+        if (nMainAbilityBonus != 0) {
+            UpdateIndentedBonus(pText, 33547, nMainAbilityBonus); // "Abilities"
+        }
+
+        if (nArmorCheckPenalty != 0) {
+            UpdateIndentedBonus(pText, 39816, nArmorCheckPenalty); // "Armor Penalty"
+        }
+
+        if (nShieldCheckPenalty != 0) {
+            UpdateIndentedBonus(pText, 39822, nShieldCheckPenalty); // "Shield Penalty"
+        }
+    }
+
+    if (pOffHandWeapon != NULL) {
+        if (pMainWeapon != pOffHandWeapon) {
+            UpdateText(pText, "");
+        }
+
+        INT nOffHandTotalBonus = nBaseAttack
+            + nGenericAttackBonus
+            + nArmorCheckPenalty
+            + nOffHandWeaponBonus
+            + nOffHandProficiencyBonus
+            + nOffHandAbilityBonus;
+
+        UpdateText(pText,
+            "%s: %+d",
+            (LPCSTR)FetchString(733), // "Off Hand"
+            nOffHandTotalBonus);
+
+        UpdateTextNoTrim(pText,
+            "   %s: %s",
+            (LPCSTR)FetchString(31353), // "Base"
+            (LPCSTR)FormatAttackCascade(nBaseAttack, nAttackStep, 1));
+
+        if (nOffHandWeaponBonus != 0) {
+            UpdateIndentedBonus(pText, 32560, nOffHandWeaponBonus); // "Weapon"
+        }
+
+        if (nOffHandProficiencyBonus != 0) {
+            UpdateIndentedBonus(pText, 32561, nOffHandProficiencyBonus); // "Proficiency"
+        }
+
+        if (nOffHandAbilityBonus != 0) {
+            UpdateIndentedBonus(pText, 33547, nOffHandAbilityBonus); // "Abilities"
+        }
+
+        if (nArmorCheckPenalty != 0) {
+            UpdateIndentedBonus(pText, 39816, nArmorCheckPenalty); // "Armor Penalty"
+        }
+
+        if (nShieldCheckPenalty != 0) {
+            UpdateIndentedBonus(pText, 39822, nShieldCheckPenalty); // "Shield Penalty"
+        }
+    }
+
+    if (nGenericAttackBonus != 0) {
+        UpdateIndentedBonus(pText, 33548, nGenericAttackBonus); // "Others"
+    }
+
+    UpdateText(pText, "");
+
+    if (pDStats->m_nDamageBonus != 0) {
+        UpdateText(pText,
+            "%s: %+d",
+            (LPCSTR)FetchString(40353), // "Damage Bonus"
+            pDStats->m_nDamageBonus);
+        UpdateText(pText, "");
+    }
+
+    CString sNumberOfAttacks;
+    if (pOffHandWeapon != NULL && pMainWeapon != pOffHandWeapon) {
+        sNumberOfAttacks.Format("%d+%d", pDStats->m_nNumberOfAttacks - 1, 1);
+    } else {
+        sNumberOfAttacks.Format("%d", pDStats->m_nNumberOfAttacks);
+    }
+
+    if (pSprite->GetCriticalHitBonus() != 0) {
+        UpdateText(pText,
+            "%s: %+d",
+            (LPCSTR)FetchString(41025), // "Critical Hit Bonus"
+            pSprite->GetCriticalHitBonus());
+    }
+
+    UpdateText(pText,
+        "%s: %s",
+        (LPCSTR)FetchString(9458), // "Number of Attacks"
+        (LPCSTR)sNumberOfAttacks);
+
+    UpdateText(pText, "");
+
+    UpdateTextForceColor(pText,
+        RGB(200, 200, 0),
+        "%s",
+        (LPCSTR)FetchString(33553)); // "Armor Class"
+
+    UpdateText(pText,
+        "%s: %d",
+        (LPCSTR)FetchString(33553), // "Armor Class"
+        pSprite->GetAC());
+
+    UpdateTextNoTrim(pText,
+        "   %s: %d",
+        (LPCSTR)FetchString(31353), // "Base"
+        10);
+
+    if (pDStats->m_nACArmorBonus != 0) {
+        UpdateIndentedBonus(pText, 11997, pDStats->m_nACArmorBonus); // "Armor"
+    }
+
+    if (pDStats->m_nACNaturalBonus != 0) {
+        UpdateIndentedBonus(pText, 33551, pDStats->m_nACNaturalBonus); // "Deflection"
+    }
+
+    if (pDStats->m_nACDeflectionBonus != 0) {
+        UpdateIndentedBonus(pText, 12006, pDStats->m_nACDeflectionBonus); // "Shield"
+    }
+
+    INT nExpertiseAC = bRangedAttack ? 0 : pSprite->GetFeatRank(CGAMESPRITE_FEAT_EXPERTISE);
+    if (pDStats->m_nACDodgeBonus != nExpertiseAC) {
+        UpdateIndentedBonus(pText, 33552, pDStats->m_nACDodgeBonus - nExpertiseAC); // "Generic"
+    }
+
+    INT nDexterityBonus = GetDexterityArmorClassBonus(pSprite);
+    if (nDexterityBonus != 0) {
+        UpdateIndentedBonus(pText, 1151, nDexterityBonus); // "Dexterity"
+    }
+
+    if (pSprite->HasClassLevel(CAIOBJECTTYPE_C_MONK)) {
+        CString sValue;
+        sValue.Format("%+d", pSprite->GetAttacksPerRound());
+        g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_NUMBER, sValue);
+        UpdateText(pText, "%s", (LPCSTR)FetchString(39431)); // "Monk Wisdom Bonus: <number> to AC"
+    }
+
+    if (nExpertiseAC != 0 && !bRangedAttack) {
+        UpdateIndentedBonus(pText, rule.GetFeatName(CGAMESPRITE_FEAT_EXPERTISE), nExpertiseAC);
+    }
+
+    if (pDStats->m_nACCrushingMod != 0
+        || pDStats->m_nACMissileMod != 0
+        || pDStats->m_nACPiercingMod != 0
+        || pDStats->m_nACSlashingMod != 0) {
+        UpdateText(pText, "");
+
+        UpdateTextForceColor(pText,
+            RGB(200, 200, 0),
+            "%s",
+            (LPCSTR)FetchString(11766)); // "Armor Class Modifiers"
+    }
+
+    if (pDStats->m_nACCrushingMod != 0) {
+        UpdateText(pText,
+            "%s: %+d",
+            (LPCSTR)FetchString(11770), // "Bludgeoning"
+            pDStats->m_nACCrushingMod);
+    }
+
+    if (pDStats->m_nACMissileMod != 0) {
+        UpdateText(pText,
+            "%s: %+d",
+            (LPCSTR)FetchString(11767), // "Missile"
+            pDStats->m_nACMissileMod);
+    }
+
+    if (pDStats->m_nACPiercingMod != 0) {
+        UpdateText(pText,
+            "%s: %+d",
+            (LPCSTR)FetchString(11769), // "Piercing"
+            pDStats->m_nACPiercingMod);
+    }
+
+    if (pDStats->m_nACSlashingMod != 0) {
+        UpdateText(pText,
+            "%s: %+d",
+            (LPCSTR)FetchString(11768), // "Slashing"
+            pDStats->m_nACSlashingMod);
+    }
+
+    INT nArcaneFailure = pSprite->GetArcaneSpellFailure();
+    if (pSprite->HasClassMask(CLASSMASK_BARD | CLASSMASK_SORCERER | CLASSMASK_WIZARD)) {
+        UpdateText(pText, "");
+
+        UpdateTextForceColor(pText,
+            RGB(200, 200, 0),
+            "%s",
+            (LPCSTR)FetchString(41391)); // "Arcane Spell Failure"
+
+        UpdateText(pText,
+            "%s: %d%%",
+            (LPCSTR)FetchString(41390), // "Casting Failure"
+            nArcaneFailure);
+
+        INT nArmorSpellFailure = pSprite->GetArmorSpellFailure();
+        if (nArmorSpellFailure != 0) {
+            UpdateIndentedPercent(pText, 39816, nArmorSpellFailure); // "Armor Penalty"
+        }
+
+        INT nShieldSpellFailure = pSprite->GetShieldSpellFailure();
+        if (nShieldSpellFailure != 0) {
+            UpdateIndentedPercent(pText, 39822, nShieldSpellFailure); // "Shield Penalty"
+        }
+
+        INT nArmoredArcana = 0;
+        if (pSprite->HasFeat(CGAMESPRITE_FEAT_ARMORED_ARCANA)) {
+            nArmoredArcana = 5 * pSprite->GetFeatValue(CGAMESPRITE_FEAT_ARMORED_ARCANA);
+            UpdateIndentedPercent(pText, 36352, -nArmoredArcana); // "Armored Arcana"
+        }
+
+        INT nOtherFailure = nArcaneFailure - nArmorSpellFailure - nShieldSpellFailure + nArmoredArcana;
+        if (nOtherFailure < 0) {
+            nOtherFailure = 0;
+        }
+        if (nArcaneFailure != 0 && nOtherFailure != 0) {
+            UpdateIndentedPercent(pText, 33548, nOtherFailure); // "Others"
+        }
+    }
+
+    UpdateText(pText, "");
+
+    if (pMainWeapon != NULL || pOffHandWeapon != NULL) {
+        UpdateTextForceColor(pText,
+            RGB(200, 200, 0),
+            "%s",
+            (LPCSTR)FetchString(41119)); // "Weapon Statistics"
+
+        if (pMainWeapon != NULL) {
+            if (pMainWeapon != pOffHandWeapon) {
+                UpdateWeaponInformation(pText, pSprite, pMainWeapon, pMainAttack, TRUE);
+                UpdateText(pText, "");
+            }
+
+            if (bMainWeaponDemanded) {
+                pMainWeapon->Release();
+                bMainWeaponDemanded = FALSE;
+            }
+        }
+
+        if (pOffHandWeapon != NULL && !IsShieldItemType(pOffHandWeapon->GetItemType())) {
+            UpdateWeaponInformation(pText, pSprite, pOffHandWeapon, pOffHandAttack, FALSE);
+            UpdateText(pText, "");
+
+            if (bOffHandDemanded) {
+                pOffHandWeapon->Release();
+                bOffHandDemanded = FALSE;
+            }
+        }
+    }
+
+    if (bMainWeaponDemanded) {
+        pMainWeapon->Release();
+    }
+
+    if (bOffHandDemanded) {
+        pOffHandWeapon->Release();
+    }
+
+    UpdateSavingThrows(pText, *pDStats);
 }
 
 // 0x5E0200
