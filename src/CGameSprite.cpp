@@ -12838,6 +12838,95 @@ SHORT CGameSprite::MoveToPoint()
     return ACTION_INTERRUPTABLE;
 }
 
+// 0x752DD0
+SHORT CGameSprite::Dialogue(CGameSprite* pTarget)
+{
+    if (pTarget == NULL) {
+        return ACTION_ERROR;
+    }
+
+    if (!CanSpeak(FALSE, FALSE)) {
+        return ACTION_ERROR;
+    }
+
+    if (!pTarget->CanSpeak(FALSE, TRUE)) {
+        return ACTION_ERROR;
+    }
+
+    if (m_derivedStats.m_generalState & 0x2000) {
+        // Caller is in a state that forbids initiating conversation.
+        return ACTION_ERROR;
+    }
+
+    // DEFERRED (multiplayer): the "multig" portrait-assignment block at binary
+    // 0x752E33..0x752E7E hands an unportraited multiplayer character a default
+    // portrait before talking.  Single-player never enters it.
+
+    if (m_actionCount == 0) {
+        PlayDialogSound(this);
+    }
+
+    CPoint targetPos = pTarget->GetPos();
+    CPoint selfPos = GetPos();
+    CPoint targetCell(targetPos.x / CPathSearch::GRID_SQUARE_SIZEX,
+        targetPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    CPoint selfCell(selfPos.x / CPathSearch::GRID_SQUARE_SIZEX,
+        selfPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    LONG distSquares = CAIUtil::CountSquares(selfCell, targetCell);
+    distSquares = distSquares * distSquares;
+
+    // field_7106 is the dialogue-range override set by SetDialogueRange (action
+    // 0x100); 0 means "derive the range from the combined personal space".
+    LONG range = field_7106;
+    if (range == 0) {
+        BYTE selfSpace = m_animation.GetPersonalSpace();
+        BYTE targetSpace = pTarget->m_animation.GetPersonalSpace();
+        range = ((targetSpace - 1) >> 1) - 1 + ((selfSpace - 1) >> 1);
+    } else {
+        range = range * range;
+    }
+
+    BOOL bEnter = FALSE;
+    if (field_7106 != 0) {
+        // Explicit range: enter on distance alone, otherwise keep moving.
+        bEnter = distSquares <= range;
+    } else {
+        range = (range + 2) * (range + 2);
+        if (distSquares <= range
+            && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
+            bEnter = TRUE;
+        }
+    }
+
+    if (bEnter) {
+        // In range (binary LAB_00752FF0).  DEFERRED: the pre-enter
+        // CAIObjectType::Set of m_lTalkedTo on both sprites and the post-enter
+        // freeze/face messages (vtables 0x84D06C / 0x84D29C), pending recovery
+        // of those message classes.
+        if (!g_pBaldurChitin->m_pEngineWorld->StartDialog(pTarget, this, 0, 0)) {
+            return ACTION_ERROR;
+        }
+        return ACTION_DONE;
+    }
+
+    // Out of range: step toward the target and re-evaluate next tick.
+    SHORT result = MoveToObject(pTarget);
+    if (result == ACTION_DONE) {
+        result = ACTION_INTERRUPTABLE;
+    }
+    if (result == ACTION_ERROR
+        && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
+        // Pathing failed but the target is visible -- talk from here anyway.
+        if (g_pBaldurChitin->m_pEngineWorld->StartDialog(pTarget, this, 0, 0)) {
+            // DEFERRED: same post-enter messages as the in-range branch.
+            result = ACTION_DONE;
+        } else {
+            result = ACTION_ERROR;
+        }
+    }
+    return result;
+}
+
 // 0x7446F0
 SHORT CGameSprite::OneSwing()
 {

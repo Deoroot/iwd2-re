@@ -1545,6 +1545,17 @@ BOOLEAN CScreenWorld::ReadyEndCredits(BOOLEAN bForcedFromServer)
 }
 
 // 0x68F9D0
+// 0x68EA00
+BOOL CScreenWorld::StartDialog(CGameSprite* pTarget, CGameSprite* pSpeaker, BYTE a4, BYTE a5)
+{
+    // TODO: Incomplete -- enter-dialog-mode UI orchestration (party-idle
+    // messages, panel setup, SetDialogTokens, CGameDialogSprite::Initialize +
+    // StartDialog) that bridges the action layer to the recovered dialogue
+    // state machine.  Returns FALSE until recovered, so CGameSprite::Dialogue
+    // reaches the NPC and aborts cleanly instead of opening a conversation.
+    return FALSE;
+}
+
 void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
 {
     // TODO: Incomplete.
