@@ -579,6 +579,7 @@ public:
     SHORT MoveToPoint();
     SHORT MoveToObject(CGameObject* pTarget);
     SHORT Dialogue(CGameSprite* pTarget);
+    SHORT PlayerDialog(CGameSprite* pTarget);
     SHORT OneSwing();
     SHORT Recoil();
     SHORT PlayDead();

@@ -12908,6 +12908,22 @@ SHORT CGameSprite::ExecuteAction()
         return actionReturn;
     }
 
+    if (m_curAction.m_actionID == 0x8B) {
+        // PlayerDialog(O:Target*): player-initiated approach + talk (the action
+        // queued when the player clicks an NPC with the talk cursor). Binary
+        // dispatch block 0x72A3AB.
+        SHORT actionReturn = ACTION_DONE;
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if (pObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                actionReturn = PlayerDialog(static_cast<CGameSprite*>(pObj));
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        return actionReturn;
+    }
+
     return CGameAIBase::ExecuteAction();
 }
 
@@ -12992,6 +13008,88 @@ SHORT CGameSprite::Dialogue(CGameSprite* pTarget)
         // Pathing failed but the target is visible -- talk from here anyway.
         if (g_pBaldurChitin->m_pEngineWorld->StartDialog(pTarget, this, 0, 0)) {
             // DEFERRED: same post-enter messages as the in-range branch.
+            result = ACTION_DONE;
+        } else {
+            result = ACTION_ERROR;
+        }
+    }
+    return result;
+}
+
+// 0x7537A0
+SHORT CGameSprite::PlayerDialog(CGameSprite* pTarget)
+{
+    if (pTarget == NULL) {
+        return ACTION_ERROR;
+    }
+    if (pTarget->m_bEscapingArea) {
+        return ACTION_ERROR;
+    }
+    if (pTarget->m_curAction.m_actionID == 0x6C || pTarget->m_curAction.m_actionID == 0xB0) {
+        return ACTION_ERROR;
+    }
+    if (m_currentActionId == 0x6C || m_currentActionId == 0xB0) {
+        return ACTION_ERROR;
+    }
+    if (!CanSpeak(FALSE, FALSE)) {
+        return ACTION_ERROR;
+    }
+    if (!pTarget->CanSpeak(FALSE, TRUE)) {
+        return ACTION_ERROR;
+    }
+    if (pTarget->m_moraleFailure) {
+        return ACTION_ERROR;
+    }
+
+    DWORD targetState = pTarget->m_derivedStats.m_generalState;
+    if (targetState & 0xC) {
+        return ACTION_ERROR;
+    }
+    if ((targetState & 2) && m_berserkActive) {
+        return ACTION_ERROR;
+    }
+    if (targetState & 0x80100000) {
+        return ACTION_ERROR;
+    }
+
+    if (m_actionCount == 0) {
+        PlayDialogSound(pTarget);
+    }
+
+    CPoint targetPos = pTarget->GetPos();
+    CPoint selfPos = GetPos();
+    CPoint targetCell(targetPos.x / CPathSearch::GRID_SQUARE_SIZEX,
+        targetPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    CPoint selfCell(selfPos.x / CPathSearch::GRID_SQUARE_SIZEX,
+        selfPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    LONG distSquares = CAIUtil::CountSquares(selfCell, targetCell);
+    distSquares = distSquares * distSquares;
+
+    BYTE selfSpace = m_animation.GetPersonalSpace();
+    BYTE targetSpace = pTarget->m_animation.GetPersonalSpace();
+    BYTE range = static_cast<BYTE>(((targetSpace - 1) >> 1) + ((selfSpace - 1) >> 1) - 1);
+
+    if (distSquares <= (range + 2) * (range + 2)
+        && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
+        // DEFERRED (binary 0x753A60..0x753B40): break the caller's invisibility
+        // (item effect 0x88) and sanctuary (0xA0, m_spellStates) before talking,
+        // CAIObjectType::Set m_lTalkedTo on both sprites, and the post-enter
+        // freeze/face messages -- pending those effect/message classes.
+        if (!g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0)) {
+            return ACTION_ERROR;
+        }
+        return ACTION_DONE;
+    }
+
+    // Out of range: step toward the target and re-evaluate next tick.
+    SHORT result = MoveToObject(pTarget);
+    if (result == ACTION_DONE) {
+        result = ACTION_INTERRUPTABLE;
+    }
+    if (result == ACTION_ERROR
+        && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
+        if (g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0)) {
+            // DEFERRED: same invisibility/sanctuary break + post-enter messages.
             result = ACTION_DONE;
         } else {
             result = ACTION_ERROR;
