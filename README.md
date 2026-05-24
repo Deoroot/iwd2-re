@@ -42,7 +42,7 @@ Original source code was never released. This project reconstructs it by analyzi
 | May 2026 | **Action Bar**: Customize menu (state 0x75), skills submenu (0x73), quick-weapon picker (0x79), class pickers (0x76/0x77), and all sub-menu exit paths wired per Ghidra |
 | May 2026 | **Inventory**: STON* fallback for empty equipment slots, active-set HIGHLGHT ring, quick-weapon panel rendering |
 | May 2026 | **Ghidra DB**: 4,963 functions renamed (88% named), 716 TODO/FIXME bookmarks imported |
-| May 2026 | **Tooling**: `scripts/ghidra_re.py` for rename/annotate; batch SQL via `ghidrasql -f` |
+| May 2026 | **Tooling**: GhidraMCP REST API (`:8089`) for rename/annotate; batch SQL via `ghidrasql -f` |
 | May 2026 | **Fields**: 26 `field_XXX` renamed across 10 classes (CRes, CChitin, CDimm, CUIManager, CNetwork, etc.) |
 | May 2026 | **Load Game**: Save list + preview thumbnails fixed |
 | May 2026 | **Critical sections**: Named and documented across CUIManager, CNetwork, CChitin |
@@ -174,27 +174,29 @@ int CGameSprite::GetDerivedStats() {
 
 ### Rename / Annotate Ghidra
 
-Use `scripts/ghidra_re.py` to rename functions, annotate locals, add comments, and sync bookmarks:
+Use the **GhidraMCP REST API** (`http://127.0.0.1:8089`) — run Ghidra GUI, plugin auto-starts.
 
 ```powershell
 # Inspect before renaming
-python scripts/ghidra_re.py decomp 0x5D2DE0
-python scripts/ghidra_re.py locals 0x5D2DE0
-python scripts/ghidra_re.py params 0x5D2DE0
+curl -s "http://127.0.0.1:8089/decompile_function?address=0x5D2DE0"
+curl -s "http://127.0.0.1:8089/get_function_variables?address=0x5D2DE0"
 
-# Rename function + set signature
-python scripts/ghidra_re.py func 0x5D2DE0 RenderFogOfWar --signature "void RenderFogOfWar(CVidMode*)"
+# Rename function
+curl -s -X POST http://127.0.0.1:8089/rename_function_by_address -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","new_name":"RenderFogOfWar"}'
 
-# Rename local variable or parameter
-python scripts/ghidra_re.py local 0x5D2DE0 local_8 --name pArea --type "CGameArea *"
-python scripts/ghidra_re.py param 0x5D2DE0 0 --name pVidMode --type "CVidMode *"
+# Set function signature
+curl -s -X POST http://127.0.0.1:8089/set_function_prototype -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","prototype":"void RenderFogOfWar(CVidMode*)"}'
 
-# Add comment or bookmark
-python scripts/ghidra_re.py comment 0x5D2DE0 plate "Renders fog of war overlay." --replace
-python scripts/ghidra_re.py bookmark 0x5D2DE0 review "Check blend flags."
+# Rename local / param
+curl -s -X POST http://127.0.0.1:8089/rename_variable -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","oldName":"local_8","newName":"pArea"}'
+curl -s -X POST http://127.0.0.1:8089/set_parameter_type -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","parameter_name":"param_1","new_type":"CVidMode *"}'
 
-# Import all source TODO/FIXME as Ghidra bookmarks
-python scripts/ghidra_re.py source-notes --replace
+# Comments & bookmarks
+curl -s -X POST http://127.0.0.1:8089/set_plate_comment -H "Content-Type: application/json" -d '{"address":"0x5D2DE0","comment":"Renders fog of war overlay."}'
+curl -s -X POST http://127.0.0.1:8089/set_bookmark -H "Content-Type: application/json" -d '{"address":"0x5D2DE0","category":"review","comment":"Check blend flags."}'
+
+# Persist Ghidra DB
+curl -s "http://127.0.0.1:8089/save_program?program=IWD2.exe"
 ```
 
 Full workflow: [decomp_ref/ghidra_rename_annotate.md](decomp_ref/ghidra_rename_annotate.md)
@@ -240,8 +242,8 @@ Run `data/restore.ps1` after clone to extract to `C:\projects\` and `C:\ghidra_p
 
 ## Documentation
 
-- **[AGENTS.md](AGENTS.md)** — Full workflow guide: GhidraSQL queries, rename strategy, build safety rules
-- **[decomp_ref/ghidra_rename_annotate.md](decomp_ref/ghidra_rename_annotate.md)** — Ghidra rename / annotate workflow and tool usage
+- **[AGENTS.md](AGENTS.md)** — Full workflow guide: GhidraMCP queries, rename strategy, build safety rules
+- **[decomp_ref/ghidra_rename_annotate.md](decomp_ref/ghidra_rename_annotate.md)** — GhidraMCP rename / annotate workflow and tool usage
 - **[decomp_ref/](decomp_ref/)** — Memory nodes per subsystem with field mappings and discoveries
 
 ---
