@@ -3905,7 +3905,7 @@ void CScreenCharacter::OnDoneButtonClick()
 {
     CUIPanel* pPanel = GetTopPopup();
 
-    if (pPanel != NULL && pPanel->m_nID == 57) {
+    if (pPanel != NULL && (pPanel->m_nID == 57 || pPanel->m_nID == 12)) {
         DismissPopup(NULL);
     }
 }
@@ -3915,7 +3915,7 @@ BOOL CScreenCharacter::OnCancelButtonClick()
 {
     CUIPanel* pPanel = GetTopPopup();
 
-    if (pPanel != NULL && pPanel->m_nID == 57) {
+    if (pPanel != NULL && (pPanel->m_nID == 57 || pPanel->m_nID == 12)) {
         DismissPopup(NULL);
         m_cUIManager.InvalidateRect(NULL);
         return TRUE;
