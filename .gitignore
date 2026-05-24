@@ -404,6 +404,8 @@ FodyWeavers.xsd
 /libghidra/
 /build.log
 /OG_build.log
+# Project-local codex rules
+.codex/
 # Added by code-review-graph
 .code-review-graph/
 .opencode.json
