@@ -1546,14 +1546,34 @@ BOOLEAN CScreenWorld::ReadyEndCredits(BOOLEAN bForcedFromServer)
 
 // 0x68F9D0
 // 0x68EA00
-BOOL CScreenWorld::StartDialog(CGameSprite* pTarget, CGameSprite* pSpeaker, BYTE a4, BYTE a5)
+//
+// Enter dialogue mode: load the talker's dialogue into m_internalLoadedDialog
+// and begin it, bridging the action layer to the recovered dialogue state
+// machine (CGameDialogSprite::StartDialog posts CMessageEnterDialog).
+// pCharacter is the participant whose id becomes the dialogue character index
+// (the protagonist for token purposes); pTalker is the one whose .DLG drives
+// the conversation.  Both the script Dialogue action (bPlayerInitiated == 0)
+// and PlayerDialog (bPlayerInitiated == 1) pass (character, talker) in that
+// order.
+//
+// PARTIAL: the surrounding UI orchestration -- party-idle messages, dialogue
+// panel activation, viewport scroll-to-speaker, pause-mode bookkeeping, the
+// face-each-other messages and the multiplayer handshake (binary 0x68EA00) --
+// is deferred; it depends on several still-unmapped CInfGame/CBaldurChitin
+// globals (game +0x37e0/+0x43e2/+0x1ba1, chitin +0x1032/+0x1033/+0x96e). The
+// Initialize + StartDialog spine that actually starts the conversation matches
+// the binary (talker dialog at +0x56DC, m_internalLoadedDialog at +0xEB0).
+BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BYTE bPlayerInitiated, BYTE a5)
 {
-    // TODO: Incomplete -- enter-dialog-mode UI orchestration (party-idle
-    // messages, panel setup, SetDialogTokens, CGameDialogSprite::Initialize +
-    // StartDialog) that bridges the action layer to the recovered dialogue
-    // state machine.  Returns FALSE until recovered, so CGameSprite::Dialogue
-    // reaches the NPC and aborts cleanly instead of opening a conversation.
-    return FALSE;
+    if (pCharacter == NULL || pTalker == NULL) {
+        return FALSE;
+    }
+
+    SetDialogTokens(pCharacter);
+
+    m_internalLoadedDialog.Initialize(pTalker->m_dialog, pCharacter->m_id, pTalker->m_id);
+
+    return m_internalLoadedDialog.StartDialog(pTalker);
 }
 
 void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
