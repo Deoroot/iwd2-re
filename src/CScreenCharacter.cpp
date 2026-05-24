@@ -3921,6 +3921,17 @@ BOOL CScreenCharacter::OnCancelButtonClick()
         return TRUE;
     }
 
+    if (pPanel != NULL && pPanel->m_nID == 13) {
+        UTIL_ASSERT(m_pCharacters != NULL);
+
+        delete m_pCharacters;
+        m_pCharacters = NULL;
+
+        DismissPopup(NULL);
+        m_cUIManager.InvalidateRect(NULL);
+        return TRUE;
+    }
+
     return FALSE;
 }
 
