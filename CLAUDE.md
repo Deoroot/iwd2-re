@@ -30,12 +30,12 @@ Violation flagged 2026-05-23. See `memory/feedback_graph_first.md`.
 
 ## Build & run (Win32, VS 2019)
 
-```powershell
+```bash
 cmake -S . -B build -G "Visual Studio 16 2019" -A Win32
-Get-Process -Name iwd2-re -ErrorAction SilentlyContinue | Stop-Process -Force
+taskkill //f //im iwd2-re.exe 2>/dev/null || true
 cmake --build build --config Debug
-Copy-Item -Path "build/Debug/iwd2-re.exe" -Destination "C:\GOG Games\Icewind Dale 2\" -Force
-& "C:\GOG Games\Icewind Dale 2\iwd2-re.exe"
+cp "build/Debug/iwd2-re.exe" "C:/GOG Games/Icewind Dale 2/" -f
+"C:/GOG Games/Icewind Dale 2/iwd2-re.exe"
 python scripts/auto_start_game.py   # smoke: load slot 0, wait for world
 python scripts/auto_start_game.py --new-game --party "Lady's Lament"
 ```
@@ -94,7 +94,7 @@ curl -s -X POST http://127.0.0.1:8089/save_program -H "Content-Type: application
 
 **MCP bridge:**
 ```bash
-cd C:\ghidra-mcp && python bridge_mcp_ghidra.py   # stdio, registers 195 tools
+cd /c/ghidra-mcp && python bridge_mcp_ghidra.py   # stdio, registers 195 tools
 ```
 
 **Read PE bytes (use pefile, not `/memory_bytes`):**

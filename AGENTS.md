@@ -85,15 +85,15 @@ Schema reference: `ghidra_mcp_schema.json` (committed copy).
 3. Build before push
 
 ## Build & Run
-```powershell
-# Kill running instance (PowerShell)
-Get-Process | Where-Object { $_.ProcessName -like '*iwd2*' -or $_.Path -like '*iwd2-re.exe' } | Stop-Process -Force
+```bash
+# Kill running instance
+taskkill //f //im iwd2-re.exe 2>/dev/null || true
 
 # Build
 cmake --build build --config Debug
 
 # Deploy
-Copy-Item build/Debug/iwd2-re.exe "C:\GOG Games\Icewind Dale 2\" -Force
+cp "build/Debug/iwd2-re.exe" "C:/GOG Games/Icewind Dale 2/" -f
 
 # Smoke test: load visible save slot 0 and wait for world engine
 python scripts/auto_start_game.py

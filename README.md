@@ -82,6 +82,8 @@ The Infinity Engine is split into several subsystems:
 
 ### Quick Start
 
+> All shell commands assume **Git Bash** (Windows).
+
 ```bash
 # Clone with all reference submodules
 git clone --recursive git@github.com:WillScarlettOhara/iwd2-re.git
@@ -176,7 +178,7 @@ int CGameSprite::GetDerivedStats() {
 
 Use the **GhidraMCP REST API** (`http://127.0.0.1:8089`) — run Ghidra GUI, plugin auto-starts.
 
-```powershell
+```bash
 # Inspect before renaming
 curl -s "http://127.0.0.1:8089/decompile_function?address=0x5D2DE0"
 curl -s "http://127.0.0.1:8089/get_function_variables?address=0x5D2DE0"
