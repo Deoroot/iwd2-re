@@ -26,6 +26,7 @@
 #include "CStore.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
+#include "DebugLog.h"
 
 // NOTE: Might be static in `CMessage`.
 //
@@ -9727,6 +9728,11 @@ void CMessageSetDialogWait::Run()
         if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
             pSprite->m_dialogWait = m_wait;
             pSprite->m_dialogWaitTarget = m_waitTarget;
+            Iwd2DebugLog("CMessageSetDialogWait::Run set targetId=%ld m_dialogWait=%ld m_dialogWaitTarget=%ld",
+                m_targetId, m_wait, m_waitTarget);
+        } else {
+            Iwd2DebugLog("CMessageSetDialogWait::Run targetId=%ld NOT_SPRITE type=%d skipped",
+                m_targetId, (int)pSprite->GetObjectType());
         }
 
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,

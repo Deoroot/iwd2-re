@@ -3528,12 +3528,21 @@ void CGameSprite::OnActionButton(const CPoint& pt)
                         || pGame->m_lastTarget != m_id
                         || m_typeAI.GetEnemyAlly() < CAIObjectType::EA_EVILCUTOFF) {
                         if (m_typeAI.GetEnemyAlly() < CAIObjectType::EA_EVILCUTOFF) {
+                            Iwd2DebugLog("OnActionButton case0 talk-gate spriteId=%ld ea=%d groupCount=%d isPartyLeader=%d diseased=%d leaderId=%ld",
+                                m_id, (int)m_typeAI.GetEnemyAlly(), pGroup->GetCount(),
+                                (int)pGroup->IsPartyLeader(),
+                                (int)((m_baseStats.m_flags & STATE_DISEASED) != 0),
+                                pGroup->GetGroupLeader());
                             if (pGroup->IsPartyLeader() && (~m_baseStats.m_flags & STATE_DISEASED) != 0) {
                                 CMessage* message = new CMessageSetDialogWait(140,
                                     pGroup->GetGroupLeader(),
                                     m_id,
                                     m_id);
                                 g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                                Iwd2DebugLog("OnActionButton case0 dialogWait posted spriteId=%ld leaderId=%ld",
+                                    m_id, pGroup->GetGroupLeader());
+                            } else {
+                                Iwd2DebugLog("OnActionButton case0 dialogWait SKIPPED spriteId=%ld gateFailed", m_id);
                             }
                         } else {
                             pGroup->m_groupChanged = FALSE;
