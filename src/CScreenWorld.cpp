@@ -1,5 +1,6 @@
 ﻿#include "CScreenWorld.h"
 
+#include "AutoLoad.h"
 #include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
 #include "CDeathSound.h"
@@ -387,6 +388,8 @@ int CScreenWorld::GetSelectedCharacter()
 // 0x6869C0
 void CScreenWorld::EngineActivated()
 {
+    static BOOL s_autoLoadResultWritten = FALSE;
+
     if (CChitin::byte_8FB950
         && g_pChitin->cNetwork.GetSessionOpen() == TRUE
         && g_pChitin->cNetwork.GetSessionHosting() == TRUE
@@ -401,6 +404,11 @@ void CScreenWorld::EngineActivated()
             g_pBaldurChitin->field_F9 = TRUE;
             g_pBaldurChitin->GetObjectGame()->WorldEngineActivated(pVidMode);
             field_119D = TRUE;
+
+            if (!s_autoLoadResultWritten && Iwd2AutoLoad::IsEnabled()) {
+                s_autoLoadResultWritten = TRUE;
+                Iwd2AutoLoad::WriteResult("loaded", "world engine activated");
+            }
 
             g_pBaldurChitin->GetObjectCursor()->SetCursor(0, TRUE);
             g_pBaldurChitin->GetObjectCursor()->m_bVisible = TRUE;

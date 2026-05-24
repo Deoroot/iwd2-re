@@ -1,5 +1,6 @@
 ﻿#include "CScreenSinglePlayer.h"
 
+#include "AutoLoad.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CGameSprite.h"
@@ -292,6 +293,8 @@ CScreenSinglePlayer::~CScreenSinglePlayer()
 // 0x660850
 void CScreenSinglePlayer::EngineActivated()
 {
+    static BOOL s_autoNewGameCompleted = FALSE;
+
     m_preLoadFontRealms.SetResRef(CResRef("REALMS"), FALSE, TRUE);
     m_preLoadFontRealms.RegisterFont();
 
@@ -320,6 +323,19 @@ void CScreenSinglePlayer::EngineActivated()
                 if (v1) {
                     if (GetTopPopup() == NULL) {
                         SummonPopup(10);
+                    }
+
+                    if (!s_autoNewGameCompleted && Iwd2AutoLoad::IsAction("newgame") && GetTopPopup() != NULL) {
+                        INT nParty = Iwd2AutoLoad::GetParty(1);
+                        if (nParty < 0 || nParty >= m_nPartyCount) {
+                            Iwd2AutoLoad::WriteResult("error", "requested party index does not exist");
+                        } else {
+                            m_nTopParty = max(min(nParty, m_nPartyCount - 6), 0);
+                            m_nParty = nParty - m_nTopParty;
+                            field_139E = 10;
+                            s_autoNewGameCompleted = TRUE;
+                            OnDoneButtonClick();
+                        }
                     }
                 }
             }

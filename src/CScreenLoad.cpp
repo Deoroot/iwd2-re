@@ -1,4 +1,5 @@
 ﻿#include "CScreenLoad.h"
+#include "AutoLoad.h"
 #include "CBaldurChitin.h"
 #include "CCreatureFile.h"
 #include "CInfCursor.h"
@@ -189,6 +190,8 @@ CScreenLoad::~CScreenLoad()
 // 0x63B410
 void CScreenLoad::EngineActivated()
 {
+    static BOOL s_autoLoadOriginalCompleted = FALSE;
+
     if (CChitin::byte_8FB950
         && g_pChitin->cNetwork.GetSessionOpen() == TRUE
         && g_pChitin->cNetwork.GetSessionHosting() == TRUE
@@ -211,6 +214,17 @@ void CScreenLoad::EngineActivated()
     case 3:
         g_pBaldurChitin->cSoundMixer.StartSong(1, 0);
         break;
+    }
+
+    if (!s_autoLoadOriginalCompleted && m_nEngineState == 1 && Iwd2AutoLoad::IsAction("load")) {
+        s_autoLoadOriginalCompleted = TRUE;
+        INT nSlot = Iwd2AutoLoad::GetSlot(0);
+        INT nGameSlot = nSlot + m_nTopGameSlot;
+        if (nSlot < 0 || nSlot >= GAME_SLOTS || nGameSlot < 0 || nGameSlot >= m_nNumGameSlots) {
+            Iwd2AutoLoad::WriteResult("error", "requested save slot is not visible or does not exist");
+        } else {
+            LoadGame(nSlot);
+        }
     }
 }
 

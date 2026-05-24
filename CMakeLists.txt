@@ -52,6 +52,8 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/CAlias.h"
     "src/CAliasList.cpp"
     "src/CAliasList.h"
+    "src/AutoLoad.cpp"
+    "src/AutoLoad.h"
     "src/CBaldurChitin.cpp"
     "src/CBaldurChitin.h"
     "src/CBaldurEngine.cpp"

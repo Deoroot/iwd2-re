@@ -95,8 +95,11 @@ cmake --build build --config Debug
 # Deploy
 Copy-Item build/Debug/iwd2-re.exe "C:\GOG Games\Icewind Dale 2\" -Force
 
-# Smoke test
-python scripts/click_load_original.py
+# Smoke test: load visible save slot 0 and wait for world engine
+python scripts/auto_start_game.py
+
+# New-game smoke test with Party.ini group
+python scripts/auto_start_game.py --new-game --party "Lady's Lament"
 ```
 
 ## Refs

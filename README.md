@@ -93,6 +93,10 @@ powershell -File data/restore.ps1
 # Build (Win32/Debug or Release)
 cmake --build build --config Debug
 
+# Smoke test: load visible save slot 0 and wait for world engine
+python scripts/auto_start_game.py
+python scripts/auto_start_game.py --new-game --party "Lady's Lament"
+
 # Optional changed-line RE lint
 cmake --build build --target re-lint --config Debug
 ```

@@ -36,7 +36,8 @@ Get-Process -Name iwd2-re -ErrorAction SilentlyContinue | Stop-Process -Force
 cmake --build build --config Debug
 Copy-Item -Path "build/Debug/iwd2-re.exe" -Destination "C:\GOG Games\Icewind Dale 2\" -Force
 & "C:\GOG Games\Icewind Dale 2\iwd2-re.exe"
-python scripts/click_load_original.py   # smoke test
+python scripts/auto_start_game.py   # smoke: load slot 0, wait for world
+python scripts/auto_start_game.py --new-game --party "Lady's Lament"
 ```
 
 Every `src/` commit must compile clean VS2019 Win32. Rename field/fn → update `.h` + ALL `.cpp` in ONE atomic commit (`rg "oldName" src/`). Build fail → report first error, stop.
@@ -159,4 +160,3 @@ data/near_infinity_export/
 - Verify `// 0xADDR` against Ghidra before touching.
 - Minimal diffs. One bug = one change. No refactor in bugfix commits.
 - Prefer named constants over magic numbers when defined in file.
-

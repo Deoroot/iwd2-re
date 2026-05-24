@@ -1,4 +1,5 @@
 ﻿#include "CScreenConnection.h"
+#include "AutoLoad.h"
 #include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
 #include "CInfCursor.h"
@@ -620,6 +621,8 @@ void CScreenConnection::OnRButtonUp(CPoint pt)
 // 0x5FB3E0
 void CScreenConnection::TimerAsynchronousUpdate()
 {
+    static BOOL s_autoLoadOriginalStarted = FALSE;
+
     if (m_bPlayEndCredits) {
         g_pBaldurChitin->m_pEngineProjector->PlayMovie(CResRef("END"));
         g_pBaldurChitin->m_pEngineProjector->PlayMovieNext(CResRef("CREDITS"));
@@ -809,6 +812,19 @@ void CScreenConnection::TimerAsynchronousUpdate()
 
         m_cUIManager.TimerAsynchronousUpdate();
         g_pBaldurChitin->GetObjectCursor()->CursorUpdate(pVidMode);
+
+        if (!s_autoLoadOriginalStarted && m_bAllowInput && GetTopPopup() == NULL && Iwd2AutoLoad::IsEnabled()) {
+            s_autoLoadOriginalStarted = TRUE;
+            if (Iwd2AutoLoad::IsAction("load")) {
+                OnLoadGameButtonClick(FALSE);
+                return;
+            }
+            if (Iwd2AutoLoad::IsAction("newgame")) {
+                m_bLoadGame = 0;
+                OnNewGameButtonClick();
+                return;
+            }
+        }
 
         if (m_bExitProgram) {
             // TODO: Incomplete.
