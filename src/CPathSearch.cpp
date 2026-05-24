@@ -168,7 +168,7 @@ void CPathSearch::SwapOpenListEntries(CPathNode* ancestor, CPathNode* descendant
         if (descendant->m_listOpenLeft != NULL) {
             descendant->m_listOpenLeft->m_listOpenParent = ancestor;
             if (descendant->m_listOpenRight != NULL) {
-                descendant->m_listOpenRight = ancestor;
+                descendant->m_listOpenRight->m_listOpenParent = ancestor;
             }
         }
 
@@ -321,7 +321,7 @@ CPathNode* CPathSearch::PopOpenList()
 
     currentNode = m_openList;
     level = m_openListLevel - 2;
-    while (level > 0) {
+    while (level >= 0) {
         if (((1 << level) & m_nOpenList) != 0) {
             currentNode = currentNode->m_listOpenRight;
         } else {
@@ -361,6 +361,7 @@ CPathNode* CPathSearch::PopOpenList()
                         || currentNode->m_listOpenRight->m_costTotal >= currentNode->m_costTotal) {
                         break;
                     }
+                    childNode = currentNode->m_listOpenRight;
                 }
                 if (childNode == NULL) {
                     break;

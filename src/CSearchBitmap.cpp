@@ -350,7 +350,7 @@ void CSearchBitmap::RemoveObject(const CPoint& point, BYTE sourceSide, BYTE pers
                         }
                     }
                 }
-                bOnSearchMap = TRUE;
+                bOnSearchMap = FALSE;
                 lock.Unlock();
             } else {
                 CString sError;

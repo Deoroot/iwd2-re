@@ -2847,39 +2847,39 @@ void CGameSprite::AIUpdateWalk()
             }
             return;
         }
-    }
 
-    CPoint goal;
-    CPathSearch::PositionToPoint(m_pPath[m_currPath++], &goal);
-    m_posDest.x = goal.x * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
-    m_posDest.y = goal.y * CPathSearch::GRID_SQUARE_SIZEY + CPathSearch::GRID_SQUARE_SIZEY / 2;
+        CPoint goal;
+        CPathSearch::PositionToPoint(m_pPath[m_currPath++], &goal);
+        m_posDest.x = goal.x * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
+        m_posDest.y = goal.y * CPathSearch::GRID_SQUARE_SIZEY + CPathSearch::GRID_SQUARE_SIZEY / 2;
 
-    int scale = static_cast<int>(sqrt((m_posDest.x - m_pos.x) * (m_posDest.x - m_pos.x) + (m_posDest.y - 4 * m_pos.y / 3) * (m_posDest.y - 4 * m_pos.y / 3)) + 0.5);
-    if (scale == 0) {
-        // NOTE: Uninline.
-        DropPath();
+        int scale = static_cast<int>(sqrt((m_posDest.x - m_pos.x) * (m_posDest.x - m_pos.x) + (m_posDest.y - 4 * m_pos.y / 3) * (m_posDest.y - 4 * m_pos.y / 3)) + 0.5);
+        if (scale == 0) {
+            // NOTE: Uninline.
+            DropPath();
 
-        // NOTE: Uninline.
-        SetIdleSequence();
+            // NOTE: Uninline.
+            SetIdleSequence();
 
-        return;
-    }
-
-    if (m_animation.GetMoveScale() > 8) {
-        if (scale >= m_animation.GetMoveScale()) {
-            scale = (scale + m_animation.GetMoveScale() / 2) / m_animation.GetMoveScale();
-        } else {
-            scale = 1;
+            return;
         }
 
-        m_posDelta.x = ((m_animation.GetMoveScale() * (m_posDest.x - m_pos.x)) << EXACT_SCALE) / scale;
-        m_posDelta.y = ((m_animation.GetMoveScale() * (m_posDest.y - m_pos.y)) << EXACT_SCALE) / scale;
-    } else {
-        m_posDelta.x = ((m_animation.GetMoveScale() * (m_posDest.x - m_pos.x)) << EXACT_SCALE) / scale;
-        m_posDelta.y = ((m_animation.GetMoveScale() * (m_posDest.y - m_pos.y)) << EXACT_SCALE) / scale;
-    }
+        if (m_animation.GetMoveScale() > 8) {
+            if (scale >= m_animation.GetMoveScale()) {
+                scale = (scale + m_animation.GetMoveScale() / 2) / m_animation.GetMoveScale();
+            } else {
+                scale = 1;
+            }
 
-    SetDirection(m_posDest);
+            m_posDelta.x = ((m_animation.GetMoveScale() * (m_posDest.x - m_pos.x)) << EXACT_SCALE) / scale;
+            m_posDelta.y = ((m_animation.GetMoveScale() * (m_posDest.y - m_pos.y)) << EXACT_SCALE) / scale;
+        } else {
+            m_posDelta.x = ((m_animation.GetMoveScale() * (m_posDest.x - m_pos.x)) << EXACT_SCALE) / scale;
+            m_posDelta.y = ((m_animation.GetMoveScale() * (m_posDest.y - m_pos.y)) << EXACT_SCALE) / scale;
+        }
+
+        SetDirection(m_posDest);
+    }
 
     m_turningAbout = !m_walkBackwards
         && abs(m_nNewDirection - m_nDirection) >= 5
