@@ -3480,6 +3480,10 @@ void CGameSprite::OnActionButton(const CPoint& pt)
         CAIAction action2;
         CAIObjectType targetType(0, 0, 0, 0, 0, 0, 0, 0, m_id, 0, 0);
 
+        Iwd2DebugLog("OnActionButton spriteId=%ld state=%d icon=%d selected=%d canBeSeen=%d ea=%d pt=%ld,%ld",
+            m_id, pGame->GetState(), pGame->GetIconIndex(), (int)m_bSelected,
+            (int)m_canBeSeen, m_typeAI.GetEnemyAlly(), pt.x, pt.y);
+
         switch (pGame->GetState()) {
         case 0:
             if (pGame->GetCharacterPortraitNum(m_id) != -1
@@ -3584,6 +3588,8 @@ void CGameSprite::OnActionButton(const CPoint& pt)
                         0,
                         0,
                         0);
+                    Iwd2DebugLog("OnActionButton talk(icon18) queue spriteId=%ld action1=%d action2=%d(PLAYERDIALOG) groupCount=%d",
+                        m_id, action1.m_actionID, action2.m_actionID, pGroup->GetCount());
                     pGroup->GroupAction(action1, TRUE, &action2);
 
                     pGame->SetState(0);
@@ -12612,6 +12618,9 @@ SHORT CGameSprite::GetProficiencyTHAC0Bonus(CItem* curWeapon)
 // 0x73EDD0
 SHORT CGameSprite::MoveToObject(CGameObject* pTarget)
 {
+    Iwd2DebugLog("MoveToObject enter spriteId=%ld targetId=%ld enc=%d action=%d",
+        m_id, pTarget ? pTarget->m_id : -1, m_derivedStats.m_nEncumberance, m_curAction.m_actionID);
+
     if (m_derivedStats.m_nEncumberance == 2) {
         FeedBack(FEEDBACK_TOOHEAVY_STOPPED, 0, 0, 0, -1, 0, 0);
         return ACTION_ERROR;
@@ -12665,6 +12674,9 @@ SHORT CGameSprite::MoveToObject(CGameObject* pTarget)
     // ACTION_INTERRUPTABLE while still approaching.
     SHORT actionID = m_curAction.m_actionID;
 
+    Iwd2DebugLog("MoveToObject dist spriteId=%ld distSq=%ld range=%d action=%d hasPath=%d hasSearch=%d",
+        m_id, distSquares, range, actionID, m_pPath != NULL, m_currentSearchRequest != NULL);
+
     if (actionID == 0xB4 && distSquares <= (range + 4) * (range + 4)) {
         // MoveToObjectFollow: close enough on the loose follow distance.
         if (m_pPath != NULL) {
@@ -12717,6 +12729,8 @@ SHORT CGameSprite::MoveToObject(CGameObject* pTarget)
         pSearchRequest->m_targetIds[0] = pTarget->m_id;
         pSearchRequest->m_sourceSide = m_typeAI.GetEnemyAlly();
         field_5618 = 1;
+        Iwd2DebugLog("MoveToObject pathSearch spriteId=%ld dest=%ld,%ld throttle=%d",
+            m_id, targetPt.x, targetPt.y, field_5616);
         SetTarget(pSearchRequest, FALSE, LIST_FRONT);
     }
     field_5616++;
@@ -12890,6 +12904,8 @@ SHORT CGameSprite::ExecuteAction()
         // Dialogue(O:Object*): approach the target sprite and start talking.
         SHORT actionReturn = ACTION_DONE;
         CGameObject* pObj = ResolveActionTarget();
+        Iwd2DebugLog("ExecuteAction 8(Dialogue) spriteId=%ld targetResolved=%d type=%d",
+            m_id, pObj != NULL, pObj ? (int)pObj->GetObjectType() : -1);
         if (pObj != NULL) {
             if (pObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
                 CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
@@ -12903,6 +12919,7 @@ SHORT CGameSprite::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
+        Iwd2DebugLog("ExecuteAction 8(Dialogue) spriteId=%ld return=%d", m_id, actionReturn);
         // DEFERRED: when no target resolves, the binary (0x729296..0x729378)
         // walks the party list for an eligible talker.
         return actionReturn;
@@ -12914,6 +12931,8 @@ SHORT CGameSprite::ExecuteAction()
         // dispatch block 0x72A3AB.
         SHORT actionReturn = ACTION_DONE;
         CGameObject* pObj = ResolveActionTarget();
+        Iwd2DebugLog("ExecuteAction 0x8B(PlayerDialog) spriteId=%ld targetResolved=%d type=%d",
+            m_id, pObj != NULL, pObj ? (int)pObj->GetObjectType() : -1);
         if (pObj != NULL) {
             if (pObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
                 actionReturn = PlayerDialog(static_cast<CGameSprite*>(pObj));
@@ -12921,6 +12940,7 @@ SHORT CGameSprite::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
+        Iwd2DebugLog("ExecuteAction 0x8B(PlayerDialog) spriteId=%ld return=%d", m_id, actionReturn);
         return actionReturn;
     }
 
@@ -13019,36 +13039,49 @@ SHORT CGameSprite::Dialogue(CGameSprite* pTarget)
 // 0x7537A0
 SHORT CGameSprite::PlayerDialog(CGameSprite* pTarget)
 {
+    Iwd2DebugLog("PlayerDialog enter spriteId=%ld targetId=%ld actionCount=%d selfAction=%d",
+        m_id, pTarget ? pTarget->m_id : -1, m_actionCount, m_currentActionId);
+
     if (pTarget == NULL) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=nullTarget", m_id);
         return ACTION_ERROR;
     }
     if (pTarget->m_bEscapingArea) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=targetEscapingArea", m_id);
         return ACTION_ERROR;
     }
     if (pTarget->m_curAction.m_actionID == 0x6C || pTarget->m_curAction.m_actionID == 0xB0) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=targetBusy action=%d", m_id, pTarget->m_curAction.m_actionID);
         return ACTION_ERROR;
     }
     if (m_currentActionId == 0x6C || m_currentActionId == 0xB0) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=selfBusy action=%d", m_id, m_currentActionId);
         return ACTION_ERROR;
     }
     if (!CanSpeak(FALSE, FALSE)) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=selfCannotSpeak", m_id);
         return ACTION_ERROR;
     }
     if (!pTarget->CanSpeak(FALSE, TRUE)) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=targetCannotSpeak", m_id);
         return ACTION_ERROR;
     }
     if (pTarget->m_moraleFailure) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=targetMoraleFailure", m_id);
         return ACTION_ERROR;
     }
 
     DWORD targetState = pTarget->m_derivedStats.m_generalState;
     if (targetState & 0xC) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=targetState0xC state=0x%08lx", m_id, targetState);
         return ACTION_ERROR;
     }
     if ((targetState & 2) && m_berserkActive) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=berserk state=0x%08lx", m_id, targetState);
         return ACTION_ERROR;
     }
     if (targetState & 0x80100000) {
+        Iwd2DebugLog("PlayerDialog ERROR spriteId=%ld reason=targetState0x80100000 state=0x%08lx", m_id, targetState);
         return ACTION_ERROR;
     }
 
@@ -13069,13 +13102,19 @@ SHORT CGameSprite::PlayerDialog(CGameSprite* pTarget)
     BYTE targetSpace = pTarget->m_animation.GetPersonalSpace();
     BYTE range = static_cast<BYTE>(((targetSpace - 1) >> 1) + ((selfSpace - 1) >> 1) - 1);
 
-    if (distSquares <= (range + 2) * (range + 2)
-        && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
+    BOOL inRange = distSquares <= (range + 2) * (range + 2);
+    BOOL hasLOS = m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE));
+    Iwd2DebugLog("PlayerDialog range spriteId=%ld distSq=%ld range=%d thresh=%ld inRange=%d los=%d",
+        m_id, distSquares, range, (LONG)((range + 2) * (range + 2)), inRange, hasLOS);
+
+    if (inRange && hasLOS) {
         // DEFERRED (binary 0x753A60..0x753B40): break the caller's invisibility
         // (item effect 0x88) and sanctuary (0xA0, m_spellStates) before talking,
         // CAIObjectType::Set m_lTalkedTo on both sprites, and the post-enter
         // freeze/face messages -- pending those effect/message classes.
-        if (!g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0)) {
+        BOOL started = g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0);
+        Iwd2DebugLog("PlayerDialog inRange StartDialog spriteId=%ld started=%d", m_id, started);
+        if (!started) {
             return ACTION_ERROR;
         }
         return ACTION_DONE;
@@ -13083,18 +13122,22 @@ SHORT CGameSprite::PlayerDialog(CGameSprite* pTarget)
 
     // Out of range: step toward the target and re-evaluate next tick.
     SHORT result = MoveToObject(pTarget);
+    Iwd2DebugLog("PlayerDialog approach spriteId=%ld moveToObject=%d", m_id, result);
     if (result == ACTION_DONE) {
         result = ACTION_INTERRUPTABLE;
     }
     if (result == ACTION_ERROR
         && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
-        if (g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0)) {
+        BOOL started = g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0);
+        Iwd2DebugLog("PlayerDialog approach-fallback StartDialog spriteId=%ld started=%d", m_id, started);
+        if (started) {
             // DEFERRED: same invisibility/sanctuary break + post-enter messages.
             result = ACTION_DONE;
         } else {
             result = ACTION_ERROR;
         }
     }
+    Iwd2DebugLog("PlayerDialog return spriteId=%ld result=%d", m_id, result);
     return result;
 }
 

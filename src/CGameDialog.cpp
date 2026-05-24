@@ -15,6 +15,7 @@
 #include "CUIManager.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
+#include "DebugLog.h"
 
 // Splits a raw DLG script blob (one or more BIOC-style "Trigger(args)"
 // expressions juxtaposed without separators) into the line-per-call shape
@@ -89,10 +90,16 @@ BOOL CGameDialogSprite::StartDialog(CGameSprite* pSprite)
         m_bMusicThreadPriorityChanged = SetThreadPriority(g_pChitin->m_hMusicThread, 15);
     }
 
+    Iwd2DebugLog("CGameDialogSprite::StartDialog talkerId=%ld entryCount=%d",
+        pSprite->GetId(), m_dialogEntriesOrdered.GetCount());
+
     for (INT nIndex = 0; nIndex < m_dialogEntriesOrdered.GetCount(); nIndex++) {
         CGameDialogEntry* pEntry = m_dialogEntriesOrdered.GetAt(nIndex);
-        if (pEntry != NULL
-            && pEntry->m_startCondition.Hold(CTypedPtrList<CPtrList, CAITrigger*>(), pSprite)) {
+        BOOL held = pEntry != NULL
+            && pEntry->m_startCondition.Hold(CTypedPtrList<CPtrList, CAITrigger*>(), pSprite);
+        Iwd2DebugLog("CGameDialogSprite::StartDialog entry=%d valid=%d held=%d dialogIndex=%d",
+            nIndex, pEntry != NULL, held, pEntry ? pEntry->m_dialogIndex : -1);
+        if (held) {
             // FIXME: Unused.
             LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetProtagonist();
 
@@ -105,10 +112,13 @@ BOOL CGameDialogSprite::StartDialog(CGameSprite* pSprite)
             m_bDialogActive = 1;
             m_sScrollMarker = "";
 
+            Iwd2DebugLog("CGameDialogSprite::StartDialog ENTERED talkerId=%ld dialogIndex=%d",
+                pSprite->GetId(), pEntry->m_dialogIndex);
             return TRUE;
         }
     }
 
+    Iwd2DebugLog("CGameDialogSprite::StartDialog NO MATCH talkerId=%ld", pSprite->GetId());
     return FALSE;
 }
 

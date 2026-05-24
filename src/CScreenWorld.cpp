@@ -16,6 +16,7 @@
 #include "CUIControlTextDisplay.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
+#include "DebugLog.h"
 // 0x85A1EC
 const LONG CScreenWorld::BORED_TIME = 3000;
 
@@ -1566,14 +1567,22 @@ BOOLEAN CScreenWorld::ReadyEndCredits(BOOLEAN bForcedFromServer)
 BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BYTE bPlayerInitiated, BYTE a5)
 {
     if (pCharacter == NULL || pTalker == NULL) {
+        Iwd2DebugLog("CScreenWorld::StartDialog NULL character=%p talker=%p", pCharacter, pTalker);
         return FALSE;
     }
+
+    char dlg[16];
+    pTalker->m_dialog.CopyToString(dlg);
+    Iwd2DebugLog("CScreenWorld::StartDialog charId=%ld talkerId=%ld dialog='%s' playerInit=%d",
+        pCharacter->m_id, pTalker->m_id, dlg, bPlayerInitiated);
 
     SetDialogTokens(pCharacter);
 
     m_internalLoadedDialog.Initialize(pTalker->m_dialog, pCharacter->m_id, pTalker->m_id);
 
-    return m_internalLoadedDialog.StartDialog(pTalker);
+    BOOL started = m_internalLoadedDialog.StartDialog(pTalker);
+    Iwd2DebugLog("CScreenWorld::StartDialog talkerId=%ld started=%d", pTalker->m_id, started);
+    return started;
 }
 
 void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
