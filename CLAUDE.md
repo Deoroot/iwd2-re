@@ -24,7 +24,7 @@ Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, ghidra curl, raw binari
 
 Workflow: `semantic_search_nodes` → `query_graph callers/callees` → Read only specific lines from result.
 
-**Query phrasing:** `semantic_search_nodes` matches against node **names** (identifiers), FTS5 hybrid. Use ONE bare identifier token (`StartDialog`), not multi-word natural-language phrases (`open dialog debug trace`) — extra words get keyword-ANDed and return 0 (`search_mode:"keyword"`). Vector/semantic ranking only kicks in after `embed_graph`; without it, it's pure keyword. 0 results ≠ absent — retry with a shorter/different identifier before falling back to Grep.
+**Query phrasing:** `semantic_search_nodes` FTS5 hybrid. Use ONE bare identifier token (`LevelUp`); retry shorter token before Grep.
 
 Violation flagged 2026-05-23. See `memory/feedback_graph_first.md`.
 

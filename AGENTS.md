@@ -152,7 +152,7 @@ Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
 | `get_impact_radius` | Understanding blast radius of a change |
 | `get_affected_flows` | Finding which execution paths are impacted |
 | `query_graph` | Tracing callers, callees, imports, tests, dependencies |
-| `semantic_search_nodes` | Finding functions/classes by name or keyword |
+| `semantic_search_nodes` | Find fn/class. ⚠️ 1 token max |
 | `get_architecture_overview` | Understanding high-level codebase structure |
 | `refactor_tool` | Planning renames, finding dead code |
 
