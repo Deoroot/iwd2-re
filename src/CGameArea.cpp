@@ -1830,11 +1830,133 @@ void CGameArea::DecrHeightDynamic(const CPoint& point)
 // 0x470F10
 COLORREF CGameArea::GetTintColor(const CPoint& cPoint, BYTE listType)
 {
-    COLORREF rgbColor = RGB(255, 255, 255);
+    if (listType == CGameObject::LIST_FLIGHT) {
+        return RGB(255, 255, 255);
+    }
 
-    // TODO: Incomplete.
+    if (m_bmLum.GetRes() == NULL) {
+        return RGB(255, 255, 255);
+    }
 
-    return rgbColor;
+    int xRemainder = cPoint.x % 16;
+    int yRemainder = cPoint.y % 12;
+    int x = cPoint.x / 16;
+    int y = cPoint.y / 12;
+
+    BYTE renderCode = CInfTileSet::byte_851930;
+    if ((m_cInfinity.m_areaType & 0x40) != 0) {
+        renderCode = m_cInfinity.m_renderDayNightCode;
+    }
+
+    COLORREF topLeft = RGB(255, 255, 255);
+    COLORREF topRight = RGB(255, 255, 255);
+    COLORREF bottomLeft = RGB(255, 255, 255);
+    COLORREF bottomRight = RGB(255, 255, 255);
+
+    if ((renderCode & CInfTileSet::byte_851930) != 0) {
+        RGBQUAD colorTopLeft;
+        RGBQUAD colorTopRight;
+        RGBQUAD colorBottomLeft;
+        RGBQUAD colorBottomRight;
+
+        m_bmLum.GetPixelColor(colorTopLeft, x, y, TRUE);
+
+        if (!m_bmLum.GetPixelColor(colorTopRight, x + 1, y, TRUE)) {
+            colorTopRight = colorTopLeft;
+        }
+
+        if (!m_bmLum.GetPixelColor(colorBottomLeft, x, y + 1, TRUE)) {
+            colorBottomLeft = colorTopLeft;
+        }
+
+        if (!m_bmLum.GetPixelColor(colorBottomRight, x + 1, y + 1, TRUE)) {
+            colorBottomRight = colorTopLeft;
+        }
+
+        topLeft = RGB(colorTopLeft.rgbBlue, colorTopLeft.rgbGreen, colorTopLeft.rgbRed);
+        topRight = RGB(colorTopRight.rgbBlue, colorTopRight.rgbGreen, colorTopRight.rgbRed);
+        bottomLeft = RGB(colorBottomLeft.rgbBlue, colorBottomLeft.rgbGreen, colorBottomLeft.rgbRed);
+        bottomRight = RGB(colorBottomRight.rgbBlue, colorBottomRight.rgbGreen, colorBottomRight.rgbRed);
+    }
+
+    if ((renderCode & CInfTileSet::byte_851931) != 0) {
+        if (m_pbmLumNight == NULL || m_pbmLumNight->GetRes() == NULL) {
+            if ((renderCode & CInfTileSet::byte_851930) == 0) {
+                return g_pBaldurChitin->GetCurrentVideoMode()->GetGlobalTintColor();
+            }
+        } else {
+            RGBQUAD colorTopLeft;
+            RGBQUAD colorTopRight;
+            RGBQUAD colorBottomLeft;
+            RGBQUAD colorBottomRight;
+            COLORREF nightTopLeft;
+            COLORREF nightTopRight;
+            COLORREF nightBottomLeft;
+            COLORREF nightBottomRight;
+
+            m_pbmLumNight->GetPixelColor(colorTopLeft, x, y, TRUE);
+
+            if (!m_pbmLumNight->GetPixelColor(colorTopRight, x + 1, y, TRUE)) {
+                colorTopRight = colorTopLeft;
+            }
+
+            if (!m_pbmLumNight->GetPixelColor(colorBottomLeft, x, y + 1, TRUE)) {
+                colorBottomLeft = colorTopLeft;
+            }
+
+            if (!m_pbmLumNight->GetPixelColor(colorBottomRight, x + 1, y + 1, TRUE)) {
+                colorBottomRight = colorTopLeft;
+            }
+
+            nightTopLeft = RGB(colorTopLeft.rgbBlue, colorTopLeft.rgbGreen, colorTopLeft.rgbRed);
+            nightTopRight = RGB(colorTopRight.rgbBlue, colorTopRight.rgbGreen, colorTopRight.rgbRed);
+            nightBottomLeft = RGB(colorBottomLeft.rgbBlue, colorBottomLeft.rgbGreen, colorBottomLeft.rgbRed);
+            nightBottomRight = RGB(colorBottomRight.rgbBlue, colorBottomRight.rgbGreen, colorBottomRight.rgbRed);
+
+            if ((renderCode & CInfTileSet::byte_851930) == 0) {
+                int topRed = (GetRValue(nightTopLeft) * (16 - xRemainder) + GetRValue(nightTopRight) * xRemainder) / 16;
+                int bottomRed = (GetRValue(nightBottomLeft) * (16 - xRemainder) + GetRValue(nightBottomRight) * xRemainder) / 16;
+                int topGreen = (GetGValue(nightTopLeft) * (16 - xRemainder) + GetGValue(nightTopRight) * xRemainder) / 16;
+                int bottomGreen = (GetGValue(nightBottomLeft) * (16 - xRemainder) + GetGValue(nightBottomRight) * xRemainder) / 16;
+                int topBlue = (GetBValue(nightTopLeft) * (16 - xRemainder) + GetBValue(nightTopRight) * xRemainder) / 16;
+                int bottomBlue = (GetBValue(nightBottomLeft) * (16 - xRemainder) + GetBValue(nightBottomRight) * xRemainder) / 16;
+
+                return RGB((topRed * (12 - yRemainder) + bottomRed * yRemainder) / 12,
+                    (topGreen * (12 - yRemainder) + bottomGreen * yRemainder) / 12,
+                    (topBlue * (12 - yRemainder) + bottomBlue * yRemainder) / 12);
+            }
+
+            BYTE dayIntensity = m_cInfinity.m_dayLightIntensity;
+            BYTE nightIntensity = static_cast<BYTE>(-m_cInfinity.m_dayLightIntensity - 1);
+
+            topLeft = RGB((GetRValue(topLeft) * dayIntensity + GetRValue(nightTopLeft) * nightIntensity) >> 8,
+                (GetGValue(topLeft) * dayIntensity + GetGValue(nightTopLeft) * nightIntensity) >> 8,
+                (GetBValue(topLeft) * dayIntensity + GetBValue(nightTopLeft) * nightIntensity) >> 8);
+
+            topRight = RGB((GetRValue(topRight) * dayIntensity + GetRValue(nightTopRight) * nightIntensity) >> 8,
+                (GetGValue(topRight) * dayIntensity + GetGValue(nightTopRight) * nightIntensity) >> 8,
+                (GetBValue(topRight) * dayIntensity + GetBValue(nightTopRight) * nightIntensity) >> 8);
+
+            bottomLeft = RGB((GetRValue(bottomLeft) * dayIntensity + GetRValue(nightBottomLeft) * nightIntensity) >> 8,
+                (GetGValue(bottomLeft) * dayIntensity + GetGValue(nightBottomLeft) * nightIntensity) >> 8,
+                (GetBValue(bottomLeft) * dayIntensity + GetBValue(nightBottomLeft) * nightIntensity) >> 8);
+
+            bottomRight = RGB((GetRValue(bottomRight) * dayIntensity + GetRValue(nightBottomRight) * nightIntensity) >> 8,
+                (GetGValue(bottomRight) * dayIntensity + GetGValue(nightBottomRight) * nightIntensity) >> 8,
+                (GetBValue(bottomRight) * dayIntensity + GetBValue(nightBottomRight) * nightIntensity) >> 8);
+        }
+    }
+
+    int topRed = (GetRValue(topLeft) * (16 - xRemainder) + GetRValue(topRight) * xRemainder) / 16;
+    int bottomRed = (GetRValue(bottomLeft) * (16 - xRemainder) + GetRValue(bottomRight) * xRemainder) / 16;
+    int topGreen = (GetGValue(topLeft) * (16 - xRemainder) + GetGValue(topRight) * xRemainder) / 16;
+    int bottomGreen = (GetGValue(bottomLeft) * (16 - xRemainder) + GetGValue(bottomRight) * xRemainder) / 16;
+    int topBlue = (GetBValue(topLeft) * (16 - xRemainder) + GetBValue(topRight) * xRemainder) / 16;
+    int bottomBlue = (GetBValue(bottomLeft) * (16 - xRemainder) + GetBValue(bottomRight) * xRemainder) / 16;
+
+    return RGB((topRed * (12 - yRemainder) + bottomRed * yRemainder) / 12,
+        (topGreen * (12 - yRemainder) + bottomGreen * yRemainder) / 12,
+        (topBlue * (12 - yRemainder) + bottomBlue * yRemainder) / 12);
 }
 
 // 0x472DE0
