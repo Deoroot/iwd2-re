@@ -3534,12 +3534,19 @@ void CGameSprite::OnActionButton(const CPoint& pt)
                                 (int)((m_baseStats.m_flags & STATE_DISEASED) != 0),
                                 pGroup->GetGroupLeader());
                             if (pGroup->IsPartyLeader() && (~m_baseStats.m_flags & STATE_DISEASED) != 0) {
-                                CMessage* message = new CMessageSetDialogWait(140,
+                                CMessage* message = new CMessageSetDialogWait(150,
                                     pGroup->GetGroupLeader(),
                                     m_id,
                                     m_id);
                                 g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-                                Iwd2DebugLog("OnActionButton case0 dialogWait posted spriteId=%ld leaderId=%ld",
+
+                                action2 = CAIAction(CAIAction::PLAYERDIALOG,
+                                    targetType,
+                                    0,
+                                    0,
+                                    0);
+                                pGroup->GroupAction(action1, TRUE, &action2);
+                                Iwd2DebugLog("OnActionButton case0 PLAYERDIALOG queued spriteId=%ld leaderId=%ld",
                                     m_id, pGroup->GetGroupLeader());
                             } else {
                                 Iwd2DebugLog("OnActionButton case0 dialogWait SKIPPED spriteId=%ld gateFailed", m_id);
