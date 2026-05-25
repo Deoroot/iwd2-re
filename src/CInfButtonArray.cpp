@@ -1360,7 +1360,6 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 m_currentAbilityResRef = pEntry->m_abilityId.m_res;
             }
         }
-        pGame->SetState(0);
         SetSelectedButton(100);
         SetState(0x72, 0);
         return;
@@ -2056,6 +2055,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             // SetSelectedButton(100).
             LONG nLeader = pGame->GetGroup()->GetGroupLeader();
             CGameSprite* pSprite = NULL;
+            pGame->SetState(0);
+            SetSelectedButton(nButtonType);
+
             BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
                 CGameObjectArray::THREAD_ASYNCH,
                 reinterpret_cast<CGameObject**>(&pSprite),
@@ -2066,8 +2068,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
             }
-            pGame->SetState(0);
-            SetSelectedButton(100);
+            if (pGame->GetState() == 0) {
+                SetSelectedButton(100);
+            }
             UpdateButtons();
             return;
         }
@@ -2077,6 +2080,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             // Quick item use â€” FUN_00588570(slot, 3) â†’ ReadyItem.
             LONG nLeader = pGame->GetGroup()->GetGroupLeader();
             CGameSprite* pSprite = NULL;
+            pGame->SetState(0);
+            SetSelectedButton(nButtonType);
+
             BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
                 CGameObjectArray::THREAD_ASYNCH,
                 reinterpret_cast<CGameObject**>(&pSprite),
@@ -2087,8 +2093,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
             }
-            pGame->SetState(0);
-            SetSelectedButton(100);
+            if (pGame->GetState() == 0) {
+                SetSelectedButton(100);
+            }
             UpdateButtons();
             return;
         }
@@ -2104,6 +2111,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             // Quick ability use â€” FUN_00588570(slot, 4) â†’ ReadySpell type 4.
             LONG nLeader = pGame->GetGroup()->GetGroupLeader();
             CGameSprite* pSprite = NULL;
+            pGame->SetState(0);
+            SetSelectedButton(nButtonType);
+
             BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
                 CGameObjectArray::THREAD_ASYNCH,
                 reinterpret_cast<CGameObject**>(&pSprite),
@@ -2114,8 +2124,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
             }
-            pGame->SetState(0);
-            SetSelectedButton(100);
+            if (pGame->GetState() == 0) {
+                SetSelectedButton(100);
+            }
             UpdateButtons();
             return;
         }

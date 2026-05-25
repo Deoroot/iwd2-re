@@ -3628,7 +3628,7 @@ void CGameSprite::OnActionButton(const CPoint& pt)
                 break;
             case 20:
             case -1:
-                pGame->UseMagicOnGround(m_id);
+                pGame->UseMagicOnObject(m_id);
 
                 pGame->SetState(0);
                 pGame->GetButtonArray()->SetSelectedButton(100);

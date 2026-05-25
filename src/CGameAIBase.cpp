@@ -427,10 +427,12 @@ SHORT CGameAIBase::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
-    } else if (m_curAction.m_actionID == 0x1F
-        || m_curAction.m_actionID == 0x71
-        || m_curAction.m_actionID == 0xB5) {
-        // 0x1F = Spell, 0x71 = ForceSpell, 0xB5 = ReallyForceSpell.
+    } else if (m_curAction.m_actionID == CAIAction::SPELL
+        || m_curAction.m_actionID == CAIAction::FORCESPELL
+        || m_curAction.m_actionID == CAIAction::REALLYFORCESPELL
+        || m_curAction.m_actionID == CAIAction::SPELLNODEC) {
+        // 0x1F = Spell, 0x71 = ForceSpell, 0xB5 = ReallyForceSpell,
+        // 0xBF = SpellNoDec.
         // 0x1F is aliased to ForceSpellAction as a stopgap: binary
         // FUN_00461190 (the real 0x1F handler) shares the resref-load /
         // ability-pick / ApplyCastingEffect spine with FUN_00461660
@@ -448,6 +450,16 @@ SHORT CGameAIBase::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
+    } else if (m_curAction.m_actionID == CAIAction::SPELLPOINT
+        || m_curAction.m_actionID == CAIAction::FORCESPELLPOINT
+        || m_curAction.m_actionID == CAIAction::SPELLPOINTNODEC) {
+        // 0x5F = SpellPoint, 0x72 = ForceSpellPoint, 0xC0 = SpellPointNoDec.
+        // Ghidra's binary jump table routes 0x72 to FUN_00461B80; the
+        // reconstructed UI queues all three point-spell ids.
+        Iwd2DebugLog("DO_ACTION_FORCE_SPELL_POINT spriteId=%ld actionId=0x%x specificId=%ld actionCount=%d interrupt=%d dest=%d,%d",
+            m_id, m_curAction.m_actionID, m_curAction.m_specificID, (int)m_actionCount, (int)m_interrupt,
+            m_curAction.m_dest.x, m_curAction.m_dest.y);
+        actionReturn = ForceSpellPointAction();
     } else if (m_curAction.m_actionID == 0x10) {
         // 0x10 = GiveOrder (ACTION.IDS).
         CGameObject* pObj = ResolveActionTarget();
@@ -2509,9 +2521,9 @@ void CGameAIBase::SpellIdToResRef(int spellId, CString& outResRef)
 //   FUN_0051EAF0 - projectile/visual-effect factory (~5400 lines).  Until
 //                  recovered the binary's projectile launch path
 //                  (CMessageFireProjectile + CProjectile::Launch vfn at
-//                  +0x6c) cannot fire -- offensive ability effects still
-//                  apply via the targetType 1/4-8 dispatch below, but the
-//                  projectile-attach (case 2) and visible bolt are absent.
+//                  +0x6c) cannot fire.  targetType 2 effects are applied
+//                  directly to explicit object targets as a gameplay
+//                  fallback, but the visible bolt is absent.
 //   FUN_00727720 - per-class memorization lookup; supplies the byte the
 //                  binary parks at projectile +0x186 (caster-class index
 //                  used by saving-throw + damage scaling).
@@ -2711,9 +2723,14 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
                 continue;
             }
             case 2:
-                // Projectile attach -- skipped (binary asserts unreachable
-                // here; effect would have been attached to in-flight
-                // projectile during launch).
+                // Projectile attach is still unrecovered; apply directly to
+                // the explicit object target so targeted spells have gameplay
+                // impact even though the missile visual is absent.
+                if (target != NULL) {
+                    CMessage* msg = new CMessageAddEffect(pEffect, m_id, target->m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+                    continue;
+                }
                 break;
             case 3:
                 pSprite->ApplyEffectToParty(pEffect);
@@ -2765,9 +2782,9 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         //   AddMessage(msg, FALSE);
         //   pProjectile->vftbl[0x6c/4](dir, m_id, target->m_id, target->m_pos,
         //                               0x1E, 0);  // CProjectile::Launch
-        // Blocked on the 5400-line projectile factory recovery.  Without
-        // this block offensive spells still apply their ability effects
-        // (the 8-way dispatch above) but no visible bolt/missile flies.
+        // Blocked on the 5400-line projectile factory recovery.  Offensive
+        // object-target effects are applied above, but no visible
+        // bolt/missile flies.
     } else {
         FireSpell(resRef, target);
     }
@@ -2776,6 +2793,191 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
     // FUN_00740270 / FUN_00742840 quickspell wrappers (still TODO) -- here
     // we try the three slot kinds the sprite can own (per-class memorized,
     // cleric/paladin domain, innate) and stop at the first match.
+    if (isSprite) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+        SHORT nSpellLevel = pSpell->GetLevel();
+        if (nSpellLevel >= 1) {
+            UINT nLvl = static_cast<UINT>(nSpellLevel - 1);
+            BOOLEAN consumed = FALSE;
+            for (UINT nIdx = 0; nIdx < CSPELLLIST_NUM_CLASSES && !consumed; ++nIdx) {
+                BYTE nCasterClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nIdx);
+                if (nCasterClass == 0) { continue; }
+                if (pSprite->SubtractFromSpellCount(nCasterClass, nLvl, resRef, 1, 0)) {
+                    consumed = TRUE;
+                }
+            }
+            if (!consumed && pSprite->SubtractFromDomainSpellCount(nLvl, resRef, 1, 0)) {
+                consumed = TRUE;
+            }
+            if (!consumed) {
+                pSprite->SubtractFromInnateSpellCount(resRef, 1, 0);
+            }
+        }
+    }
+
+    pSpell->Release();
+    delete pSpell;
+    return ACTION_DONE;
+}
+
+// 0x461B80
+SHORT CGameAIBase::ForceSpellPointAction()
+{
+    if (m_typeAI.GetGeneral() == CAIObjectType::G_DEAD) {
+        return ACTION_DONE;
+    }
+
+    SHORT specificLevel;
+    CResRef resRef;
+    CString sStr1 = m_curAction.GetString1();
+    if (sStr1.IsEmpty()) {
+        CString sFromId;
+        SpellIdToResRef(m_curAction.m_specificID, sFromId);
+        if (sFromId.IsEmpty()) {
+            return ACTION_INTERRUPTABLE;
+        }
+        resRef = sFromId;
+        if (GetObjectType() == CGameObject::TYPE_SPRITE) {
+            specificLevel = static_cast<CGameSprite*>(this)
+                                ->GetDerivedStats()
+                                ->m_nLevel;
+        } else {
+            specificLevel = 1;
+        }
+    } else {
+        resRef = sStr1;
+        specificLevel = static_cast<SHORT>(m_curAction.m_specificID);
+    }
+    if (specificLevel < 2) {
+        specificLevel = 1;
+    }
+
+    CSpell* pSpell = new CSpell();
+    if (pSpell == NULL) {
+        return ACTION_INTERRUPTABLE;
+    }
+    pSpell->SetResRef(resRef, TRUE, TRUE);
+    if (!pSpell->Demand()) {
+        delete pSpell;
+        return ACTION_INTERRUPTABLE;
+    }
+
+    LONG abilityCount = pSpell->GetAbilityCount();
+    SHORT nAbilityIndex = -1;
+    for (LONG i = 0; i < abilityCount; ++i) {
+        SPELL_ABILITY* pCheck = pSpell->GetAbility(i);
+        if (pCheck == NULL
+            || pCheck->minCasterLevel > static_cast<WORD>(specificLevel)) {
+            break;
+        }
+        nAbilityIndex++;
+    }
+    SPELL_ABILITY* pAbility = pSpell->GetAbility(nAbilityIndex);
+    if (pAbility == NULL) {
+        pSpell->Release();
+        delete pSpell;
+        return ACTION_INTERRUPTABLE;
+    }
+
+    BOOL isSprite = (GetObjectType() & CGameObject::TYPE_SPRITE) != 0;
+    BOOL bInstantCast = !isSprite;
+    CGameSprite* pSprite = isSprite ? static_cast<CGameSprite*>(this) : NULL;
+    CPoint targetPos = m_curAction.m_dest;
+
+    if (!bInstantCast) {
+        WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
+        SHORT currentSeq = pSprite->m_nSequence;
+
+        Iwd2DebugLog("CAST_POINT_TIME spriteId=%ld speed=%d castTime=%d actionCount=%d currentSeq=%d animId=0x%lx target=%d,%d",
+            m_id, (int)pAbility->speedFactor, (int)castTime, (int)m_actionCount, (int)currentSeq,
+            pSprite->GetAnimation()->GetAnimationId(), targetPos.x, targetPos.y);
+
+        if (m_actionCount == 0) {
+            Iwd2DebugLog("CAST_POINT_APPLY_EFFECT spriteId=%ld animType=%d", m_id, (int)pSpell->GetAnimationType());
+            pSprite->ApplyCastingEffect(pSpell, pAbility, targetPos);
+        }
+
+        if (m_actionCount < static_cast<SHORT>(castTime - 4)) {
+            if (currentSeq != CGameSprite::SEQ_CONJURE) {
+                CMessage* msg = new CMessageSetSequence(
+                    CGameSprite::SEQ_CONJURE, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            }
+            pSpell->Release();
+            delete pSpell;
+            return ACTION_INTERRUPTABLE;
+        }
+
+        if (m_actionCount < static_cast<SHORT>(castTime)) {
+            if (currentSeq != CGameSprite::SEQ_CAST) {
+                CMessage* msg = new CMessageSetSequence(
+                    CGameSprite::SEQ_CAST, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+                pSprite->ApplyCastingEffectPost(pSpell, pAbility);
+            }
+            pSpell->Release();
+            delete pSpell;
+            return ACTION_INTERRUPTABLE;
+        }
+
+        if (currentSeq != CGameSprite::SEQ_CAST) {
+            CMessage* msg = new CMessageSetSequence(
+                CGameSprite::SEQ_CAST, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            pSprite->ApplyCastingEffectPost(pSpell, pAbility);
+        }
+    }
+
+    if (isSprite) {
+        BYTE nClass = static_cast<BYTE>(m_curAction.m_specificID2 & 0xFF);
+        DWORD nSpec = pSprite->m_baseStats.m_specialization;
+        BYTE nLevel = static_cast<BYTE>(specificLevel);
+        for (LONG e = 0; e < static_cast<LONG>(pAbility->effectCount); ++e) {
+            CGameEffect* pEffect = pSpell->BuildAbilityEffect(
+                nAbilityIndex, e, this, nClass, nSpec, nLevel);
+            if (pEffect == NULL) {
+                continue;
+            }
+            pEffect->m_source = pSprite->GetPos();
+            pEffect->m_sourceID = m_id;
+            pEffect->m_target = targetPos;
+            switch (pEffect->m_targetType) {
+            case 1: {
+                CMessage* msg = new CMessageAddEffect(pEffect, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+                continue;
+            }
+            case 2:
+                break;
+            case 3:
+                pSprite->ApplyEffectToParty(pEffect);
+                break;
+            case 4:
+                pSprite->m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, NULL);
+                break;
+            case 5:
+                pSprite->m_pArea->ApplyEffect(pEffect, TRUE, FALSE, 0, NULL);
+                break;
+            case 6:
+                pSprite->m_pArea->ApplyEffect(
+                    pEffect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
+                break;
+            case 8:
+                pSprite->m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, pSprite);
+                break;
+            default:
+                break;
+            }
+            delete pEffect;
+        }
+
+        STRREF strSpellName = pSpell->GetGenericName();
+        pSprite->FeedBack(CGameSprite::FEEDBACK_SPELL, 0, 0, 0,
+            static_cast<LONG>(strSpellName), 0, 0);
+    } else {
+        FireSpellPoint(resRef, targetPos);
+    }
+
     if (isSprite) {
         CGameSprite* pSprite = static_cast<CGameSprite*>(this);
         SHORT nSpellLevel = pSpell->GetLevel();

@@ -95,6 +95,7 @@ public:
     CGameObject* ResolveActionTarget();
     void SpellIdToResRef(int spellId, CString& outResRef);
     SHORT ForceSpellAction(CGameObject* target);
+    SHORT ForceSpellPointAction();
     void PutItemGround(CItem* pItem);
     SHORT ClearActions(CGameObject* target);
     SHORT TakePartyGold();
