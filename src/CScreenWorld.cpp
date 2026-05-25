@@ -13,8 +13,10 @@
 #include "CScreenInventory.h"
 #include "CScreenLoad.h"
 #include "CScreenMap.h"
+#include "CScreenMultiPlayer.h"
 #include "CScreenWorldMap.h"
 #include "CUIControlTextDisplay.h"
+#include "CMessage.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
 #include "DebugLog.h"
@@ -163,6 +165,9 @@ CScreenWorld::CScreenWorld()
     field_156 = 0;
     field_F37 = 0;
     field_15A = 1;
+    m_ptDialogViewPosition.x = 0;
+    m_ptDialogViewPosition.y = 0;
+    m_dialogArea = "";
     m_newViewSize.left = 0;
     m_newViewSize.top = 0;
     m_newViewSize.right = 1;
@@ -559,6 +564,10 @@ void CScreenWorld::EngineGameInit()
     g_pBaldurChitin->m_pEngineWorld->GetManager()->GetPanel(GetPanel_22_0())->SetActive(TRUE);
 
     m_pActiveDialogDisplay = static_cast<CUIControlTextDisplay*>(g_pBaldurChitin->m_pEngineWorld->GetManager()->GetPanel(GetPanel_22_0())->GetControl(1));
+    m_pActiveChatDisplay = NULL;
+    m_ptDialogViewPosition.x = 0;
+    m_ptDialogViewPosition.y = 0;
+    m_dialogArea = "";
     m_nAutoHideInterface = 0;
     m_nAutoUnhideInterface = 0;
 
@@ -1563,30 +1572,36 @@ BOOLEAN CScreenWorld::ReadyEndCredits(BOOLEAN bForcedFromServer)
     }
 }
 
-// 0x68F9D0
 // 0x68EA00
-//
-// Enter dialogue mode: load the talker's dialogue into m_internalLoadedDialog
-// and begin it, bridging the action layer to the recovered dialogue state
-// machine (CGameDialogSprite::StartDialog posts CMessageEnterDialog).
-// pCharacter is the participant whose id becomes the dialogue character index
-// (the protagonist for token purposes); pTalker is the one whose .DLG drives
-// the conversation.  Both the script Dialogue action (bPlayerInitiated == 0)
-// and PlayerDialog (bPlayerInitiated == 1) pass (character, talker) in that
-// order.
-//
-// PARTIAL: the surrounding UI orchestration -- party-idle messages, dialogue
-// panel activation, viewport scroll-to-speaker, pause-mode bookkeeping, the
-// face-each-other messages and the multiplayer handshake (binary 0x68EA00) --
-// is deferred; it depends on several still-unmapped CInfGame/CBaldurChitin
-// globals (game +0x37e0/+0x43e2/+0x1ba1, chitin +0x1032/+0x1033/+0x96e). The
-// Initialize + StartDialog spine that actually starts the conversation matches
-// the binary (talker dialog at +0x56DC, m_internalLoadedDialog at +0xEB0).
 BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BYTE bPlayerInitiated, BYTE a5)
 {
     if (pCharacter == NULL || pTalker == NULL) {
         Iwd2DebugLog("CScreenWorld::StartDialog NULL character=%p talker=%p", pCharacter, pTalker);
         return FALSE;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CGameArea* pVisibleArea = pGame->GetVisibleArea();
+
+    POSITION posOldTopString = NULL;
+    if (pGame->m_bGameLoaded
+        && m_pActiveDialogDisplay != NULL
+        && m_pActiveDialogDisplay->m_plstStrings != NULL) {
+        posOldTopString = m_pActiveDialogDisplay->m_plstStrings->FindIndex(m_pActiveDialogDisplay->m_nTopIndex);
+    }
+
+    INT nOldViewX = 0;
+    INT nOldViewY = 0;
+    if (pVisibleArea != NULL) {
+        pVisibleArea->GetInfinity()->GetViewPosition(nOldViewX, nOldViewY);
+    }
+
+    for (SHORT nPortrait = 0; nPortrait < pGame->GetNumCharacters(); nPortrait++) {
+        LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+        if (nCharacterId != CGameObjectArray::INVALID_INDEX) {
+            CMessage* pHideState = new CMessage101(FALSE, nCharacterId, nCharacterId, TRUE);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pHideState, FALSE);
+        }
     }
 
     char dlg[16];
@@ -1595,34 +1610,334 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
         pCharacter->m_id, pTalker->m_id, dlg, bPlayerInitiated);
 
     SetDialogTokens(pCharacter);
+    field_1150 = 0;
+    g_pBaldurChitin->GetBaldurMessage()->m_bDialogRequestPending = FALSE;
+    g_pBaldurChitin->GetBaldurMessage()->m_bDialogReplyReturned = FALSE;
+    g_pBaldurChitin->GetBaldurMessage()->m_bDialogReplyValue = FALSE;
+    g_pBaldurChitin->GetBaldurMessage()->m_nDialogReplyUpdates = 0;
+
+    switch (m_nPopupState) {
+    case -1:
+    case 0:
+    case 7:
+    case 17:
+    case 19:
+    case 21:
+    case 22:
+        break;
+    case 6:
+        StopCommand();
+        m_nPopupState = -1;
+        break;
+    case 8:
+        StopContainer();
+        m_nPopupState = -1;
+        break;
+    default:
+        UTIL_ASSERT(FALSE);
+    }
+
+    CUIPanel* pNormalPanel = m_cUIManager.GetPanel(GetPanel_22_0());
+    CUIPanel* pDialogPanel = m_cUIManager.GetPanel(GetPanel_21_7());
+    CUIPanel* pActionPanel = m_cUIManager.GetPanel(1);
+    CUIPanel* pButtonPanel = m_cUIManager.GetPanel(9);
+
+    UTIL_ASSERT(pNormalPanel != NULL);
+    UTIL_ASSERT(pDialogPanel != NULL);
+    UTIL_ASSERT(pActionPanel != NULL);
+    UTIL_ASSERT(pButtonPanel != NULL);
+
+    m_nPopupState = pDialogPanel->m_nID;
+    field_114C = pDialogPanel->m_nID;
+    m_cUIManager.ClearTooltip();
+
+    for (SHORT nPortrait = 0; nPortrait < pGame->GetNumCharacters(); nPortrait++) {
+        LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+        if (nCharacterId == CGameObjectArray::INVALID_INDEX) {
+            continue;
+        }
+
+        CGameSprite* pSprite = NULL;
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            CMessage* pDropPath = new CMessageDropPath(pSprite->GetId(), pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pDropPath, FALSE);
+            pSprite->DropSearchRequest();
+            pSprite->ClearActions(FALSE);
+
+            pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+    }
+
+    m_bInControlOfDialog = !g_pChitin->cNetwork.GetSessionOpen()
+        || g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+        || g_pChitin->cNetwork.m_idLocalPlayer == pCharacter->m_remotePlayerID;
+    g_pBaldurChitin->GetObjectCursor()->SetCursor(0, FALSE);
+    pGame->SetTempCursor(4);
 
     // Binary 0x68EE70: pause world timer during dialog.
-    g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->StopTime();
+    pGame->GetWorldTimer()->StopTime();
+    m_bPaused = TRUE;
 
-    // Binary 0x68F0E8: set game input mode to dialog (0x182 = SP dialog).
-    g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode = 0x182;
+    pActionPanel->SetEnabled(TRUE);
+    pNormalPanel->SetEnabled(TRUE);
+    SetActionPanelActive(FALSE, FALSE);
 
-    // TODO: Full panel switch (panel 7 activation, viewport resize) deferred.
-    // Dialog text renders into the existing HUD text area for now.
+    pButtonPanel->SetActive(TRUE);
+    CUIControlBase* pButton = pButtonPanel->GetControl(0);
+    if (pButton != NULL) {
+        pButton->SetActive(FALSE);
+    }
+    pButtonPanel->InvalidateRect(NULL);
 
-    m_internalLoadedDialog.Initialize(pTalker->m_dialog, pCharacter->m_id, pTalker->m_id);
+    pDialogPanel->SetActive(FALSE);
+    pNormalPanel->SetActive(FALSE);
+    if (g_pChitin->cNetwork.GetSessionOpen()
+        && g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL) {
+        m_cUIManager.GetPanel(19)->SetActive(FALSE);
+        m_cUIManager.GetPanel(21)->SetActive(FALSE);
+        m_cUIManager.GetPanel(22)->SetActive(FALSE);
+    }
+
+    pDialogPanel->SetActive(TRUE);
+
+    CUIControlTextDisplay* pOldDialogDisplay = m_pActiveDialogDisplay;
+    m_pActiveDialogDisplay = static_cast<CUIControlTextDisplay*>(pDialogPanel->GetControl(1));
+    m_pActiveChatDisplay = NULL;
+    if (pOldDialogDisplay != NULL) {
+        m_pActiveDialogDisplay->CopyDisplay(pOldDialogDisplay);
+    }
+    CopyChatEditBox(pNormalPanel, pDialogPanel);
+
+    SetNewViewSize(CInfinity::stru_8E7958, FALSE);
+
+    POSITION posBlank1 = DisplayText(CString(""), CString(""), -1, FALSE);
+    POSITION posBlank2 = DisplayText(CString(""), CString(""), -1, TRUE);
+
+    CString sDialog;
+    if (a5) {
+        pTalker->field_56E4.CopyToString(sDialog);
+    } else {
+        pTalker->m_dialog.CopyToString(sDialog);
+    }
+
+    CMessage* pLoadDialog = new CMessageLoadDialog(sDialog,
+        pTalker->GetId(),
+        pCharacter->GetId(),
+        pCharacter->GetId());
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pLoadDialog, FALSE);
+
+    CResRef dialogResRef(sDialog);
+    m_internalLoadedDialog.Initialize(dialogResRef, pCharacter->m_id, pTalker->m_id);
+
+    CPoint characterPos = pCharacter->GetPos();
+    CPoint talkerPos = pTalker->GetPos();
+    if (pCharacter->GetDirection(talkerPos) != pCharacter->GetDirection()) {
+        CMessage* pFaceTalker = new CMessageSetDirection(talkerPos,
+            pCharacter->GetId(),
+            pCharacter->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pFaceTalker, FALSE);
+    }
+    if (pTalker->GetDirection(characterPos) != pTalker->GetDirection()) {
+        CMessage* pFaceCharacter = new CMessageSetDirection(characterPos,
+            pTalker->GetId(),
+            pTalker->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pFaceCharacter, FALSE);
+    }
+
+    m_ptDialogViewPosition.x = nOldViewX;
+    m_ptDialogViewPosition.y = nOldViewY;
+    if (pVisibleArea != NULL) {
+        m_dialogArea = pVisibleArea->m_resRef;
+        m_ptDialogViewPosition.x -= pVisibleArea->GetInfinity()->rViewPort.left;
+        m_ptDialogViewPosition.y -= pVisibleArea->GetInfinity()->rViewPort.top;
+    } else {
+        m_dialogArea = "";
+    }
+
+    pGame->SetTempCursor(0);
+    pGame->GetGameSave()->m_mode = m_bInControlOfDialog ? 0x502 : 0x182;
+
+    if (pGame->GetVisibleArea() != NULL) {
+        pGame->GetVisibleArea()->ClearInput();
+    }
 
     BOOL started = m_internalLoadedDialog.StartDialog(pTalker);
     Iwd2DebugLog("CScreenWorld::StartDialog talkerId=%ld started=%d", pTalker->m_id, started);
 
-    if (!started) {
+    if (started) {
+        if (g_pBaldurChitin->GetActiveEngine() != this) {
+            g_pBaldurChitin->GetActiveEngine()->SelectEngine(this);
+        }
+
+        UpdatePartyGoldStatus();
+
+        CUIControlBase* pPortraitControl = pDialogPanel->GetControl(11);
+        if (pPortraitControl != NULL) {
+            CUIControlButtonMultiPlayerPortrait* pPortrait = static_cast<CUIControlButtonMultiPlayerPortrait*>(pPortraitControl);
+            pPortrait->SetEnabled(FALSE);
+            pPortrait->SetPortrait(CResRef(pTalker->m_baseStats.m_portraitSmall));
+        }
+
+        return TRUE;
+    }
+
+    if (pGame->m_bGameLoaded) {
+        if (posBlank1 != NULL) {
+            RemoveText(posBlank1);
+        }
+        if (posBlank2 != NULL) {
+            RemoveText(posBlank2);
+        }
+        if (posOldTopString != NULL && m_pActiveDialogDisplay != NULL) {
+            m_pActiveDialogDisplay->SetTopString(posOldTopString);
+        }
         EndDialog(FALSE, TRUE);
     }
 
-    return started;
+    return FALSE;
 }
 
+// 0x68F9D0
 void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
 {
-    g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->StartTime();
-    g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode = 0xFFFFFFFF;
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    m_nPartySizeCheckStartDelay = 6;
+    if (!field_1204) {
+        m_comingOutOfDialog = 30;
+    }
+
+    if (!m_bInControlOfDialog && !bForceExecution) {
+        return;
+    }
+
+    if (m_bInControlOfDialog) {
+        CMessage* pExitDialog = new CMessageExitDialogMode(field_1150,
+            m_internalLoadedDialog.m_characterIndex,
+            m_internalLoadedDialog.m_characterIndex);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pExitDialog, FALSE);
+    }
+
+    pGame->SetTempCursor(4);
+
+    CUIPanel* pButtonPanel = m_cUIManager.GetPanel(9);
+    if (pButtonPanel != NULL) {
+        pButtonPanel->SetActive(FALSE);
+        pButtonPanel->SetInactiveRender(FALSE);
+    }
+
+    SetActionPanelActive(TRUE, FALSE);
+
+    POSITION posTopString = NULL;
+    if (m_pActiveDialogDisplay != NULL
+        && m_pActiveDialogDisplay->m_plstStrings != NULL) {
+        for (INT nIndex = m_pActiveDialogDisplay->m_plstStrings->GetCount() - 1; nIndex >= 0; nIndex--) {
+            CString sString;
+            m_pActiveDialogDisplay->GetString(nIndex, sString);
+            if (!sString.IsEmpty()) {
+                posTopString = m_pActiveDialogDisplay->GetBossPosition(nIndex);
+                break;
+            }
+        }
+    }
+
+    CUIPanel* pDialogPanel = m_cUIManager.GetPanel(GetPanel_21_7());
+    CUIPanel* pNormalPanel = m_cUIManager.GetPanel(GetPanel_22_0());
+
+    UTIL_ASSERT(pDialogPanel != NULL);
+    UTIL_ASSERT(pNormalPanel != NULL);
+
+    if (g_pChitin->cNetwork.GetSessionOpen()
+        && g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL) {
+        m_cUIManager.GetPanel(19)->SetActive(FALSE);
+        m_cUIManager.GetPanel(21)->SetActive(FALSE);
+        m_cUIManager.GetPanel(22)->SetActive(FALSE);
+    } else {
+        pDialogPanel->SetActive(FALSE);
+        pNormalPanel->SetActive(FALSE);
+    }
+
+    pNormalPanel->SetActive(TRUE);
+
+    CUIControlTextDisplay* pOldDialogDisplay = m_pActiveDialogDisplay;
+    m_pActiveDialogDisplay = static_cast<CUIControlTextDisplay*>(pNormalPanel->GetControl(1));
+    m_pActiveChatDisplay = NULL;
+    if (pOldDialogDisplay != NULL) {
+        m_pActiveDialogDisplay->CopyDisplay(pOldDialogDisplay);
+    }
+
+    SetNewViewSize(m_cUIManager.m_bHidden ? CInfinity::stru_8E7548 : CInfinity::stru_8E79B8, FALSE);
+    CopyChatEditBox(pDialogPanel, pNormalPanel);
+
+    pGame->GetWorldTimer()->StartTime();
+    m_bPaused = FALSE;
+
+    if (fullEnd && posTopString != NULL && m_pActiveDialogDisplay != NULL) {
+        m_pActiveDialogDisplay->SetTopString(posTopString);
+    }
+
+    if (field_1204) {
+        pGame->GetGameSave()->m_mode = 0x142;
+        pGame->GetGameSave()->m_cutScene = TRUE;
+        g_pBaldurChitin->GetObjectCursor()->SetCursor(0, FALSE);
+        pGame->SetTempCursor(4);
+        if (pGame->GetVisibleArea() != NULL) {
+            pGame->GetVisibleArea()->m_nScrollState = 0;
+        }
+        field_1204 = 0;
+    } else {
+        pGame->GetGameSave()->m_mode = 0xFFFFFFFF;
+    }
+
+    if (pGame->GetVisibleArea() != NULL) {
+        pGame->GetVisibleArea()->OnMouseMove(g_pChitin->m_ptPointer);
+    }
+
+    CString sDialogArea;
+    m_dialogArea.CopyToString(sDialogArea);
+    CGameArea* pRestoreArea = !sDialogArea.IsEmpty() ? pGame->GetArea(sDialogArea) : NULL;
+    if (pRestoreArea != NULL) {
+        CGameArea* pVisibleArea = pGame->GetVisibleArea();
+        if (pVisibleArea != NULL && pRestoreArea != pVisibleArea) {
+            pVisibleArea->m_bPicked = FALSE;
+            pVisibleArea->m_iPicked = CGameObjectArray::INVALID_INDEX;
+            pVisibleArea->m_nToolTip = 0;
+            pVisibleArea->OnDeactivation();
+            pGame->m_visibleArea = pRestoreArea->m_id;
+            pRestoreArea->OnActivation();
+        }
+
+        CInfinity* pInfinity = pRestoreArea->GetInfinity();
+        INT nCurrentX;
+        INT nCurrentY;
+        pInfinity->GetViewPosition(nCurrentX, nCurrentY);
+        CPoint ptRestore(m_ptDialogViewPosition.x + m_newViewSize.left,
+            m_ptDialogViewPosition.y + m_newViewSize.top);
+        LONG dx = nCurrentX - ptRestore.x;
+        LONG dy = nCurrentY - ptRestore.y;
+        pInfinity->m_ptScrollDest = ptRestore;
+        pInfinity->m_nLastTickCount = GetTickCount();
+        const LONG DIALOG_JUMP_CUT_OFF = 0x77A11;
+        if (dx * dx + dy * dy > DIALOG_JUMP_CUT_OFF) {
+            pInfinity->m_autoScrollSpeed = 0;
+        } else {
+            pInfinity->m_autoScrollSpeed = static_cast<SHORT>(CChitin::TIMER_UPDATES_PER_SECOND * 5 / 24);
+        }
+    }
+
     m_internalLoadedDialog.EndDialog();
     m_nPopupState = -1;
+    m_bInControlOfDialog = FALSE;
 }
 
 // FIXME: `areaName` should be reference.

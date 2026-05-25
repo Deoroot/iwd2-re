@@ -164,6 +164,8 @@ public:
     /* 0EA8 */ CUIControlTextDisplay* m_pActiveDialogDisplay;
     /* 0EAC */ CUIControlTextDisplay* m_pActiveChatDisplay;
     /* 0EB0 */ CGameDialogSprite m_internalLoadedDialog;
+    /* 0F12 */ CPoint m_ptDialogViewPosition;
+    /* 0F1A */ CResRef m_dialogArea;
     /* 0F22 */ CRect m_newViewSize;
     /* 0F32 */ BOOL m_bForceViewSize;
     /* 0F36 */ BYTE m_waitingOnResize;
