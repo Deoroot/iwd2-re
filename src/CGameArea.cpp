@@ -3657,9 +3657,8 @@ void CGameArea::RemoveObject(POSITION posVertList, BYTE listType, LONG id)
 
     EnterCriticalSection(&(g_pBaldurChitin->m_pEngineWorld->field_106));
 
-    if (g_pBaldurChitin->cNetwork.GetSessionOpen()) {
-        switch (listType) {
-        case CGAMEOBJECT_LIST_FRONT:
+    switch (listType) {
+    case CGAMEOBJECT_LIST_FRONT:
             pos = m_lVertSortAdd.GetHeadPosition();
             while (pos != NULL) {
                 if (reinterpret_cast<LONG>(m_lVertSortAdd.GetAt(pos)) == id) {
@@ -3700,7 +3699,6 @@ void CGameArea::RemoveObject(POSITION posVertList, BYTE listType, LONG id)
             // __LINE__: 7070
             UTIL_ASSERT(FALSE);
         }
-    }
 
     // TODO: `Find` calls look redunant.
     switch (listType) {
@@ -4346,7 +4344,9 @@ void CGameArea::SortLists()
                 m_pGame->GetObjectArray()->ReleaseShare(iObject,
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
-            } else if (rc != CGameObjectArray::DELETED) {
+            } else if (rc == CGameObjectArray::DELETED) {
+                nFrontAdd--;
+            } else {
                 // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
                 // __LINE__: 8076
                 UTIL_ASSERT(FALSE);
@@ -4377,17 +4377,20 @@ void CGameArea::SortLists()
             } while (rc == CGameObjectArray::DENIED);
 
             if (rc == CGameObjectArray::SUCCESS) {
+                POSITION posAdded;
                 if (m_lVertSortBack.IsEmpty()) {
-                    m_lVertSortBack.AddTail(reinterpret_cast<int*>(pObject->GetId()));
+                    posAdded = m_lVertSortBack.AddTail(reinterpret_cast<int*>(pObject->GetId()));
                 } else {
-                    m_lVertSortBack.InsertBefore(m_lVertSortBack.GetTailPosition(),
+                    posAdded = m_lVertSortBack.InsertBefore(m_lVertSortBack.GetTailPosition(),
                         reinterpret_cast<int*>(pObject->GetId()));
                 }
+
+                pObject->SetVertListPos(posAdded);
 
                 m_pGame->GetObjectArray()->ReleaseShare(iObject,
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
-            } else if (rc == CGameObjectArray::DELETED) {
+            } else if (rc != CGameObjectArray::DELETED) {
                 // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
                 // __LINE__: 8148
                 UTIL_ASSERT(FALSE);
@@ -4409,17 +4412,20 @@ void CGameArea::SortLists()
             } while (rc == CGameObjectArray::DENIED);
 
             if (rc == CGameObjectArray::SUCCESS) {
+                POSITION posAdded;
                 if (m_lVertSortFlight.IsEmpty()) {
-                    m_lVertSortFlight.AddTail(reinterpret_cast<int*>(pObject->GetId()));
+                    posAdded = m_lVertSortFlight.AddTail(reinterpret_cast<int*>(pObject->GetId()));
                 } else {
-                    m_lVertSortFlight.InsertBefore(m_lVertSortFlight.GetTailPosition(),
+                    posAdded = m_lVertSortFlight.InsertBefore(m_lVertSortFlight.GetTailPosition(),
                         reinterpret_cast<int*>(pObject->GetId()));
                 }
+
+                pObject->SetVertListPos(posAdded);
 
                 m_pGame->GetObjectArray()->ReleaseShare(iObject,
                     CGameObjectArray::THREAD_ASYNCH,
                     INFINITE);
-            } else if (rc == CGameObjectArray::DELETED) {
+            } else if (rc != CGameObjectArray::DELETED) {
                 // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
                 // __LINE__: 8195
                 UTIL_ASSERT(FALSE);
@@ -4460,7 +4466,7 @@ void CGameArea::SortLists()
                 for (cnt = 0; cnt < nFront - 1; cnt++) {
                     BOOL bDone = TRUE;
 
-                    for (cnt2 = 1; cnt < nFront - cnt; cnt++) {
+                    for (cnt2 = 1; cnt2 < nFront - cnt; cnt2++) {
                         if (pObjects[nFrontAdd + cnt2 - 1]->GetPos().y > pObjects[nFrontAdd + cnt2]->GetPos().y) {
                             pObject = pObjects[nFrontAdd + cnt2 - 1];
                             pObjects[nFrontAdd + cnt2 - 1] = pObjects[nFrontAdd + cnt2];
@@ -4479,10 +4485,10 @@ void CGameArea::SortLists()
             cnt2 = 0;
             while (cnt < nFrontAdd || cnt2 < nFront) {
                 if (cnt2 != nFront
-                    && (cnt == nFrontAdd || pObjects[cnt]->GetPos().y > pObjects[cnt2]->GetPos().y)) {
-                    pos = m_lVertSort.AddTail(reinterpret_cast<int*>(pObjects[cnt2]->GetId()));
-                    pObjects[cnt2]->SetVertListPos(pos);
-                    m_pGame->GetObjectArray()->ReleaseShare(pObjects[cnt2]->GetId(),
+                    && (cnt == nFrontAdd || pObjects[cnt]->GetPos().y > pObjects[nFrontAdd + cnt2]->GetPos().y)) {
+                    pos = m_lVertSort.AddTail(reinterpret_cast<int*>(pObjects[nFrontAdd + cnt2]->GetId()));
+                    pObjects[nFrontAdd + cnt2]->SetVertListPos(pos);
+                    m_pGame->GetObjectArray()->ReleaseShare(pObjects[nFrontAdd + cnt2]->GetId(),
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
                     cnt2++;

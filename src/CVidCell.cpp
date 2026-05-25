@@ -15,6 +15,93 @@ BOOL CVidCell::TRANSLUCENT_BLTS_ON;
 // 0x8BAC8C
 BOOL CVidCell::TRANSLUCENT_SHADOWS_ON = TRUE;
 
+static BYTE GetSurfaceComponent(DWORD pixel, DWORD mask, DWORD shift, DWORD bitCount)
+{
+    if (mask == 0 || bitCount == 0) {
+        return 0;
+    }
+
+    DWORD value = (pixel & mask) >> shift;
+    if (bitCount >= 8) {
+        return static_cast<BYTE>(min(value, 255));
+    }
+
+    DWORD maxValue = (1 << bitCount) - 1;
+    return static_cast<BYTE>((value * 255 + maxValue / 2) / maxValue);
+}
+
+static DWORD PackSurfaceComponent(BYTE value, DWORD mask, DWORD shift, DWORD bitCount)
+{
+    if (mask == 0 || bitCount == 0) {
+        return 0;
+    }
+
+    DWORD maxValue = bitCount >= 8 ? 255 : ((1 << bitCount) - 1);
+    DWORD scaled = (static_cast<DWORD>(value) * maxValue + 127) / 255;
+    return (scaled << shift) & mask;
+}
+
+static DWORD BlendTranslucentSurfacePixel(DWORD dstPixel, DWORD srcPixel)
+{
+    CVidMode* pVidMode = g_pChitin->GetCurrentVideoMode();
+
+    BYTE srcR = GetSurfaceComponent(srcPixel,
+        pVidMode->m_dwRBitMask,
+        pVidMode->m_dwRBitShift,
+        pVidMode->m_dwRBitCount);
+    BYTE srcG = GetSurfaceComponent(srcPixel,
+        pVidMode->m_dwGBitMask,
+        pVidMode->m_dwGBitShift,
+        pVidMode->m_dwGBitCount);
+    BYTE srcB = GetSurfaceComponent(srcPixel,
+        pVidMode->m_dwBBitMask,
+        pVidMode->m_dwBBitShift,
+        pVidMode->m_dwBBitCount);
+
+    BYTE dstR = GetSurfaceComponent(dstPixel,
+        pVidMode->m_dwRBitMask,
+        pVidMode->m_dwRBitShift,
+        pVidMode->m_dwRBitCount);
+    BYTE dstG = GetSurfaceComponent(dstPixel,
+        pVidMode->m_dwGBitMask,
+        pVidMode->m_dwGBitShift,
+        pVidMode->m_dwGBitCount);
+    BYTE dstB = GetSurfaceComponent(dstPixel,
+        pVidMode->m_dwBBitMask,
+        pVidMode->m_dwBBitShift,
+        pVidMode->m_dwBBitCount);
+
+    int alpha = (srcR + srcG + srcB) / 3;
+    BYTE outR = static_cast<BYTE>((srcR * alpha + dstR * (255 - alpha)) / 255);
+    BYTE outG = static_cast<BYTE>((srcG * alpha + dstG * (255 - alpha)) / 255);
+    BYTE outB = static_cast<BYTE>((srcB * alpha + dstB * (255 - alpha)) / 255);
+
+    DWORD rgbMask = pVidMode->m_dwRBitMask | pVidMode->m_dwGBitMask | pVidMode->m_dwBBitMask;
+    return (dstPixel & ~rgbMask)
+        | PackSurfaceComponent(outR,
+            pVidMode->m_dwRBitMask,
+            pVidMode->m_dwRBitShift,
+            pVidMode->m_dwRBitCount)
+        | PackSurfaceComponent(outG,
+            pVidMode->m_dwGBitMask,
+            pVidMode->m_dwGBitShift,
+            pVidMode->m_dwGBitCount)
+        | PackSurfaceComponent(outB,
+            pVidMode->m_dwBBitMask,
+            pVidMode->m_dwBBitShift,
+            pVidMode->m_dwBBitCount);
+}
+
+static void BlendTranslucentPixel24(BYTE* pSurface, DWORD srcPixel)
+{
+    DWORD dstPixel = pSurface[0] | (pSurface[1] << 8) | (pSurface[2] << 16);
+    DWORD outPixel = BlendTranslucentSurfacePixel(dstPixel, srcPixel);
+
+    pSurface[0] = static_cast<BYTE>(outPixel);
+    pSurface[1] = static_cast<BYTE>(outPixel >> 8);
+    pSurface[2] = static_cast<BYTE>(outPixel >> 16);
+}
+
 // #binary-identical
 // 0x7ACD70
 CVidCell::CVidCell()
@@ -2040,7 +2127,86 @@ BOOL CVidCell::sub_7D0950(DWORD* pSurface, LONG lPitch, DWORD dwFlags, INT nTran
 // 0x7B49D0
 BOOL CVidCell::sub_7B49D0(WORD* pSurface, LONG lPitch, DWORD dwFlags)
 {
-    // TODO: Incomplete.
+    int nWidth = m_pFrame->nWidth;
+    int nHeight = m_pFrame->nHeight;
+
+    if (nWidth == 0 || nHeight == 0) {
+        return TRUE;
+    }
+
+    if (!m_bPaletteChanged) {
+        m_cPalette.SetPalette(pRes->m_pPalette, 256, CVidPalette::TYPE_RESOURCE);
+    }
+
+    m_cPalette.Realize(CVidImage::rgbTempPal, 16, dwFlags, &m_paletteAffects, 255);
+
+    if (!m_bShadowOn) {
+        CVidImage::rgbTempPal[CVidPalette::SHADOW_ENTRY] = g_pChitin->GetCurrentVideoMode()->field_24;
+    }
+
+    if (g_pChitin->field_174) {
+        if (m_nCurrentFrame == 0) {
+            for (int index = CVidPalette::SHADOW_ENTRY + 1; index < 256; index++) {
+                CVidImage::rgbTempPal[index] = g_pChitin->GetCurrentVideoMode()->ConvertToSurfaceRGB(255);
+            }
+        }
+    }
+
+    BYTE* pFrameData = pRes->GetFrameData(m_pFrame, m_bDoubleSize);
+    BAMHEADER* pBamHeader = pRes->m_bCacheHeader
+        ? pRes->m_pBamHeaderCopy
+        : pRes->m_pBamHeader;
+    BYTE nTransparentColor = pBamHeader->nTransparentColor;
+
+    if (pRes->GetCompressed(m_pFrame, m_bDoubleSize)) {
+        int nRunLength = 0;
+        int pos = 0;
+        for (int y = 0; y < nHeight; y++) {
+            int nRemainingWidth = nWidth;
+            while (nRemainingWidth != 0) {
+                BYTE nColor = pFrameData[pos];
+                if (nColor == nTransparentColor) {
+                    if (nRunLength == 0) {
+                        nRunLength = pFrameData[pos + 1] + 1;
+                    }
+
+                    if (nRemainingWidth == nRunLength) {
+                        pos += 2;
+                        pSurface += nRemainingWidth;
+                        nRunLength = 0;
+                        nRemainingWidth = 0;
+                    } else if (nRemainingWidth > nRunLength) {
+                        pos += 2;
+                        pSurface += nRunLength;
+                        nRemainingWidth -= nRunLength;
+                        nRunLength = 0;
+                    } else {
+                        pSurface += nRemainingWidth;
+                        nRunLength -= nRemainingWidth;
+                        nRemainingWidth = 0;
+                    }
+                } else {
+                    pos++;
+                    *pSurface = static_cast<WORD>(BlendTranslucentSurfacePixel(*pSurface, CVidImage::rgbTempPal[nColor]));
+                    pSurface++;
+                    nRemainingWidth--;
+                }
+            }
+            pSurface += lPitch / 2 - nWidth;
+        }
+    } else {
+        for (int y = 0; y < nHeight; y++) {
+            for (int x = 0; x < nWidth; x++) {
+                BYTE nColor = *pFrameData;
+                if (nColor != nTransparentColor) {
+                    *pSurface = static_cast<WORD>(BlendTranslucentSurfacePixel(*pSurface, CVidImage::rgbTempPal[nColor]));
+                }
+                pFrameData++;
+                pSurface++;
+            }
+            pSurface += lPitch / 2 - nWidth;
+        }
+    }
 
     return TRUE;
 }
@@ -2048,7 +2214,86 @@ BOOL CVidCell::sub_7B49D0(WORD* pSurface, LONG lPitch, DWORD dwFlags)
 // 0x7D0C60
 BOOL CVidCell::sub_7D0C60(BYTE* pSurface, LONG lPitch, DWORD dwFlags)
 {
-    // TODO: Incomplete.
+    int nWidth = m_pFrame->nWidth;
+    int nHeight = m_pFrame->nHeight;
+
+    if (nWidth == 0 || nHeight == 0) {
+        return TRUE;
+    }
+
+    if (!m_bPaletteChanged) {
+        m_cPalette.SetPalette(pRes->m_pPalette, 256, CVidPalette::TYPE_RESOURCE);
+    }
+
+    m_cPalette.Realize(CVidImage::rgbTempPal, 24, dwFlags, &m_paletteAffects, 255);
+
+    if (!m_bShadowOn) {
+        CVidImage::rgbTempPal[CVidPalette::SHADOW_ENTRY] = g_pChitin->GetCurrentVideoMode()->field_24;
+    }
+
+    if (g_pChitin->field_174) {
+        if (m_nCurrentFrame == 0) {
+            for (int index = CVidPalette::SHADOW_ENTRY + 1; index < 256; index++) {
+                CVidImage::rgbTempPal[index] = g_pChitin->GetCurrentVideoMode()->ConvertToSurfaceRGB(255);
+            }
+        }
+    }
+
+    BYTE* pFrameData = pRes->GetFrameData(m_pFrame, m_bDoubleSize);
+    BAMHEADER* pBamHeader = pRes->m_bCacheHeader
+        ? pRes->m_pBamHeaderCopy
+        : pRes->m_pBamHeader;
+    BYTE nTransparentColor = pBamHeader->nTransparentColor;
+
+    if (pRes->GetCompressed(m_pFrame, m_bDoubleSize)) {
+        int nRunLength = 0;
+        int pos = 0;
+        for (int y = 0; y < nHeight; y++) {
+            int nRemainingWidth = nWidth;
+            while (nRemainingWidth != 0) {
+                BYTE nColor = pFrameData[pos];
+                if (nColor == nTransparentColor) {
+                    if (nRunLength == 0) {
+                        nRunLength = pFrameData[pos + 1] + 1;
+                    }
+
+                    if (nRemainingWidth == nRunLength) {
+                        pos += 2;
+                        pSurface += 3 * nRemainingWidth;
+                        nRunLength = 0;
+                        nRemainingWidth = 0;
+                    } else if (nRemainingWidth > nRunLength) {
+                        pos += 2;
+                        pSurface += 3 * nRunLength;
+                        nRemainingWidth -= nRunLength;
+                        nRunLength = 0;
+                    } else {
+                        pSurface += 3 * nRemainingWidth;
+                        nRunLength -= nRemainingWidth;
+                        nRemainingWidth = 0;
+                    }
+                } else {
+                    pos++;
+                    BlendTranslucentPixel24(pSurface, CVidImage::rgbTempPal[nColor]);
+                    pSurface += 3;
+                    nRemainingWidth--;
+                }
+            }
+            pSurface += lPitch - 3 * nWidth;
+        }
+    } else {
+        for (int y = 0; y < nHeight; y++) {
+            for (int x = 0; x < nWidth; x++) {
+                BYTE nColor = *pFrameData;
+                if (nColor != nTransparentColor) {
+                    BlendTranslucentPixel24(pSurface, CVidImage::rgbTempPal[nColor]);
+                }
+                pFrameData++;
+                pSurface += 3;
+            }
+            pSurface += lPitch - 3 * nWidth;
+        }
+    }
 
     return TRUE;
 }
@@ -2056,7 +2301,86 @@ BOOL CVidCell::sub_7D0C60(BYTE* pSurface, LONG lPitch, DWORD dwFlags)
 // 0x7D1190
 BOOL CVidCell::sub_7D1190(DWORD* pSurface, LONG lPitch, DWORD dwFlags)
 {
-    // TODO: Incomplete.
+    int nWidth = m_pFrame->nWidth;
+    int nHeight = m_pFrame->nHeight;
+
+    if (nWidth == 0 || nHeight == 0) {
+        return TRUE;
+    }
+
+    if (!m_bPaletteChanged) {
+        m_cPalette.SetPalette(pRes->m_pPalette, 256, CVidPalette::TYPE_RESOURCE);
+    }
+
+    m_cPalette.Realize(CVidImage::rgbTempPal, 32, dwFlags, &m_paletteAffects, 255);
+
+    if (!m_bShadowOn) {
+        CVidImage::rgbTempPal[CVidPalette::SHADOW_ENTRY] = g_pChitin->GetCurrentVideoMode()->field_24;
+    }
+
+    if (g_pChitin->field_174) {
+        if (m_nCurrentFrame == 0) {
+            for (int index = CVidPalette::SHADOW_ENTRY + 1; index < 256; index++) {
+                CVidImage::rgbTempPal[index] = g_pChitin->GetCurrentVideoMode()->ConvertToSurfaceRGB(255);
+            }
+        }
+    }
+
+    BYTE* pFrameData = pRes->GetFrameData(m_pFrame, m_bDoubleSize);
+    BAMHEADER* pBamHeader = pRes->m_bCacheHeader
+        ? pRes->m_pBamHeaderCopy
+        : pRes->m_pBamHeader;
+    BYTE nTransparentColor = pBamHeader->nTransparentColor;
+
+    if (pRes->GetCompressed(m_pFrame, m_bDoubleSize)) {
+        int nRunLength = 0;
+        int pos = 0;
+        for (int y = 0; y < nHeight; y++) {
+            int nRemainingWidth = nWidth;
+            while (nRemainingWidth != 0) {
+                BYTE nColor = pFrameData[pos];
+                if (nColor == nTransparentColor) {
+                    if (nRunLength == 0) {
+                        nRunLength = pFrameData[pos + 1] + 1;
+                    }
+
+                    if (nRemainingWidth == nRunLength) {
+                        pos += 2;
+                        pSurface += nRemainingWidth;
+                        nRunLength = 0;
+                        nRemainingWidth = 0;
+                    } else if (nRemainingWidth > nRunLength) {
+                        pos += 2;
+                        pSurface += nRunLength;
+                        nRemainingWidth -= nRunLength;
+                        nRunLength = 0;
+                    } else {
+                        pSurface += nRemainingWidth;
+                        nRunLength -= nRemainingWidth;
+                        nRemainingWidth = 0;
+                    }
+                } else {
+                    pos++;
+                    *pSurface = BlendTranslucentSurfacePixel(*pSurface, CVidImage::rgbTempPal[nColor]);
+                    pSurface++;
+                    nRemainingWidth--;
+                }
+            }
+            pSurface += lPitch / 4 - nWidth;
+        }
+    } else {
+        for (int y = 0; y < nHeight; y++) {
+            for (int x = 0; x < nWidth; x++) {
+                BYTE nColor = *pFrameData;
+                if (nColor != nTransparentColor) {
+                    *pSurface = BlendTranslucentSurfacePixel(*pSurface, CVidImage::rgbTempPal[nColor]);
+                }
+                pFrameData++;
+                pSurface++;
+            }
+            pSurface += lPitch / 4 - nWidth;
+        }
+    }
 
     return TRUE;
 }
