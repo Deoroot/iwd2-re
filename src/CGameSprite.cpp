@@ -3085,9 +3085,256 @@ void CGameSprite::SetPath(LONG* pPath, SHORT nPath)
 // 0x6FA900
 BOOL CGameSprite::ClearBumpPath(const CPoint& start, const CPoint& goal)
 {
-    // TODO: Incomplete.
+    if (GetAIType().GetEnemyAlly() > CAIObjectType::EA_GOODCUTOFF) {
+        return FALSE;
+    }
 
-    return FALSE;
+    CSearchBitmap& search = m_pArea->m_search;
+    CTypedPtrList<CPtrList, LONG*> obstacles;
+    BOOL bGathered = FALSE;
+
+    BYTE dirTable[9];
+    dirTable[0] = (BYTE)(3 * (goal.y - start.y) + (goal.x - start.x) + 4);
+    dirTable[1] = 1;
+    dirTable[2] = 2;
+    dirTable[3] = 3;
+    dirTable[4] = 0xFF;
+    dirTable[5] = 5;
+    dirTable[6] = 6;
+    dirTable[7] = 7;
+    dirTable[8] = (BYTE)(3 * (start.y - goal.y) + (start.x - goal.x) + 4);
+    dirTable[dirTable[0]] = 0;
+    dirTable[dirTable[8]] = 8;
+
+    if (start.x == goal.x && start.y == goal.y) {
+        return TRUE;
+    }
+
+    BYTE personalSpace = m_animation.GetPersonalSpace();
+    SHORT nTableIndex;
+    if (search.GetCost(goal, GetTerrainTable(), personalSpace, nTableIndex, FALSE) == CPathSearch::COST_IMPASSABLE) {
+        return FALSE;
+    }
+
+    personalSpace = m_animation.GetPersonalSpace();
+    SHORT radius = (SHORT)(personalSpace - 2) / 2;
+
+    for (SHORT a = -radius; a <= radius; a++) {
+        int cellX = a + goal.x;
+        if (cellX < 0 || cellX >= search.m_GridSquareDimensions.cx) {
+            continue;
+        }
+
+        for (SHORT b = -radius; b <= radius; b++) {
+            int cellY = b + goal.y;
+            if (cellY < 0 || cellY >= search.m_GridSquareDimensions.cx) {
+                continue;
+            }
+
+            int absA = (a < 0) ? -a : a;
+            int absB = (b < 0) ? -b : b;
+            if (absA + absB > radius + 1) {
+                continue;
+            }
+
+            BYTE dynByte = search.m_pDynamicCost[cellY * search.m_GridSquareDimensions.cx + cellX];
+            BYTE obstacleCount = dynByte >> 1;
+            if (obstacleCount > 7) {
+                return FALSE;
+            }
+
+            if (!bGathered) {
+                bGathered = TRUE;
+                BYTE ps = m_animation.GetPersonalSpace();
+                CPoint worldCenter;
+                worldCenter.x = goal.x * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
+                worldCenter.y = goal.y * CPathSearch::GRID_SQUARE_SIZEY + CPathSearch::GRID_SQUARE_SIZEY / 2;
+                m_pArea->GetCloseObjects(m_posVertList, worldCenter, CAIObjectType::ANYONE,
+                    ((ps + 11) / 2) * CPathSearch::GRID_SQUARE_SIZEX,
+                    m_terrainTable, obstacles, FALSE, FALSE);
+            }
+
+            POSITION pos = obstacles.GetHeadPosition();
+            while (pos != NULL) {
+                if (obstacleCount == 0) {
+                    break;
+                }
+
+                POSITION posCurrent = pos;
+                LONG objId = reinterpret_cast<LONG>(obstacles.GetNext(pos));
+
+                CGameObject* pObject;
+                BYTE rc = m_pArea->m_pGame->GetObjectArray()->GetShare(objId,
+                    CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+                if (rc != CGameObjectArray::SUCCESS) {
+                    continue;
+                }
+
+                CGameSprite* pObstacle = static_cast<CGameSprite*>(pObject);
+                if (pObstacle->m_bBumpable == 0 || pObstacle->field_54B8 != 0) {
+                    m_pArea->m_pGame->GetObjectArray()->ReleaseShare(objId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    continue;
+                }
+
+                int obsCellX = pObstacle->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX;
+                int obsCellY = pObstacle->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY;
+
+                BYTE obsPS = pObstacle->m_animation.GetPersonalSpace();
+                SHORT obsRadius = (SHORT)(obsPS >> 1);
+
+                BOOL bFound = FALSE;
+                for (SHORT fy = -obsRadius; fy <= obsRadius && !bFound; fy++) {
+                    for (SHORT fx = -obsRadius; fx <= obsRadius && !bFound; fx++) {
+                        if (obsCellX + fx == cellX && obsCellY + fy == cellY) {
+                            bFound = TRUE;
+                        }
+                    }
+                }
+
+                if (!bFound) {
+                    m_pArea->m_pGame->GetObjectArray()->ReleaseShare(objId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    continue;
+                }
+
+                int origObsCellX = pObstacle->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX;
+                int origObsCellY = pObstacle->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY;
+
+                search.AddObject(goal,
+                    m_typeAI.GetEnemyAlly(),
+                    m_animation.GetPersonalSpace(),
+                    m_bBumpable,
+                    m_bOnSearchMap);
+
+                BYTE denyRc;
+                do {
+                    denyRc = m_pArea->m_pGame->GetObjectArray()->GetDeny(objId,
+                        CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+                } while (denyRc == CGameObjectArray::SHARED);
+
+                if (denyRc == CGameObjectArray::SUCCESS) {
+                    pObstacle = static_cast<CGameSprite*>(pObject);
+
+                    BYTE obsEA = pObstacle->GetAIType().GetEnemyAlly();
+                    BYTE obsPS2 = pObstacle->m_animation.GetPersonalSpace();
+                    CPoint obsCell(origObsCellX, origObsCellY);
+
+                    search.RemoveObject(obsCell,
+                        obsEA,
+                        obsPS2,
+                        pObstacle->m_bBumpable,
+                        pObstacle->m_bOnSearchMap);
+
+                    BOOL bPlaced = FALSE;
+                    for (int d = 0; d < 9 && !bPlaced; d++) {
+                        BYTE dirCode = dirTable[d];
+                        if (dirCode == 0xFF) {
+                            continue;
+                        }
+
+                        int nx = (dirCode % 3 - 1) + origObsCellX;
+                        int ny = (dirCode / 3 - 1) + origObsCellY;
+                        CPoint neighborPt(nx, ny);
+
+                        BYTE obsPS3 = pObstacle->m_animation.GetPersonalSpace();
+                        SHORT obsTableIdx;
+                        if (search.GetCost(neighborPt, pObstacle->GetTerrainTable(),
+                                obsPS3, obsTableIdx, TRUE) == CPathSearch::COST_IMPASSABLE) {
+                            continue;
+                        }
+
+                        BYTE obsPS4 = pObstacle->m_animation.GetPersonalSpace();
+                        BYTE obsEA2 = pObstacle->GetAIType().GetEnemyAlly();
+                        search.AddObject(obsCell, obsEA2, obsPS4,
+                            pObstacle->m_bBumpable, pObstacle->m_bOnSearchMap);
+
+                        CPoint jumpDest;
+                        jumpDest.x = nx * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
+                        jumpDest.y = ny * CPathSearch::GRID_SQUARE_SIZEY + CPathSearch::GRID_SQUARE_SIZEY / 2;
+                        pObstacle->JumpToPoint(jumpDest, TRUE);
+
+                        if (!pObstacle->m_bBumped) {
+                            pObstacle->m_bBumped = TRUE;
+                            pObstacle->m_ptBumpedFrom.x = origObsCellX;
+                            pObstacle->m_ptBumpedFrom.y = origObsCellY;
+                        }
+
+                        obstacles.RemoveAt(posCurrent);
+                        obstacleCount--;
+                        bPlaced = TRUE;
+                    }
+
+                    if (!bPlaced) {
+                        field_54B8 = 1;
+
+                        for (int d = 0; d < 9 && !bPlaced; d++) {
+                            BYTE dirCode = dirTable[d];
+                            if (dirCode == 0xFF) {
+                                continue;
+                            }
+
+                            int nx = (dirCode % 3 - 1) + origObsCellX;
+                            int ny = (dirCode / 3 - 1) + origObsCellY;
+                            CPoint fromPt(origObsCellX, origObsCellY);
+                            CPoint toPt(nx, ny);
+
+                            if (!pObstacle->ClearBumpPath(fromPt, toPt)) {
+                                continue;
+                            }
+
+                            BYTE obsPS5 = pObstacle->m_animation.GetPersonalSpace();
+                            BYTE obsEA3 = pObstacle->GetAIType().GetEnemyAlly();
+                            search.AddObject(obsCell, obsEA3, obsPS5,
+                                pObstacle->m_bBumpable, pObstacle->m_bOnSearchMap);
+
+                            CPoint jumpDest;
+                            jumpDest.x = nx * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
+                            jumpDest.y = ny * CPathSearch::GRID_SQUARE_SIZEY + CPathSearch::GRID_SQUARE_SIZEY / 2;
+                            pObstacle->JumpToPoint(jumpDest, TRUE);
+
+                            if (!pObstacle->m_bBumped) {
+                                pObstacle->m_bBumped = TRUE;
+                                pObstacle->m_ptBumpedFrom.x = origObsCellX;
+                                pObstacle->m_ptBumpedFrom.y = origObsCellY;
+                            }
+
+                            obstacles.RemoveAt(posCurrent);
+                            obstacleCount--;
+                            bPlaced = TRUE;
+                        }
+
+                        field_54B8 = 0;
+
+                        if (!bPlaced) {
+                            BYTE obsPS6 = pObstacle->m_animation.GetPersonalSpace();
+                            BYTE obsEA4 = pObstacle->GetAIType().GetEnemyAlly();
+                            search.AddObject(obsCell, obsEA4, obsPS6,
+                                pObstacle->m_bBumpable, pObstacle->m_bOnSearchMap);
+                        }
+                    }
+
+                    m_pArea->m_pGame->GetObjectArray()->ReleaseDeny(objId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                }
+
+                search.RemoveObject(goal,
+                    m_typeAI.GetEnemyAlly(),
+                    m_animation.GetPersonalSpace(),
+                    m_bBumpable,
+                    m_bOnSearchMap);
+
+                m_pArea->m_pGame->GetObjectArray()->ReleaseShare(objId,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+
+            if (obstacleCount != 0) {
+                return FALSE;
+            }
+        }
+    }
+
+    return TRUE;
 }
 
 // 0x6FB440
