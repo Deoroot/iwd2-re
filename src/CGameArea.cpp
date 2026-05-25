@@ -205,7 +205,60 @@ void CGameArea::AddObject(LONG id, BYTE listType)
 // 0x46A3D0
 BOOL CGameArea::AdjustTarget(CPoint start, POINT* goal, BYTE personalSpace, SHORT tolerance)
 {
-    // TODO: Incomplete.
+    if (start.x == goal->x && start.y == goal->y) {
+        return FALSE;
+    }
+
+    int cellX = goal->x;
+    int cellY = goal->y;
+    int worldX = cellX * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
+    int worldY = cellY * CPathSearch::GRID_SQUARE_SIZEY + CPathSearch::GRID_SQUARE_SIZEY / 2;
+
+    int dx = start.x - cellX;
+    int dy = start.y - cellY;
+
+    CPoint deltaExact;
+    if (abs(dy) < abs(dx)) {
+        deltaExact.x = (cellX < start.x) ? (1 << CGameSprite::EXACT_SCALE) : -(1 << CGameSprite::EXACT_SCALE);
+        deltaExact.y = (dy << CGameSprite::EXACT_SCALE) / abs(dx);
+    } else {
+        deltaExact.x = (dx << CGameSprite::EXACT_SCALE) / abs(dy);
+        deltaExact.y = (cellY < start.y) ? (1 << CGameSprite::EXACT_SCALE) : -(1 << CGameSprite::EXACT_SCALE);
+    }
+
+    CPoint tempPoint;
+    tempPoint.x = (cellX << CGameSprite::EXACT_SCALE) + (1 << (CGameSprite::EXACT_SCALE - 1));
+    tempPoint.y = (cellY << CGameSprite::EXACT_SCALE) + (1 << (CGameSprite::EXACT_SCALE - 1));
+
+    while (TRUE) {
+        if (cellX == start.x && cellY == start.y) {
+            return FALSE;
+        }
+
+        if (tolerance < 1) {
+            return FALSE;
+        }
+
+        SHORT nTableIndex;
+        if (m_visibility.IsTileExplored(m_visibility.PointToTile(CPoint(worldX, worldY)))
+            && m_search.GetCost(CPoint(cellX, cellY), CGameObject::DEFAULT_TERRAIN_TABLE, personalSpace, nTableIndex, TRUE) != CPathSearch::COST_IMPASSABLE) {
+            break;
+        }
+
+        tempPoint.x += deltaExact.x;
+        cellX = tempPoint.x >> CGameSprite::EXACT_SCALE;
+        tempPoint.y += deltaExact.y;
+        cellY = tempPoint.y >> CGameSprite::EXACT_SCALE;
+        worldX = cellX * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
+        worldY = cellY * CPathSearch::GRID_SQUARE_SIZEY + CPathSearch::GRID_SQUARE_SIZEY / 2;
+        tolerance--;
+    }
+
+    if (cellX != start.x || cellY != start.y) {
+        goal->x = cellX;
+        goal->y = cellY;
+        return TRUE;
+    }
 
     return FALSE;
 }
@@ -213,8 +266,56 @@ BOOL CGameArea::AdjustTarget(CPoint start, POINT* goal, BYTE personalSpace, SHOR
 // 0x46A630
 BOOL CGameArea::SnapshotAdjustTarget(CPoint start, POINT* goal, BOOL bBump, SHORT tolerance)
 {
-    // TODO: Incomplete â€” always accept target for now
-    return TRUE;
+    if (start.x == goal->x && start.y == goal->y) {
+        return FALSE;
+    }
+
+    int cellX = goal->x;
+    int cellY = goal->y;
+
+    int dx = start.x - cellX;
+    int dy = start.y - cellY;
+
+    CPoint deltaExact;
+    if (abs(dy) < abs(dx)) {
+        deltaExact.x = (cellX < start.x) ? (1 << CGameSprite::EXACT_SCALE) : -(1 << CGameSprite::EXACT_SCALE);
+        deltaExact.y = (dy << CGameSprite::EXACT_SCALE) / abs(dx);
+    } else {
+        deltaExact.x = (dx << CGameSprite::EXACT_SCALE) / abs(dy);
+        deltaExact.y = (cellY < start.y) ? (1 << CGameSprite::EXACT_SCALE) : -(1 << CGameSprite::EXACT_SCALE);
+    }
+
+    CPoint tempPoint;
+    tempPoint.x = (cellX << CGameSprite::EXACT_SCALE) + (1 << (CGameSprite::EXACT_SCALE - 1));
+    tempPoint.y = (cellY << CGameSprite::EXACT_SCALE) + (1 << (CGameSprite::EXACT_SCALE - 1));
+
+    while (TRUE) {
+        if (cellX == start.x && cellY == start.y) {
+            return FALSE;
+        }
+
+        if (tolerance < 1) {
+            return FALSE;
+        }
+
+        if (m_search.SnapshotGetCost(CPoint(cellX, cellY), bBump) != CPathSearch::COST_IMPASSABLE) {
+            break;
+        }
+
+        tempPoint.x += deltaExact.x;
+        tempPoint.y += deltaExact.y;
+        cellX = tempPoint.x >> CGameSprite::EXACT_SCALE;
+        cellY = tempPoint.y >> CGameSprite::EXACT_SCALE;
+        tolerance--;
+    }
+
+    if (cellX != start.x || cellY != start.y) {
+        goal->x = cellX;
+        goal->y = cellY;
+        return TRUE;
+    }
+
+    return FALSE;
 }
 
 // 0x46A7B0
