@@ -1003,7 +1003,7 @@ LONG CAIObjectType::FindObjectId(CGameAIBase* caller, BOOL checkBackList) const
             // NOTE: Uninline.
             GetAiLocation(caller, pt, nRadius);
 
-            nId = caller->GetArea()->sub_46DAE0(pt.x,
+            nId = caller->GetArea()->FindObjectNear(pt.x,
                 pt.y,
                 *this,
                 nRadius,

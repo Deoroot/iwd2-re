@@ -1082,7 +1082,7 @@ void CGameContainer::OpenContainer(const CAIObjectType& user)
         CAIObjectType type;
         type.m_sName = CString(m_ownedBy);
 
-        LONG targetId = g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->sub_46DAE0(m_pos.x,
+        LONG targetId = g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->FindObjectNear(m_pos.x,
             m_pos.y,
             type,
             500,
