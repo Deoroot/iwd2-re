@@ -9,8 +9,6 @@
 #include "CGameSprite.h"
 #include "CInfinity.h"
 #include "CInfGame.h"
-#include "CVidMode.h"
-#include "DebugLog.h"
 
 static LONG GetProjectileSourceDiagonalOffset(const CRect& rEllipse)
 {
@@ -287,12 +285,6 @@ CProjectileBAM::CProjectileBAM(const CResRef& visualResRef, const CResRef& arriv
     }
 
     m_initialDelay = initialDelay;
-
-    CString sResRef;
-    visualResRef.CopyToString(sResRef);
-    Iwd2DebugLog("PROJ_BAM_CTOR resRef='%s' seqDelay=%d initDelay=%d seqLen2=%d finalSeq=%d finalDelay=%d",
-        static_cast<LPCSTR>(sResRef), (int)sequenceDelay, (int)initialDelay,
-        (int)sequenceLength, (int)m_vidCell.GetCurrentSequenceId(), (int)m_sequenceDelay);
 }
 
 // 0x57CEE0 (virtual)
@@ -306,14 +298,12 @@ void CProjectileBAM::AIUpdate()
     if (m_sequenceDelay == 0) {
         if (m_vidCell.GetCurrentSequenceId() == 2) {
             if (m_vidCell.IsEndOfSequence(FALSE)) {
-                Iwd2DebugLog("PROJ_BAM_ARRIVAL objId=%ld seq=%d", m_id, (int)m_vidCell.GetCurrentSequenceId());
                 OnArrival();
                 return;
             }
 
             m_vidCell.FrameAdvance();
         } else {
-            Iwd2DebugLog("PROJ_BAM_SWITCH_SEQ2 objId=%ld", m_id);
             m_vidCell.SequenceSet(2);
             m_vidCell.FrameSet(0);
         }
@@ -322,7 +312,6 @@ void CProjectileBAM::AIUpdate()
         if (!m_vidCell.IsEndOfSequence(FALSE)) {
             m_vidCell.FrameAdvance();
         } else {
-            Iwd2DebugLog("PROJ_BAM_SEQ1 objId=%ld", m_id);
             m_vidCell.SequenceSet(1);
             m_vidCell.FrameSet(0);
         }
@@ -337,11 +326,11 @@ void CProjectileBAM::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
     CRect rFX;
     CSize frameSize;
     CRect rGCBounds;
-    CRect rIntersect;
-    CRect rWorldView;
     CPoint newPos;
     CPoint ptReference;
     CInfinity* pInfinity;
+
+    (void)pVidMode;
 
     if (pArea == NULL || m_initialDelay != 0) {
         return;
@@ -369,32 +358,20 @@ void CProjectileBAM::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
     rGCBounds.right = rGCBounds.left + rFX.Width();
     rGCBounds.bottom = rGCBounds.top + rFX.Height();
 
-    rWorldView.left = pInfinity->nCurrentX;
-    rWorldView.top = pInfinity->nCurrentY;
-    rWorldView.right = pInfinity->nCurrentX + pInfinity->rViewPort.Width();
-    rWorldView.bottom = pInfinity->nCurrentY + pInfinity->rViewPort.Height();
-    rIntersect.IntersectRect(&rGCBounds, &rWorldView);
-
-    BOOL bPrep = pInfinity->FXPrep(rFX,
+    pInfinity->FXPrep(rFX,
         dwPrepFlags,
         nSurface,
         newPos,
         ptReference);
 
-    BOOL bLock = pInfinity->FXLock(rFX, dwPrepFlags);
-    BOOL bRender = FALSE;
-    BOOL bClipPolys = FALSE;
-    BOOL bUnlock = FALSE;
-    BOOL bBlt = FALSE;
-
-    if (bLock) {
-        bRender = pInfinity->FXRender(&m_vidCell,
+    if (pInfinity->FXLock(rFX, dwPrepFlags)) {
+        pInfinity->FXRender(&m_vidCell,
             ptReference.x,
             ptReference.y,
             m_visualEffect.m_dwFlags,
             m_visualEffect.m_nTransValue);
 
-        bClipPolys = pInfinity->FXRenderClippingPolys(newPos.x,
+        pInfinity->FXRenderClippingPolys(newPos.x,
             newPos.y,
             0,
             ptReference,
@@ -402,64 +379,14 @@ void CProjectileBAM::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
             FALSE,
             dwPrepFlags);
 
-        bUnlock = pInfinity->FXUnlock(dwPrepFlags, NULL, CPoint(0, 0));
-        bBlt = pInfinity->FXBltFrom(nSurface,
+        pInfinity->FXUnlock(dwPrepFlags, NULL, CPoint(0, 0));
+        pInfinity->FXBltFrom(nSurface,
             rFX,
             newPos.x,
             newPos.y,
             ptReference.x,
             ptReference.y,
             m_visualEffect.m_dwFlags | 0x1);
-    }
-
-    static int fxDbgCount = 0;
-    if (fxDbgCount++ < 40) {
-        LONG screenX = pInfinity->rViewPort.left + newPos.x - pInfinity->nCurrentX;
-        LONG screenY = pInfinity->rViewPort.top + newPos.y - pInfinity->nCurrentY;
-        int fade = pVidMode != NULL ? pVidMode->m_nFade : -1;
-        Iwd2DebugLog("PROJ_BAM_FX objId=%ld surface=%d fade=%d/%d accel3d=%d worldPos=%ld,%ld screen=%ld,%ld ref=%ld,%ld frame=%ld,%ld bounds=%ld,%ld,%ld,%ld view=%ld,%ld,%ld,%ld intersect=%ld,%ld,%ld,%ld prepFlags=0x%lx vfxFlags=0x%lx copy=%d trans=%d transVal=%d prep=%d lock=%d render=%d clip=%d unlock=%d blt=%d rFX=%ld,%ld,%ld,%ld seq=%d count=%d",
-            m_id,
-            nSurface,
-            fade,
-            (int)CVidMode::NUM_FADE_FRAMES,
-            (int)g_pChitin->cVideo.Is3dAccelerated(),
-            newPos.x,
-            newPos.y,
-            screenX,
-            screenY,
-            ptReference.x,
-            ptReference.y,
-            (LONG)frameSize.cx,
-            (LONG)frameSize.cy,
-            rGCBounds.left,
-            rGCBounds.top,
-            rGCBounds.right,
-            rGCBounds.bottom,
-            rWorldView.left,
-            rWorldView.top,
-            rWorldView.right,
-            rWorldView.bottom,
-            rIntersect.left,
-            rIntersect.top,
-            rIntersect.right,
-            rIntersect.bottom,
-            dwPrepFlags,
-            m_visualEffect.m_dwFlags,
-            (int)m_visualEffect.m_bCopyFromBack,
-            (int)m_visualEffect.m_bTransparent,
-            m_visualEffect.m_nTransValue,
-            (int)bPrep,
-            (int)bLock,
-            (int)bRender,
-            (int)bClipPolys,
-            (int)bUnlock,
-            (int)bBlt,
-            rFX.left,
-            rFX.top,
-            rFX.right,
-            rFX.bottom,
-            (int)m_vidCell.GetCurrentSequenceId(),
-            fxDbgCount);
     }
 }
 
@@ -468,7 +395,6 @@ void CProjectileBAM::Fire(CGameArea* pArea, LONG source, LONG target, CPoint tar
 {
     CGameObject* pTarget;
     CPoint sourcePos;
-    CPoint targetActualPos;
     BYTE rc;
 
     (void)nType;
@@ -477,7 +403,6 @@ void CProjectileBAM::Fire(CGameArea* pArea, LONG source, LONG target, CPoint tar
     m_targetId = target;
     m_pArea = pArea;
     sourcePos = targetPos;
-    targetActualPos = targetPos;
 
     do {
         rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(target,
@@ -487,7 +412,6 @@ void CProjectileBAM::Fire(CGameArea* pArea, LONG source, LONG target, CPoint tar
     } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
     if (rc == CGameObjectArray::SUCCESS) {
-        targetActualPos = pTarget->GetPos();
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(target,
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
@@ -497,8 +421,6 @@ void CProjectileBAM::Fire(CGameArea* pArea, LONG source, LONG target, CPoint tar
     m_sound.Play(sourcePos.x, sourcePos.y, 0, FALSE);
 
     rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
-    Iwd2DebugLog("PROJ_BAM_FIRE source=%ld target=%ld targetPos=%ld,%ld sourcePos=%ld,%ld height=%ld area=%p addRc=%d",
-        source, target, targetActualPos.x, targetActualPos.y, sourcePos.x, sourcePos.y, nHeight, pArea, (int)rc);
     if (rc == CGameObjectArray::SUCCESS) {
         CGameObject::AddToArea(pArea, sourcePos, nHeight, LIST_FRONT);
         DeliverEffects();
