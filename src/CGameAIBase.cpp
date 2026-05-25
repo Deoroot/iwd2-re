@@ -440,6 +440,8 @@ SHORT CGameAIBase::ExecuteAction()
         // Full recovery of FUN_00461190 (cast-time gate, FUN_00727720
         // target-point extraction, FUN_0054A510 + CMessageFireProjectile
         // for non-self targets) is still TODO.
+        Iwd2DebugLog("DO_ACTION_FORCE_SPELL spriteId=%ld actionId=0x%x specificId=%ld actionCount=%d interrupt=%d",
+            m_id, m_curAction.m_actionID, m_curAction.m_specificID, (int)m_actionCount, (int)m_interrupt);
         CGameObject* pObj = ResolveActionTarget();
         actionReturn = ForceSpellAction(pObj);
         if (pObj != NULL) {
@@ -2620,10 +2622,15 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
         SHORT currentSeq = pSprite->m_nSequence;
 
+        Iwd2DebugLog("CAST_TIME spriteId=%ld speed=%d castTime=%d actionCount=%d currentSeq=%d animId=0x%lx",
+            m_id, (int)pAbility->speedFactor, (int)castTime, (int)m_actionCount, (int)currentSeq,
+            pSprite->GetAnimation()->GetAnimationId());
+
         // First-tick pre-cast hook.  Binary 0x46139A: queue the SPL's
         // pre-cast feature blocks (visuals, chant, projectile-spawn) before
         // any animation runs so they overlap with the cast-time wind-up.
         if (m_actionCount == 0) {
+            Iwd2DebugLog("CAST_APPLY_EFFECT spriteId=%ld animType=%d", m_id, (int)pSpell->GetAnimationType());
             pSprite->ApplyCastingEffect(pSpell, pAbility, targetPos);
             // TODO (multi-session): FUN_00727B80 silence/spell-state gate ->
             // concentration ITEM_EFFECT (opcode 0x88) broadcast against
@@ -2639,6 +2646,7 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
             // animation system picks up SEQ_CONJURE on the next render
             // (binary 0x461795 path, PTR_FUN_008488C4 vtable -> CMessageSetSequence).
             if (currentSeq != CGameSprite::SEQ_CONJURE) {
+                Iwd2DebugLog("CAST_SEQ_CONJURE spriteId=%ld", m_id);
                 CMessage* msg = new CMessageSetSequence(
                     CGameSprite::SEQ_CONJURE, m_id, m_id);
                 g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
@@ -2652,6 +2660,7 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
             // Stage 2: cast burst.  On entry transition send SEQ_CAST and
             // play the burst sound cue (ApplyCastingEffectPost).
             if (currentSeq != CGameSprite::SEQ_CAST) {
+                Iwd2DebugLog("CAST_SEQ_CAST spriteId=%ld", m_id);
                 CMessage* msg = new CMessageSetSequence(
                     CGameSprite::SEQ_CAST, m_id, m_id);
                 g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);

@@ -174,6 +174,7 @@ CProjectileBAM::CProjectileBAM(const CResRef& visualResRef, const CResRef& arriv
     : m_visualEffect(visualEffect)
 {
     m_projectileType = 0;
+    m_sourceId = CGameObjectArray::INVALID_INDEX;
     m_targetId = CGameObjectArray::INVALID_INDEX;
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
     m_pArea = NULL;
@@ -305,9 +306,9 @@ void CProjectileBAM::Fire(CGameArea* pArea, LONG source, LONG target, CPoint tar
     CPoint pos;
     BYTE rc;
 
-    (void)source;
     (void)nType;
 
+    m_sourceId = source;
     m_targetId = target;
     m_pArea = pArea;
     pos = targetPos;

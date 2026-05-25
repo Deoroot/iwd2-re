@@ -5709,6 +5709,7 @@ void CGameSprite::SetSequence(SHORT nSequence)
     if (nSequence == SEQ_WALK) {
         // NOTE: Uninline.
         if (m_animation.GetMoveScale() == 0) {
+            Iwd2DebugLog("SPRITE_SET_SEQ spriteId=%ld seq=%d SKIP moveScale=0", m_id, (int)nSequence);
             return;
         }
     }
@@ -5716,9 +5717,12 @@ void CGameSprite::SetSequence(SHORT nSequence)
     if (m_nSequence == nSequence) {
         // NOTE: Uninline.
         if (m_nSequence != GetIdleSequence()) {
+            Iwd2DebugLog("SPRITE_SET_SEQ spriteId=%ld seq=%d SKIP alreadySeq idle=%d", m_id, (int)nSequence, (int)GetIdleSequence());
             return;
         }
     }
+
+    Iwd2DebugLog("SPRITE_SET_SEQ spriteId=%ld seq=%d currentSeq=%d", m_id, (int)nSequence, (int)m_nSequence);
 
     if ((m_derivedStats.m_generalState & STATE_SILENCED) == 0
         && (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_bFootStepsSounds

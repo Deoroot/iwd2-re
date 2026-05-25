@@ -6,6 +6,7 @@
 #include "CInfGame.h"
 #include "CTimerWorld.h"
 #include "CUtil.h"
+#include "DebugLog.h"
 #include "Icewind586B70.h"
 #include "IcewindMisc.h"
 
@@ -74,6 +75,10 @@ BOOL IcewindCGameEffectCastingGlow::ApplyEffect(CGameSprite* pSprite)
 {
     WORD projectileType;
     CResRef visualResRef;
+
+    Iwd2DebugLog("CAST_GLOW_APPLY spriteId=%ld dwFlags=%d duration=%d gameTime=%d",
+        pSprite->m_id, (int)m_dwFlags, (int)m_duration,
+        (int)g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime);
 
     switch (m_dwFlags) {
     case 1:

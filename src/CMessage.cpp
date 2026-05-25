@@ -5135,7 +5135,8 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
     return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH;
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE;
 }
 
 // 0x4F7620
@@ -10992,6 +10993,7 @@ void CMessageSetSequence::Run()
                 pSprite->CheckSequence(m_sequence);
             }
 
+            Iwd2DebugLog("MSG_SET_SEQ spriteId=%ld seq=%d animId=0x%lx", m_targetId, (int)m_sequence, pSprite->GetAnimation()->GetAnimationId());
             pSprite->SetSequence(m_sequence);
 
             // NOTE: Uninline.

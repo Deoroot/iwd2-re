@@ -25,6 +25,7 @@ public:
     void PlaySound(CResRef resRef, BOOL loop, BOOL fireAndForget);
 
     /* 006E */ WORD m_projectileType;
+    /* 0072 */ LONG m_sourceId;
     /* 0076 */ LONG m_targetId;
     /* 007A */ LONG m_callBackProjectile;
     /* 007E */ CGameEffectList m_effectList;
