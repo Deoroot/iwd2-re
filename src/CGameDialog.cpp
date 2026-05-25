@@ -1,6 +1,7 @@
 #include "CGameDialog.h"
 
 #include "CAIResponse.h"
+#include "CVidPalette.h"
 #include "CAIScriptFile.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
@@ -130,12 +131,15 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
         return;
     }
 
+    char szFile[16];
+    file.CopyToString(szFile);
+
     if (file == m_file) {
         m_characterIndex = characterIndex;
         g_pBaldurChitin->GetObjectGame()->SetProtagonist(characterIndex);
-        // Multiplayer-host sync path queues a CMessageSetProtagonist
-        // (binary 0x482275..0x4822c8). Skipped in SP; restore with MP recovery.
         m_talkerIndex = talkerIndex;
+        Iwd2DebugLog("CGameDialogSprite::Initialize REUSE file='%s' entries=%d",
+            szFile, m_dialogEntriesOrdered.GetCount());
         return;
     }
 
@@ -146,6 +150,7 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
     if (file != "") {
         pRes = static_cast<CResDLG*>(g_pChitin->cDimm.GetResObject(file, 0x3F3, TRUE));
         if (pRes == NULL) {
+            Iwd2DebugLog("CGameDialogSprite::Initialize RESOURCE NOT FOUND file='%s'", szFile);
             cNewFile = "";
         } else {
             bRequested = TRUE;
@@ -163,10 +168,10 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
     }
 
     if (!bValid) {
+        Iwd2DebugLog("CGameDialogSprite::Initialize INVALID file='%s' pRes=%p probeSize=%lu",
+            szFile, pRes, nProbeSize);
         ClearMarshal();
     } else {
-        m_file = file;
-
         void* pData = NULL;
         DWORD nSize = 0;
         if (pRes != NULL) {
@@ -177,7 +182,15 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
             pData = pRes->Demand();
         }
 
+        Iwd2DebugLog("CGameDialogSprite::Initialize LOADING file='%s' pData=%p nSize=%lu",
+            szFile, pData, nSize);
+
         LoadEntries(pData, nSize, characterIndex, talkerIndex);
+
+        m_file = file;
+
+        Iwd2DebugLog("CGameDialogSprite::Initialize LOADED file='%s' entries=%d ordered=%d",
+            szFile, m_dialogEntries.GetCount(), m_dialogEntriesOrdered.GetCount());
 
         if (pRes != NULL) {
             static_cast<CRes*>(pRes)->Release();
@@ -307,10 +320,7 @@ void CGameDialogSprite::LoadEntries(void* pData, DWORD nSize, LONG characterInde
         } while (rc == CGameObjectArray::TIMEOUT);
     } while (rc == CGameObjectArray::DELETED);
     if (rc == CGameObjectArray::SUCCESS) {
-        // Player portrait color table lives at .rdata 0x85e8d8; index =
-        // sprite byte at offset 0x5CA (party-slot color id).
-        m_playerColor = (reinterpret_cast<const COLORREF*>(0x85e8d8))[
-            *(reinterpret_cast<const BYTE*>(pSprite) + 0x5ca)];
+        m_playerColor = CVidPalette::RANGE_COLORS[pSprite->GetBaseStats()->m_colors[CVIDPALETTE_RANGE_MAIN_CLOTH]];
         m_playerName = pSprite->GetName();
         g_pBaldurChitin->GetObjectGame()->m_cObjectArray.ReleaseShare(characterIndex,
             CGameObjectArray::THREAD_ASYNCH,
@@ -872,10 +882,7 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
     STR_RES strRes;
     g_pBaldurChitin->GetTlkTable().Fetch(m_dialogText, strRes);
 
-    // Speaker portrait color (party-slot table at .rdata 0x85e8d8, indexed by
-    // sprite byte 0x5ca).
-    COLORREF rgbSpeaker = (reinterpret_cast<const COLORREF*>(0x85e8d8))[
-        *(reinterpret_cast<const BYTE*>(pSprite) + 0x5ca)];
+    COLORREF rgbSpeaker = CVidPalette::RANGE_COLORS[pSprite->GetBaseStats()->m_colors[CVIDPALETTE_RANGE_MAIN_CLOTH]];
 
     // Per-text VO. Binary 0x484978..0x4849cf: pin the strRes sound on channel 6
     // (CHAN_DIALOG), mark fire-and-forget unless it loops, then SleepEx(10) +

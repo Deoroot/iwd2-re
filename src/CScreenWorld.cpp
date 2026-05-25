@@ -1596,16 +1596,33 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
 
     SetDialogTokens(pCharacter);
 
+    // Binary 0x68EE70: pause world timer during dialog.
+    g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->StopTime();
+
+    // Binary 0x68F0E8: set game input mode to dialog (0x182 = SP dialog).
+    g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode = 0x182;
+
+    // TODO: Full panel switch (panel 7 activation, viewport resize) deferred.
+    // Dialog text renders into the existing HUD text area for now.
+
     m_internalLoadedDialog.Initialize(pTalker->m_dialog, pCharacter->m_id, pTalker->m_id);
 
     BOOL started = m_internalLoadedDialog.StartDialog(pTalker);
     Iwd2DebugLog("CScreenWorld::StartDialog talkerId=%ld started=%d", pTalker->m_id, started);
+
+    if (!started) {
+        EndDialog(FALSE, TRUE);
+    }
+
     return started;
 }
 
 void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
 {
-    // TODO: Incomplete.
+    g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->StartTime();
+    g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode = 0xFFFFFFFF;
+    m_internalLoadedDialog.EndDialog();
+    m_nPopupState = -1;
 }
 
 // FIXME: `areaName` should be reference.

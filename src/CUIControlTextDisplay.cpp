@@ -130,7 +130,38 @@ void CUIControlTextDisplay::SetActive(BOOLEAN bActive)
 // 0x4E1F00
 void CUIControlTextDisplay::CopyDisplay(CUIControlTextDisplay* pOldDisplay)
 {
-    // TODO: Incomplete.
+    // Binary 0x4E1F00: share the string list from pOldDisplay so this
+    // control renders the same text. Controls with field_AB6==FALSE are
+    // "viewer" controls that borrow another control's string list.
+    if (!field_AB6) {
+        m_plstStrings = pOldDisplay->m_plstStrings;
+    }
+
+    field_A6C = pOldDisplay->field_A6C;
+    m_posHighlightedItem = NULL;
+
+    if (pOldDisplay == this || m_plstStrings == NULL) {
+        return;
+    }
+
+    if (m_plstStrings->GetCount() < 1) {
+        m_posTopString = NULL;
+    } else {
+        m_posTopString = pOldDisplay->m_posTopString;
+        if (m_posTopString == NULL && m_plstStrings->GetCount() > 0) {
+            m_posTopString = m_plstStrings->GetHeadPosition();
+        }
+    }
+
+    POSITION pos = m_plstStrings->GetHeadPosition();
+    m_nTopIndex = 0;
+    while (pos != NULL) {
+        if (pos == m_posTopString) {
+            break;
+        }
+        m_plstStrings->GetNext(pos);
+        m_nTopIndex++;
+    }
 }
 
 // 0x4E20F0

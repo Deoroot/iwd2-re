@@ -34,8 +34,7 @@ BOOL CResDLG::Parse(void* pData)
         return FALSE;
     }
 
-    DWORD* header = reinterpret_cast<DWORD*>(pData);
-    if (header[0] != 'DLG ' || header[1] != 'V1.0') {
+    if (memcmp(pData, "DLG V1.0", 8) != 0) {
         return FALSE;
     }
 

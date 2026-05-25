@@ -5136,7 +5136,12 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE;
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ENTER_DIALOG
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_REPLIES;
 }
 
 // 0x4F7620
