@@ -3,7 +3,9 @@
 
 #include "CGameEffectList.h"
 #include "CGameObject.h"
+#include "CVidCell.h"
 #include "CSound.h"
+#include "IcewindCVisualEffect.h"
 
 class CGameArea;
 
@@ -32,6 +34,21 @@ public:
     /* 0166 */ BOOL m_loopArrivalSound;
     /* 016A */ BOOLEAN m_bHasHeight;
     /* 0182 */ LONG m_nTargetId;
+};
+
+class CProjectileBAM : public CProjectile {
+public:
+    CProjectileBAM(const CResRef& visualResRef, const CResRef& arrivalSoundRef, BYTE sequenceDelay, BYTE initialDelay, const IcewindCVisualEffect& visualEffect);
+
+    void AIUpdate() override;
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;
+
+private:
+    /* 0192 */ CVidCell m_vidCell;
+    /* 026C */ IcewindCVisualEffect m_visualEffect;
+    /* 032C */ BYTE m_sequenceDelay;
+    /* 032D */ BYTE m_initialDelay;
 };
 
 #endif /* CPROJECTILE_H_ */

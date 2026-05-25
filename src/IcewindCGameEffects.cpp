@@ -2,7 +2,9 @@
 
 #include "CBaldurChitin.h"
 #include "CGameSprite.h"
+#include "CProjectile.h"
 #include "CInfGame.h"
+#include "CTimerWorld.h"
 #include "CUtil.h"
 #include "Icewind586B70.h"
 #include "IcewindMisc.h"
@@ -62,6 +64,76 @@ CGameEffect* IcewindCGameEffectCastingGlow::Copy()
     delete effect;
     copy->CopyFromBase(this);
     return copy;
+}
+
+// 0x55E130
+// INCOMPLETE: only the CastingGlow BAM projectile path recovered; the global
+// projectile switch (0x57B0C0) dispatching all projectile types is not yet
+// implemented. Only effects 1-8 (casting glow schools) fire CProjectileBAM.
+BOOL IcewindCGameEffectCastingGlow::ApplyEffect(CGameSprite* pSprite)
+{
+    WORD projectileType;
+    CResRef visualResRef;
+
+    switch (m_dwFlags) {
+    case 1:
+        projectileType = 0x71;
+        visualResRef = "AbjurCG";
+        break;
+    case 2:
+        projectileType = 0x73;
+        visualResRef = "ConjuCG";
+        break;
+    case 3:
+        projectileType = 0x75;
+        visualResRef = "DivinCG";
+        break;
+    case 4:
+        projectileType = 0x70;
+        visualResRef = "EnchaCG";
+        break;
+    case 5:
+        projectileType = 0x72;
+        visualResRef = "IllusCG";
+        break;
+    case 6:
+        projectileType = 0x74;
+        visualResRef = "InvocCG";
+        break;
+    case 7:
+        projectileType = 0x6E;
+        visualResRef = "NecroCG";
+        break;
+    case 8:
+        projectileType = 0x6F;
+        visualResRef = "AlterCG";
+        break;
+    default:
+        m_done = TRUE;
+        return TRUE;
+    }
+
+    IcewindCVisualEffect visualEffect;
+    visualEffect.SetCopyFromBack(TRUE);
+
+    BYTE sequenceDelay = static_cast<BYTE>(m_duration - g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime);
+    CProjectileBAM* pProjectile = new CProjectileBAM(visualResRef,
+        CResRef(""),
+        sequenceDelay,
+        0,
+        visualEffect);
+    pProjectile->m_projectileType = projectileType;
+
+    CPoint target = pSprite->GetPos();
+    pProjectile->Fire(pSprite->GetArea(),
+        pSprite->GetId(),
+        pSprite->GetId(),
+        target,
+        pProjectile->DetermineHeight(pSprite),
+        0);
+
+    m_done = TRUE;
+    return TRUE;
 }
 
 // -----------------------------------------------------------------------------
