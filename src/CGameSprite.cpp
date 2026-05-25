@@ -10626,39 +10626,205 @@ BOOL CGameSprite::CheckInvisibility(BOOL bSeesInvisible)
 // replay it without re-loading, plays the 3D-positioned local sound, and
 // queues a CMessagePlaySoundRef on channel 4 so remote clients hear the
 // same cue.
+namespace {
+
+const char* GetCastingSoundSuffix(WORD animationType, BOOL useDefault)
+{
+    switch (animationType) {
+    case 9: return "07";
+    case 10: return "08";
+    case 11: return "05";
+    case 12: return "02";
+    case 13: return "01";
+    case 14: return "03";
+    case 15: return "06";
+    case 16: return "04";
+    default: return useDefault ? "01" : NULL;
+    }
+}
+
+BOOL GetCastingChantResRef(WORD animationType, char gender, char casterType, CString& resName)
+{
+    if (gender == 'N') {
+        return FALSE;
+    }
+
+    CString base("CHA_");
+    base += gender;
+    base += casterType;
+
+    // The original advances RNG for these chant variants even though the
+    // recovered branch uses fixed suffixes.
+    switch (animationType) {
+    case 9:
+        rand();
+        resName.Format("%s1%c", (LPCSTR)base, '3');
+        break;
+    case 10:
+        rand();
+        resName.Format("%s1%c", (LPCSTR)base, '5');
+        break;
+    case 11:
+        rand();
+        resName = base;
+        resName += "09";
+        break;
+    case 12:
+        rand();
+        resName.Format("%s0%c", (LPCSTR)base, '3');
+        break;
+    case 13:
+        rand();
+        resName.Format("%s0%c", (LPCSTR)base, '1');
+        break;
+    case 14:
+        rand();
+        resName.Format("%s0%c", (LPCSTR)base, '5');
+        break;
+    case 15:
+        rand();
+        resName.Format("%s1%c", (LPCSTR)base, '1');
+        break;
+    case 16:
+        rand();
+        resName.Format("%s0%c", (LPCSTR)base, '7');
+        break;
+    default:
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+void PlayCastingSound(CSound& sound, const CResRef& resRef, BYTE channel, CGameArea* pArea, const CPoint& pos, LONG posZ, LONG id)
+{
+    sound.Stop();
+    sound.SetChannel(channel, reinterpret_cast<DWORD>(pArea));
+    sound.SetResRef(resRef, TRUE, TRUE);
+    sound.Play(pos.x, pos.y, posZ, FALSE);
+
+    CMessagePlaySoundRef* msg = new CMessagePlaySoundRef(resRef, id, id);
+    msg->m_nChannel = channel;
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+}
+
+BOOL GetCastingVisualEffect(WORD animationType, WORD& effectID, LONG& effectAmount, DWORD& dwFlags)
+{
+    effectAmount = 0;
+
+    switch (animationType) {
+    case 9:
+        effectID = ICEWIND_CGAMEEFFECT_CASTINGGLOW;
+        dwFlags = 7;
+        break;
+    case 10:
+        effectID = ICEWIND_CGAMEEFFECT_CASTINGGLOW;
+        dwFlags = 8;
+        break;
+    case 11:
+        effectID = ICEWIND_CGAMEEFFECT_CASTINGGLOW;
+        dwFlags = 4;
+        break;
+    case 12:
+        effectID = ICEWIND_CGAMEEFFECT_CASTINGGLOW;
+        dwFlags = 1;
+        break;
+    case 13:
+        effectID = ICEWIND_CGAMEEFFECT_CASTINGGLOW;
+        dwFlags = 5;
+        break;
+    case 14:
+        effectID = ICEWIND_CGAMEEFFECT_CASTINGGLOW;
+        dwFlags = 2;
+        break;
+    case 15:
+        effectID = ICEWIND_CGAMEEFFECT_CASTINGGLOW;
+        dwFlags = 6;
+        break;
+    case 16:
+        effectID = ICEWIND_CGAMEEFFECT_CASTINGGLOW;
+        dwFlags = 3;
+        break;
+    case 17:
+    case 26:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 2;
+        dwFlags = 3;
+        break;
+    case 18:
+    case 27:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 1;
+        dwFlags = 3;
+        break;
+    case 19:
+    case 28:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 2;
+        dwFlags = 3;
+        break;
+    case 20:
+    case 29:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 4;
+        dwFlags = 3;
+        break;
+    case 21:
+    case 30:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 5;
+        dwFlags = 3;
+        break;
+    case 22:
+    case 31:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 11;
+        dwFlags = 3;
+        break;
+    case 23:
+    case 32:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 6;
+        dwFlags = 3;
+        break;
+    case 24:
+    case 33:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 7;
+        dwFlags = 3;
+        break;
+    case 25:
+    case 34:
+        effectID = CGAMEEFFECT_SPARKLE;
+        effectAmount = 8;
+        dwFlags = 3;
+        break;
+    default:
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+}
+
 void CGameSprite::ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st* pAbility)
 {
     if (pSpell == NULL || pAbility == NULL) {
         return;
     }
     SHORT casterType = pSpell->GetCasterType();
-
-    CString resName("CAS_");
-    resName += (casterType == 2) ? 'P' : 'M';
-    switch (pSpell->GetAnimationType()) {
-    case 9:  resName += "07"; break;
-    case 10: resName += "08"; break;
-    case 11: resName += "05"; break;
-    case 12: resName += "02"; break;
-    case 13: resName += "01"; break;
-    case 14: resName += "03"; break;
-    case 15: resName += "06"; break;
-    case 16: resName += "04"; break;
-    default:
+    const char* suffix = GetCastingSoundSuffix(pSpell->GetAnimationType(), FALSE);
+    if (suffix == NULL) {
         return;
     }
 
-    m_sndMagic.Stop();
-    m_sndMagic.SetChannel(4, reinterpret_cast<DWORD>(m_pArea));
+    CString resName("CAS_");
+    resName += (casterType == 2) ? 'P' : 'M';
+    resName += suffix;
 
-    CResRef newResRef = static_cast<LPCSTR>(resName);
-    m_sndMagic.SetResRef(newResRef, TRUE, TRUE);
-
-    m_sndMagic.Play(m_pos.x, m_pos.y, m_posZ, FALSE);
-
-    CMessagePlaySoundRef* msg = new CMessagePlaySoundRef(newResRef, m_id, m_id);
-    msg->m_nChannel = 4;
-    g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+    CResRef resRef = static_cast<LPCSTR>(resName);
+    PlayCastingSound(m_sndMagic, resRef, 4, m_pArea, m_pos, m_posZ, m_id);
 }
 
 // 0x755A70
@@ -10692,23 +10858,73 @@ void CGameSprite::ApplyCastingEffect(CSpell* pSpell,
     const Spell_ability_st* pAbility,
     const CPoint& targetPos)
 {
-    (void)targetPos;
     if (pSpell == NULL || pAbility == NULL) {
         return;
     }
 
-    // TODO (multi-session): chant voice block (m_sndVoice / channel 2,
-    // "CHA_"/HARPY06 resref family, random %s0%c/%s1%c variant tag,
-    // IsStandardRace gate, speedFactor-vs-mentalSpeed gate).
+    SHORT casterType = pSpell->GetCasterType();
+    WORD animationType = pSpell->GetAnimationType();
+    char casterTypeChar = (casterType == 2) ? 'P' : 'M';
 
-    // TODO (multi-session): pre-cast audio block (m_sndMagic / channel 4,
-    // "PRE_" + casterType + "0N", same SetResRef + Play +
-    // CMessagePlaySoundRef pattern as ApplyCastingEffectPost).
+    SHORT chantDelay = static_cast<SHORT>(pAbility->speedFactor) - m_derivedStats.m_nMentalSpeed;
+    char genderChar = 'N';
+    if (chantDelay >= 3) {
+        genderChar = (m_typeAI.m_nGender == CAIObjectType::SEX_FEMALE) ? 'F' : 'M';
+    }
 
-    // TODO (multi-session): projectile-spawn ITEM_EFFECT + DecodeEffect
-    // queue (opcode 0x29 / 0xEB depending on GetAnimationType, duration
-    // = speedFactor*10 - mentalSpeed adjusted by Empower-Spell feat 0x20,
-    // CMessageAddEffect on self).
+    CString chantResName;
+    BOOL playChant = GetCastingChantResRef(animationType, genderChar, casterTypeChar, chantResName);
+    if (m_typeAI.m_nRace == CAIObjectType::R_HARPY) {
+        chantResName = "HARPY06";
+        playChant = TRUE;
+    }
+    if (playChant
+        && (m_typeAI.m_nRace == CAIObjectType::R_HARPY
+            || (genderChar != 'N' && IcewindMisc::IsStandardRace(this)))) {
+        CResRef chantResRef = static_cast<LPCSTR>(chantResName);
+        PlayCastingSound(m_sndVoice, chantResRef, 2, m_pArea, m_pos, m_posZ, m_id);
+    }
+
+    CString preResName("PRE_");
+    preResName += casterTypeChar;
+    preResName += GetCastingSoundSuffix(animationType, TRUE);
+
+    CResRef preResRef = static_cast<LPCSTR>(preResName);
+    PlayCastingSound(m_sndMagic, preResRef, 4, m_pArea, m_pos, m_posZ, m_id);
+
+    WORD visualEffectID;
+    LONG visualEffectAmount;
+    DWORD visualDwFlags;
+    if (GetCastingVisualEffect(animationType, visualEffectID, visualEffectAmount, visualDwFlags)) {
+        WORD adjustedSpeed = pAbility->speedFactor;
+        if (HasFeat(32)) {
+            adjustedSpeed = adjustedSpeed > 0 ? adjustedSpeed - 1 : 0;
+        }
+
+        LONG durationDelta = adjustedSpeed - m_derivedStats.m_nMentalSpeed;
+        if (durationDelta < 0) {
+            durationDelta = 0;
+        }
+        durationDelta = durationDelta * 100 / 10;
+
+        ITEM_EFFECT effect;
+        CGameEffect::ClearItemEffect(&effect, visualEffectID);
+        effect.effectAmount = visualEffectAmount;
+        effect.dwFlags = visualDwFlags;
+        effect.durationType = 0x1000;
+        effect.duration = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime
+            + durationDelta
+            + 4;
+
+        CGameEffect* pVisualEffect = CGameEffect::DecodeEffect(&effect,
+            targetPos,
+            m_id,
+            CPoint(-1, -1));
+        if (pVisualEffect != NULL) {
+            CMessage* msg = new CMessageAddEffect(pVisualEffect, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+        }
+    }
 
     // Casting-effect dispatch -- iterate CSpell::GetCastingEffect and
     // forward each effect by m_targetType.
