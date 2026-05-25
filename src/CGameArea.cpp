@@ -603,6 +603,113 @@ LONG CGameArea::GetNearest(LONG startObject, const CAIObjectType& type, SHORT ra
     return -1;
 }
 
+// 0x46CD20
+void CGameArea::GetCloseObjects(POSITION posStart, const CPoint& center, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOL lineOfSight, BOOL checkForNonSprites)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
+    // __LINE__: 1849
+    UTIL_ASSERT(terrainTable != NULL);
+
+    CPoint pt;
+    pt.x = center.x;
+    pt.y = 4 * center.y / 3;
+
+    // The vertical-sort list is ordered by y, so walking outward from the
+    // searcher's own node lets each direction stop as soon as the y delta
+    // exceeds the range. Walk forward (toward the tail) first, then backward.
+    POSITION pos = posStart;
+    m_lVertSort.GetNext(pos);
+    while (pos != NULL) {
+        LONG nId = reinterpret_cast<LONG>(m_lVertSort.GetNext(pos));
+
+        CGameObject* pObject;
+
+        BYTE rc = m_pGame->GetObjectArray()->GetShare(nId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+        if (rc == CGameObjectArray::SUCCESS) {
+            BOOL bStop = FALSE;
+            if (pObject->GetObjectType() != CGameObject::TYPE_SPRITE
+                || static_cast<CGameSprite*>(pObject)->GetBaseStats()->m_bStealthMode != 1) {
+                if (pObject->GetVertListPos() != NULL) {
+                    const CPoint& ptObject = pObject->GetPos();
+                    LONG dy = pt.y - 4 * ptObject.y / 3;
+                    if (dy * dy < range * range + 1) {
+                        if ((pt.x - ptObject.x) * (pt.x - ptObject.x) + dy * dy < range * range + 1
+                            && pObject->GetAIType().OfType(type, checkForNonSprites, !checkForNonSprites)
+                            && (!lineOfSight
+                                || CheckLOS(center, pObject->GetPos(), terrainTable, FALSE))
+                            && (pObject->GetObjectType() != CGameObject::TYPE_SPRITE
+                                || (static_cast<CGameSprite*>(pObject)->m_active
+                                    && static_cast<CGameSprite*>(pObject)->m_activeAI))
+                            && (pObject->GetObjectType() != CGameObject::TYPE_SPRITE
+                                || static_cast<CGameSprite*>(pObject)->GetAnimation()->GetAboveGround())) {
+                            targets.AddTail(reinterpret_cast<LONG*>(nId));
+                        }
+                    } else {
+                        bStop = TRUE;
+                    }
+                }
+            }
+
+            m_pGame->GetObjectArray()->ReleaseShare(nId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bStop) {
+                break;
+            }
+        }
+    }
+
+    pos = posStart;
+    m_lVertSort.GetPrev(pos);
+    while (pos != NULL) {
+        LONG nId = reinterpret_cast<LONG>(m_lVertSort.GetPrev(pos));
+
+        CGameObject* pObject;
+
+        BYTE rc = m_pGame->GetObjectArray()->GetShare(nId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+        if (rc == CGameObjectArray::SUCCESS) {
+            BOOL bStop = FALSE;
+            if (pObject->GetObjectType() != CGameObject::TYPE_SPRITE
+                || static_cast<CGameSprite*>(pObject)->GetBaseStats()->m_bStealthMode != 1) {
+                if (pObject->GetVertListPos() != NULL) {
+                    const CPoint& ptObject = pObject->GetPos();
+                    LONG dy = pt.y - 4 * ptObject.y / 3;
+                    if (dy * dy < range * range + 1) {
+                        if ((pt.x - ptObject.x) * (pt.x - ptObject.x) + dy * dy < range * range + 1
+                            && pObject->GetAIType().OfType(type, checkForNonSprites, !checkForNonSprites)
+                            && (!lineOfSight
+                                || CheckLOS(center, pObject->GetPos(), terrainTable, FALSE))
+                            && (pObject->GetObjectType() != CGameObject::TYPE_SPRITE
+                                || (static_cast<CGameSprite*>(pObject)->m_active
+                                    && static_cast<CGameSprite*>(pObject)->m_activeAI))
+                            && (pObject->GetObjectType() != CGameObject::TYPE_SPRITE
+                                || static_cast<CGameSprite*>(pObject)->GetAnimation()->GetAboveGround())) {
+                            targets.AddTail(reinterpret_cast<LONG*>(nId));
+                        }
+                    } else {
+                        bStop = TRUE;
+                    }
+                }
+            }
+
+            m_pGame->GetObjectArray()->ReleaseShare(nId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bStop) {
+                break;
+            }
+        }
+    }
+}
+
 // 0x46D140
 void CGameArea::GetAllInRange(const CPoint& center, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOL lineOfSight, BOOL checkForNonSprites)
 {
