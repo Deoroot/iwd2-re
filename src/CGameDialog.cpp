@@ -933,9 +933,11 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         g_pBaldurChitin->m_pEngineWorld->StartScroll(pSprite->GetPos(), 5);
     }
 
-    // TODO: pause-mode SetMessageScreen overlay (binary 0x484c00..0x484c50),
-    // dialog sound playback (binary 0x484978..0x4849cf), and pause-mode
-    // color flip for reply lines deferred for task #4.
+    // TODO: pause-mode SetMessageScreen overlay (binary 0x484c00..0x484c50).
+
+    // Binary 0x485070: reply text color flips to red when player controls dialog.
+    BOOLEAN bInControl = g_pBaldurChitin->m_pEngineWorld->m_bInControlOfDialog;
+    COLORREF replyTextColor = bInControl ? RGB(255, 46, 33) : RGB(215, 215, 190);
 
     INT nValid = 0;
 
@@ -980,7 +982,7 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
             CString(""),
             sInline,
             playerColor,
-            RGB(215, 215, 190),
+            replyTextColor,
             i,
             FALSE);
     }
@@ -1028,7 +1030,7 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
             sLine,
             rrep.szText,
             playerColor,
-            RGB(215, 215, 190),
+            replyTextColor,
             i,
             FALSE);
         pReply->m_displayListId = static_cast<BYTE>(nValid);

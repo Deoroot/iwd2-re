@@ -1692,6 +1692,16 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
     pButtonPanel->SetEnabled(FALSE);
     SetActionPanelActive(FALSE, FALSE);
 
+    // Binary 0x68eff6: fully hide action and button panels during dialog.
+    pActionPanel->SetInactiveRender(FALSE);
+    pButtonPanel->SetActive(FALSE);
+    pButtonPanel->SetInactiveRender(FALSE);
+    CUIControlBase* pBtnCtrl0 = pButtonPanel->GetControl(0);
+    if (pBtnCtrl0 != NULL) {
+        pBtnCtrl0->SetActive(FALSE);
+    }
+    pButtonPanel->InvalidateRect(NULL);
+
     pNormalPanel->SetActive(FALSE);
     pDialogPanel->SetActive(TRUE);
 
@@ -1821,7 +1831,7 @@ void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
         pButtonPanel->SetInactiveRender(FALSE);
     }
 
-    SetActionPanelActive(TRUE, FALSE);
+    SetActionPanelActive(TRUE, TRUE);
 
     POSITION posTopString = NULL;
     if (m_pActiveDialogDisplay != NULL
