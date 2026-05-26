@@ -887,13 +887,21 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
     strRes.cSound.Play(FALSE);
 
     g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
-        strRes.szText,
+        CString(""),
         rgbSpeaker,
-        RGB(190, 215, 215),
+        RGB(215, 215, 190),
         -1,
         FALSE);
     g_pBaldurChitin->m_pEngineWorld->DisplayText(pSprite->GetName(),
+        strRes.szText,
+        rgbSpeaker,
+        RGB(215, 215, 190),
+        -1,
+        FALSE);
+    g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
         CString(""),
+        rgbSpeaker,
+        RGB(215, 215, 190),
         -1,
         FALSE);
 
@@ -972,7 +980,7 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
             CString(""),
             sInline,
             playerColor,
-            RGB(190, 215, 215),
+            RGB(215, 215, 190),
             i,
             FALSE);
     }
@@ -1006,7 +1014,7 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         g_pBaldurChitin->GetTlkTable().Fetch(pReply->m_replyText, rrep);
 
         CString sLine;
-        sLine.Format("%d. %s", nValid, static_cast<LPCTSTR>(rrep.szText));
+        sLine.Format("    %d:", nValid);
 
         rrep.cSound.SetChannel(6,
             reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
@@ -1016,11 +1024,11 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         SleepEx(10, 0);
         rrep.cSound.Play(FALSE);
 
-        // lMarker = i (array index) so OnItemSelected can hand the same
-        // value to AsynchronousUpdate -> pEntry->GetAt(marker)->Apply(...).
         pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
             sLine,
-            CString(""),
+            rrep.szText,
+            playerColor,
+            RGB(215, 215, 190),
             i,
             FALSE);
         pReply->m_displayListId = static_cast<BYTE>(nValid);
@@ -1031,6 +1039,5 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         // Binary also pushes a "End dialog" auto-continue button here; deferred.
     }
 
-    (void)playerColor;
     (void)a3;
 }
