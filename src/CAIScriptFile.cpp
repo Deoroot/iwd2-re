@@ -185,7 +185,7 @@ SHORT CAIScriptFile::ParseOneLine(CString sLine)
         } else {
             ParseError("Misplaced END.");
         }
-    } else if (sLine == COMMENT) {
+    } else if (sLine != COMMENT) {
         if (sLine.GetLength() != 0) {
             switch (m_parseMode) {
             case 0:
