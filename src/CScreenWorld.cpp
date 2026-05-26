@@ -1688,16 +1688,12 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
     pGame->GetWorldTimer()->StopTime();
     m_bPaused = TRUE;
 
+    pActionPanel->SetEnabled(FALSE);
+    pButtonPanel->SetEnabled(FALSE);
+    SetActionPanelActive(FALSE, FALSE);
+
     pNormalPanel->SetActive(FALSE);
     pDialogPanel->SetActive(TRUE);
-
-    // Disable each control individually to find the crash source.
-    // Panel 7 has: ctrl 0 (button), ctrl 1 (text), ctrl 2 (scrollbar), ctrl 11 (portrait)
-    CUIControlBase* pCtrl0 = pDialogPanel->GetControl(0);
-    CUIControlBase* pCtrl2 = pDialogPanel->GetControl(2);
-    CUIControlBase* pCtrl11 = pDialogPanel->GetControl(11);
-    // All controls enabled — pRes NULL guard in CUIControlButton::Render
-    // protects against uninitialized BAM resources.
 
     m_pActiveChatDisplay = NULL;
 
@@ -1774,7 +1770,7 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
         if (pPortraitControl != NULL) {
             CUIControlButtonMultiPlayerPortrait* pPortrait = static_cast<CUIControlButtonMultiPlayerPortrait*>(pPortraitControl);
             pPortrait->SetEnabled(FALSE);
-            pPortrait->SetPortrait(CResRef(pTalker->m_baseStats.m_portraitSmall));
+            pPortrait->SetPortrait(CResRef(pCharacter->m_baseStats.m_portraitSmall));
         }
 
         return TRUE;
