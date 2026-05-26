@@ -371,6 +371,9 @@ BOOL CUIControlScrollBar::Render(BOOL bForce)
     m_cVidCell.pRes->Demand();
     m_cVidCell.RealizePalette(0);
 
+    m_pScrollUpButton->m_cVidCell.pRes->Demand();
+    m_pScrollDownButton->m_cVidCell.pRes->Demand();
+
     CRect rControlRect(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
 
     CRect rDirtyRect;

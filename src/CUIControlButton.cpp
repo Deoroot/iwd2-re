@@ -287,6 +287,10 @@ BOOL CUIControlButton::Render(BOOL bForce)
     CPoint pt = rControlRect.TopLeft() - rDirtyRect.TopLeft();
     rDirtyRect.OffsetRect(-rDirtyRect.left, -rDirtyRect.top);
 
+    if (m_cVidCell.pRes == NULL) {
+        pVidInf->BKUnlock();
+        return FALSE;
+    }
     m_cVidCell.pRes->Demand();
 
     DWORD dwFlags = field_64C != 0 ? 0x80001 : 0x1;

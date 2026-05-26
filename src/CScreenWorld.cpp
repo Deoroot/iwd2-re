@@ -1688,9 +1688,26 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
     pGame->GetWorldTimer()->StopTime();
     m_bPaused = TRUE;
 
-    // DEFERRED: full panel switch (panel 0→7, viewport resize) causes a
-    // render crash (NULL+0x44). Keep HUD panel active for now.
+    pNormalPanel->SetActive(FALSE);
+    pDialogPanel->SetActive(TRUE);
+
+    // Disable each control individually to find the crash source.
+    // Panel 7 has: ctrl 0 (button), ctrl 1 (text), ctrl 2 (scrollbar), ctrl 11 (portrait)
+    CUIControlBase* pCtrl0 = pDialogPanel->GetControl(0);
+    CUIControlBase* pCtrl2 = pDialogPanel->GetControl(2);
+    CUIControlBase* pCtrl11 = pDialogPanel->GetControl(11);
+    // All controls enabled — pRes NULL guard in CUIControlButton::Render
+    // protects against uninitialized BAM resources.
+
     m_pActiveChatDisplay = NULL;
+
+    CUIControlTextDisplay* pOldDialogDisplay = m_pActiveDialogDisplay;
+    m_pActiveDialogDisplay = static_cast<CUIControlTextDisplay*>(pDialogPanel->GetControl(1));
+    if (pOldDialogDisplay != NULL && m_pActiveDialogDisplay != NULL) {
+        m_pActiveDialogDisplay->CopyDisplay(pOldDialogDisplay);
+    }
+
+    SetNewViewSize(CInfinity::stru_8E7958, FALSE);
 
     POSITION posBlank1 = DisplayText(CString(""), CString(""), -1, FALSE);
     POSITION posBlank2 = DisplayText(CString(""), CString(""), -1, TRUE);
