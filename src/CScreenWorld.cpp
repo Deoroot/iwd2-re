@@ -1688,14 +1688,16 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
     pGame->GetWorldTimer()->StopTime();
     m_bPaused = TRUE;
 
-    pActionPanel->SetEnabled(FALSE);
-    pButtonPanel->SetEnabled(FALSE);
+    // Binary 0x68efdb: re-enable action and normal panels (resets
+    // InactiveRender to FALSE and activates all controls), then immediately
+    // deactivate via SetActionPanelActive so they don't render.
+    pActionPanel->SetEnabled(TRUE);
+    pNormalPanel->SetEnabled(TRUE);
     SetActionPanelActive(FALSE, FALSE);
 
-    // Binary 0x68eff6: hide action panel (portraits) during dialog.
-    // Panel 9 (button) stays InactiveRender=TRUE so Handle() can show
-    // the Continue button on control 0.
-    pActionPanel->SetInactiveRender(FALSE);
+    // Binary 0x68eff6: deactivate button panel and its controls during
+    // dialog. Panel stays InactiveRender=TRUE so Handle() can show the
+    // Continue button on control 0.
     pButtonPanel->SetActive(FALSE);
     CUIControlBase* pBtnCtrl0 = pButtonPanel->GetControl(0);
     if (pBtnCtrl0 != NULL) {
