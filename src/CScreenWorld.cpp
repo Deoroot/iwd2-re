@@ -1688,37 +1688,9 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
     pGame->GetWorldTimer()->StopTime();
     m_bPaused = TRUE;
 
-    pActionPanel->SetEnabled(TRUE);
-    pNormalPanel->SetEnabled(TRUE);
-    SetActionPanelActive(FALSE, FALSE);
-
-    pButtonPanel->SetActive(TRUE);
-    CUIControlBase* pButton = pButtonPanel->GetControl(0);
-    if (pButton != NULL) {
-        pButton->SetActive(FALSE);
-    }
-    pButtonPanel->InvalidateRect(NULL);
-
-    pDialogPanel->SetActive(FALSE);
-    pNormalPanel->SetActive(FALSE);
-    if (g_pChitin->cNetwork.GetSessionOpen()
-        && g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL) {
-        m_cUIManager.GetPanel(19)->SetActive(FALSE);
-        m_cUIManager.GetPanel(21)->SetActive(FALSE);
-        m_cUIManager.GetPanel(22)->SetActive(FALSE);
-    }
-
-    pDialogPanel->SetActive(TRUE);
-
-    CUIControlTextDisplay* pOldDialogDisplay = m_pActiveDialogDisplay;
-    m_pActiveDialogDisplay = static_cast<CUIControlTextDisplay*>(pDialogPanel->GetControl(1));
+    // DEFERRED: full panel switch (panel 0→7, viewport resize) causes a
+    // render crash (NULL+0x44). Keep HUD panel active for now.
     m_pActiveChatDisplay = NULL;
-    if (pOldDialogDisplay != NULL) {
-        m_pActiveDialogDisplay->CopyDisplay(pOldDialogDisplay);
-    }
-    CopyChatEditBox(pNormalPanel, pDialogPanel);
-
-    SetNewViewSize(CInfinity::stru_8E7958, FALSE);
 
     POSITION posBlank1 = DisplayText(CString(""), CString(""), -1, FALSE);
     POSITION posBlank2 = DisplayText(CString(""), CString(""), -1, TRUE);

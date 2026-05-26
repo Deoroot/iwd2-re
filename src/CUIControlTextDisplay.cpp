@@ -167,9 +167,9 @@ void CUIControlTextDisplay::CopyDisplay(CUIControlTextDisplay* pOldDisplay)
 // 0x4E20F0
 POSITION CUIControlTextDisplay::DisplayString(const CString& sLabel, const CString& sString, COLORREF rgbLabelColor, COLORREF rgbTextColor, LONG lMarker, BOOLEAN a6, BOOLEAN bTrim)
 {
-    // __FILE__: C:\Projects\Icewind2\src\Baldur\ChUIControls.cpp
-    // __LINE__: 5643
-    UTIL_ASSERT(m_plstStrings != NULL);
+    if (m_plstStrings == NULL) {
+        return NULL;
+    }
 
     if (field_A6C >= field_A68) {
         RemoveString(m_plstStrings->GetHeadPosition());
@@ -226,7 +226,7 @@ POSITION CUIControlTextDisplay::DisplayString(const CString& sLabel, const CStri
 // 0x4E22F0
 void CUIControlTextDisplay::AdjustScrollBar()
 {
-    if (m_nScrollBarID != -1) {
+    if (m_nScrollBarID != -1 && m_plstStrings != NULL) {
         CUIControlScrollBar* pScrollBar = static_cast<CUIControlScrollBar*>(m_pPanel->GetControl(m_nScrollBarID));
 
         // NOTE: Uninline.
@@ -868,6 +868,10 @@ void CUIControlTextDisplay::SetItemTextColor(POSITION posBossItem, COLORREF rgbC
 void CUIControlTextDisplay::TimerAsynchronousUpdate(BOOLEAN bInside)
 {
     CUIControlBase::TimerAsynchronousUpdate(bInside);
+
+    if (m_plstStrings == NULL) {
+        return;
+    }
 
     if (m_bActive) {
         if (m_posHighlightedItem != NULL && !bInside) {

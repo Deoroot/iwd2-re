@@ -44,10 +44,53 @@ static BOOL IsSupportedOS(DWORD& majorVersion, DWORD& minorVersion)
     return supported;
 }
 
+static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep)
+{
+    if (ep && ep->ExceptionRecord && ep->ContextRecord) {
+        FILE* f = fopen("iwd2-re-crash.log", "a");
+        if (f) {
+            fprintf(f, "CRASH code=0x%08lX eip=0x%08lX access=0x%08lX eax=0x%08lX ecx=0x%08lX edx=0x%08lX ebx=0x%08lX ebp=0x%08lX esp=0x%08lX esi=0x%08lX edi=0x%08lX\n",
+                ep->ExceptionRecord->ExceptionCode,
+                ep->ContextRecord->Eip,
+                (ep->ExceptionRecord->NumberParameters >= 2) ? (DWORD)ep->ExceptionRecord->ExceptionInformation[1] : 0,
+                ep->ContextRecord->Eax,
+                ep->ContextRecord->Ecx,
+                ep->ContextRecord->Edx,
+                ep->ContextRecord->Ebx,
+                ep->ContextRecord->Ebp,
+                ep->ContextRecord->Esp,
+                ep->ContextRecord->Esi,
+                ep->ContextRecord->Edi);
+            DWORD* stack = (DWORD*)ep->ContextRecord->Esp;
+            fprintf(f, "STACK");
+            for (int i = 0; i < 16; i++) {
+                __try { fprintf(f, " 0x%08lX", stack[i]); }
+                __except(1) { fprintf(f, " ????????"); }
+            }
+            fprintf(f, "\n");
+            DWORD* ebpChain = (DWORD*)ep->ContextRecord->Ebp;
+            fprintf(f, "FRAMES");
+            for (int i = 0; i < 10; i++) {
+                __try {
+                    DWORD retAddr = ebpChain[1];
+                    fprintf(f, " 0x%08lX", retAddr);
+                    ebpChain = (DWORD*)ebpChain[0];
+                    if (ebpChain == NULL) break;
+                } __except(1) { break; }
+            }
+            fprintf(f, "\n");
+            fclose(f);
+        }
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
+    SetUnhandledExceptionFilter(CrashHandler);
+
     // Enable CRT debug heap checking on every allocation
-    
+
 
     std::cout << std::endl;
     std::cout << "BEGIN LOGGING SESSION";

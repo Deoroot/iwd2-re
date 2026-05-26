@@ -353,6 +353,10 @@ BOOL CUIControlScrollBar::Render(BOOL bForce)
         return FALSE;
     }
 
+    if (m_pScrollUpButton == NULL || m_pScrollDownButton == NULL) {
+        return FALSE;
+    }
+
     if (!NeedRender() && !bForce) {
         return FALSE;
     }

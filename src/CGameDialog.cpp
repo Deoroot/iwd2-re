@@ -884,17 +884,11 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
     COLORREF rgbSpeaker = CVidPalette::RANGE_COLORS[pSprite->GetBaseStats()->m_colors[CVIDPALETTE_RANGE_MAIN_CLOTH]];
 
-    // Per-text VO. Binary 0x484978..0x4849cf: pin the strRes sound on channel 6
-    // (CHAN_DIALOG), mark fire-and-forget unless it loops, then SleepEx(10) +
-    // Play. The Sleep is the engine's hack to let the previous channel-6 sound
-    // get cancelled before the new one fires.
-    strRes.cSound.SetChannel(6,
-        reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
-    if (strRes.cSound.m_nLooping == 0) {
-        strRes.cSound.SetFireForget(TRUE);
-    }
-    SleepEx(10, 0);
-    strRes.cSound.Play(FALSE);
+    // Per-text VO. Binary 0x484978..0x4849cf. Disabled pending sound system
+    // investigation — async playback causes a crash (NULL+0x44 access violation
+    // in the audio render thread).
+    // strRes.cSound.SetChannel(6, ...);
+    // strRes.cSound.Play(FALSE);
 
     g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
         strRes.szText,
@@ -971,21 +965,9 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
             // Per-reply VO; same channel-6 pin + fire-and-forget pattern as
             // the entry text. Binary 0x485019..0x485047.
-            rrep.cSound.SetChannel(6,
-                reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
-            if (rrep.cSound.m_nLooping == 0) {
-                rrep.cSound.SetFireForget(TRUE);
-            }
-            SleepEx(10, 0);
-            rrep.cSound.Play(FALSE);
+            // VO disabled pending sound system investigation.
         }
 
-        // TODO: pause-mode color flip (RGB(255,46,33) when
-        // m_bInControlOfDialog is set). Binary 0x485097..0x4850b0.
-        //
-        // lMarker = i (array index) so CUIControlTextDisplayDialog::OnItemSelected
-        // can hand the same value to AsynchronousUpdate, which feeds it back
-        // into pEntry->GetAt(marker)->Apply(pSprite).
         pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
             CString(""),
             sInline,
@@ -1026,15 +1008,7 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         CString sLine;
         sLine.Format("%d. %s", nValid, static_cast<LPCTSTR>(rrep.szText));
 
-        // Per-reply VO; same channel-6 pin + fire-and-forget pattern as
-        // the entry text. Binary 0x485468..0x485496.
-        rrep.cSound.SetChannel(6,
-            reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
-        if (rrep.cSound.m_nLooping == 0) {
-            rrep.cSound.SetFireForget(TRUE);
-        }
-        SleepEx(10, 0);
-        rrep.cSound.Play(FALSE);
+        // VO disabled pending sound system investigation.
 
         // lMarker = i (array index) so OnItemSelected can hand the same
         // value to AsynchronousUpdate -> pEntry->GetAt(marker)->Apply(...).
