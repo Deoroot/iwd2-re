@@ -884,11 +884,13 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
     COLORREF rgbSpeaker = CVidPalette::RANGE_COLORS[pSprite->GetBaseStats()->m_colors[CVIDPALETTE_RANGE_MAIN_CLOTH]];
 
-    // Per-text VO. Binary 0x484978..0x4849cf. Disabled pending sound system
-    // investigation — async playback causes a crash (NULL+0x44 access violation
-    // in the audio render thread).
-    // strRes.cSound.SetChannel(6, ...);
-    // strRes.cSound.Play(FALSE);
+    strRes.cSound.SetChannel(6,
+        reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+    if (strRes.cSound.m_nLooping == 0) {
+        strRes.cSound.SetFireForget(TRUE);
+    }
+    SleepEx(10, 0);
+    strRes.cSound.Play(FALSE);
 
     g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
         strRes.szText,
@@ -963,9 +965,13 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
             pReply->m_removeIfPicked = FALSE;
             pReply->m_displayListId = static_cast<BYTE>(nValid);
 
-            // Per-reply VO; same channel-6 pin + fire-and-forget pattern as
-            // the entry text. Binary 0x485019..0x485047.
-            // VO disabled pending sound system investigation.
+            rrep.cSound.SetChannel(6,
+                reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+            if (rrep.cSound.m_nLooping == 0) {
+                rrep.cSound.SetFireForget(TRUE);
+            }
+            SleepEx(10, 0);
+            rrep.cSound.Play(FALSE);
         }
 
         pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
@@ -1008,7 +1014,13 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         CString sLine;
         sLine.Format("%d. %s", nValid, static_cast<LPCTSTR>(rrep.szText));
 
-        // VO disabled pending sound system investigation.
+        rrep.cSound.SetChannel(6,
+            reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+        if (rrep.cSound.m_nLooping == 0) {
+            rrep.cSound.SetFireForget(TRUE);
+        }
+        SleepEx(10, 0);
+        rrep.cSound.Play(FALSE);
 
         // lMarker = i (array index) so OnItemSelected can hand the same
         // value to AsynchronousUpdate -> pEntry->GetAt(marker)->Apply(...).
