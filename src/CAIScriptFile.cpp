@@ -251,7 +251,7 @@ SHORT CAIScriptFile::ParseTrigger(CString sData)
         return -1;
     }
 
-    element = ReadAfterChar(element, '(');
+    element = ReadAfterChar(sData, '(');
     if (element.IsEmpty()) {
         ParseError("Invalid trigger: Nothing after opening bracket '('");
         return -1;
