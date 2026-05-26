@@ -728,7 +728,6 @@ void CGameDialogSprite::AsynchronousUpdate()
     CGameDialogContinuation* pCont = NULL;
 
     if (marker == -1) {
-        // No pick yet -- the common case while waiting for input.
         pEntry->m_picked = FALSE;
     } else {
         pEntry->m_picked = TRUE;
@@ -757,11 +756,6 @@ void CGameDialogSprite::AsynchronousUpdate()
             g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
             g_pBaldurChitin->m_pEngineWorld->EndDialog(FALSE, TRUE);
         } else {
-            // Path B (binary 0x484158..0x484287): reply has a continuation.
-            // First swap talker if the next dialog file points at a
-            // different sprite (same-DLG branches no-op here; cross-DLG
-            // partial -- the area-search/Mo-spawn fallback inside
-            // SwitchTalker is still TODO).
             SwitchTalker(pCont->m_nextDialog, pSprite);
 
             CString sNextDialog;

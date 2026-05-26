@@ -4953,21 +4953,19 @@ CMessageHandler::~CMessageHandler()
     // TODO: Incomplete.
 }
 
+static BOOL Iwd2MessageRunRecovered(BYTE subType);
+
 // 0x4EE020
 void CMessageHandler::AsynchronousUpdate()
 {
-    // Process pending messages — minimal implementation
-    int nProcessed = 0;
     while (!m_messageList.IsEmpty()) {
         CMessage* pMsg = m_messageList.RemoveHead();
         if (pMsg != NULL) {
-            pMsg->Run();
+            if (Iwd2MessageRunRecovered(pMsg->GetMsgSubType())) {
+                pMsg->Run();
+            }
             delete pMsg;
-            nProcessed++;
         }
-    }
-    if (nProcessed > 0) {
-        // Messages processed
     }
 }
 
@@ -5147,11 +5145,13 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
 // 0x4F7620
 SHORT CMessageHandler::Broadcast(CMessage* message, BOOLEAN bSendMessageToSelf, BOOLEAN bIgnoreObjectControl)
 {
-    // TODO: Incomplete — only whitelisted subtypes have working Run().
-    if (message != NULL) {
-        if (Iwd2MessageRunRecovered(message->GetMsgSubType())) {
-            message->Run();
-        }
+    if (message == NULL) {
+        return -1;
+    }
+
+    if (bSendMessageToSelf) {
+        m_messageList.AddTail(message);
+    } else {
         delete message;
     }
     return 1;
@@ -5160,13 +5160,11 @@ SHORT CMessageHandler::Broadcast(CMessage* message, BOOLEAN bSendMessageToSelf, 
 // 0x4F7830
 SHORT CMessageHandler::Send(CMessage* message)
 {
-    // TODO: Incomplete — only whitelisted subtypes have working Run().
-    if (message != NULL) {
-        if (Iwd2MessageRunRecovered(message->GetMsgSubType())) {
-            message->Run();
-        }
-        delete message;
+    if (message == NULL) {
+        return -1;
     }
+
+    m_messageList.AddTail(message);
     return 1;
 }
 

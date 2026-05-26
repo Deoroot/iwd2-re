@@ -171,6 +171,9 @@ POSITION CUIControlTextDisplay::DisplayString(const CString& sLabel, const CStri
         return NULL;
     }
 
+    CSingleLock displayLock(&field_A8E, FALSE);
+    displayLock.Lock(INFINITE);
+
     if (field_A6C >= field_A68) {
         RemoveString(m_plstStrings->GetHeadPosition());
     }
@@ -215,6 +218,8 @@ POSITION CUIControlTextDisplay::DisplayString(const CString& sLabel, const CStri
     field_A6C++;
     m_nScrollOffsetY = 0;
     field_A64 = 0;
+
+    displayLock.Unlock();
 
     CRect rDirty(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
     m_pPanel->InvalidateRect(&rDirty);
@@ -312,12 +317,19 @@ void CUIControlTextDisplay::OnButtonLClick(CPoint ptMouseClick)
     // __LINE__: 6047
     UTIL_ASSERT(ptMouseClick.y >= 0);
 
+    CSingleLock clickLock(&field_A8E, FALSE);
+    clickLock.Lock(INFINITE);
+
     if (m_plstStrings != NULL) {
         INT nIndex = m_nTopIndex + (ptMouseClick.y + m_nScrollOffsetY) / m_nFontHeight;
         if (nIndex < m_plstStrings->GetCount()) {
+            clickLock.Unlock();
             OnItemSelected(m_plstStrings->GetAt(m_plstStrings->FindIndex(nIndex))->GetMarker());
+            return;
         }
     }
+
+    clickLock.Unlock();
 }
 
 // 0x4E25D0
@@ -335,8 +347,13 @@ BOOL CUIControlTextDisplay::OnLButtonDown(CPoint pt)
 // 0x4E2600
 void CUIControlTextDisplay::OnLButtonUp(CPoint pt)
 {
-    if (m_posHighlightedItem != NULL) {
-        UnHighlightItem();
+    {
+        CSingleLock lbLock(&field_A8E, FALSE);
+        lbLock.Lock(INFINITE);
+        if (m_posHighlightedItem != NULL) {
+            UnHighlightItem();
+        }
+        lbLock.Unlock();
     }
 
     if (m_bActive) {
@@ -353,13 +370,15 @@ void CUIControlTextDisplay::OnMouseMove(CPoint pt)
     ptMouseClick.y -= m_ptOrigin.y;
 
     if (m_bActive) {
-        // NOTE: Original code is slightly different.
         BOOL bHighlighted = FALSE;
 
         if (IsOver(pt)) {
             // __FILE__: C:\Projects\Icewind2\src\Baldur\ChUIControls.cpp
             // __LINE__: 6168
             UTIL_ASSERT(ptMouseClick.y >= 0);
+
+            CSingleLock mmLock(&field_A8E, FALSE);
+            mmLock.Lock(INFINITE);
 
             if (m_plstStrings != NULL) {
                 INT nIndex = m_nTopIndex + (ptMouseClick.y + m_nScrollOffsetY) / m_nFontHeight;
@@ -372,6 +391,8 @@ void CUIControlTextDisplay::OnMouseMove(CPoint pt)
                     }
                 }
             }
+
+            mmLock.Unlock();
         }
 
         if (!bHighlighted) {
@@ -505,6 +526,10 @@ void CUIControlTextDisplay::RemoveString(POSITION posBoss)
     }
 
     lock.Lock(INFINITE);
+
+    if (posBoss == m_posHighlightedItem) {
+        m_posHighlightedItem = NULL;
+    }
 
     POSITION pos = posBoss;
     while (pos != NULL) {
@@ -713,6 +738,16 @@ BOOL CUIControlTextDisplay::Render(BOOL bForce)
     if (!pVidInf->BKLock(rDirtyFrame)) {
         m_textFont.pRes->Release();
         m_labelFont.pRes->Release();
+        return FALSE;
+    }
+
+    renderLock.Lock(INFINITE);
+
+    if (m_posTopString == NULL || m_plstStrings == NULL) {
+        renderLock.Unlock();
+        m_textFont.pRes->Release();
+        m_labelFont.pRes->Release();
+        pVidInf->BKUnlock();
         return FALSE;
     }
 
