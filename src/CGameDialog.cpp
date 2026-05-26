@@ -1061,6 +1061,17 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
             }
             SleepEx(10, 0);
             btnRes.cSound.Play(FALSE);
+
+            // Binary 0x4854e2: display empty text so the reply gets a
+            // non-NULL m_displayPosition. RemoveReplies needs this to
+            // find removeIfPicked and suppress the PC name echo.
+            pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
+                CString(""),
+                CString(""),
+                playerColor,
+                replyTextColor,
+                i,
+                FALSE);
         }
     }
 
