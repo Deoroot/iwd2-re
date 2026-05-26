@@ -629,12 +629,8 @@ void CGameDialogSprite::SwitchTalker(const CResRef& nextDialog, CGameSprite* pCu
 // 0x483F00
 void CGameDialogSprite::AsynchronousUpdate()
 {
-    // CInfGame::m_gameSave::m_mode (offset 0x422c + 0x1b6 = 0x43e2). Value
-    // 0x502 means the engine is in dialog mode; anything else and we either
-    // wait or bail.
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-    DWORD currentMode = *reinterpret_cast<const DWORD*>(
-        reinterpret_cast<const BYTE*>(pGame) + 0x43E2);
+    DWORD currentMode = pGame->GetGameSave()->m_mode;
 
     if (!m_waitingForResponse) {
         // No reply pending. Tick the freeze counter and -- once it expires

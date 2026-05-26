@@ -19,7 +19,8 @@ public:
     /* 001C */ CItem* m_groupInventory[100];
     /* 01AC */ int m_bArenaMode;
     /* 01B0 */ short m_nGroupInventoryNumber;
-    /* 01B2 */ int field_1B2;
+    /* 01B2 */ short field_1B2;
+    /* 01B4 */ short field_1B4;
     /* 01B6 */ DWORD m_mode;
     /* 01BA */ BOOL m_cutScene;
 };
