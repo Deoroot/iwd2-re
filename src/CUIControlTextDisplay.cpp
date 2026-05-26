@@ -9,6 +9,7 @@
 
 // 0x8D7608
 const CString CUIControlTextDisplay::NAME_SEPARATOR("- ");
+CCriticalSection CUIControlTextDisplay::s_csSharedList;
 
 // 0x4E1A90
 CUIControlTextDisplay::CUIControlTextDisplay(CUIPanel* pPanel, UI_CONTROL_TEXTDISPLAY* pControlInfo, BOOLEAN a3)
@@ -171,7 +172,7 @@ POSITION CUIControlTextDisplay::DisplayString(const CString& sLabel, const CStri
         return NULL;
     }
 
-    CSingleLock displayLock(&field_A8E, FALSE);
+    CSingleLock displayLock(&s_csSharedList, FALSE);
     displayLock.Lock(INFINITE);
 
     if (field_A6C >= field_A68) {
@@ -317,7 +318,7 @@ void CUIControlTextDisplay::OnButtonLClick(CPoint ptMouseClick)
     // __LINE__: 6047
     UTIL_ASSERT(ptMouseClick.y >= 0);
 
-    CSingleLock clickLock(&field_A8E, FALSE);
+    CSingleLock clickLock(&s_csSharedList, FALSE);
     clickLock.Lock(INFINITE);
 
     if (m_plstStrings != NULL) {
@@ -348,7 +349,7 @@ BOOL CUIControlTextDisplay::OnLButtonDown(CPoint pt)
 void CUIControlTextDisplay::OnLButtonUp(CPoint pt)
 {
     {
-        CSingleLock lbLock(&field_A8E, FALSE);
+        CSingleLock lbLock(&s_csSharedList, FALSE);
         lbLock.Lock(INFINITE);
         if (m_posHighlightedItem != NULL) {
             UnHighlightItem();
@@ -377,7 +378,7 @@ void CUIControlTextDisplay::OnMouseMove(CPoint pt)
             // __LINE__: 6168
             UTIL_ASSERT(ptMouseClick.y >= 0);
 
-            CSingleLock mmLock(&field_A8E, FALSE);
+            CSingleLock mmLock(&s_csSharedList, FALSE);
             mmLock.Lock(INFINITE);
 
             if (m_plstStrings != NULL) {
@@ -489,7 +490,7 @@ void CUIControlTextDisplay::OnPageUp(DWORD nLines)
 // 0x4E2B50
 void CUIControlTextDisplay::RemoveAll()
 {
-    CSingleLock lock(&field_A8E, FALSE);
+    CSingleLock lock(&s_csSharedList, FALSE);
     lock.Lock(INFINITE);
 
     POSITION pos = m_plstStrings->GetHeadPosition();
@@ -517,7 +518,7 @@ void CUIControlTextDisplay::RemoveAll()
 // 0x4E2C60
 void CUIControlTextDisplay::RemoveString(POSITION posBoss)
 {
-    CSingleLock lock(&field_A8E, FALSE);
+    CSingleLock lock(&s_csSharedList, FALSE);
 
     if (posBoss == NULL) {
         // __FILE__: C:\Projects\Icewind2\src\Baldur\ChUIControls.cpp
@@ -542,6 +543,8 @@ void CUIControlTextDisplay::RemoveString(POSITION posBoss)
         if (currentPos == m_posTopString) {
             m_posTopString = pos;
         }
+
+        m_plstStrings->RemoveAt(currentPos);
 
         if (pDisplayString != NULL) {
             delete pDisplayString;
@@ -698,7 +701,7 @@ BOOL CUIControlTextDisplay::Render(BOOL bForce)
 
     CVidInf* pVidInf = static_cast<CVidInf*>(g_pBaldurChitin->GetCurrentVideoMode());
 
-    CSingleLock renderLock(&field_A8E, FALSE);
+    CSingleLock renderLock(&s_csSharedList, FALSE);
 
     if (!m_bActive && !m_bInactiveRender) {
         return FALSE;

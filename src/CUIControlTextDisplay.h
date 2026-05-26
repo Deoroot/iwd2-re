@@ -28,6 +28,7 @@ public:
 class CUIControlTextDisplay : public CUIControlBase {
 public:
     static const CString NAME_SEPARATOR;
+    static CCriticalSection s_csSharedList;
 
     CUIControlTextDisplay(CUIPanel* pPanel, UI_CONTROL_TEXTDISPLAY* pControlInfo, BOOLEAN a3);
     /* 0000 */ ~CUIControlTextDisplay() override;
