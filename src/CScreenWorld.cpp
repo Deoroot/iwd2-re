@@ -1692,10 +1692,11 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
     pButtonPanel->SetEnabled(FALSE);
     SetActionPanelActive(FALSE, FALSE);
 
-    // Binary 0x68eff6: fully hide action and button panels during dialog.
+    // Binary 0x68eff6: hide action panel (portraits) during dialog.
+    // Panel 9 (button) stays InactiveRender=TRUE so Handle() can show
+    // the Continue button on control 0.
     pActionPanel->SetInactiveRender(FALSE);
     pButtonPanel->SetActive(FALSE);
-    pButtonPanel->SetInactiveRender(FALSE);
     CUIControlBase* pBtnCtrl0 = pButtonPanel->GetControl(0);
     if (pBtnCtrl0 != NULL) {
         pBtnCtrl0->SetActive(FALSE);

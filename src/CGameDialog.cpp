@@ -12,6 +12,7 @@
 #include "CMessage.h"
 #include "CResDLG.h"
 #include "CScreenWorld.h"
+#include "CUIControlButton.h"
 #include "CUIControlTextDisplay.h"
 #include "CUIManager.h"
 #include "CUIPanel.h"
@@ -998,10 +999,6 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
             continue;
         }
 
-        // Flag 0x2 = reply has a trigger; gate via m_condition.Hold(). With
-        // an empty m_triggerList (no condition string parsed yet) Hold
-        // returns TRUE, so the reply still shows. Once LoadEntries wires up
-        // CAIScriptFile::ParseConditionalString the gate becomes active.
         if ((pReply->m_flags & 0x2) != 0) {
             CTypedPtrList<CPtrList, CAITrigger*> triggerList(10);
             if (!pReply->m_condition.Hold(triggerList, pSprite)) {
@@ -1012,33 +1009,67 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
         nValid++;
 
-        STR_RES rrep;
-        g_pBaldurChitin->GetTlkTable().Fetch(pReply->m_replyText, rrep);
+        if ((pReply->m_flags & 0x1) != 0) {
+            // Has reply text: fetch, format as "    N:", display.
+            STR_RES rrep;
+            g_pBaldurChitin->GetTlkTable().Fetch(pReply->m_replyText, rrep);
 
-        CString sLine;
-        sLine.Format("    %d:", nValid);
+            CString sLine;
+            sLine.Format("    %d:", nValid);
 
-        rrep.cSound.SetChannel(6,
-            reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
-        if (rrep.cSound.m_nLooping == 0) {
-            rrep.cSound.SetFireForget(TRUE);
+            pReply->m_removeIfPicked = FALSE;
+            pReply->m_displayListId = static_cast<BYTE>(nValid);
+
+            rrep.cSound.SetChannel(6,
+                reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+            if (rrep.cSound.m_nLooping == 0) {
+                rrep.cSound.SetFireForget(TRUE);
+            }
+            SleepEx(10, 0);
+            rrep.cSound.Play(FALSE);
+
+            pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
+                sLine,
+                rrep.szText,
+                playerColor,
+                replyTextColor,
+                i,
+                FALSE);
+        } else {
+            // No reply text: show Continue/End Dialog button on panel 9.
+            // Binary 0x485247..0x485452.
+            m_bDisplayButton = TRUE;
+
+            DWORD strref = (pReply->m_flags & 0x8) ? 9371 : 9372;
+            STR_RES btnRes;
+            g_pBaldurChitin->GetTlkTable().Fetch(strref, btnRes);
+
+            pReply->m_removeIfPicked = TRUE;
+
+            CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
+            pWorld->field_10B2 = static_cast<SHORT>(i);
+            pWorld->field_10B4 = 0;
+
+            CUIPanel* pPanel9 = pWorld->GetManager()->GetPanel(9);
+            if (pPanel9 != NULL) {
+                CUIControlButton* pBtn = static_cast<CUIControlButton*>(pPanel9->GetControl(0));
+                if (pBtn != NULL) {
+                    pBtn->SetText(btnRes.szText);
+                }
+            }
+
+            btnRes.cSound.SetChannel(6,
+                reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+            if (btnRes.cSound.m_nLooping == 0) {
+                btnRes.cSound.SetFireForget(TRUE);
+            }
+            SleepEx(10, 0);
+            btnRes.cSound.Play(FALSE);
         }
-        SleepEx(10, 0);
-        rrep.cSound.Play(FALSE);
-
-        pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
-            sLine,
-            rrep.szText,
-            playerColor,
-            replyTextColor,
-            i,
-            FALSE);
-        pReply->m_displayListId = static_cast<BYTE>(nValid);
     }
 
     if (nValid == 0) {
         m_bDisplayButton = TRUE;
-        // Binary also pushes a "End dialog" auto-continue button here; deferred.
     }
 
     (void)a3;
