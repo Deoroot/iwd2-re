@@ -628,7 +628,7 @@ int CPathSearch::FindPath(POINT* startPoint, POINT* goalPoints, int nGoalPoints,
         // __LINE__: 756
         UTIL_ASSERT(goalPoints[cnt].x >= -1 && goalPoints[cnt].x < GRID_ACTUALX && goalPoints[cnt].y >= -1 && goalPoints[cnt].y < GRID_ACTUALY);
 
-        if (goalPoints[cnt].y != -1 && goalPoints[cnt].y != -1) {
+        if (goalPoints[cnt].x != -1 && goalPoints[cnt].y != -1) {
             goalPositions[cnt] = PointToPosition(&(goalPoints[cnt]));
         } else {
             goalPositions[cnt] = -1;

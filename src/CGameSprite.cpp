@@ -2660,22 +2660,7 @@ void CGameSprite::AIUpdateWalk()
             m_posDest.x, m_posDest.y);
     }
 
-    // Direct movement: no pathfinding, walk straight to destination
     if (m_pPath == NULL && m_currentSearchRequest == NULL) {
-        if (m_posDest.x != 0 || m_posDest.y != 0) {
-            int dx = m_posDest.x - m_pos.x;
-            int dy = m_posDest.y - m_pos.y;
-            int dist = static_cast<int>(sqrt(static_cast<double>(dx * dx + dy * dy)));
-            if (dist <= 4) {
-                m_pos = m_posDest;
-                m_posDest.SetPoint(0, 0);
-                SetIdleSequence();
-            } else {
-                int step = 4;
-                m_pos.x += dx * step / dist;
-                m_pos.y += dy * step / dist;
-            }
-        }
         return;
     }
 
@@ -3075,7 +3060,7 @@ void CGameSprite::SetPath(LONG* pPath, SHORT nPath)
     // NOTE: Uninline.
     CPathSearch::PositionToPoint(m_pPath[nPath - 1], &goal);
 
-    if (abs(goal.x - start.x) <= 4 && abs(goal.y - start.y <= 4) && nPath <= 4) {
+    if (abs(goal.x - start.x) <= 4 && abs(goal.y - start.y) <= 4 && nPath <= 4) {
         m_walkBackwards = TRUE;
     }
 
@@ -13787,7 +13772,107 @@ SHORT CGameSprite::PlayDead()
 // 0x745950
 SHORT CGameSprite::JumpToPoint(CPoint dest, BOOL spriteUpdate)
 {
-    // TODO: Incomplete.
+    if (m_pArea == NULL) {
+        return ACTION_DONE;
+    }
+
+    CPoint gridDest(dest.x / CPathSearch::GRID_SQUARE_SIZEX,
+        dest.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+    if (m_pPath != NULL) {
+        CMessage* pDropPath = new CMessageDropPath(m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pDropPath, FALSE);
+    }
+
+    switch (m_listType) {
+    case CGAMEOBJECT_LIST_FRONT:
+        if (m_active && m_activeAI && m_activeImprisonment) {
+            m_pArea->m_search.RemoveObject(
+                CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                    m_pos.y / CPathSearch::GRID_SQUARE_SIZEY),
+                m_typeAI.GetEnemyAlly(),
+                m_animation.GetPersonalSpace(),
+                m_bBumpable,
+                m_bOnSearchMap);
+        }
+        break;
+    case CGAMEOBJECT_LIST_BACK:
+        if (m_active && m_activeAI && m_activeImprisonment
+            && (m_derivedStats.m_generalState & STATE_SLEEPING) != 0) {
+            m_pArea->m_search.RemoveObject(
+                CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                    m_pos.y / CPathSearch::GRID_SQUARE_SIZEY),
+                m_typeAI.GetEnemyAlly(),
+                m_animation.GetPersonalSpace(),
+                m_bBumpable,
+                m_bOnSearchMap);
+        }
+        break;
+    case CGAMEOBJECT_LIST_FLIGHT:
+        break;
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+        // __LINE__: 0x39E6
+        UTIL_ASSERT(FALSE);
+        break;
+    }
+
+    BYTE personalSpace = m_animation.GetPersonalSpace();
+    POINT adjustedGoal = { gridDest.x, gridDest.y };
+    m_pArea->AdjustTarget(gridDest, &adjustedGoal, personalSpace, -1);
+    CPoint adjustedGrid(adjustedGoal.x, adjustedGoal.y);
+
+    if (adjustedGrid.x == dest.x / CPathSearch::GRID_SQUARE_SIZEX
+        && adjustedGrid.y == dest.y / CPathSearch::GRID_SQUARE_SIZEY) {
+        m_pos = dest;
+    } else {
+        m_pos.x = adjustedGrid.x * CPathSearch::GRID_SQUARE_SIZEX;
+        m_pos.y = adjustedGrid.y * CPathSearch::GRID_SQUARE_SIZEY;
+    }
+
+    m_posExact.x = m_pos.x << EXACT_SCALE;
+    m_posExact.y = (m_pos.y << (EXACT_SCALE + 2)) / 3;
+
+    InitBlur();
+
+    switch (m_listType) {
+    case CGAMEOBJECT_LIST_FRONT:
+        if (m_active && m_activeAI && m_activeImprisonment) {
+            m_pArea->m_search.AddObject(
+                CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                    m_pos.y / CPathSearch::GRID_SQUARE_SIZEY),
+                m_typeAI.GetEnemyAlly(),
+                m_animation.GetPersonalSpace(),
+                m_bBumpable,
+                m_bOnSearchMap);
+        }
+        break;
+    case CGAMEOBJECT_LIST_BACK:
+        if (m_active && m_activeAI && m_activeImprisonment
+            && (m_derivedStats.m_generalState & STATE_SLEEPING) != 0) {
+            m_pArea->m_search.AddObject(
+                CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                    m_pos.y / CPathSearch::GRID_SQUARE_SIZEY),
+                m_typeAI.GetEnemyAlly(),
+                m_animation.GetPersonalSpace(),
+                m_bBumpable,
+                m_bOnSearchMap);
+        }
+        break;
+    }
+
+    SHORT nPortrait = g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id);
+    if (nPortrait != -1
+        && (!g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_bArenaMode || InControl())) {
+        m_pArea->m_visibility.UpDate(m_posLastVisMapEntry, m_pos, m_id, m_visibleTerrainTable);
+        m_posLastVisMapEntry = m_pos;
+    }
+
+    if (spriteUpdate
+        && (!g_pChitin->cNetwork.GetSessionOpen() || InControl())) {
+        CMessage* pUpdate = new CMessageSpriteUpdate(this, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pUpdate, FALSE);
+    }
 
     return ACTION_DONE;
 }
@@ -16416,13 +16501,13 @@ SHORT CGameSprite::GetDirection(const CPoint& ptStart, const CPoint& ptTarget)
 
     if (ptTarget.y < ptStart.y) {
         if (ptTarget.x < ptStart.x) {
-            dx = ptStart.x - ptTarget.y;
+            dx = ptStart.x - ptTarget.x;
             dy = ptStart.y - ptTarget.y;
 
             if (27 * dy <= 6 * dx) {
                 return 4;
             } else if (27 * dy <= 16 * dx) {
-                return 6;
+                return 5;
             } else if (24 * dy <= 38 * dx) {
                 return 6;
             } else if (7 * dy <= 38 * dx) {
