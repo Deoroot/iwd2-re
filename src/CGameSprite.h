@@ -440,6 +440,9 @@ public:
     void RemoveReplacementFromArea();
     void AIUpdateWalk();
     void SetPath(LONG* pPath, SHORT nPath);
+    SHORT Follow();
+    SHORT MoveToPointRange(const CPoint& dest, LONG range);
+    static void ComputeWaypoint(CPoint& result, LONG** ppPath, SHORT* pnPath, SHORT delay, BYTE* pReachedEnd);
     BOOL ClearBumpPath(const CPoint& start, const CPoint& goal);
     BOOL CanAnimate();
     void AIUpdateFly();

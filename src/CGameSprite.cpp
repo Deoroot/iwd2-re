@@ -13397,13 +13397,274 @@ SHORT CGameSprite::MoveToPoint()
     return ACTION_INTERRUPTABLE;
 }
 
+// 0x734720
+void CGameSprite::ComputeWaypoint(CPoint& result, LONG** ppPath, SHORT* pnPath, SHORT delay, BYTE* pReachedEnd)
+{
+    LONG* pPath = *ppPath;
+    SHORT nPath = *pnPath;
+
+    LONG lastPos = pPath[nPath - 1];
+    SHORT targetSquares = delay * 3;
+
+    LONG lastX = lastPos % CPathSearch::GRID_ACTUALX;
+    LONG lastY = CPathSearch::GRID_ACTUALY - lastPos / CPathSearch::GRID_ACTUALX - 1;
+
+    LONG prevPos = pPath[nPath - 2];
+    LONG prevX = prevPos % CPathSearch::GRID_ACTUALX;
+    LONG prevY = CPathSearch::GRID_ACTUALY - prevPos / CPathSearch::GRID_ACTUALX - 1;
+
+    *pReachedEnd = 0;
+
+    CPoint ptLast(lastX, lastY);
+    CPoint ptPrev(prevX, prevY);
+    LONG segSquares = CAIUtil::CountSquares(ptLast, ptPrev);
+
+    BOOL exact = (segSquares == targetSquares);
+
+    while (segSquares < targetSquares) {
+        SHORT newN = nPath - 1;
+        *pnPath = newN;
+
+        if (newN < 3) {
+            *pnPath = nPath;
+            LONG dx = lastX - prevX;
+            LONG dy = lastY - prevY;
+            LONG segLen = CAIUtil::CountSquares(ptLast, ptPrev);
+            if (segLen > 0) {
+                SHORT steps = targetSquares / segLen + 1;
+                *pReachedEnd = 1;
+                result.x = CPathSearch::GRID_SQUARE_SIZEX * (lastX - steps * dx);
+                result.y = CPathSearch::GRID_SQUARE_SIZEY * (lastY - steps * dy);
+            } else {
+                result.x = CPathSearch::GRID_SQUARE_SIZEX * lastX;
+                result.y = CPathSearch::GRID_SQUARE_SIZEY * lastY;
+            }
+            return;
+        }
+
+        nPath = newN;
+        targetSquares -= segSquares;
+
+        lastPos = pPath[nPath - 1];
+        lastX = lastPos % CPathSearch::GRID_ACTUALX;
+        lastY = CPathSearch::GRID_ACTUALY - lastPos / CPathSearch::GRID_ACTUALX - 1;
+
+        prevPos = pPath[nPath - 2];
+        prevX = prevPos % CPathSearch::GRID_ACTUALX;
+        prevY = CPathSearch::GRID_ACTUALY - prevPos / CPathSearch::GRID_ACTUALX - 1;
+
+        ptLast = CPoint(lastX, lastY);
+        ptPrev = CPoint(prevX, prevY);
+        segSquares = CAIUtil::CountSquares(ptLast, ptPrev);
+    }
+
+    exact = (segSquares == targetSquares);
+
+    if (exact) {
+        if (*pnPath > 3) {
+            *pnPath = *pnPath - 1;
+        }
+    } else {
+        LONG dx = lastX - prevX;
+        LONG dy = lastY - prevY;
+        double dist = sqrt((double)(dx * dx + dy * dy));
+        if (dist > 0.0) {
+            LONG iDist = (LONG)dist;
+            lastX = lastX + ((prevX - lastX) * targetSquares) / iDist;
+            lastY = lastY + ((prevY - lastY) * targetSquares) / iDist;
+        }
+        pPath[nPath - 1] = (CPathSearch::GRID_ACTUALY - lastY - 1) * CPathSearch::GRID_ACTUALX + lastX;
+    }
+
+    result.x = CPathSearch::GRID_SQUARE_SIZEX * lastX;
+    result.y = CPathSearch::GRID_SQUARE_SIZEY * lastY;
+}
+
+// 0x73FEC0
+SHORT CGameSprite::MoveToPointRange(const CPoint& dest, LONG range)
+{
+    if (range == 0) {
+        if (dest.x / CPathSearch::GRID_SQUARE_SIZEX == m_pos.x / CPathSearch::GRID_SQUARE_SIZEX
+            && dest.y / CPathSearch::GRID_SQUARE_SIZEY == m_pos.y / CPathSearch::GRID_SQUARE_SIZEY) {
+            return ACTION_DONE;
+        }
+    } else {
+        LONG dx = dest.x / CPathSearch::GRID_SQUARE_SIZEX - m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
+        LONG dy = (dest.y / CPathSearch::GRID_SQUARE_SIZEY == m_pos.y / CPathSearch::GRID_SQUARE_SIZEY) ? 0 : 1;
+        if (dx * dx + dy * dy <= range * range) {
+            return ACTION_DONE;
+        }
+    }
+
+    LONG x = dest.x;
+    LONG y = dest.y;
+
+    if (x < 0 || x >= m_pArea->GetInfinity()->nAreaX
+        || y < 0 || y >= m_pArea->GetInfinity()->nAreaY) {
+        return ACTION_ERROR;
+    }
+
+    if ((m_pPath != NULL || m_currentSearchRequest != NULL)
+        || (m_actionCount < 1 || m_curAction.m_specificID == CAIAction::BACKGROUND)) {
+        if (x == m_curDest.x && y == m_curDest.y) {
+            return ACTION_INTERRUPTABLE;
+        }
+    }
+
+    m_curDest.x = x;
+    m_curDest.y = y;
+
+    CSearchRequest* pSearchRequest = new CSearchRequest();
+    if (pSearchRequest == NULL) {
+        return ACTION_ERROR;
+    }
+
+    pSearchRequest->m_searchBitmap = &(m_pArea->m_search);
+    if (m_animation.GetListType() == LIST_FLIGHT) {
+        memcpy(pSearchRequest->m_terrainTable, m_flightTerrainTable, sizeof(m_flightTerrainTable));
+    } else {
+        memcpy(pSearchRequest->m_terrainTable, m_terrainTable, sizeof(m_terrainTable));
+    }
+
+    pSearchRequest->m_removeSelf = m_animation.GetListType() != LIST_FLIGHT;
+    pSearchRequest->m_pathSmooth = m_animation.GetPathSmooth();
+    pSearchRequest->m_sourceId = m_id;
+    pSearchRequest->m_nTargetPoints = 1;
+    pSearchRequest->m_exclusiveTargetPoints = TRUE;
+
+    pSearchRequest->m_targetPoints = new POINT[pSearchRequest->m_nTargetPoints];
+    if (pSearchRequest->m_targetPoints == NULL) {
+        delete pSearchRequest;
+        return ACTION_ERROR;
+    }
+
+    if (m_pArea->m_pGame->GetGroup()->InList(m_id)) {
+        pSearchRequest->m_nPartyIds = m_pArea->m_pGame->GetGroup()->GetCount();
+        pSearchRequest->m_partyIds = m_pArea->m_pGame->GetGroup()->GetGroupList();
+    }
+
+    pSearchRequest->m_targetPoints[0].x = m_curDest.x;
+    pSearchRequest->m_targetPoints[0].y = m_curDest.y;
+    pSearchRequest->m_sourceSide = m_typeAI.GetEnemyAlly();
+
+    if (m_curAction.m_specificID == CAIAction::BACKGROUND) {
+        pSearchRequest->m_frontList = 2;
+        pSearchRequest->m_minNodesBack = 110;
+        pSearchRequest->m_sourcePt.x = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
+        pSearchRequest->m_sourcePt.y = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
+        pSearchRequest->m_maxNodesBack = CSearchRequest::MINNODESBACK;
+        SetTarget(pSearchRequest, FALSE, LIST_FLIGHT);
+    } else {
+        SetTarget(pSearchRequest, FALSE, LIST_FRONT);
+    }
+
+    return ACTION_INTERRUPTABLE;
+}
+
+// 0x74A7C0
+SHORT CGameSprite::Follow()
+{
+    CPoint actionDest = m_curAction.m_dest;
+    CPoint waypoint = CPoint(m_curAction.m_dest.x, m_curAction.m_dest.y);
+    LONG savedSpecID2 = m_curAction.m_specificID2;
+    LONG savedSpecID3 = m_curAction.m_specificID3;
+
+    if (m_actionCount == 0) {
+        if (m_pPathTemp.IsEmpty()) {
+            return ACTION_ERROR;
+        }
+
+        LONG* pPath = reinterpret_cast<LONG*>(m_pPathTemp.RemoveHead());
+        SHORT nPath = (SHORT)reinterpret_cast<int>(m_nPathTemp.RemoveHead());
+
+        BYTE reachedEnd = 0;
+        CPoint computedWaypoint;
+        ComputeWaypoint(computedWaypoint, &pPath, &nPath, (SHORT)m_curAction.m_specificID, &reachedEnd);
+
+        waypoint = computedWaypoint;
+        m_curAction.m_dest = waypoint;
+
+        LONG distToAction = (m_pos.x - savedSpecID2) * (m_pos.x - savedSpecID2)
+            + (m_pos.y - savedSpecID3) * (m_pos.y - savedSpecID3);
+
+        if (distToAction > 0x40000) {
+            delete[] pPath;
+            CAIAction moveAction(CAIAction::MOVETOPOINTNORECTICLE, waypoint, 0, -1);
+            AddAction(moveAction);
+            return ACTION_DONE;
+        }
+
+        LONG distToWaypoint = (m_pos.x - waypoint.x) * (m_pos.x - waypoint.x)
+            + (m_pos.y - waypoint.y) * (m_pos.y - waypoint.y);
+
+        if (distToWaypoint < distToAction) {
+            delete[] pPath;
+            CAIAction moveAction(CAIAction::MOVETOPOINTNORECTICLE, waypoint, 0, -1);
+            AddAction(moveAction);
+            return ACTION_DONE;
+        }
+
+        if (reachedEnd) {
+            delete[] pPath;
+            CAIAction moveAction(CAIAction::MOVETOPOINTNORECTICLE, waypoint, 0, -1);
+            AddAction(moveAction);
+            return ACTION_DONE;
+        }
+
+        CPoint ptActionDest(savedSpecID2, savedSpecID3);
+        SHORT moveResult = MoveToPointRange(ptActionDest, 0);
+        if (moveResult == ACTION_DONE) {
+            m_curAction.m_internalFlags |= 0x10000000;
+            SetPath(pPath, nPath);
+        } else if (moveResult == ACTION_ERROR) {
+            delete[] pPath;
+            CAIAction moveAction(CAIAction::MOVETOPOINTNORECTICLE, waypoint, 0, -1);
+            AddAction(moveAction);
+            return ACTION_DONE;
+        } else {
+            m_pPathTemp.AddHead(reinterpret_cast<int*>(pPath));
+            m_nPathTemp.AddHead(reinterpret_cast<int*>(nPath));
+            return ACTION_INTERRUPTABLE;
+        }
+    } else {
+        if ((m_curAction.m_internalFlags & 0x10000000) != 0) {
+            goto movementCheck;
+        }
+
+        LONG* pPath = reinterpret_cast<LONG*>(m_pPathTemp.RemoveHead());
+        SHORT nPath = (SHORT)reinterpret_cast<int>(m_nPathTemp.RemoveHead());
+
+        CPoint ptActionDest(savedSpecID2, savedSpecID3);
+        SHORT moveResult = MoveToPointRange(ptActionDest, 0);
+        if (moveResult == ACTION_DONE) {
+            m_curAction.m_internalFlags |= 0x10000000;
+            SetPath(pPath, nPath);
+        } else if (moveResult == ACTION_ERROR) {
+            delete[] pPath;
+            CAIAction moveAction(CAIAction::MOVETOPOINTNORECTICLE, waypoint, 0, -1);
+            AddAction(moveAction);
+            return ACTION_DONE;
+        } else {
+            m_pPathTemp.AddHead(reinterpret_cast<int*>(pPath));
+            m_nPathTemp.AddHead(reinterpret_cast<int*>(nPath));
+            return ACTION_INTERRUPTABLE;
+        }
+    }
+
+movementCheck:
+    if ((waypoint.x / CPathSearch::GRID_SQUARE_SIZEX != m_pos.x / CPathSearch::GRID_SQUARE_SIZEX
+        || waypoint.y / CPathSearch::GRID_SQUARE_SIZEY != m_pos.y / CPathSearch::GRID_SQUARE_SIZEY)
+        && m_pPath == NULL
+        && m_actionCount > 0) {
+        CAIAction moveAction(CAIAction::MOVETOPOINTNORECTICLE, waypoint, 0, -1);
+        AddAction(moveAction);
+        return ACTION_DONE;
+    }
+
+    return ACTION_INTERRUPTABLE;
+}
+
 // 0x728F80 (partial)
-//
-// CGameSprite replaces the base action dispatcher with a jump table covering
-// the sprite-specific actions.  Only the Dialogue action (id 8) is wired here
-// so far; every other id falls through to CGameAIBase::ExecuteAction, which is
-// exactly what the binary's jump-table default case does (0x72B2EB ->
-// 0x44DC10).
 SHORT CGameSprite::ExecuteAction()
 {
     // ActionOverride (id 1) is a queue marker -- dequeue and dispatch the real
@@ -13456,6 +13717,15 @@ SHORT CGameSprite::ExecuteAction()
         return actionReturn;
     }
 
+    // 0x729032
+    if (m_curAction.m_actionID == CAIAction::MOVETOPOINT
+        || m_curAction.m_actionID == CAIAction::MOVETOPOINTNORECTICLE
+        || m_curAction.m_actionID == CAIAction::TIMEDMOVETOPOINT) {
+        POSITION pos = m_queuedActions.GetHeadPosition();
+        ResolveTargetPoint(&m_curAction, pos);
+        return MoveToPoint();
+    }
+
     // 0x729C2C
     if (m_curAction.m_actionID == CAIAction::LEADER) {
         m_followLeader = TRUE;
@@ -13465,6 +13735,11 @@ SHORT CGameSprite::ExecuteAction()
         AddAction(moveAction);
 
         return ACTION_DONE;
+    }
+
+    // 0x729CE2
+    if (m_curAction.m_actionID == CAIAction::FOLLOW) {
+        return Follow();
     }
 
     return CGameAIBase::ExecuteAction();
