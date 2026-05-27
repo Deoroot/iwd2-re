@@ -28,16 +28,16 @@ Original source code was never released. This project reconstructs it by analyzi
 | **Main Menu** | **Working** | Boots to CScreenConnection; mouse cursor visible and clickable |
 | **UI Screens** | Working | Options, Keymaps, Single Player, Party Select, Character Creation |
 | **Load Game** | **Working** | Save list + preview thumbnails fixed |
-| **World Screen** | **Partial** | Area rendering + camera; AI wired, effects/spatial queries stubbed |
-| **Dialogue** | **Working** | StartDialog/EndDialog, entry/reply text, Continue/End button, panel 7/9 switch |
+| **World Screen** | **Partial** | Area + camera OK; 122 action IDs dispatched; effects, spatial queries, movement stubbed |
+| **Dialogue** | **Working** | StartDialog→EndDialog flow; Continue/End button; panel 7/9 switch; 10/98 message subtypes active |
 | **Action Bar** | **Working** | Skills submenu, customize menu, weapon picker, all sub-menus exit correctly |
 | **Inventory** | **Working** | Slots, weapon icons, active-set highlight, STON* fallback for empties |
-| **Effects** | **Partial** | ~40% opcodes apply; 4 persistent subclasses entirely stubbed; visuals empty |
-| **Spells** | **Partial** | Cast flow wired; `FireSpell`/`FireSpellPoint` empty, projectile visuals missing |
-| **Gameplay** | **Partial** | `ProcessAI`/`DoAction` functional; modals (`SetModalState`), area movement, spatial queries stubbed |
-| **Multiplayer** | **Not working** | ~85% stubbed; only local single-player message dispatch recovered |
+| **Effects** | **Partial** | 138/162 ApplyEffect done; **Damage/Death/Heal/Poison/Charm** empty; 4 persistent stubs; saves/dispel missing |
+| **Spells** | **Partial** | Cast flow ~80%; `FireSpell`/`FireSpellPoint` empty; projectile visuals missing |
+| **Gameplay** | **Partial** | 98/122 action IDs complete; 4 buggy (SpawnPt); 18 partial; modals, area movement, GetNearest empty |
+| **Multiplayer** | **Not working** | 88/98 message subtypes silently dropped; 20 Marshal/Unmarshal stubs |
 
-**Current milestone**: Reconstruct AI runtime (`ProcessAI`, `FireSpell`, `SetModalState`) + effect system (`ApplyEffect` opcodes, spell visuals, projectile launch).
+**Current milestone**: Damage/healing effects (`ApplyEffect` for opcodes 5/12/13/17/18/25), `FireSpell`/`SetModalState`, and projectile factory (`FUN_0051EAF0`).
 
 ### Recent Progress
 
@@ -45,6 +45,7 @@ Original source code was never released. This project reconstructs it by analyzi
 |------|------------|
 | May 2026 | **Dialogue**: Full dialog flow (StartDialog, EndDialog, entry/reply text, Continue/End button, reply color) per Ghidra 0x483F00–0x485700 + 0x68EA00/0x68F9D0 |
 | May 2026 | **Dialog UI**: Panel 7/9 switch, PC portrait, party bar hide, active/inactive render, clip rect fix |
+| May 2026 | **Metrics**: Deep audit — 122 action IDs (98 complete, 4 buggy), 10/98 message subtypes active, 138/162 ApplyEffect implemented, 310 TODO:Incomplete (163 empty stubs, 101 return-stubs) |
 | May 2026 | **Dialog sync**: `CUIControlTextDisplay` concurrent display list with class-wide critical section (`s_csSharedList`); `CVidInf::BKTextOut` clip rect fix |
 | May 2026 | **Fields**: `CScreenWorld::field_10B2→m_dialogReplyIndex`, `field_10B4→m_dialogContinueFlag`, `field_1150→m_bDialogButtonClicked`; struct `CScreenWorld` created in Ghidra (111 fields) |
 | May 2026 | **Action Bar**: Customize menu (state 0x75), skills submenu (0x73), quick-weapon picker (0x79), class pickers (0x76/0x77), and all sub-menu exit paths wired per Ghidra |
