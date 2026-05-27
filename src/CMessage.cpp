@@ -5135,6 +5135,7 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DROP_PATH
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ENTER_DIALOG
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG
@@ -7653,6 +7654,8 @@ void CMessageDropPath::Run()
 {
     CGameSprite* pSprite;
 
+    Iwd2DebugLog("CMessageDropPath::Run targetId=%ld", m_targetId);
+
     BYTE rc;
     do {
         rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
@@ -7663,6 +7666,8 @@ void CMessageDropPath::Run()
 
     if (rc == CGameObjectArray::SUCCESS) {
         if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            Iwd2DebugLog("CMessageDropPath::Run DROP spriteId=%ld hasPath=%d",
+                pSprite->GetId(), (int)(pSprite->m_pPath != NULL));
             pSprite->DropPath();
             pSprite->DropSearchRequest();
 

@@ -1935,6 +1935,9 @@ void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
     m_internalLoadedDialog.EndDialog();
     m_nPopupState = -1;
     m_bInControlOfDialog = FALSE;
+
+    Iwd2DebugLog("CScreenWorld::EndDialog done mode=0x%lx comingOut=%d",
+        pGame->GetGameSave()->m_mode, m_comingOutOfDialog);
 }
 
 // FIXME: `areaName` should be reference.

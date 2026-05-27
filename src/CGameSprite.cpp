@@ -2655,9 +2655,10 @@ void CGameSprite::AIUpdateWalk()
 
     if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX
         && (m_pPath != NULL || m_currentSearchRequest != NULL || (m_posDest.x != 0 || m_posDest.y != 0))) {
-        Iwd2DebugLog("AIUpdateWalk entry spriteId=%ld hasPath=%d hasSearch=%d posDest=%ld,%ld",
+        Iwd2DebugLog("AIUpdateWalk entry spriteId=%ld hasPath=%d hasSearch=%d posDest=%ld,%ld comingOut=%d",
             m_id, (int)(m_pPath != NULL), (int)(m_currentSearchRequest != NULL),
-            m_posDest.x, m_posDest.y);
+            m_posDest.x, m_posDest.y,
+            g_pBaldurChitin->m_pEngineWorld->m_comingOutOfDialog);
     }
 
     if (m_pPath == NULL && m_currentSearchRequest == NULL) {
