@@ -13456,6 +13456,17 @@ SHORT CGameSprite::ExecuteAction()
         return actionReturn;
     }
 
+    // 0x729C2C
+    if (m_curAction.m_actionID == CAIAction::LEADER) {
+        m_followLeader = TRUE;
+        m_followLeaderAdditive = (BOOL)m_curAction.m_specificID;
+
+        CAIAction moveAction(CAIAction::MOVETOPOINT, m_curAction.m_dest, -1, -1);
+        AddAction(moveAction);
+
+        return ACTION_DONE;
+    }
+
     return CGameAIBase::ExecuteAction();
 }
 

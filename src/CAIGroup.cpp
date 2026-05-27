@@ -1087,10 +1087,10 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
 
     CTypedPtrList<CPtrList, CAIAction*> actions;
 
-    // NOTE: Original calls FollowLeader(target, additive) for formationType==0,
-    // dispatching action 88 (LEADER). But LEADER has no handler in ExecuteAction
-    // yet → no pathfinding. Fall through to MOVETOPOINT path until recovered.
-    // TODO: Restore FollowLeader when action 88 handler is recovered.
+    if (formationType == 0) {
+        FollowLeader(target, additive);
+        return;
+    }
 
     LONG absX = (target.x - cursor.x);
     absX = (absX ^ (absX >> 31)) - (absX >> 31);
@@ -1292,9 +1292,11 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
         } else {
             moveAction->m_dest = memberDest;
 
-            // NOTE: Original adds SMALLWAIT(rand()%7) stagger when
-            // multiplayer flag at CInfGame+0x1B7C is set.
-            // TODO: Add back when multiplayer flag is recovered.
+            if (g_pBaldurChitin->GetObjectGame()->m_worldTime.m_active) {
+                SHORT waitFrames = (SHORT)(rand() % 7);
+                CAIAction* waitAction = new CAIAction(CAIAction::SMALLWAIT, CPoint(-1, -1), waitFrames, -1);
+                actions.AddTail(waitAction);
+            }
 
             pSprite->m_userCommandPause = CGameSprite::USER_OVERRIDE_COUNT;
             pSprite->m_triggerId = CGameObjectArray::INVALID_INDEX;
@@ -1572,8 +1574,31 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
 // 0x407FC0
 void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
 {
-    // NOTE: Original returns early for formationType==0 (FOLLOW), setting
-    // only leader's marker. Bypassed until action 88 handler is recovered.
+    if (formationType == 0) {
+        if (m_memberList.GetCount() != 0) {
+            LONG leaderId = reinterpret_cast<LONG>(m_memberList.GetHead());
+
+            CGameSprite* pLeader;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(leaderId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pLeader),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                pLeader->m_targetPoint.x = target.x;
+                pLeader->m_targetPoint.y = target.y;
+                pLeader->m_groupMove = TRUE;
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(leaderId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+        return;
+    }
 
     LONG absX = (target.x - cursor.x);
     absX = (absX ^ (absX >> 31)) - (absX >> 31);

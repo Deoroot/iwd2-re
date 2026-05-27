@@ -1487,6 +1487,21 @@ void CGameAIBase::ProcessAI()
         }
         DoAction();
     }
+
+    // Update m_targetPoint for destination markers based on queued actions.
+    // Binary calls ResolvePausedAction from CGameSprite::AIUpdate (0x72B9A0 → 0x72DD64);
+    // placed here until AIUpdate paths are fully recovered.
+    if (GetObjectType() == CGameObject::TYPE_SPRITE) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+        POSITION pos = pSprite->m_queuedActions.GetHeadPosition();
+        if (pos != NULL) {
+            CAIAction* firstAction = pSprite->m_queuedActions.GetAt(pos);
+            pSprite->m_queuedActions.GetNext(pos);
+            pSprite->ResolvePausedAction(firstAction, pos);
+        } else if (m_curAction.m_actionID != CAIAction::NO_ACTION) {
+            pSprite->ResolvePausedAction(&m_curAction, NULL);
+        }
+    }
 }
 
 // 0x45D130
