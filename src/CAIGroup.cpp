@@ -1082,12 +1082,15 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
         return;
     }
 
+    Iwd2DebugLog("CAIGroup::GroupSetTarget target=%ld,%ld additive=%d formation=%d count=%d",
+        target.x, target.y, (int)additive, (int)formationType, m_memberList.GetCount());
+
     CTypedPtrList<CPtrList, CAIAction*> actions;
 
-    if (formationType == 0) {
-        FollowLeader(target, additive);
-        return;
-    }
+    // NOTE: Original calls FollowLeader(target, additive) for formationType==0,
+    // dispatching action 88 (LEADER). But LEADER has no handler in ExecuteAction
+    // yet → no pathfinding. Fall through to MOVETOPOINT path until recovered.
+    // TODO: Restore FollowLeader when action 88 handler is recovered.
 
     LONG absX = (target.x - cursor.x);
     absX = (absX ^ (absX >> 31)) - (absX >> 31);
@@ -1193,23 +1196,27 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
             LONG dx = target.x - cursorX;
             LONG dy = target.y - cursorY;
             double dist = sqrt((double)(dx * dx + dy * dy));
-            LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
-            double baseAngle = acos((double)absDx / dist);
+            SHORT rotationDegrees = 0;
 
-            if (dx < 0) {
-                if (dy < 0) {
-                    baseAngle = baseAngle + PI;
+            if (dist >= 1.0) {
+                LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
+                double baseAngle = acos((double)absDx / dist);
+
+                if (dx < 0) {
+                    if (dy < 0) {
+                        baseAngle = baseAngle + PI;
+                    } else {
+                        baseAngle = PI - baseAngle;
+                    }
                 } else {
-                    baseAngle = PI - baseAngle;
+                    if (dy < 0) {
+                        baseAngle = TWO_PI - baseAngle;
+                    }
                 }
-            } else {
-                if (dy < 0) {
-                    baseAngle = TWO_PI - baseAngle;
-                }
-            }
 
-            SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
-            SHORT rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+                SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+                rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+            }
 
             offsets = GetFormationOffsets(formationType, rotationDegrees, 0);
             faces = GetFormationFaces(formationType, rotationDegrees);
@@ -1312,9 +1319,13 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
                     delete action;
                 }
             }
-
-            actions.RemoveAll();
         }
+
+        while (actions.GetCount() != 0) {
+            CAIAction* action = actions.RemoveTail();
+            delete action;
+        }
+        actions.RemoveAll();
 
         pSprite->m_inFormation = TRUE;
         pSprite->m_groupMove = FALSE;
@@ -1431,23 +1442,27 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
             LONG dx = target.x - cursorX;
             LONG dy = target.y - cursorY;
             double dist = sqrt((double)(dx * dx + dy * dy));
-            LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
-            double baseAngle = acos((double)absDx / dist);
+            SHORT rotationDegrees = 0;
 
-            if (dx < 0) {
-                if (dy < 0) {
-                    baseAngle = baseAngle + PI;
+            if (dist >= 1.0) {
+                LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
+                double baseAngle = acos((double)absDx / dist);
+
+                if (dx < 0) {
+                    if (dy < 0) {
+                        baseAngle = baseAngle + PI;
+                    } else {
+                        baseAngle = PI - baseAngle;
+                    }
                 } else {
-                    baseAngle = PI - baseAngle;
+                    if (dy < 0) {
+                        baseAngle = TWO_PI - baseAngle;
+                    }
                 }
-            } else {
-                if (dy < 0) {
-                    baseAngle = TWO_PI - baseAngle;
-                }
-            }
 
-            SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
-            SHORT rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+                SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+                rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+            }
 
             offsets = GetFormationOffsets(formationType, rotationDegrees, 0);
             faces = GetFormationFaces(formationType, rotationDegrees);
@@ -1557,31 +1572,8 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
 // 0x407FC0
 void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
 {
-    if (formationType == 0) {
-        if (m_memberList.GetCount() != 0) {
-            LONG leaderId = reinterpret_cast<LONG>(m_memberList.GetHead());
-
-            CGameSprite* pLeader;
-            BYTE rc;
-            do {
-                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(leaderId,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pLeader),
-                    INFINITE);
-            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-
-            if (rc == CGameObjectArray::SUCCESS) {
-                pLeader->m_targetPoint.x = target.x;
-                pLeader->m_targetPoint.y = target.y;
-                pLeader->m_groupMove = TRUE;
-
-                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(leaderId,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
-            }
-        }
-        return;
-    }
+    // NOTE: Original returns early for formationType==0 (FOLLOW), setting
+    // only leader's marker. Bypassed until action 88 handler is recovered.
 
     LONG absX = (target.x - cursor.x);
     absX = (absX ^ (absX >> 31)) - (absX >> 31);
@@ -1635,23 +1627,27 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
                 LONG dx = target.x - cursorX;
                 LONG dy = target.y - cursorY;
                 double dist = sqrt((double)(dx * dx + dy * dy));
-                LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
-                double baseAngle = acos((double)absDx / dist);
+                SHORT rotationDegrees = 0;
 
-                if (dx < 0) {
-                    if (dy < 0) {
-                        baseAngle = baseAngle + PI;
+                if (dist >= 1.0) {
+                    LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
+                    double baseAngle = acos((double)absDx / dist);
+
+                    if (dx < 0) {
+                        if (dy < 0) {
+                            baseAngle = baseAngle + PI;
+                        } else {
+                            baseAngle = PI - baseAngle;
+                        }
                     } else {
-                        baseAngle = PI - baseAngle;
+                        if (dy < 0) {
+                            baseAngle = TWO_PI - baseAngle;
+                        }
                     }
-                } else {
-                    if (dy < 0) {
-                        baseAngle = TWO_PI - baseAngle;
-                    }
-                }
 
-                SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
-                SHORT rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+                    SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+                    rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+                }
 
                 offsets = GetFormationOffsets(formationType, rotationDegrees, 0);
 
