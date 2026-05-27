@@ -4,9 +4,13 @@
 
 Community RE of **Icewind Dale 2** (2002). `src/` = hand-recovered C++ matching `IWD2.exe`. Ghidra = truth; source = translation. See `README.md`, `ARCHITECTURE.md`.
 
-## code-review-graph MCP — MANDATORY for `src/` lookups
+## code-review-graph MCP — MANDATORY for `src/` or `refs/gemrb/` lookups
 
-**RULE: searching `src/` → graph MCP FIRST. Grep/Glob/Read forbidden until graph returns 0 results.** Graph parsed src tree; structural + cheap. Grep over src/ wastes tokens + misses callers/callees.
+**RULE: searching `src/` or `refs/gemrb/` → ALWAYS use code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore the codebase **
+
+- iwd2-re graph (`src/`): default `repo_root`. Alias `iwd2`.
+- GemRB graph: `repo_root="C:\iwd2-re\refs\gemrb"`. Alias `gemrb`.
+- Both: `cross_repo_search_tool` searches both simultaneously.
 
 Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, ghidra curl, raw binaries.
 
@@ -21,12 +25,12 @@ Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, ghidra curl, raw binari
 | Free traversal | `traverse_graph` |
 | Quick repo stats | `get_minimal_context` |
 | Review diff | `detect_changes` → `get_affected_flows` |
+| GemRB lookup | same tools + `repo_root="C:\iwd2-re\refs\gemrb"` |
+| Cross-repo search | `cross_repo_search_tool` |
 
 Workflow: `semantic_search_nodes` → `query_graph callers/callees` → Read only specific lines from result.
 
 **Query phrasing:** `semantic_search_nodes` FTS5 hybrid. Use ONE bare identifier token (`LevelUp`); retry shorter token before Grep.
-
-Violation flagged 2026-05-23. See `memory/feedback_graph_first.md`.
 
 ## Build & run (Win32, VS 2019)
 
@@ -34,21 +38,21 @@ Violation flagged 2026-05-23. See `memory/feedback_graph_first.md`.
 cmake -S . -B build -G "Visual Studio 16 2019" -A Win32
 taskkill //f //im iwd2-re.exe 2>/dev/null || true
 cmake --build build --config Debug
-cp "build/Debug/iwd2-re.exe" "C:/GOG Games/Icewind Dale 2/" -f
-"C:/GOG Games/Icewind Dale 2/iwd2-re.exe"
+rm -f "C:/GOG Games/Icewind Dale 2/iwd2-re-crash.log" "C:/GOG Games/Icewind Dale 2/iwd2-re-debug.log" && cp "C:/iwd2-re/build/Debug/iwd2-re.exe" "C:/GOG Games/Icewind Dale 2/" -f
 python scripts/auto_start_game.py   # smoke: load slot 0, wait for world
-python scripts/auto_start_game.py --new-game --party "Lady's Lament"
+python scripts/auto_start_game.py --new-game
 ```
 
 Every `src/` commit must compile clean VS2019 Win32. Rename field/fn → update `.h` + ALL `.cpp` in ONE atomic commit (`rg "oldName" src/`). Build fail → report first error, stop.
 
 ## Ghidra = truth
 
+**RULE: DON'T INVENT CODE. ALWAYS check Ghidra before any code edit.**
 `// 0xADDR` comments can be stale. Ghidra wins when conflicting. Verify address before reasoning. If address not in Ghidra `funcs` table → check vtable `DATA` xref (likely virtual method). See `memory/feedback_ghidra_truth.md`.
 
-## GhidraMCP (`http://127.0.0.1:8089`)
+## GhidraMCP
 
-Install: `C:\ghidra-mcp`. Base: `http://127.0.0.1:8089`. Schema: `/mcp/schema`. Ghidra GUI opens → plugin auto-starts.
+`curl -s "http://127.0.0.1:8089/get_xrefs_to?address=0x0084c44c&limit=5"`.
 Mutations in-memory → persist with `save_program`.
 `__thiscall` `this` locked → document type via `batch_set_comments` plate comment.
 
@@ -101,7 +105,7 @@ data/near_infinity_export/
 | Path | Use |
 |-----|-----|
 | `data/pdb/bg2_pdb_types.txt` | BG2EE PDB layouts (field names match, offsets differ) |
-| `refs/gemrb/` | GemRB source (CGameSprite↔Actor, CInfGame↔Game) |
+| `refs/gemrb/` | GemRB source  → use CRG graph (`repo_root="C:\iwd2-re\refs\gemrb"`) |
 | `refs/NearInfinity/` | File formats (.CRE/.ARE/.ITM) |
 | `refs/iesdp/` | Effects, opcodes, STATS.IDS |
 | `C:\ghidra_projects\IWD2\` | Live Ghidra project |

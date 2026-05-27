@@ -87,13 +87,19 @@ Phase 2: name remaining `sub_` (~200) + `field_` (~640). Small classes first.
 
 **IMPORTANT: This project has a knowledge graph. ALWAYS use the
 code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase.** The graph is faster, cheaper (fewer tokens), and gives
-you structural context (callers, dependents, test coverage) that file
-scanning cannot.
+the codebase — this includes BOTH `src/` AND `refs/gemrb/`.** The
+graph is faster, cheaper (fewer tokens), and gives you structural
+context (callers, dependents, test coverage) that file scanning cannot.
+
+- Main graph (`src/`): default `repo_root` (auto-detected). Alias `iwd2`.
+- GemRB graph: `repo_root="C:\iwd2-re\refs\gemrb"`. Alias `gemrb`.
+- Both: use `cross_repo_search_tool` to search both graphs simultaneously.
 
 ### When to use graph tools FIRST
 
 - **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
+- **Exploring gemrb**: same tools, pass `repo_root="C:\iwd2-re\refs\gemrb"`
+- **Cross-reference gemrb ↔ IWD2**: `cross_repo_search_tool`
 - **Understanding impact**: `get_impact_radius` instead of manually tracing imports
 - **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
 - **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
