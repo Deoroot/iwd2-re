@@ -28,17 +28,21 @@ Original source code was never released. This project reconstructs it by analyzi
 | **Main Menu** | **Working** | Boots to CScreenConnection; mouse cursor visible and clickable |
 | **UI Screens** | Working | Options, Keymaps, Single Player, Party Select, Character Creation |
 | **Load Game** | **Working** | Save list + preview thumbnails fixed |
-| **World Screen** | **Partial** | Loads from menu; blocked on AI/dialogue pipeline |
+| **World Screen** | **Partial** | Loads from menu; area rendering and camera working |
+| **Dialogue** | **Working** | StartDialog/EndDialog, entry text, replies, Continue/End button, VO playback, triggers |
 | **Action Bar** | **Working** | Skills submenu, customize menu, weapon picker, all sub-menus exit correctly |
 | **Inventory** | **Working** | Slots, weapon icons, active-set highlight, STON* fallback for empties |
 | **Gameplay** | **Not working** | Requires `ProcessAI` / `ExecuteAction` implementation |
 
-**Current milestone**: Reconstruct the AI and dialogue runtime (`CGameAIBase::ProcessAI`, `ExecuteAction`, `EvaluateStatusTrigger`).
+**Current milestone**: Reconstruct the AI runtime (`CGameAIBase::ProcessAI`, `ExecuteAction`).
 
 ### Recent Progress
 
 | Date | Achievement |
 |------|------------|
+| May 2026 | **Dialogue**: Full dialog flow (StartDialog, EndDialog, entry/reply text, Continue/End button, voice-over, trigger evaluation, reply color) per Ghidra 0x483F00–0x485700 + 0x68EA00/0x68F9D0 |
+| May 2026 | **Dialog UI**: Panel 7/9 switch, PC portrait, party bar hide, active/inactive render, clip rect fix |
+| May 2026 | **Dialog sync**: Critical section on text display list, display list synchronization, use-after-free fix |
 | May 2026 | **Action Bar**: Customize menu (state 0x75), skills submenu (0x73), quick-weapon picker (0x79), class pickers (0x76/0x77), and all sub-menu exit paths wired per Ghidra |
 | May 2026 | **Inventory**: STON* fallback for empty equipment slots, active-set HIGHLGHT ring, quick-weapon panel rendering |
 | May 2026 | **Ghidra DB**: 4,963 functions renamed (88% named), 716 TODO/FIXME bookmarks imported |
@@ -176,30 +180,7 @@ int CGameSprite::GetDerivedStats() {
 
 ### Rename / Annotate Ghidra
 
-Use the **GhidraMCP REST API** (`http://127.0.0.1:8089`) — run Ghidra GUI, plugin auto-starts.
-
-```bash
-# Inspect before renaming
-curl -s "http://127.0.0.1:8089/decompile_function?address=0x5D2DE0"
-curl -s "http://127.0.0.1:8089/get_function_variables?address=0x5D2DE0"
-
-# Rename function
-curl -s -X POST http://127.0.0.1:8089/rename_function_by_address -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","new_name":"RenderFogOfWar"}'
-
-# Set function signature
-curl -s -X POST http://127.0.0.1:8089/set_function_prototype -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","prototype":"void RenderFogOfWar(CVidMode*)"}'
-
-# Rename local / param
-curl -s -X POST http://127.0.0.1:8089/rename_variable -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","oldName":"local_8","newName":"pArea"}'
-curl -s -X POST http://127.0.0.1:8089/set_parameter_type -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","parameter_name":"param_1","new_type":"CVidMode *"}'
-
-# Comments & bookmarks
-curl -s -X POST http://127.0.0.1:8089/set_plate_comment -H "Content-Type: application/json" -d '{"address":"0x5D2DE0","comment":"Renders fog of war overlay."}'
-curl -s -X POST http://127.0.0.1:8089/set_bookmark -H "Content-Type: application/json" -d '{"address":"0x5D2DE0","category":"review","comment":"Check blend flags."}'
-
-# Persist Ghidra DB
-curl -s "http://127.0.0.1:8089/save_program?program=IWD2.exe"
-```
+Use the **GhidraMCP REST API** (`http://127.0.0.1:8089`) — run Ghidra GUI, plugin auto-starts. Schema: `/mcp/schema`. Mutations in-memory → persist with `save_program`. `__thiscall` `this` locked → document via `batch_set_comments` plate comment.
 
 Full workflow: [decomp_ref/ghidra_rename_annotate.md](decomp_ref/ghidra_rename_annotate.md)
 
