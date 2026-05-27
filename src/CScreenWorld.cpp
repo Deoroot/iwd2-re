@@ -47,7 +47,7 @@ CScreenWorld::CScreenWorld()
     m_bInControlOfStore = FALSE;
     field_110C = 0;
     field_114C = 0;
-    field_1150 = 0;
+    m_bDialogButtonClicked = 0;
     m_nPendingMapWorldDirection = 0;
     m_nLeaveAreaLuaPanicDirection = 0;
     m_comingOutOfDialog = 0;
@@ -177,8 +177,8 @@ CScreenWorld::CScreenWorld()
     field_F44 = 0;
     m_scrollLockId = CGameObjectArray::INVALID_INDEX;
     m_nPopupState = -1;
-    field_10B2 = -1;
-    field_10B4 = 0;
+    m_dialogReplyIndex = -1;
+    m_dialogContinueFlag = 0;
     m_interactionIndex = CGameObjectArray::INVALID_INDEX;
     m_interactionTarget = CGameObjectArray::INVALID_INDEX;
     field_10C0 = "";
@@ -511,8 +511,8 @@ void CScreenWorld::EngineGameInit()
     field_F44 = 0;
     m_scrollLockId = CGameObjectArray::INVALID_INDEX;
     m_nPopupState = -1;
-    field_10B2 = -1;
-    field_10B4 = 0;
+    m_dialogReplyIndex = -1;
+    m_dialogContinueFlag = 0;
     m_interactionIndex = CGameObjectArray::INVALID_INDEX;
     m_interactionTarget = CGameObjectArray::INVALID_INDEX;
     field_10C0 = "";
@@ -1610,7 +1610,7 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
         pCharacter->m_id, pTalker->m_id, dlg, bPlayerInitiated);
 
     SetDialogTokens(pCharacter);
-    field_1150 = 0;
+    m_bDialogButtonClicked = 0;
     g_pBaldurChitin->GetBaldurMessage()->m_bDialogRequestPending = FALSE;
     g_pBaldurChitin->GetBaldurMessage()->m_bDialogReplyReturned = FALSE;
     g_pBaldurChitin->GetBaldurMessage()->m_bDialogReplyValue = FALSE;
@@ -1819,7 +1819,7 @@ void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
     }
 
     if (m_bInControlOfDialog) {
-        CMessage* pExitDialog = new CMessageExitDialogMode(field_1150,
+        CMessage* pExitDialog = new CMessageExitDialogMode(m_bDialogButtonClicked,
             m_internalLoadedDialog.m_characterIndex,
             m_internalLoadedDialog.m_characterIndex);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pExitDialog, FALSE);
@@ -3558,9 +3558,9 @@ void CUIControlButtonDialog::OnLButtonClick(CPoint pt)
     UTIL_ASSERT(pWorld != NULL);
 
     if (GetTickCount() > pWorld->field_11BA + 600) {
-        pWorld->field_1150 = 1;
-        if (!pWorld->field_10B4) {
-            pWorld->m_internalLoadedDialog.m_responseMarker = pWorld->field_10B2;
+        pWorld->m_bDialogButtonClicked = 1;
+        if (!pWorld->m_dialogContinueFlag) {
+            pWorld->m_internalLoadedDialog.m_responseMarker = pWorld->m_dialogReplyIndex;
         }
         pWorld->field_11BA = GetTickCount();
     }

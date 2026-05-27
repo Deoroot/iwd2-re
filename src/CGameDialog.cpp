@@ -1043,8 +1043,8 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
             pReply->m_removeIfPicked = TRUE;
 
             CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
-            pWorld->field_10B2 = static_cast<SHORT>(i);
-            pWorld->field_10B4 = 0;
+            pWorld->m_dialogReplyIndex = static_cast<SHORT>(i);
+            pWorld->m_dialogContinueFlag = 0;
 
             CUIPanel* pPanel9 = pWorld->GetManager()->GetPanel(9);
             if (pPanel9 != NULL) {

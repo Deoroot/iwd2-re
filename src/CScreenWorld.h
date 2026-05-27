@@ -175,8 +175,8 @@ public:
     /* 0F44 */ unsigned char field_F44;
     /* 0F46 */ CWeather m_weather;
     /* 10AE */ LONG m_scrollLockId;
-    /* 10B2 */ short field_10B2;
-    /* 10B4 */ int field_10B4;
+    /* 10B2 */ short m_dialogReplyIndex;
+    /* 10B4 */ int m_dialogContinueFlag;
     /* 10B8 */ LONG m_interactionIndex;
     /* 10BC */ LONG m_interactionTarget;
     /* 10C0 */ CString field_10C0;
@@ -204,7 +204,7 @@ public:
     /* 110C */ int field_110C;
     /* 1138 */ INT m_nPickPartyNumCharacters;
     /* 114C */ int field_114C;
-    /* 1150 */ unsigned char field_1150;
+    /* 1150 */ unsigned char m_bDialogButtonClicked;
     /* 1151 */ BOOLEAN m_bEndMajorEventListenToJoin;
     /* 1152 */ BOOLEAN m_bEndMajorEventPauseStatus;
     /* 1153 */ BOOLEAN m_bChapterTransitionPending;
