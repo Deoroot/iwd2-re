@@ -48,54 +48,9 @@ Every `src/` commit must compile clean VS2019 Win32. Rename field/fn → update 
 
 ## GhidraMCP (`http://127.0.0.1:8089`)
 
-Install: `C:\ghidra-mcp`. Ghidra GUI opens → plugin auto-starts.
-
-**Sanity:**
-```bash
-curl -s http://127.0.0.1:8089/check_connection
-curl -s http://127.0.0.1:8089/get_metadata
-```
-
-**Schema:**
-```bash
-curl -s http://127.0.0.1:8089/mcp/schema -o ghidra_mcp_schema.json
-python -c "import json; d=json.load(open('ghidra_mcp_schema.json')); print(len(d['tools']))"
-```
-
-**Decompile / disasm:**
-```bash
-curl -s "http://127.0.0.1:8089/decompile_function?address=0x6C9A50"
-curl -s "http://127.0.0.1:8089/disassemble_function?address=0x6CA830"
-curl -s -X POST http://127.0.0.1:8089/disassemble_bytes -H "Content-Type: application/json" -d '{"start_address":"0x44CBC0","length":24}'
-```
-
-**Search:**
-```bash
-curl -s "http://127.0.0.1:8089/search_functions?name_pattern=CanSaveGame&limit=50"
-curl -s "http://127.0.0.1:8089/search_instructions?mnemonic=MOV&operand_pattern=0x4076&limit=20"
-```
-
-**Xrefs:**
-```bash
-curl -s "http://127.0.0.1:8089/get_xrefs_to?address=0x44CBC0&limit=20"
-curl -s "http://127.0.0.1:8089/get_xrefs_from?address=0x6C90B9&limit=10"
-```
-
-**Rename / prototype:**
-```bash
-curl -s -X POST http://127.0.0.1:8089/rename_function_by_address -H "Content-Type: application/json" -d '{"function_address":"0x6C8390","new_name":"CGamAnimationTypeCharacter::EquipWeapon"}'
-curl -s -X POST http://127.0.0.1:8089/set_function_prototype -H "Content-Type: application/json" -d '{"function_address":"0x6CA830","prototype":"void __thiscall EquipOffHWeapon(void * resRef, byte * colorRangeValues)"}'
-```
-
-Mutations are in-memory until saved. Persist with:
-```bash
-curl -s -X POST http://127.0.0.1:8089/save_program -H "Content-Type: application/json" -d '{"program":"IWD2.exe"}'
-```
-
-**MCP bridge:**
-```bash
-cd /c/ghidra-mcp && python bridge_mcp_ghidra.py   # stdio, registers 195 tools
-```
+Install: `C:\ghidra-mcp`. Base: `http://127.0.0.1:8089`. Schema: `/mcp/schema`. Ghidra GUI opens → plugin auto-starts.
+Mutations in-memory → persist with `save_program`.
+`__thiscall` `this` locked → document type via `batch_set_comments` plate comment.
 
 **Read PE bytes (use pefile, not `/memory_bytes`):**
 ```python

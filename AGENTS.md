@@ -20,57 +20,15 @@ Ghidra = source of truth. `// 0xADDR` comment can be stale. Ghidra wins when sou
 
 ## GhidraMCP (`:8089`)
 
-Installed at `C:\ghidra-mcp`. Run Ghidra GUI → plugin auto-starts.
-
-**Sanity:**
-```bash
-curl -s http://127.0.0.1:8089/check_connection
-curl -s "http://127.0.0.1:8089/get_metadata"
-```
-
-**Schema:**
-```bash
-curl -s http://127.0.0.1:8089/mcp/schema -o ghidra_mcp_schema.json
-python -c "import json; d=json.load(open('ghidra_mcp_schema.json')); print(len(d['tools']))"
-```
-
-**Decompile / disasm:**
-```bash
-curl -s "http://127.0.0.1:8089/decompile_function?address=0x6C9A50"
-curl -s "http://127.0.0.1:8089/disassemble_function?address=0x6CA830"
-```
-
-**Search:**
-```bash
-curl -s "http://127.0.0.1:8089/search_functions?name_pattern=CanSaveGame&limit=50"
-curl -s "http://127.0.0.1:8089/search_instructions?mnemonic=MOV&operand_pattern=0x4076&limit=20"
-```
-
-**Xrefs:**
-```bash
-curl -s "http://127.0.0.1:8089/get_xrefs_to?address=0x44CBC0&limit=20"
-curl -s "http://127.0.0.1:8089/get_xrefs_from?address=0x6C90B9&limit=10"
-```
-
-**Rename / prototype:**
-```bash
-curl -s -X POST http://127.0.0.1:8089/rename_function_by_address -H "Content-Type: application/json" -d '{"function_address":"0xNNNNNN","new_name":"Class::Method"}'
-curl -s -X POST http://127.0.0.1:8089/set_function_prototype -H "Content-Type: application/json" -d '{"function_address":"0x6CA830","prototype":"void __thiscall EquipOffHWeapon(void * resRef, byte * colorRangeValues)"}'
-```
+Installed at `C:\ghidra-mcp`. Base: `http://127.0.0.1:8089`. Schema: `/mcp/schema`. Run Ghidra GUI → plugin auto-starts.
+Mutations in-memory → persist with `save_program`.
+`__thiscall` `this` locked → document type via `batch_set_comments` plate comment.
+Virtual functions: if address not in `funcs` table, check vtable `DATA` xref → that's entry point.
 
 **Read bytes from EXE (use pefile, not `/memory_bytes`):**
 ```python
 import pefile; pe = pefile.PE(r"C:\GOG Games\Icewind Dale 2\IWD2.exe", fast_load=True); print(pe.get_data(0x8ABCA4 - pe.OPTIONAL_HEADER.ImageBase, 16))
 ```
-
-Mutations in-memory until saved. Persist:
-```bash
-curl -s -X POST http://127.0.0.1:8089/save_program -H "Content-Type: application/json" -d '{"program":"IWD2.exe"}'
-```
-
-Schema reference: `ghidra_mcp_schema.json` (committed copy).
-
-**Virtual functions:** if address not in `funcs` table, check vtable `DATA` xref → that's entry point.
 
 ## Rename Workflow
 
