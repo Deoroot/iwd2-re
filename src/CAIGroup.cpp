@@ -1,14 +1,21 @@
 #include "CAIGroup.h"
 
+#include <math.h>
+#include <stdlib.h>
+
 #include "CAITrigger.h"
 #include "CBaldurChitin.h"
 #include "CGameObjectArray.h"
 #include "CGameSprite.h"
 #include "CMessage.h"
 #include "CInfGame.h"
+#include "CGameArea.h"
 #include "CPathSearch.h"
 #include "CSearchBitmap.h"
 #include "DebugLog.h"
+
+static const double PI = 3.14159265358979323846;
+static const double TWO_PI = 6.28318530717958647692;
 
 // 0x8479E4
 const LONG CAIGroup::OFFSET_MULTIPLIER = 1000;
@@ -675,46 +682,1069 @@ void CAIGroup::Sort()
     }
 }
 
+// 0x4058E0
+void CAIGroup::RotateOffsets(CPoint* offsets, SHORT count, SHORT rotationDegrees)
+{
+    double angleRadians = (rotationDegrees * 2.0 * PI) / 360.0;
+
+    for (int i = 0; i < count; i++) {
+        LONG x = offsets[i].x;
+        LONG y = offsets[i].y;
+
+        double dist = sqrt((double)(x * x + y * y));
+        if (dist == 0.0) {
+            continue;
+        }
+
+        LONG absX = (x ^ (x >> 31)) - (x >> 31);
+        double baseAngle = acos((double)absX / dist);
+
+        if (x < 0) {
+            if (y < 0) {
+                baseAngle = baseAngle + PI;
+            } else {
+                baseAngle = PI - baseAngle;
+            }
+        } else {
+            if (y < 0) {
+                baseAngle = TWO_PI - baseAngle;
+            }
+        }
+
+        double newAngle = baseAngle + angleRadians;
+        offsets[i].x = (LONG)(dist * cos(newAngle));
+        offsets[i].y = (LONG)(dist * sin(newAngle));
+    }
+}
+
+// 0x405370
+CPoint* CAIGroup::GetFormationOffsets(SHORT formationType, SHORT rotationDegrees, BYTE bExtend)
+{
+    BYTE count;
+    BYTE memberCount = static_cast<BYTE>(m_memberList.GetCount());
+
+    if (bExtend == 0) {
+        count = memberCount;
+        if (memberCount < 2) {
+            count = 1;
+        }
+    } else {
+        if (memberCount < 7) {
+            count = 6;
+        } else {
+            count = memberCount;
+        }
+    }
+
+    CPoint* offsets = new CPoint[count];
+    for (int i = 0; i < count; i++) {
+        offsets[i].x = 0;
+        offsets[i].y = 0;
+    }
+
+    if (bExtend == 1) {
+        RotateOffsets(offsets, count, rotationDegrees);
+        return offsets;
+    }
+
+    CPoint leaderPos(-1, -1);
+
+    if (m_memberList.GetHeadPosition() != NULL) {
+        LONG leaderId = reinterpret_cast<LONG>(m_memberList.GetHead());
+
+        CGameSprite* pLeader;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(leaderId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pLeader),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            CPoint& ptLeaderPos = pLeader->GetPos();
+            leaderPos.x = ptLeaderPos.x;
+            leaderPos.y = ptLeaderPos.y;
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(leaderId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        } else {
+            return offsets;
+        }
+    }
+
+    LONG* memberIds = NULL;
+
+    if (memberCount > CAIGROUP_FORMATION_MAX_SIZE) {
+        memberIds = new LONG[memberCount];
+        POSITION pos = m_memberList.GetHeadPosition();
+        int idx = 0;
+        while (pos != NULL) {
+            memberIds[idx++] = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
+        }
+    }
+
+    if (formationType == FORMATION_NONE) {
+        if (memberIds != NULL) {
+            delete[] memberIds;
+        }
+
+        if (memberCount == 0) {
+            return offsets;
+        }
+
+        memberIds = new LONG[memberCount];
+        POSITION pos = m_memberList.GetHeadPosition();
+        int idx = 0;
+        while (pos != NULL) {
+            memberIds[idx++] = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
+        }
+    }
+
+    offsets[0].x = 0;
+    offsets[0].y = 0;
+
+    LONG* pMemberId = memberIds;
+
+    for (int i = 0; i < count; i++) {
+        if (i > 11) {
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(*pMemberId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                CPoint& ptPos = pSprite->GetPos();
+                offsets[i].x = (ptPos.x - leaderPos.x) / CPathSearch::GRID_SQUARE_SIZEX;
+
+                CPoint& ptPos2 = pSprite->GetPos();
+                offsets[i].y = (ptPos2.y - leaderPos.y) / CPathSearch::GRID_SQUARE_SIZEY;
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(*pMemberId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+
+                offsets[i].x = offsets[i].x * OFFSET_MULTIPLIER;
+                offsets[i].y = offsets[i].y * OFFSET_MULTIPLIER;
+            }
+
+            pMemberId++;
+            continue;
+        }
+
+        switch (formationType) {
+        case CAIGROUP_FORMATION_FOLLOW:
+        case CAIGROUP_FORMATION_T:
+            offsets[i] = FORMATION_T_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_GATHER:
+            offsets[i] = FORMATION_GATHER_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_4AND2:
+            offsets[i] = FORMATION_4AND2_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_3BY2:
+            offsets[i] = FORMATION_3BY2_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_PROTECT:
+            offsets[i] = FORMATION_PROTECT_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_2BY3:
+            offsets[i] = FORMATION_2BY3_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_RANK:
+            offsets[i] = FORMATION_RANK_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_V:
+            offsets[i] = FORMATION_V_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_WEDGE:
+            offsets[i] = FORMATION_WEDGE_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_S:
+            offsets[i] = FORMATION_S_OFFSETS[i];
+            break;
+        case CAIGROUP_FORMATION_LINE:
+            offsets[i] = FORMATION_LINE_OFFSETS[i];
+            break;
+        case 12: {
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(*pMemberId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                pMemberId++;
+                continue;
+            }
+
+            CPoint& ptPos = pSprite->GetPos();
+            offsets[i].x = (ptPos.x - leaderPos.x) / CPathSearch::GRID_SQUARE_SIZEX;
+
+            CPoint& ptPos2 = pSprite->GetPos();
+            offsets[i].y = (ptPos2.y - leaderPos.y) / CPathSearch::GRID_SQUARE_SIZEY;
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(*pMemberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            break;
+        }
+        }
+
+        offsets[i].x = offsets[i].x * OFFSET_MULTIPLIER;
+        offsets[i].y = offsets[i].y * OFFSET_MULTIPLIER;
+
+        pMemberId++;
+    }
+
+    RotateOffsets(offsets, count, rotationDegrees);
+
+    if (memberIds != NULL) {
+        delete[] memberIds;
+    }
+
+    return offsets;
+}
+
+// 0x405A10
+SHORT* CAIGroup::GetFormationFaces(SHORT formationType, SHORT rotationDegrees)
+{
+    BYTE memberCount = static_cast<BYTE>(m_memberList.GetCount());
+
+    SHORT* faces = new SHORT[memberCount];
+    for (int i = 0; i < memberCount; i++) {
+        faces[i] = 0;
+    }
+
+    if (m_memberList.GetHeadPosition() == NULL) {
+        return faces;
+    }
+
+    LONG leaderId = reinterpret_cast<LONG>(m_memberList.GetHead());
+
+    LONG* memberIds = NULL;
+
+    if (memberCount > CAIGROUP_FORMATION_MAX_SIZE) {
+        memberIds = new LONG[memberCount];
+        POSITION pos = m_memberList.GetHeadPosition();
+        int idx = 0;
+        while (pos != NULL) {
+            memberIds[idx++] = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
+        }
+    }
+
+    if (formationType == FORMATION_NONE) {
+        if (memberIds != NULL) {
+            delete[] memberIds;
+        }
+
+        memberIds = new LONG[memberCount];
+        POSITION pos = m_memberList.GetHeadPosition();
+        int idx = 0;
+        while (pos != NULL) {
+            memberIds[idx++] = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
+        }
+    }
+
+    LONG* pMemberId = memberIds;
+
+    for (int i = 0; i < memberCount; i++) {
+        if (i > 11) {
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(*pMemberId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                faces[i] = pSprite->m_nDirection;
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(*pMemberId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+
+                SHORT rotatedFace = (SHORT)((rotationDegrees * 16 / 360 + faces[i]) & 0xF);
+                if (rotatedFace < 0) {
+                    rotatedFace = (rotatedFace - 1 | ~0xF) + 1;
+                }
+                faces[i] = rotatedFace;
+            }
+
+            pMemberId++;
+            continue;
+        }
+
+        switch (formationType) {
+        case CAIGROUP_FORMATION_T:
+            faces[i] = FORMATION_T_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_GATHER:
+            faces[i] = FORMATION_GATHER_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_4AND2:
+            faces[i] = FORMATION_4AND2_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_3BY2:
+            faces[i] = FORMATION_3BY2_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_PROTECT:
+            faces[i] = FORMATION_PROTECT_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_2BY3:
+            faces[i] = FORMATION_2BY3_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_RANK:
+            faces[i] = FORMATION_RANK_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_V:
+            faces[i] = FORMATION_V_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_WEDGE:
+            faces[i] = FORMATION_WEDGE_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_S:
+            faces[i] = FORMATION_S_FACE[i];
+            break;
+        case CAIGROUP_FORMATION_LINE:
+            faces[i] = FORMATION_LINE_FACE[i];
+            break;
+        case 12: {
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(*pMemberId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                pMemberId++;
+                continue;
+            }
+
+            faces[i] = pSprite->m_nDirection;
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(*pMemberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            break;
+        }
+        }
+
+        SHORT rotatedFace = (SHORT)((rotationDegrees * 16 / 360 + faces[i]) & 0xF);
+        if (rotatedFace < 0) {
+            rotatedFace = (rotatedFace - 1 | ~0xF) + 1;
+        }
+        faces[i] = rotatedFace;
+
+        pMemberId++;
+    }
+
+    CGameSprite* pLeader;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(leaderId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pLeader),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pLeader->m_id,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    if (memberIds != NULL) {
+        delete[] memberIds;
+    }
+
+    return faces;
+}
+
 // 0x4063E0
 void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType, CPoint cursor)
 {
     if (m_memberList.IsEmpty()) {
-        Iwd2DebugLog("CAIGroup::GroupSetTarget emptyList target=%ld,%ld", target.x, target.y);
         return;
     }
 
-    Iwd2DebugLog("CAIGroup::GroupSetTarget target=%ld,%ld additive=%d formation=%d count=%d",
-        target.x, target.y, (int)additive, (int)formationType, m_memberList.GetCount());
+    CTypedPtrList<CPtrList, CAIAction*> actions;
 
-    // Formation/cursor positioning (simplified — use target directly)
     if (formationType == 0) {
         FollowLeader(target, additive);
         return;
     }
 
+    LONG absX = (target.x - cursor.x);
+    absX = (absX ^ (absX >> 31)) - (absX >> 31);
+    LONG absY = (target.y - cursor.y);
+    absY = (absY ^ (absY >> 31)) - (absY >> 31);
+
+    if (absX < DEADZONE && absY < DEADZONE * 3 / 4) {
+        cursor.x = -1;
+        cursor.y = -1;
+    }
+
+    BOOL bFirst = TRUE;
+    if (m_memberList.GetCount() == 0) {
+        return;
+    }
+
+    if (m_memberList.GetCount() == 1) {
+        LONG memberId = reinterpret_cast<LONG>(m_memberList.GetHead());
+
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            if (pSprite->m_curAction.m_actionID == 2) {
+                pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+            } else {
+                CAIAction* moveAction = new CAIAction(CAIAction::MOVETOPOINT, target, 0, -1);
+                actions.AddTail(moveAction);
+
+                pSprite->m_userCommandPause = CGameSprite::USER_OVERRIDE_COUNT;
+                pSprite->m_triggerId = CGameObjectArray::INVALID_INDEX;
+
+                if (additive == 0) {
+                    pSprite->m_interrupt = TRUE;
+                    while (actions.GetCount() != 0) {
+                        CAIAction* action = actions.RemoveTail();
+                        pSprite->AddAction(*action);
+                        delete action;
+                    }
+                } else {
+                    if (pSprite->m_curAction.m_actionID != CAIAction::MOVETOPOINT) {
+                        pSprite->m_interrupt = TRUE;
+                    }
+                    while (actions.GetCount() != 0) {
+                        CAIAction* action = actions.RemoveTail();
+                        pSprite->InsertAction(*action);
+                        delete action;
+                    }
+                }
+
+                pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return;
+    }
+
+    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+
+    CPoint* offsets = NULL;
+    SHORT* faces = NULL;
+    int offsetIndex = 0;
+    int faceIndex = 0;
+
     POSITION pos = m_memberList.GetHeadPosition();
     while (pos != NULL) {
         LONG memberId = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
 
-        // Create MOVETOPOINT action for this member
-        CAIAction move(CAIAction::MOVETOPOINT, target, 0, -1);
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
-        // Dispatch via message handler (original uses CMessageAddAction)
-        CMessageAddAction* pMsg = new CMessageAddAction(move, memberId, memberId);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+        if (rc != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        if (bFirst) {
+            bFirst = FALSE;
+            pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+
+            int cursorX = cursor.x;
+            int cursorY = cursor.y;
+            if (cursor.x == -1 && cursor.y == -1) {
+                CPoint& ptPos = pSprite->GetPos();
+                cursorX = ptPos.x;
+                cursorY = ptPos.y;
+            }
+
+            LONG dx = target.x - cursorX;
+            LONG dy = target.y - cursorY;
+            double dist = sqrt((double)(dx * dx + dy * dy));
+            LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
+            double baseAngle = acos((double)absDx / dist);
+
+            if (dx < 0) {
+                if (dy < 0) {
+                    baseAngle = baseAngle + PI;
+                } else {
+                    baseAngle = PI - baseAngle;
+                }
+            } else {
+                if (dy < 0) {
+                    baseAngle = TWO_PI - baseAngle;
+                }
+            }
+
+            SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+            SHORT rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+
+            offsets = GetFormationOffsets(formationType, rotationDegrees, 0);
+            faces = GetFormationFaces(formationType, rotationDegrees);
+
+            LONG gridTargetX = target.x / CPathSearch::GRID_SQUARE_SIZEX;
+            LONG gridTargetY = target.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+            CPoint& ptLeaderPos = pSprite->GetPos();
+            LONG leaderGridX = ptLeaderPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+            LONG leaderGridY = ptLeaderPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+            if (leaderGridX != gridTargetX || leaderGridY != gridTargetY) {
+                // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
+                BOOL passable = TRUE;
+                if (!passable) {
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+                    if (offsets != NULL) {
+                        delete[] offsets;
+                    }
+                    if (faces != NULL) {
+                        delete[] faces;
+                    }
+                    return;
+                }
+            }
+
+            if (target.x / CPathSearch::GRID_SQUARE_SIZEX == gridTargetX
+                && target.y / CPathSearch::GRID_SQUARE_SIZEY == gridTargetY) {
+                // Keep world coordinates as-is.
+            } else {
+                target.x = CPathSearch::GRID_SQUARE_SIZEX * gridTargetX;
+                target.y = CPathSearch::GRID_SQUARE_SIZEY * gridTargetY;
+            }
+        }
+
+        LONG memberOffsetX = (CPathSearch::GRID_SQUARE_SIZEX * offsets[offsetIndex].x) / OFFSET_MULTIPLIER;
+        LONG memberOffsetY = (CPathSearch::GRID_SQUARE_SIZEY * offsets[offsetIndex].y) / OFFSET_MULTIPLIER;
+
+        CAIAction* faceAction = new CAIAction(CAIAction::FACE, CPoint(-1, -1), faces[faceIndex], -1);
+        actions.AddTail(faceAction);
+
+        CAIAction* moveAction = new CAIAction(CAIAction::MOVETOPOINT, CPoint(-1, -1), 0, -1);
+        actions.AddTail(moveAction);
+
+        LONG memberDestGridX = (target.x + memberOffsetX) / CPathSearch::GRID_SQUARE_SIZEX;
+        LONG memberDestGridY = (target.y + memberOffsetY) / CPathSearch::GRID_SQUARE_SIZEY;
+
+        CPoint& ptPos = pSprite->GetPos();
+        LONG spriteGridX = ptPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+        LONG spriteGridY = ptPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+        CPoint memberDest;
+        if (spriteGridX == memberDestGridX && spriteGridY == memberDestGridY) {
+            memberDest.x = memberOffsetX + target.x;
+            memberDest.y = memberOffsetY + target.y;
+        } else {
+            // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
+            BOOL passable = TRUE;
+            if (passable) {
+                memberDest.x = memberOffsetX + target.x;
+                memberDest.y = memberOffsetY + target.y;
+            } else {
+                memberDest.x = target.x;
+                memberDest.y = target.y;
+            }
+        }
+
+        if (pSprite->m_curAction.m_actionID == 2) {
+            pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+        } else {
+            moveAction->m_dest = memberDest;
+
+            // NOTE: Original adds SMALLWAIT(rand()%7) stagger when
+            // multiplayer flag at CInfGame+0x1B7C is set.
+            // TODO: Add back when multiplayer flag is recovered.
+
+            pSprite->m_userCommandPause = CGameSprite::USER_OVERRIDE_COUNT;
+            pSprite->m_triggerId = CGameObjectArray::INVALID_INDEX;
+
+            if (additive == 0) {
+                pSprite->m_interrupt = TRUE;
+                while (actions.GetCount() != 0) {
+                    CAIAction* action = actions.RemoveTail();
+                    pSprite->AddAction(*action);
+                    delete action;
+                }
+            } else {
+                SHORT curActionId = pSprite->m_curAction.m_actionID;
+                if (curActionId != CAIAction::MOVETOPOINT
+                    && curActionId != CAIAction::FACE
+                    && curActionId != CAIAction::SMALLWAIT) {
+                    pSprite->m_interrupt = TRUE;
+                }
+                while (actions.GetCount() != 0) {
+                    CAIAction* action = actions.RemoveTail();
+                    pSprite->InsertAction(*action);
+                    delete action;
+                }
+            }
+
+            actions.RemoveAll();
+        }
+
+        pSprite->m_inFormation = TRUE;
+        pSprite->m_groupMove = FALSE;
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        offsetIndex++;
+        faceIndex++;
     }
+
+    if (offsets != NULL) {
+        delete[] offsets;
+    }
+    if (faces != NULL) {
+        delete[] faces;
+    }
+
+    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
 }
 
 // 0x407280
 void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint cursor, LONG range)
 {
-    // TODO: Incomplete.
+    CTypedPtrList<CPtrList, CAIAction*> actions;
+
+    LONG absX = (target.x - cursor.x);
+    absX = (absX ^ (absX >> 31)) - (absX >> 31);
+    LONG absY = (target.y - cursor.y);
+    absY = (absY ^ (absY >> 31)) - (absY >> 31);
+
+    if (absX < DEADZONE && absY < DEADZONE * 3 / 4) {
+        cursor.x = -1;
+        cursor.y = -1;
+    }
+
+    BOOL bFirst = TRUE;
+    if (m_memberList.GetCount() == 0) {
+        return;
+    }
+
+    if (m_memberList.GetCount() == 1) {
+        LONG memberId = reinterpret_cast<LONG>(m_memberList.GetHead());
+
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            CAIAction* protectAction = new CAIAction(CAIAction::PROTECTPOINT, target, range, -1);
+            actions.AddTail(protectAction);
+
+            pSprite->m_userCommandPause = CGameSprite::USER_OVERRIDE_COUNT;
+            pSprite->m_triggerId = CGameObjectArray::INVALID_INDEX;
+            pSprite->m_interrupt = TRUE;
+
+            while (actions.GetCount() != 0) {
+                CAIAction* action = actions.RemoveTail();
+                pSprite->AddAction(*action);
+                delete action;
+            }
+
+            pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return;
+    }
+
+    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+
+    CPoint* offsets = NULL;
+    SHORT* faces = NULL;
+    int offsetIndex = 0;
+    int faceIndex = 0;
+
+    POSITION pos = m_memberList.GetHeadPosition();
+    while (pos != NULL) {
+        LONG memberId = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
+
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        if (bFirst) {
+            bFirst = FALSE;
+            pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+
+            int cursorX = cursor.x;
+            int cursorY = cursor.y;
+            if (cursor.x == -1 && cursor.y == -1) {
+                CPoint& ptPos = pSprite->GetPos();
+                cursorX = ptPos.x;
+                cursorY = ptPos.y;
+            }
+
+            LONG dx = target.x - cursorX;
+            LONG dy = target.y - cursorY;
+            double dist = sqrt((double)(dx * dx + dy * dy));
+            LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
+            double baseAngle = acos((double)absDx / dist);
+
+            if (dx < 0) {
+                if (dy < 0) {
+                    baseAngle = baseAngle + PI;
+                } else {
+                    baseAngle = PI - baseAngle;
+                }
+            } else {
+                if (dy < 0) {
+                    baseAngle = TWO_PI - baseAngle;
+                }
+            }
+
+            SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+            SHORT rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+
+            offsets = GetFormationOffsets(formationType, rotationDegrees, 0);
+            faces = GetFormationFaces(formationType, rotationDegrees);
+
+            LONG gridTargetX = target.x / CPathSearch::GRID_SQUARE_SIZEX;
+            LONG gridTargetY = target.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+            CPoint& ptLeaderPos = pSprite->GetPos();
+            LONG leaderGridX = ptLeaderPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+            LONG leaderGridY = ptLeaderPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+            if (leaderGridX != gridTargetX || leaderGridY != gridTargetY) {
+                // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
+                BOOL passable = TRUE;
+                if (!passable) {
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+                    if (offsets != NULL) {
+                        delete[] offsets;
+                    }
+                    if (faces != NULL) {
+                        delete[] faces;
+                    }
+                    return;
+                }
+            }
+
+            if (target.x / CPathSearch::GRID_SQUARE_SIZEX == gridTargetX
+                && target.y / CPathSearch::GRID_SQUARE_SIZEY == gridTargetY) {
+                // Keep world coordinates.
+            } else {
+                target.x = CPathSearch::GRID_SQUARE_SIZEX * gridTargetX;
+                target.y = CPathSearch::GRID_SQUARE_SIZEY * gridTargetY;
+            }
+        }
+
+        LONG memberOffsetX = (CPathSearch::GRID_SQUARE_SIZEX * offsets[offsetIndex].x) / OFFSET_MULTIPLIER;
+        LONG memberOffsetY = (CPathSearch::GRID_SQUARE_SIZEY * offsets[offsetIndex].y) / OFFSET_MULTIPLIER;
+
+        CAIAction* faceAction = new CAIAction(CAIAction::FACE, CPoint(-1, -1), faces[faceIndex], -1);
+        actions.AddTail(faceAction);
+
+        LONG memberDestGridX = (target.x + memberOffsetX) / CPathSearch::GRID_SQUARE_SIZEX;
+        LONG memberDestGridY = (target.y + memberOffsetY) / CPathSearch::GRID_SQUARE_SIZEY;
+
+        CPoint& ptPos = pSprite->GetPos();
+        LONG spriteGridX = ptPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+        LONG spriteGridY = ptPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+        CPoint memberDest;
+        if (spriteGridX == memberDestGridX && spriteGridY == memberDestGridY) {
+            memberDest.x = memberOffsetX + target.x;
+            memberDest.y = memberOffsetY + target.y;
+        } else {
+            // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
+            BOOL passable = TRUE;
+            if (passable) {
+                memberDest.x = memberOffsetX + target.x;
+                memberDest.y = memberOffsetY + target.y;
+            } else {
+                memberDest.x = target.x;
+                memberDest.y = target.y;
+            }
+        }
+
+        CAIAction* protectAction = new CAIAction(CAIAction::PROTECTPOINT, memberDest, range, -1);
+        actions.AddTail(protectAction);
+
+        // NOTE: Original adds SMALLWAIT(rand()%7) stagger when
+        // multiplayer flag at CInfGame+0x1B7C is set.
+        // TODO: Add back when multiplayer flag is recovered.
+
+        pSprite->m_userCommandPause = CGameSprite::USER_OVERRIDE_COUNT;
+        pSprite->m_triggerId = CGameObjectArray::INVALID_INDEX;
+        pSprite->m_interrupt = TRUE;
+
+        while (actions.GetCount() != 0) {
+            CAIAction* action = actions.RemoveTail();
+            pSprite->AddAction(*action);
+            delete action;
+        }
+        actions.RemoveAll();
+
+        pSprite->m_inFormation = TRUE;
+        pSprite->m_groupMove = FALSE;
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        offsetIndex++;
+        faceIndex++;
+    }
+
+    if (offsets != NULL) {
+        delete[] offsets;
+    }
+    if (faces != NULL) {
+        delete[] faces;
+    }
+
+    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
 }
 
 // 0x407FC0
 void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
 {
-    // TODO: Incomplete.
+    if (formationType == 0) {
+        if (m_memberList.GetCount() != 0) {
+            LONG leaderId = reinterpret_cast<LONG>(m_memberList.GetHead());
+
+            CGameSprite* pLeader;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(leaderId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pLeader),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                pLeader->m_targetPoint.x = target.x;
+                pLeader->m_targetPoint.y = target.y;
+                pLeader->m_groupMove = TRUE;
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(leaderId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+        return;
+    }
+
+    LONG absX = (target.x - cursor.x);
+    absX = (absX ^ (absX >> 31)) - (absX >> 31);
+    LONG absY = (target.y - cursor.y);
+    absY = (absY ^ (absY >> 31)) - (absY >> 31);
+
+    if (absX < DEADZONE && absY < DEADZONE * 3 / 4) {
+        cursor.x = -1;
+        cursor.y = -1;
+    }
+
+    BOOL bFirst = TRUE;
+    if (m_memberList.GetCount() == 0) {
+        return;
+    }
+
+    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+
+    if (m_memberList.GetHeadPosition() == NULL) {
+        AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+        return;
+    }
+
+    int offsetIndex = 0;
+    CPoint* offsets = NULL;
+
+    POSITION pos = m_memberList.GetHeadPosition();
+    while (pos != NULL) {
+        LONG memberId = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
+
+        if (bFirst) {
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(memberId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                bFirst = FALSE;
+                int cursorX = cursor.x;
+                int cursorY = cursor.y;
+                if (cursor.x == -1 && cursor.y == -1) {
+                    CPoint& ptPos = pSprite->GetPos();
+                    cursorX = ptPos.x;
+                    cursorY = ptPos.y;
+                }
+
+                LONG dx = target.x - cursorX;
+                LONG dy = target.y - cursorY;
+                double dist = sqrt((double)(dx * dx + dy * dy));
+                LONG absDx = (dx ^ (dx >> 31)) - (dx >> 31);
+                double baseAngle = acos((double)absDx / dist);
+
+                if (dx < 0) {
+                    if (dy < 0) {
+                        baseAngle = baseAngle + PI;
+                    } else {
+                        baseAngle = PI - baseAngle;
+                    }
+                } else {
+                    if (dy < 0) {
+                        baseAngle = TWO_PI - baseAngle;
+                    }
+                }
+
+                SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+                SHORT rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
+
+                offsets = GetFormationOffsets(formationType, rotationDegrees, 0);
+
+                LONG gridTargetX = target.x / CPathSearch::GRID_SQUARE_SIZEX;
+                LONG gridTargetY = target.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+                CPoint& ptLeaderPos = pSprite->GetPos();
+                LONG leaderGridX = ptLeaderPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+                LONG leaderGridY = ptLeaderPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+                if (leaderGridX != gridTargetX || leaderGridY != gridTargetY) {
+                    // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
+                    BOOL passable = TRUE;
+                    if (!passable) {
+                        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(memberId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            INFINITE);
+                        AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+                        if (offsets != NULL) {
+                            delete[] offsets;
+                        }
+                        return;
+                    }
+                }
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(memberId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+
+                if (target.x / CPathSearch::GRID_SQUARE_SIZEX == gridTargetX
+                    && target.y / CPathSearch::GRID_SQUARE_SIZEY == gridTargetY) {
+                    // Keep world coordinates as-is.
+                } else {
+                    target.x = CPathSearch::GRID_SQUARE_SIZEX * gridTargetX;
+                    target.y = CPathSearch::GRID_SQUARE_SIZEY * gridTargetY;
+                }
+            }
+        }
+
+        if (offsets == NULL) {
+            continue;
+        }
+
+        LONG memberOffsetX = (CPathSearch::GRID_SQUARE_SIZEX * offsets[offsetIndex].x) / OFFSET_MULTIPLIER;
+        LONG memberOffsetY = (CPathSearch::GRID_SQUARE_SIZEY * offsets[offsetIndex].y) / OFFSET_MULTIPLIER;
+
+        LONG memberDestGridX = (target.x + memberOffsetX) / CPathSearch::GRID_SQUARE_SIZEX;
+        LONG memberDestGridY = (target.y + memberOffsetY) / CPathSearch::GRID_SQUARE_SIZEY;
+
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            CPoint& ptPos = pSprite->GetPos();
+            LONG spriteGridX = ptPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+            LONG spriteGridY = ptPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+            if (spriteGridX == memberDestGridX && spriteGridY == memberDestGridY) {
+                pSprite->m_targetPoint.x = target.x + memberOffsetX;
+                pSprite->m_targetPoint.y = target.y + memberOffsetY;
+            } else {
+                // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
+                BOOL passable = TRUE;
+                if (passable) {
+                    pSprite->m_targetPoint.x = target.x + memberOffsetX;
+                    pSprite->m_targetPoint.y = target.y + memberOffsetY;
+                } else {
+                    pSprite->m_targetPoint.x = target.x;
+                    pSprite->m_targetPoint.y = target.y;
+                }
+            }
+
+            pSprite->m_groupMove = TRUE;
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            offsetIndex++;
+        }
+    }
+
+    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+
+    if (offsets != NULL) {
+        delete[] offsets;
+    }
 }
 
 // 0x408660
@@ -951,7 +1981,125 @@ void CAIGroup::FollowLeader(CPoint target, BOOL additive)
 // 0x409820
 void CAIGroup::HandleFollowPath(LONG* pPath, INT nPath, CPoint target, CPoint start, BOOL additive)
 {
-    // TODO: Incomplete.
+    CTypedPtrList<CPtrList, CAIAction*> actions;
+
+    BOOL bFirst = TRUE;
+    int delay = 0;
+
+    POSITION pos = m_memberList.GetHeadPosition();
+    while (pos != NULL) {
+        POSITION curPos = pos;
+        LONG memberId = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
+
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        if (bFirst) {
+            bFirst = FALSE;
+
+            pSprite->GetPos();
+
+            if (pos != NULL) {
+                LONG nextMemberId = reinterpret_cast<LONG>(m_memberList.GetAt(pos));
+
+                CMessageStopFollow* pMessage = new CMessageStopFollow(memberId, nextMemberId);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+            }
+        } else {
+            CAIAction* followAction = new CAIAction(CAIAction::FOLLOW, target, (SHORT)delay, -1);
+            followAction->m_specificID2 = start.y;
+            actions.AddTail(followAction);
+
+            if (additive == 0) {
+                CAIAction* waitAction = new CAIAction(CAIAction::SMALLWAIT, CPoint(-1, -1), 5, -1);
+                actions.AddTail(waitAction);
+
+                CAIAction* moveAction = new CAIAction(CAIAction::MOVETOPOINTNORECTICLE, CPoint(-1, -1), 0, -1);
+                actions.AddTail(moveAction);
+
+                if (pos != NULL) {
+                    POSITION nextPos = pos;
+                    LONG nextMemberId = reinterpret_cast<LONG>(m_memberList.GetAt(nextPos));
+                    pSprite->m_followLeaderNext = nextMemberId;
+                }
+
+                pSprite->ClearStoredPaths();
+
+                pSprite->m_userCommandPause = CGameSprite::USER_OVERRIDE_COUNT;
+                pSprite->m_triggerId = CGameObjectArray::INVALID_INDEX;
+                pSprite->m_interrupt = TRUE;
+
+                while (actions.GetCount() != 0) {
+                    CAIAction* action = actions.RemoveTail();
+                    pSprite->AddAction(*action);
+                    delete action;
+                }
+                actions.RemoveAll();
+
+                LONG* pathCopy = new LONG[nPath];
+                memcpy(pathCopy, pPath, nPath * sizeof(LONG));
+
+                pSprite->m_pPathTemp.AddTail(reinterpret_cast<int*>(pathCopy));
+                pSprite->m_nPathTemp.AddTail(reinterpret_cast<int*>(nPath));
+            } else {
+                pSprite->m_userCommandPause = CGameSprite::USER_OVERRIDE_COUNT;
+                pSprite->m_triggerId = CGameObjectArray::INVALID_INDEX;
+
+                SHORT curActionId = pSprite->m_curAction.m_actionID;
+                if (curActionId != CAIAction::MOVETOPOINT
+                    && curActionId != CAIAction::FACE
+                    && curActionId != CAIAction::SMALLWAIT
+                    && curActionId != CAIAction::FOLLOW
+                    && curActionId != CAIAction::MOVETOPOINTNORECTICLE) {
+
+                    CAIAction* waitAction = new CAIAction(CAIAction::SMALLWAIT, CPoint(-1, -1), 5, -1);
+                    actions.AddTail(waitAction);
+
+                    CAIAction* moveAction = new CAIAction(CAIAction::MOVETOPOINTNORECTICLE, CPoint(-1, -1), 0, -1);
+                    actions.AddTail(moveAction);
+
+                    if (pos != NULL) {
+                        LONG nextMemberId = reinterpret_cast<LONG>(m_memberList.GetAt(pos));
+                        pSprite->m_followLeaderNext = nextMemberId;
+                    }
+
+                    pSprite->ClearStoredPaths();
+                    pSprite->m_interrupt = TRUE;
+                }
+
+                while (actions.GetCount() != 0) {
+                    CAIAction* action = actions.RemoveTail();
+                    pSprite->InsertAction(*action);
+                    delete action;
+                }
+                actions.RemoveAll();
+
+                LONG* pathCopy = new LONG[nPath];
+                memcpy(pathCopy, pPath, nPath * sizeof(LONG));
+
+                pSprite->m_pPathTemp.AddTail(reinterpret_cast<int*>(pathCopy));
+                pSprite->m_nPathTemp.AddTail(reinterpret_cast<int*>(nPath));
+            }
+        }
+
+        pSprite->m_inFormation = TRUE;
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        delay++;
+    }
 }
 
 // 0x68C000

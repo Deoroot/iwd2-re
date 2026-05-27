@@ -18,6 +18,7 @@ public:
     static const SHORT ATTACK;
     static const SHORT DIALOGUE;
     static const SHORT MOVETOPOINT;
+    static const SHORT PROTECTPOINT;
     static const SHORT PICKPOCKETS;
     static const SHORT SPELL;
     static const SHORT USEITEM;
@@ -43,6 +44,7 @@ public:
     static const SHORT RANDOMWALK;
     static const SHORT RANDOMWALKCONTINUOUS;
     static const SHORT LEADER;
+    static const SHORT FOLLOW;
     static const SHORT MOVETOPOINTNORECTICLE;
     static const SHORT LEAVEAREA;
     static const SHORT GROUPATTACK;

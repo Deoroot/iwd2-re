@@ -103,6 +103,10 @@ public:
     void FollowLeader(CPoint target, BOOL additive);
     void HandleFollowPath(LONG* pPath, INT nPath, CPoint target, CPoint start, BOOL additive);
 
+    CPoint* GetFormationOffsets(SHORT formationType, SHORT rotationDegrees, BYTE bExtend);
+    static void RotateOffsets(CPoint* offsets, SHORT count, SHORT rotationDegrees);
+    SHORT* GetFormationFaces(SHORT formationType, SHORT rotationDegrees);
+
     BYTE GetCount();
 
     /* 0000 */ SHORT m_groupId;
