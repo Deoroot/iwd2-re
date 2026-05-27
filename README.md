@@ -24,17 +24,20 @@ Original source code was never released. This project reconstructs it by analyzi
 | **Code** | ~53% (~2M / ~3.8M lines) | Decompiled and organized |
 | **Unnamed Functions** | 3,141 remaining | Stubs in `NewDiscovered.h`, not yet RE'd |
 | **Unnamed Fields** | ~1,880 unique | Class-scoped rename in progress |
-| **TODO / FIXME** | 889 in source | 716 synced as Ghidra bookmarks |
+| **TODO / FIXME** | 881 in source | 122 files; `CGameSprite`(73), `CMessage`(60), `CInfGame`(49) top |
 | **Main Menu** | **Working** | Boots to CScreenConnection; mouse cursor visible and clickable |
 | **UI Screens** | Working | Options, Keymaps, Single Player, Party Select, Character Creation |
 | **Load Game** | **Working** | Save list + preview thumbnails fixed |
-| **World Screen** | **Partial** | Loads from menu; area rendering and camera working |
-| **Dialogue** | **Working** | StartDialog/EndDialog, entry text, replies, Continue/End button, VO playback, triggers |
+| **World Screen** | **Partial** | Area rendering + camera; AI wired, effects/spatial queries stubbed |
+| **Dialogue** | **Working** | StartDialog/EndDialog, entry/reply text, Continue/End button, panel 7/9 switch |
 | **Action Bar** | **Working** | Skills submenu, customize menu, weapon picker, all sub-menus exit correctly |
 | **Inventory** | **Working** | Slots, weapon icons, active-set highlight, STON* fallback for empties |
-| **Gameplay** | **Not working** | Requires `ProcessAI` / `ExecuteAction` implementation |
+| **Effects** | **Partial** | ~40% opcodes apply; 4 persistent subclasses entirely stubbed; visuals empty |
+| **Spells** | **Partial** | Cast flow wired; `FireSpell`/`FireSpellPoint` empty, projectile visuals missing |
+| **Gameplay** | **Partial** | `ProcessAI`/`DoAction` functional; modals (`SetModalState`), area movement, spatial queries stubbed |
+| **Multiplayer** | **Not working** | ~85% stubbed; only local single-player message dispatch recovered |
 
-**Current milestone**: Reconstruct the AI runtime (`CGameAIBase::ProcessAI`, `ExecuteAction`).
+**Current milestone**: Reconstruct AI runtime (`ProcessAI`, `FireSpell`, `SetModalState`) + effect system (`ApplyEffect` opcodes, spell visuals, projectile launch).
 
 ### Recent Progress
 
@@ -42,7 +45,8 @@ Original source code was never released. This project reconstructs it by analyzi
 |------|------------|
 | May 2026 | **Dialogue**: Full dialog flow (StartDialog, EndDialog, entry/reply text, Continue/End button, reply color) per Ghidra 0x483F00–0x485700 + 0x68EA00/0x68F9D0 |
 | May 2026 | **Dialog UI**: Panel 7/9 switch, PC portrait, party bar hide, active/inactive render, clip rect fix |
-| May 2026 | **Dialog sync**: Critical section on text display list, display list synchronization, use-after-free fix |
+| May 2026 | **Dialog sync**: `CUIControlTextDisplay` concurrent display list with class-wide critical section (`s_csSharedList`); `CVidInf::BKTextOut` clip rect fix |
+| May 2026 | **Fields**: `CScreenWorld::field_10B2→m_dialogReplyIndex`, `field_10B4→m_dialogContinueFlag`, `field_1150→m_bDialogButtonClicked`; struct `CScreenWorld` created in Ghidra (111 fields) |
 | May 2026 | **Action Bar**: Customize menu (state 0x75), skills submenu (0x73), quick-weapon picker (0x79), class pickers (0x76/0x77), and all sub-menu exit paths wired per Ghidra |
 | May 2026 | **Inventory**: STON* fallback for empty equipment slots, active-set HIGHLGHT ring, quick-weapon panel rendering |
 | May 2026 | **Ghidra DB**: 4,963 functions renamed (88% named), 716 TODO/FIXME bookmarks imported |
