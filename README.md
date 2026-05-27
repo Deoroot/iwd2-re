@@ -120,6 +120,37 @@ Ghidra sync mistakes. It does not reformat, modernize, or auto-fix code.
 
 ---
 
+## Knowledge Graph (code-review-graph)
+
+The repo uses [code-review-graph](https://github.com/tirth8205/code-review-graph) to
+build a structural map of the codebase for AI-assisted navigation. Two independent
+graphs cover `src/` and `refs/gemrb/`.
+
+### Setup
+
+```bash
+# Install CRG
+pip install code-review-graph
+
+# Register both repos in the multi-repo registry
+code-review-graph register . --alias iwd2
+code-review-graph register refs/gemrb --alias gemrb
+```
+
+Then ask your AI assistant to build the graphs, or run:
+
+```bash
+code-review-graph build           # main src/ graph
+code-review-graph build --repo refs/gemrb   # gemrb graph
+```
+
+### Usage
+
+All 30 MCP tools (`semantic_search_nodes`, `query_graph`, `cross_repo_search_tool`, …) are available to AI agents.
+See `AGENTS.md` for the full workflow.
+
+---
+
 ## Known Limitations & Optimization Opportunities
 
 ### CPU usage at idle (~6-7% in windowed mode)
