@@ -40,7 +40,7 @@ Original source code was never released. This project reconstructs it by analyzi
 
 | Date | Achievement |
 |------|------------|
-| May 2026 | **Dialogue**: Full dialog flow (StartDialog, EndDialog, entry/reply text, Continue/End button, voice-over, trigger evaluation, reply color) per Ghidra 0x483F00–0x485700 + 0x68EA00/0x68F9D0 |
+| May 2026 | **Dialogue**: Full dialog flow (StartDialog, EndDialog, entry/reply text, Continue/End button, reply color) per Ghidra 0x483F00–0x485700 + 0x68EA00/0x68F9D0 |
 | May 2026 | **Dialog UI**: Panel 7/9 switch, PC portrait, party bar hide, active/inactive render, clip rect fix |
 | May 2026 | **Dialog sync**: Critical section on text display list, display list synchronization, use-after-free fix |
 | May 2026 | **Action Bar**: Customize menu (state 0x75), skills submenu (0x73), quick-weapon picker (0x79), class pickers (0x76/0x77), and all sub-menu exit paths wired per Ghidra |
@@ -180,7 +180,30 @@ int CGameSprite::GetDerivedStats() {
 
 ### Rename / Annotate Ghidra
 
-Use the **GhidraMCP REST API** (`http://127.0.0.1:8089`) — run Ghidra GUI, plugin auto-starts. Schema: `/mcp/schema`. Mutations in-memory → persist with `save_program`. `__thiscall` `this` locked → document via `batch_set_comments` plate comment.
+Use the **GhidraMCP REST API** (`http://127.0.0.1:8089`) — run Ghidra GUI, plugin auto-starts.
+
+```bash
+# Inspect before renaming
+curl -s "http://127.0.0.1:8089/decompile_function?address=0x5D2DE0"
+curl -s "http://127.0.0.1:8089/get_function_variables?address=0x5D2DE0"
+
+# Rename function
+curl -s -X POST http://127.0.0.1:8089/rename_function_by_address -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","new_name":"RenderFogOfWar"}'
+
+# Set function signature
+curl -s -X POST http://127.0.0.1:8089/set_function_prototype -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","prototype":"void RenderFogOfWar(CVidMode*)"}'
+
+# Rename local / param
+curl -s -X POST http://127.0.0.1:8089/rename_variable -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","oldName":"local_8","newName":"pArea"}'
+curl -s -X POST http://127.0.0.1:8089/set_parameter_type -H "Content-Type: application/json" -d '{"function_address":"0x5D2DE0","parameter_name":"param_1","new_type":"CVidMode *"}'
+
+# Comments & bookmarks
+curl -s -X POST http://127.0.0.1:8089/set_plate_comment -H "Content-Type: application/json" -d '{"address":"0x5D2DE0","comment":"Renders fog of war overlay."}'
+curl -s -X POST http://127.0.0.1:8089/set_bookmark -H "Content-Type: application/json" -d '{"address":"0x5D2DE0","category":"review","comment":"Check blend flags."}'
+
+# Persist Ghidra DB
+curl -s "http://127.0.0.1:8089/save_program?program=IWD2.exe"
+```
 
 Full workflow: [decomp_ref/ghidra_rename_annotate.md](decomp_ref/ghidra_rename_annotate.md)
 
