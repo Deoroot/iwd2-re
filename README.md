@@ -131,6 +131,7 @@ graphs cover `src/` and `refs/gemrb/`.
 ```bash
 # Install CRG
 pip install code-review-graph
+code-review-graph install          # auto-detect and configure your AI platform
 
 # Register both repos in the multi-repo registry
 code-review-graph register . --alias iwd2
