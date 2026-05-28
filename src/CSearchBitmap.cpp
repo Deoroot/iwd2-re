@@ -1114,4 +1114,5 @@ void SearchThreadMain(void* userInfo)
 
     CloseHandle(g_pBaldurChitin->GetObjectGame()->m_hSearchThread);
     g_pBaldurChitin->GetObjectGame()->m_hSearchThread = NULL;
+    searchLock.Unlock();
 }
