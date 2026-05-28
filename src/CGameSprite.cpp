@@ -13403,7 +13403,7 @@ void CGameSprite::ComputeWaypoint(CPoint& result, LONG** ppPath, SHORT* pnPath, 
     SHORT nPath = *pnPath;
 
     LONG lastPos = pPath[nPath - 1];
-    SHORT targetSquares = delay * 3;
+    LONG targetSquares = delay * 3;
 
     LONG lastX = lastPos % CPathSearch::GRID_ACTUALX;
     LONG lastY = CPathSearch::GRID_ACTUALY - lastPos / CPathSearch::GRID_ACTUALX - 1;
@@ -13430,7 +13430,7 @@ void CGameSprite::ComputeWaypoint(CPoint& result, LONG** ppPath, SHORT* pnPath, 
             LONG dy = lastY - prevY;
             LONG segLen = CAIUtil::CountSquares(ptLast, ptPrev);
             if (segLen > 0) {
-                SHORT steps = targetSquares / segLen + 1;
+                LONG steps = targetSquares / segLen + 1;
                 *pReachedEnd = 1;
                 result.x = CPathSearch::GRID_SQUARE_SIZEX * (lastX - steps * dx);
                 result.y = CPathSearch::GRID_SQUARE_SIZEY * (lastY - steps * dy);
