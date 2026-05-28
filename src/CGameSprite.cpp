@@ -2831,7 +2831,7 @@ void CGameSprite::AIUpdateWalk()
         LONG searchGoalY = goal.y * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
         LONG searchPosY = 4 * m_pos.y / 3;
 
-        int scale = static_cast<int>(sqrt((m_posDest.x - m_pos.x) * (m_posDest.x - m_pos.x) + (searchGoalY - searchPosY) * (searchGoalY - searchPosY)) + 0.5);
+        int scale = static_cast<int>(sqrt((double)((m_posDest.x - m_pos.x) * (m_posDest.x - m_pos.x) + (searchGoalY - searchPosY) * (searchGoalY - searchPosY))));
         if (scale == 0) {
             // NOTE: Uninline.
             DropPath();
