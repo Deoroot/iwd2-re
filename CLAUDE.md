@@ -119,3 +119,11 @@ data/near_infinity_export/
 - Verify `// 0xADDR` against Ghidra before touching.
 - Minimal diffs. One bug = one change. No refactor in bugfix commits.
 - Prefer named constants over magic numbers when defined in file.
+
+## No hacks — faithful recovery only
+
+The goal is code that matches `IWD2.exe`. **Do NOT invent ad-hoc behavior** (direct-movement slides, "stub as passable", bypasses of unrecovered functions, simplified approximations). Such hacks pass a quick test but diverge from the binary and cause emergent bugs later that cost far more to diagnose than they saved (e.g. the `// Direct movement: walk straight to destination` slide in `AIUpdateWalk` caused party members to barge through choke points and gridlock).
+
+- If the faithful behavior can't be recovered yet, leave it unimplemented (return early / no-op) rather than faking movement, passability, etc. — a missing feature is easier to spot and safer than a wrong one.
+- If a hack is genuinely unavoidable as a temporary measure, mark it loudly so it is greppable and obviously not-faithful: `// HACK: <what it fakes> — <why> — replaces 0x<addr>`. Plain `// TODO`/`// NOTE` is not enough.
+- Periodically grep for hack markers (`hack`, `bypass`, `stub as`, `no pathfinding`, `for now`, `approximate`, `placeholder`) and replace them with the real recovery.
