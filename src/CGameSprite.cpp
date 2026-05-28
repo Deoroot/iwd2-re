@@ -3075,11 +3075,20 @@ BOOL CGameSprite::ClearBumpPath(const CPoint& start, const CPoint& goal)
     CTypedPtrList<CPtrList, LONG*> obstacles;
     BOOL bGathered = FALSE;
 
-    // 12 bytes per binary (abStack_ac[12] @ 0x6FA900). dirTable[dirTable[0]]
-    // / dirTable[dirTable[8]] index by 3*dy+dx+4, which reaches 9..11 when
-    // start->goal spans >1 search cell, so a 9-byte buffer overflows the stack.
+    // abStack_ac[12] @ 0x6FA900. The two indexed writes use the FULL signed
+    // index 3*dy+dx+4 (the binary indexes abStack_ac[<int expr>], not the
+    // truncated dirTable[0]/[8] byte), and the goal write happens BEFORE
+    // dirTable[8] is assigned. The index lands in [0,8] only when start/goal are
+    // adjacent (one walk step, the binary's precondition). When a step spans >1
+    // cell the index leaves the array; the binary scribbles dead frame locals
+    // (harmless), but our standalone array would overflow the stack and corrupt
+    // the caller frame, so the indexed writes are guarded to the array bounds.
+    // Only dirTable[0..8] are ever read, and those are identical to the binary
+    // for every adjacent input.
     BYTE dirTable[12];
-    dirTable[0] = (BYTE)(3 * (goal.y - start.y) + (goal.x - start.x) + 4);
+    int idxGoal = 3 * (goal.y - start.y) + (goal.x - start.x) + 4;
+    int idxBack = 3 * (start.y - goal.y) + (start.x - goal.x) + 4;
+    dirTable[0] = (BYTE)idxGoal;
     dirTable[1] = 1;
     dirTable[2] = 2;
     dirTable[3] = 3;
@@ -3087,9 +3096,13 @@ BOOL CGameSprite::ClearBumpPath(const CPoint& start, const CPoint& goal)
     dirTable[5] = 5;
     dirTable[6] = 6;
     dirTable[7] = 7;
-    dirTable[8] = (BYTE)(3 * (start.y - goal.y) + (start.x - goal.x) + 4);
-    dirTable[dirTable[0]] = 0;
-    dirTable[dirTable[8]] = 8;
+    if (idxGoal >= 0 && idxGoal < (int)sizeof(dirTable)) {
+        dirTable[idxGoal] = 0;
+    }
+    dirTable[8] = (BYTE)idxBack;
+    if (idxBack >= 0 && idxBack < (int)sizeof(dirTable)) {
+        dirTable[idxBack] = 8;
+    }
 
     if (start.x == goal.x && start.y == goal.y) {
         return TRUE;
