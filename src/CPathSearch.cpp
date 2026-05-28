@@ -429,11 +429,12 @@ void CPathSearch::SmoothPath(LONG* pivotPoints, LONG* pathSmooth, BYTE actualCos
         }
 
         if (pointC.x - pointA.x == pivotPoints[0] - pivotPoints[2]
-            && pointA.x - pointC.x == pivotPoints[0] - pivotPoints[2]) {
+            || pointA.x - pointC.x == pivotPoints[0] - pivotPoints[2]) {
             temp = stepX * (pointC.x - pointA.x) * (2 * pointA.y + 1) / 2;
             for (cnt = static_cast<WORD>(pivotPoints[0]) - 1; cnt > pivotPoints[2]; cnt--) {
                 pointNew.x += stepX;
-                pointNew.y = stepX * ((pointC.y - pointA.y + temp) / (pointC.x - pointA.x));
+                temp += pointC.y - pointA.y;
+                pointNew.y = stepX * (temp / (pointC.x - pointA.x));
                 pathSmooth[cnt] = PointToPosition(&pointNew);
                 if (pSearchBitmap->SnapshotGetCost(CPoint(pointNew), bBump) != actualCost) {
                     break;
@@ -441,18 +442,31 @@ void CPathSearch::SmoothPath(LONG* pivotPoints, LONG* pathSmooth, BYTE actualCos
                 pathSmooth[cnt] = -1;
             }
         } else if (pointC.y - pointA.y == pivotPoints[0] - pivotPoints[2]
-            && pointA.y - pointC.y == pivotPoints[0] - pivotPoints[2]) {
-            temp = stepY * (pointC.x - pointA.x) * (2 * pointA.y + 1) / 2;
+            || pointA.y - pointC.y == pivotPoints[0] - pivotPoints[2]) {
+            temp = stepY * (pointC.y - pointA.y) * (2 * pointA.x + 1) / 2;
             for (cnt = static_cast<WORD>(pivotPoints[0]) - 1; cnt > pivotPoints[2]; cnt--) {
                 pointNew.y += stepY;
-                pointNew.x = stepY * ((pointC.x - pointA.x + temp) / (pointC.y - pointA.y));
+                temp += pointC.x - pointA.x;
+                pointNew.x = stepY * (temp / (pointC.y - pointA.y));
                 pathSmooth[cnt] = PointToPosition(&pointNew);
                 if (pSearchBitmap->SnapshotGetCost(CPoint(pointNew), bBump) != actualCost) {
                     break;
                 }
                 pathSmooth[cnt] = -1;
             }
+        } else {
+            return;
         }
+
+        if (cnt != pivotPoints[2]) {
+            return;
+        }
+
+        for (cnt = static_cast<SHORT>(pivotPoints[2] + 1); cnt < pivotPoints[0]; cnt++) {
+            m_pathBegin[cnt] = pathSmooth[cnt];
+        }
+
+        pivotPoints[1] = pivotPoints[0];
     }
 }
 
