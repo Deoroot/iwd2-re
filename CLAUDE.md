@@ -2,11 +2,11 @@
 
 ## Repo
 
-Community RE of **Icewind Dale 2** (2002). `src/` = hand-recovered C++ matching `IWD2.exe`. Ghidra = truth; source = translation. See `README.md`, `ARCHITECTURE.md`.
+`src/` = hand-recovered C++ matching `IWD2.exe`. Ghidra = truth.
 
-## code-review-graph MCP — MANDATORY for `src/` or `refs/gemrb/` lookups
+## code-review-graph MCP — use before Grep/Glob/Read
 
-**RULE: searching `src/` or `refs/gemrb/` → ALWAYS use code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore the codebase **
+**RULE: searching `src/` or `refs/gemrb/` → graph tools first.**
 
 - iwd2-re graph (`src/`): default `repo_root`. Alias `iwd2`.
 - GemRB graph: `repo_root="C:\iwd2-re\refs\gemrb"`. Alias `gemrb`.
@@ -30,7 +30,7 @@ Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, ghidra curl, raw binari
 
 Workflow: `semantic_search_nodes` → `query_graph callers/callees` → Read only specific lines from result.
 
-**Query phrasing:** `semantic_search_nodes` FTS5 hybrid. Use ONE bare identifier token (`LevelUp`); retry shorter token before Grep.
+**Query:** one bare identifier token. Retry shorter before Grep.
 
 ## Build & run (Win32, VS 2019)
 
@@ -43,12 +43,12 @@ python scripts/auto_start_game.py   # smoke: load slot 0, wait for world
 python scripts/auto_start_game.py --new-game
 ```
 
-Every `src/` commit must compile clean VS2019 Win32. Rename field/fn → update `.h` + ALL `.cpp` in ONE atomic commit (`rg "oldName" src/`). Build fail → report first error, stop.
+Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one commit. Build fail → stop.
 
 ## Ghidra = truth
 
-**RULE: DON'T INVENT CODE. ALWAYS check Ghidra before any code edit.**
-`// 0xADDR` comments can be stale. Ghidra wins when conflicting. Verify address before reasoning. If address not in Ghidra `funcs` table → check vtable `DATA` xref (likely virtual method). See `memory/feedback_ghidra_truth.md`.
+Don't invent code. Check Ghidra first. `// 0xADDR` can be stale. Ghidra wins.
+Address not in funcs table → check vtable DATA xref (virtual method).
 
 ## GhidraMCP
 
@@ -120,10 +120,8 @@ data/near_infinity_export/
 - Minimal diffs. One bug = one change. No refactor in bugfix commits.
 - Prefer named constants over magic numbers when defined in file.
 
-## No hacks — faithful recovery only
+## No hacks
 
-The goal is code that matches `IWD2.exe`. **Do NOT invent ad-hoc behavior** (direct-movement slides, "stub as passable", bypasses of unrecovered functions, simplified approximations). Such hacks pass a quick test but diverge from the binary and cause emergent bugs later that cost far more to diagnose than they saved (e.g. the `// Direct movement: walk straight to destination` slide in `AIUpdateWalk` caused party members to barge through choke points and gridlock).
-
-- If the faithful behavior can't be recovered yet, leave it unimplemented (return early / no-op) rather than faking movement, passability, etc. — a missing feature is easier to spot and safer than a wrong one.
-- If a hack is genuinely unavoidable as a temporary measure, mark it loudly so it is greppable and obviously not-faithful: `// HACK: <what it fakes> — <why> — replaces 0x<addr>`. Plain `// TODO`/`// NOTE` is not enough.
-- Periodically grep for hack markers (`hack`, `bypass`, `stub as`, `no pathfinding`, `for now`, `approximate`, `placeholder`) and replace them with the real recovery.
+Code must match `IWD2.exe`. No invented behavior.
+- Can't recover → leave unimplemented (return early / no-op). Missing better than wrong.
+- Unavoidable hack → `// HACK: <what> — <why> — replaces 0x<addr>`. Not `// TODO`.
