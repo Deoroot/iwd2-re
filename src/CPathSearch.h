@@ -5,6 +5,7 @@
 
 class CSearchBitmap;
 
+#pragma pack(push, 2)
 class CPathNode {
 public:
     CPathNode();
@@ -18,6 +19,7 @@ public:
     /* 0018 */ LONG m_costTotal;
     /* 001C */ BOOLEAN m_fIsOpen;
 };
+#pragma pack(pop)
 
 class CPathSearch {
 public:
