@@ -3064,7 +3064,10 @@ BOOL CGameSprite::ClearBumpPath(const CPoint& start, const CPoint& goal)
     CTypedPtrList<CPtrList, LONG*> obstacles;
     BOOL bGathered = FALSE;
 
-    BYTE dirTable[9];
+    // 12 bytes per binary (abStack_ac[12] @ 0x6FA900). dirTable[dirTable[0]]
+    // / dirTable[dirTable[8]] index by 3*dy+dx+4, which reaches 9..11 when
+    // start->goal spans >1 search cell, so a 9-byte buffer overflows the stack.
+    BYTE dirTable[12];
     dirTable[0] = (BYTE)(3 * (goal.y - start.y) + (goal.x - start.x) + 4);
     dirTable[1] = 1;
     dirTable[2] = 2;
