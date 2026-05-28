@@ -1229,8 +1229,11 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
             LONG leaderGridY = ptLeaderPos.y / CPathSearch::GRID_SQUARE_SIZEY;
 
             if (leaderGridX != gridTargetX || leaderGridY != gridTargetY) {
-                // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
-                BOOL passable = TRUE;
+                // 0x46A3D0
+                BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
+                POINT targetGrid = { gridTargetX, gridTargetY };
+                BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                    CPoint(leaderGridX, leaderGridY), &targetGrid, personalSpace, 10);
                 if (!passable) {
                     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
                         CGameObjectArray::THREAD_ASYNCH,
@@ -1244,6 +1247,8 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
                     }
                     return;
                 }
+                gridTargetX = targetGrid.x;
+                gridTargetY = targetGrid.y;
             }
 
             if (target.x / CPathSearch::GRID_SQUARE_SIZEX == gridTargetX
@@ -1276,8 +1281,11 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
             memberDest.x = memberOffsetX + target.x;
             memberDest.y = memberOffsetY + target.y;
         } else {
-            // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
-            BOOL passable = TRUE;
+            // 0x46A3D0
+            BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
+            POINT destGrid = { memberDestGridX, memberDestGridY };
+            BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                CPoint(spriteGridX, spriteGridY), &destGrid, personalSpace, 10);
             if (passable) {
                 memberDest.x = memberOffsetX + target.x;
                 memberDest.y = memberOffsetY + target.y;
@@ -1304,7 +1312,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
             if (additive == 0) {
                 pSprite->m_interrupt = TRUE;
                 while (actions.GetCount() != 0) {
-                    CAIAction* action = actions.RemoveTail();
+                    CAIAction* action = actions.RemoveHead();
                     pSprite->AddAction(*action);
                     delete action;
                 }
