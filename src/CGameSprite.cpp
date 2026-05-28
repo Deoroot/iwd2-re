@@ -2824,7 +2824,14 @@ void CGameSprite::AIUpdateWalk()
         m_posDest.x = goal.x * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
         m_posDest.y = goal.y * CPathSearch::GRID_SQUARE_SIZEY + CPathSearch::GRID_SQUARE_SIZEY / 2;
 
-        int scale = static_cast<int>(sqrt((m_posDest.x - m_pos.x) * (m_posDest.x - m_pos.x) + (m_posDest.y - 4 * m_pos.y / 3) * (m_posDest.y - 4 * m_pos.y / 3)) + 0.5);
+        // Scale, delta and facing run in search-grid space, where both axes use
+        // SIZEX-wide squares: the goal y is goal.y*SIZEX (not the SIZEY-based
+        // m_posDest.y) and the screen m_pos.y is converted via 4/3. Matches the
+        // binary 0x6F9040 (iStack_34 = goal.y*SIZEX, iStack_1c = 4*m_pos.y/3).
+        LONG searchGoalY = goal.y * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2;
+        LONG searchPosY = 4 * m_pos.y / 3;
+
+        int scale = static_cast<int>(sqrt((m_posDest.x - m_pos.x) * (m_posDest.x - m_pos.x) + (searchGoalY - searchPosY) * (searchGoalY - searchPosY)) + 0.5);
         if (scale == 0) {
             // NOTE: Uninline.
             DropPath();
@@ -2842,14 +2849,14 @@ void CGameSprite::AIUpdateWalk()
                 scale = 1;
             }
 
-            m_posDelta.x = ((m_animation.GetMoveScale() * (m_posDest.x - m_pos.x)) << EXACT_SCALE) / scale;
-            m_posDelta.y = ((m_animation.GetMoveScale() * (m_posDest.y - m_pos.y)) << EXACT_SCALE) / scale;
+            m_posDelta.x = ((m_posDest.x - m_pos.x) << EXACT_SCALE) / scale;
+            m_posDelta.y = ((searchGoalY - searchPosY) << EXACT_SCALE) / scale;
         } else {
             m_posDelta.x = ((m_animation.GetMoveScale() * (m_posDest.x - m_pos.x)) << EXACT_SCALE) / scale;
-            m_posDelta.y = ((m_animation.GetMoveScale() * (m_posDest.y - m_pos.y)) << EXACT_SCALE) / scale;
+            m_posDelta.y = ((m_animation.GetMoveScale() * (searchGoalY - searchPosY)) << EXACT_SCALE) / scale;
         }
 
-        SetDirection(m_posDest);
+        SetDirection(CPoint(m_posDest.x, searchGoalY));
     }
 
     m_turningAbout = !m_walkBackwards
