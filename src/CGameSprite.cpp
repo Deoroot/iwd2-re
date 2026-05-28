@@ -13740,6 +13740,14 @@ SHORT CGameSprite::ExecuteAction()
         return Follow();
     }
 
+    // Face(I:Direction): the formation move (CAIGroup::GroupSetTarget) queues a
+    // FACE after the MOVETOPOINT so members turn to the drag/formation direction
+    // on arrival. Binary 0x729032 dispatches it to Face(); without this the
+    // action falls through to the base no-op and members keep their travel facing.
+    if (m_curAction.m_actionID == CAIAction::FACE) {
+        return Face();
+    }
+
     return CGameAIBase::ExecuteAction();
 }
 
