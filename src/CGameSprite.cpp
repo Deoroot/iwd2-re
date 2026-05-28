@@ -6136,9 +6136,8 @@ void CGameSprite::SetTarget(const CPoint& target, BOOL collisionPath)
         m_currentSearchRequest->m_nTargetPoints = 1;
         m_currentSearchRequest->m_targetPoints = new POINT[m_currentSearchRequest->m_nTargetPoints];
         if (m_currentSearchRequest->m_targetPoints) {
-            // Convert pixel coordinates to grid coordinates
-            m_currentSearchRequest->m_targetPoints[0].x = target.x / CPathSearch::GRID_SQUARE_SIZEX;
-            m_currentSearchRequest->m_targetPoints[0].y = target.y / CPathSearch::GRID_SQUARE_SIZEY;
+            m_currentSearchRequest->m_targetPoints[0].x = target.x;
+            m_currentSearchRequest->m_targetPoints[0].y = target.y;
             if (m_currentSearchRequest->m_collisionDelay == 0) {
                 CSingleLock lock(&(g_pBaldurChitin->GetObjectGame()->field_1B58), TRUE);
                 g_pBaldurChitin->GetObjectGame()->m_searchRequests.AddTail(m_currentSearchRequest);
