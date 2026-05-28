@@ -2856,7 +2856,11 @@ void CGameSprite::AIUpdateWalk()
             m_posDelta.y = ((m_animation.GetMoveScale() * (searchGoalY - searchPosY)) << EXACT_SCALE) / scale;
         }
 
-        SetDirection(CPoint(m_posDest.x, searchGoalY));
+        // m_posDest (screen-space y) is correct here: GetDirection converts both
+        // m_pos.y and the target y by 4/3 into grid space, so passing the already
+        // grid-scaled searchGoalY would double-convert. Binary 0x6F9040 likewise
+        // reassigns iStack_34 to goal.y*SIZEY before this SetDirection.
+        SetDirection(m_posDest);
     }
 
     m_turningAbout = !m_walkBackwards
