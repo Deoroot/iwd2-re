@@ -423,6 +423,7 @@ FodyWeavers.xsd
 /iwd2-re-debug.enabled
 /ghidra_annotate_todo.py
 /data/near_infinity_export/
+/data/pdb/extracted/
 /data/ghidra/IWD2_rep_*.zip
 /pi-session-*
 /*this-session-is-being-continued*
