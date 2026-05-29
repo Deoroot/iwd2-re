@@ -2903,8 +2903,12 @@ void CGameSprite::AIUpdateWalk()
             m_bBumpable,
             m_bOnSearchMap);
 
-        if (InControl()
-            && m_pArea->m_search.GetMobileCost(ptSearch, m_terrainTable, m_animation.GetPersonalSpace(), TRUE) == CPathSearch::COST_IMPASSABLE
+        // Binary 0x6f9040 gates the bump only on an impassable next cell that
+        // ClearBumpPath cannot clear -- there is NO InControl() check here. The
+        // extra guard was invented; it would suppress bumping whenever the sprite
+        // is not under local control. (Single-player InControl() is always TRUE,
+        // so this is behaviour-neutral there; the binary's form is restored.)
+        if (m_pArea->m_search.GetMobileCost(ptSearch, m_terrainTable, m_animation.GetPersonalSpace(), TRUE) == CPathSearch::COST_IMPASSABLE
             && !ClearBumpPath(ptOldSearch, ptSearch)) {
             if (!m_baseStats.m_bStealthMode) {
                 m_pArea->m_search.AddObject(ptOldSearch,
