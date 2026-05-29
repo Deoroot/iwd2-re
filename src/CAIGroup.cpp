@@ -1210,7 +1210,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
                     }
                 }
 
-                SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+                SHORT angleDegrees = (SHORT)(baseAngle * -360.0 / TWO_PI);
                 rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
             }
 
@@ -1466,7 +1466,7 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
                     }
                 }
 
-                SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+                SHORT angleDegrees = (SHORT)(baseAngle * -360.0 / TWO_PI);
                 rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
             }
 
@@ -1674,7 +1674,7 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
                         }
                     }
 
-                    SHORT angleDegrees = (SHORT)(baseAngle * 180.0 / PI);
+                    SHORT angleDegrees = (SHORT)(baseAngle * -360.0 / TWO_PI);
                     rotationDegrees = (SHORT)(90 - angleDegrees) % 360;
                 }
 
