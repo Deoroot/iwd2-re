@@ -89,9 +89,13 @@ OURS_MANGLED = {
 # nTargetIds = party (the 7-goal search the binary issues and ours does not).
 OFFSETS = {
     "original": {"listHead": 0x0a, "mPos": 0x06,
-                 "reqCollision": 0x02, "reqNParty": 0x07, "reqNTargetIds": 0x08, "reqNPoints": 0x09},
+                 "reqCollision": 0x02, "reqNParty": 0x07, "reqNTargetIds": 0x08, "reqNPoints": 0x09,
+                 "reqRemoveSelf": 0x0a, "reqPathSmooth": 0x24, "reqSourceId": 0x2c,
+                 "reqSourcePt": 0x30, "reqPartyIds": 0x38, "reqTargetPoints": 0x40, "reqBump": 0x54},
     "ours":     {"listHead": 0x0c, "mPos": 0x08,
-                 "reqCollision": 0x04, "reqNParty": 0x09, "reqNTargetIds": 0x0a, "reqNPoints": 0x0b},
+                 "reqCollision": 0x04, "reqNParty": 0x09, "reqNTargetIds": 0x0a, "reqNPoints": 0x0b,
+                 "reqRemoveSelf": 0x0c, "reqPathSmooth": 0x28, "reqSourceId": 0x30,
+                 "reqSourcePt": 0x34, "reqPartyIds": 0x3c, "reqTargetPoints": 0x44, "reqBump": 0x58},
 }
 
 # .map line: " 0001:00090140       ?Sym@... 00491140 f   Obj.obj"
@@ -155,6 +159,32 @@ function decode(pos) { return [pos % STRIDE, (pos / STRIDE) | 0]; }
 
 let SEQ = 0;
 function emit(o) { o.seq = SEQ++; send(o); }
+
+function reqInfo(req) {
+  const o = {
+    collisionSearch: req.add(CFG.off.reqCollision).readS32(),
+    nPartyIds: req.add(CFG.off.reqNParty).readU8(),
+    nTargetIds: req.add(CFG.off.reqNTargetIds).readU8(),
+    nTargetPoints: req.add(CFG.off.reqNPoints).readU8(),
+    removeSelf: req.add(CFG.off.reqRemoveSelf).readS32(),
+    pathSmooth: req.add(CFG.off.reqPathSmooth).readS32(),
+    sourceId: req.add(CFG.off.reqSourceId).readS32(),
+    sourcePt: pt(req.add(CFG.off.reqSourcePt)),
+    bBump: req.add(CFG.off.reqBump).readS32(),
+  };
+  try {
+    const tp = req.add(CFG.off.reqTargetPoints).readPointer();
+    if (!tp.isNull() && o.nTargetPoints > 0) o.target0 = pt(tp);
+  } catch (e) { o.targetErr = "" + e; }
+  try {
+    const pp = req.add(CFG.off.reqPartyIds).readPointer();
+    o.partyIds = [];
+    if (!pp.isNull()) {
+      for (let i = 0; i < o.nPartyIds && i < 8; i++) o.partyIds.push(pp.add(i * 4).readS32());
+    }
+  } catch (e) { o.partyErr = "" + e; }
+  return o;
+}
 
 // One-shot raw dumps so the offsets above can be confirmed in-session.
 let calibGroup = false, calibSprite = false;
@@ -307,12 +337,14 @@ function hookCommit(name, fn, layout) {
         const goals = [];
         for (let i = 0; i < this.nGoals && i < 8; i++) goals.push(pt(this.goals.add(i * 8)));
         let reqBytes = "";
+        let req = null;
         try { reqBytes = hbytes(this.req, 0x10); } catch (e) {}
+        try { req = reqInfo(this.req); } catch (e) {}
         emit({ tag: "FINDPATH", rc: rv.toInt32(), bBump: this.bBump,
                nGoalsRaw: this.nGoals, minNodes: this.minNodes, maxNodes: this.maxNodes,
                start: pt(this.start), goals: goals, n: n,
                head: path.slice(0, 3).map(decode), tail: path.slice(-3).map(decode),
-               path: path, reqBytes: reqBytes });
+               path: path, reqBytes: reqBytes, req: req });
       } catch (e) { emit({ tag: "FINDPATH_ERR", err: "" + e }); }
     }
   });
@@ -355,20 +387,20 @@ hookSprite("SetTargetReq", "SETTARGET", function (args) {
               raRva: this.returnAddress.sub(base).toString() };
   try {
     const req = args[0];
-    o.req = {
-      collisionSearch: req.add(CFG.off.reqCollision).readS32(),
-      nPartyIds: req.add(CFG.off.reqNParty).readU8(),
-      nTargetIds: req.add(CFG.off.reqNTargetIds).readU8(),
-      nTargetPoints: req.add(CFG.off.reqNPoints).readU8(),
-    };
+    o.req = reqInfo(req);
   } catch (e) { o.reqErr = "" + e; }
   emit(o);
 }, null);
 
 // JumpToPoint(CPoint dest, int): bump displacement.
 hookSprite("JumpToPoint", "JUMP", function (args) {
-  emit({ tag: "JUMP", slot: this.slot, dest: [args[0].toInt32(), args[1].toInt32()] });
-}, null);
+  this.jumpDest = [args[0].toInt32(), args[1].toInt32()];
+  this.jumpRa = this.returnAddress.sub(base).toString();
+  this.jumpPosBefore = spritePos(this.ecx);
+}, function (rv) {
+  emit({ tag: "JUMP", slot: this.slot, dest: this.jumpDest, raRva: this.jumpRa,
+         posBefore: this.jumpPosBefore, posAfter: spritePos(this.ecx), rc: rv.toInt32() });
+});
 
 // ClearBumpPath(CPoint& start, CPoint& goal) -> BOOL: bump path clear.
 // Log start/goal (grid cells), the RETURN (1=cleared/bumped, 0=failed) and the

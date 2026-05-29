@@ -2947,6 +2947,12 @@ void CGameSprite::AIUpdateWalk()
 
                     pathLock.Unlock();
                 } else {
+                    // Binary 0x6f9040 calls this virtually: (*(vtable+0xb8))(&pt, TRUE).
+                    // CGameSprite vtable slot 0xb8 is SetTarget(const CPoint&, BOOL)
+                    // (CGameSprite.h /* 00B8 */ = 0x707980), NOT JumpToPoint (which is
+                    // non-virtual, 0x745950). The blocked sprite re-issues a search to its
+                    // path end; it does not teleport. (JumpToPoint here would jump to
+                    // m_pPath[m_nPath-1] = the far dest = a visible teleport absent from IWD2.exe.)
                     CPoint pt;
                     CPathSearch::PositionToPoint(m_pPath[m_nPath - 1], &pt);
                     SetTarget(CPoint(pt.x * CPathSearch::GRID_SQUARE_SIZEX + CPathSearch::GRID_SQUARE_SIZEX / 2,
