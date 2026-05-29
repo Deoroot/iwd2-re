@@ -454,6 +454,11 @@ target_link_libraries(${EXECUTABLE_NAME}
     winmm
 )
 
+# Emit a linker .map (public symbol RVAs) next to the exe. Used for crash-log
+# symbolication and for resolving function addresses when hooking our own build
+# with Frida (differential tracing against IWD2.exe).
+target_link_options(${EXECUTABLE_NAME} PRIVATE "/MAP")
+
 target_include_directories(${EXECUTABLE_NAME} SYSTEM PRIVATE "third_party/directplay/include")
 
 find_package(Python3 COMPONENTS Interpreter)
