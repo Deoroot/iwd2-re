@@ -12,7 +12,6 @@
 #include "CGameArea.h"
 #include "CPathSearch.h"
 #include "CSearchBitmap.h"
-#include "DebugLog.h"
 
 static const double PI = 3.14159265358979323846;
 static const double TWO_PI = 6.28318530717958647692;
@@ -1081,9 +1080,6 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
     if (m_memberList.IsEmpty()) {
         return;
     }
-
-    Iwd2DebugLog("CAIGroup::GroupSetTarget target=%ld,%ld additive=%d formation=%d count=%d",
-        target.x, target.y, (int)additive, (int)formationType, m_memberList.GetCount());
 
     CTypedPtrList<CPtrList, CAIAction*> actions;
 
