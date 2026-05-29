@@ -201,6 +201,29 @@ const slotOf = {};
 // Sprite-ptr string -> last reported [x,y], to dedupe stationary AIUpdateWalk ticks.
 const lastPos = {};
 
+// m_currentSearchRequest field offset, auto-calibrated from a SetTarget call
+// (after SetTarget, sprite[CSR_OFF] == the request just passed). Avoids hardcoding
+// per-build offsets (binary 0x53d6; our build is shifted). csr=1/0 at a bump-fail
+// tells whether the blocked sprite still has a pending search (branch-1 re-search)
+// or not (branch-2 JumpToPoint-to-path-end = the teleport).
+let CSR_OFF = -1;
+function calibrateCsr(sprite, reqPtr) {
+  if (CSR_OFF >= 0 || reqPtr.isNull()) return;
+  for (let off = 0x4000; off <= 0x5600; off += 2) {   // binary m_currentSearchRequest@0x53d6 is 2-aligned
+    try {
+      if (sprite.add(off).readPointer().equals(reqPtr)) {
+        CSR_OFF = off;
+        emit({ tag: "CALIB_CSR", off: off });
+        return;
+      }
+    } catch (e) { /* unmapped — keep scanning */ }
+  }
+}
+function csrState(sprite) {
+  if (CSR_OFF < 0) return null;
+  try { return sprite.add(CSR_OFF).readPointer().isNull() ? 0 : 1; } catch (e) { return null; }
+}
+
 function walkMembers(group) {
   const ids = [];
   try {
@@ -383,14 +406,17 @@ hookSprite("AIUpdateWalk", "AIWALK", function () {
 // Dump the request goal-counts + the caller (raRva) to find which builder sets
 // nTargetIds = party (the binary's 7-goal collision-aware search).
 hookSprite("SetTargetReq", "SETTARGET", function (args) {
+  this.stReq = args[0];
   const o = { tag: "SETTARGET", slot: this.slot,
               raRva: this.returnAddress.sub(base).toString() };
   try {
-    const req = args[0];
-    o.req = reqInfo(req);
+    o.req = reqInfo(args[0]);
   } catch (e) { o.reqErr = "" + e; }
   emit(o);
-}, null);
+}, function () {
+  // After SetTarget, m_currentSearchRequest == this.stReq -> locate its offset.
+  calibrateCsr(this.ecx, this.stReq);
+});
 
 // JumpToPoint(CPoint dest, int): bump displacement.
 hookSprite("JumpToPoint", "JUMP", function (args) {
@@ -399,7 +425,8 @@ hookSprite("JumpToPoint", "JUMP", function (args) {
   this.jumpPosBefore = spritePos(this.ecx);
 }, function (rv) {
   emit({ tag: "JUMP", slot: this.slot, dest: this.jumpDest, raRva: this.jumpRa,
-         posBefore: this.jumpPosBefore, posAfter: spritePos(this.ecx), rc: rv.toInt32() });
+         posBefore: this.jumpPosBefore, posAfter: spritePos(this.ecx),
+         csr: csrState(this.ecx), rc: rv.toInt32() });
 });
 
 // ClearBumpPath(CPoint& start, CPoint& goal) -> BOOL: bump path clear.
@@ -412,7 +439,7 @@ hookSprite("ClearBumpPath", "CLEARBUMP", function (args) {
   this.cbpRa = this.returnAddress.sub(base).toString();
 }, function (rv) {
   emit({ tag: "CLEARBUMP", slot: this.slot, start: this.cbpStart, goal: this.cbpGoal,
-         rc: rv.toInt32() & 0xff, raRva: this.cbpRa });
+         rc: rv.toInt32() & 0xff, csr: csrState(this.ecx), raRva: this.cbpRa });
 });
 
 // Face() -> SHORT: arrival/orientation facing (return value = new direction).
