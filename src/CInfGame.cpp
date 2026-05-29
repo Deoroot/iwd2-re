@@ -40,8 +40,6 @@
 
 #define FIFTY_THREE 53
 
-static BOOLEAN g_bSelectAllOnWorldActivation;
-
 // 0x851884
 const SHORT CInfGame::KILL_INNOCENT = 0;
 
@@ -2961,7 +2959,6 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     UTIL_ASSERT(m_sSaveGame != "");
 
     Iwd2DebugLogReset();
-    g_bSelectAllOnWorldActivation = FALSE;
 
     Iwd2DebugLog("LoadGame begin save=%s progressRequired=%d progressInPlace=%d chars=%d group=%u activeEngine=%p worldEngine=%p",
         static_cast<LPCSTR>(m_sSaveGame),
@@ -3166,8 +3163,6 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     Iwd2DebugLog("LoadGame after SelectAll group=%u activeEngine=%p",
         m_group.GetCount(),
         g_pBaldurChitin->GetActiveEngine());
-
-    g_bSelectAllOnWorldActivation = m_nCharacters > 0 && m_group.GetCount() == 0;
 
     g_pBaldurChitin->GetObjectGame()->m_cButtonArray.UpdateState();
 
@@ -3676,57 +3671,20 @@ void CInfGame::SelectToolbar()
     }
 
     if (IcewindMisc::IsPC(pSprite)) {
-        BOOL bHasCustomButtons = FALSE;
-        for (BYTE nButton = 0; nButton < 9; nButton++) {
-            if (pSprite->GetCustomButtonValue(nButton) != 0) {
-                bHasCustomButtons = TRUE;
-                break;
-            }
-        }
-
-        if (!bHasCustomButtons) {
-            pSprite->ResetQuickSlots();
-        }
-
+        // Matches Ghidra SelectToolbar (0x5ADAE0): the nine custom button slots
+        // come straight from the sprite (offset 0x3D14, read via
+        // GetCustomButtonValue).  No ResetQuickSlots / fallback here — the slots
+        // are populated at character creation.
         INT customButtons[9];
-        BOOL bAllCustomButtonsEmpty = TRUE;
         for (BYTE nButton = 0; nButton < 9; nButton++) {
             customButtons[nButton] = pSprite->GetCustomButtonValue(nButton);
-            if (customButtons[nButton] != 0) {
-                bAllCustomButtonsEmpty = FALSE;
-            }
-        }
-
-        if (bAllCustomButtonsEmpty) {
-            // Fallback copied from QSLOTS.2DA (NearInfinity export).  The
-            // original path is ResetQuickSlots(), but imported saves can carry
-            // all-zero custom slots before that table has populated them.
-            static const INT DEFAULT_QUICK_SLOTS[11][9] = {
-                { 5, 11, 4, 93, 94, 80, 81, 82, 10 }, // BARBARIAN
-                { 5, 11, 4, 2, 94, 3, 81, 82, 10 }, // BARD
-                { 5, 3, 72, 73, 94, 80, 81, 82, 10 }, // CLERIC
-                { 5, 3, 72, 73, 94, 80, 81, 82, 10 }, // DRUID
-                { 5, 11, 4, 93, 94, 80, 81, 82, 10 }, // FIGHTER
-                { 5, 11, 4, 93, 94, 80, 81, 82, 10 }, // MONK
-                { 5, 91, 92, 93, 94, 80, 81, 82, 10 }, // PALADIN
-                { 5, 11, 4, 93, 94, 80, 81, 82, 10 }, // RANGER
-                { 5, 11, 4, 12, 94, 80, 81, 82, 10 }, // ROGUE
-                { 5, 3, 72, 73, 74, 80, 81, 82, 10 }, // SORCERER
-                { 5, 3, 72, 73, 74, 80, 81, 82, 10 }, // WIZARD
-            };
-
-            INT nClass = pSprite->m_derivedStats.GetBestClass() - 1;
-            if (nClass >= 0 && nClass < 11) {
-                for (BYTE nButton = 0; nButton < 9; nButton++) {
-                    customButtons[nButton] = DEFAULT_QUICK_SLOTS[nClass][nButton];
-                }
-            }
         }
 
         m_cButtonArray.SetCustomButtonTypes(customButtons);
         m_cButtonArray.SetQuickWeaponSlot(pSprite->m_nWeaponSet);
         m_cButtonArray.SetState(0x72, 0);
     } else {
+        m_cButtonArray.SetQuickWeaponSlot(pSprite->m_nWeaponSet);
         m_cButtonArray.SetState(0x6E, 0);
     }
 
@@ -4065,15 +4023,6 @@ void CInfGame::WorldEngineActivated(CVidMode* pVidMode)
     } else {
     }
     m_cButtonArray.ResetState();
-
-    if (g_bSelectAllOnWorldActivation) {
-        g_bSelectAllOnWorldActivation = FALSE;
-
-        if (m_nCharacters > 0 && m_group.GetCount() == 0 && GetVisibleArea() != NULL) {
-            SelectAll(FALSE);
-            m_cButtonArray.UpdateState();
-        }
-    }
 
     Iwd2DebugLog("WorldEngineActivated end visibleArea=%p group=%u selectedButton=%d",
         GetVisibleArea(),

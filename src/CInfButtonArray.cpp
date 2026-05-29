@@ -237,10 +237,16 @@ BYTE CInfButtonArray::GetButtonId(INT buttonType)
 // 0x588FF0
 BOOL CInfButtonArray::ResetState()
 {
-    // TODO: Incomplete.
-
-    m_nSelectedButton = 100;
-    SetState(STATE_NONE, 0);
+    // Pops the action-bar state stack and re-applies the previous state via
+    // SetState; when the stack is empty it leaves the current bar untouched.
+    // This port never pushes onto the stack (picker back-navigation calls
+    // SetState(0x72, 0) directly), so m_nStateStackDepth is always 0 and the
+    // pop path (FUN_00589ff0) is unreachable here.  It must NOT force
+    // SetState(STATE_NONE): that blanked the bar when WorldEngineActivated ran
+    // ResetState after the bar had already been built on load / new game.
+    if (m_nStateStackDepth != 0) {
+        // State-stack pop not implemented — the stack is never pushed.
+    }
 
     return TRUE;
 }
