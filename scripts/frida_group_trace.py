@@ -38,6 +38,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAP = os.path.join(REPO, "build", "Debug", "iwd2-re.map")
 IMAGE_BASE = 0x400000
 
+# Canonical move command (screen coords) injected with --force so BOTH binaries
+# execute a byte-identical group move regardless of where the user clicks. Values
+# are a reference dock west-drag (target SW of the dock, west-ish orientation,
+# formation 6) observed in prior captures; adjust if the save/formation changes.
+CANON = {"target": [2188, 1032], "cursor": [2218, 1037], "fType": 6}
+
 # ---- ORIGINAL IWD2.exe: Ghidra absolute addresses (verified 2026-05-29) --------
 ORIG_ABS = {
     "GroupSetTarget":     0x4063e0,
@@ -262,6 +268,23 @@ function hookCommit(name, fn, layout) {
       }
       const ids = walkMembers(group);
       onCommit(name, group, ids);
+      // Canonicalize the move command so BOTH binaries receive a byte-identical
+      // target/cursor/formationType -> removes click-variance (you still do a rough
+      // right-click drag; we just normalize the args at the engine API). Makes the
+      // per-slot differential deterministic + repeatable.
+      if (CFG.force) {
+        args[0] = ptr(CFG.force.target[0] >>> 0);
+        args[1] = ptr(CFG.force.target[1] >>> 0);
+        if (layout === "GST") {       // (CPoint, BOOL additive, SHORT fType, CPoint cursor)
+          args[3] = ptr(CFG.force.fType >>> 0);
+          args[4] = ptr(CFG.force.cursor[0] >>> 0);
+          args[5] = ptr(CFG.force.cursor[1] >>> 0);
+        } else {                      // GPP/GDM: (CPoint, SHORT fType, CPoint cursor, ...)
+          args[2] = ptr(CFG.force.fType >>> 0);
+          args[3] = ptr(CFG.force.cursor[0] >>> 0);
+          args[4] = ptr(CFG.force.cursor[1] >>> 0);
+        }
+      }
       const o = { tag: fn, members: ids };
       o.target = [args[0].toInt32(), args[1].toInt32()];
       if (layout === "GST") {        // (CPoint, BOOL additive, SHORT fType, CPoint cursor)
@@ -452,7 +475,7 @@ hookCommit("GroupProtectPoint", "GPP", "GPP");
 hookCommit("GroupDrawMove", "GDM", "GDM");
 
 send({ tag: "ready", target: CFG.target, module: CFG.module,
-       base: base.toString(), resolved: Object.keys(CFG.rvas) });
+       base: base.toString(), force: CFG.force, resolved: Object.keys(CFG.rvas) });
 """
 
 
@@ -464,13 +487,14 @@ def main():
     if target not in ("original", "ours"):
         sys.exit("--target must be 'original' or 'ours'")
     attach = "--attach" in sys.argv
+    force = CANON if "--force" in sys.argv else None
 
     module, rvas = build_rvas(target)
     exe = os.path.join(GAME_DIR, module)
     log = os.path.join(REPO, f"tmp_frida_group_{target}.log")
     open(log, "w").close()
 
-    cfg = {"target": target, "module": module, "rvas": rvas, "off": OFFSETS[target]}
+    cfg = {"target": target, "module": module, "rvas": rvas, "off": OFFSETS[target], "force": force}
     js = JS_TEMPLATE.replace("__CFG__", json.dumps(cfg))
 
     def on_message(message, data):
