@@ -20,6 +20,7 @@ public:
     /* 0024 */ void GetAnimationResRef(CString& resRef, BYTE range) override;
     /* 0028 */ BOOLEAN CanLieDown() override;
     /* 002C */ BOOLEAN DetectedByInfravision() override;
+    /* 0058 */ BOOL GetPathSmooth() override;
     /* 0060 */ char* GetSndArmor() override;
     /* 006C */ char* GetSndWalk(SHORT tableIndex) override;
     /* 0074 */ BOOL IsFalseColor() override;

@@ -549,6 +549,12 @@ BOOLEAN CGameAnimationTypeCharacter::DetectedByInfravision()
     return m_bDetectedByInfravision;
 }
 
+// 0x49FC40
+BOOL CGameAnimationTypeCharacter::GetPathSmooth()
+{
+    return TRUE;
+}
+
 // 0x6C5A10
 BOOL CGameAnimationTypeCharacter::IsBeginningOfSequence()
 {
