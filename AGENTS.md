@@ -1,34 +1,32 @@
 # Agent Rules
 
-Repo: `github.com/WillScarlettOhara/iwd2-re` (fork of alexbatalov)
-Ghidra = source of truth. `// 0xADDR` comment can be stale. Ghidra wins when source disagrees.
+Repo: `github.com/WillScarlettOhara/iwd2-re`. Ghidra = truth. `// 0xADDR` can be stale.
 
-## Build
-- `src/` commit must compile clean on VS2019 Win32.
-- Rename field/function → update `.h` + ALL `.cpp` in ONE commit. `rg "oldName" src/`
-- Rename function → Ghidra first, save, then sync source.
-- Danger files: `FileFormat.h`, `BalDataTypes.h`, `CChitin.h`, `CGameSprite.h`.
-- Never prefix `field_XXX` with type letter.
-- Broken? `git diff upstream/main -- src/`
-- Diffs minimal. One bug = one change. No refactor in bugfix commits.
+## Build & Run
+
+```bash
+# Kill + build + deploy + smoke
+taskkill //f //im iwd2-re.exe 2>/dev/null || true
+cmake --build build --config Debug
+rm -f "C:/GOG Games/Icewind Dale 2/iwd2-re-crash.log" "C:/GOG Games/Icewind Dale 2/iwd2-re-debug.log" && cp "build/Debug/iwd2-re.exe" "C:/GOG Games/Icewind Dale 2/" -f
+python scripts/auto_start_game.py
+python scripts/auto_start_game.py --new-game --party "Lady's Lament"
+```
+
+Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one commit. Build fail → stop.
+Danger files: `FileFormat.h`, `BalDataTypes.h`, `CChitin.h`, `CGameSprite.h`.
+Never prefix `field_XXX` with type letter.
+Broken? `git diff upstream/main -- src/`.
+Diffs minimal. One bug = one change. No refactor in bugfix commits.
 
 ## Naming
+
 - Functions: `sub_NNNNNN` → `ClassName::method`
 - Fields: `field_XX` → `m_camelCase` (Hungarian)
-- Address comment above each function: `// 0x7D14F0`
-- Virtual function: `// 0x7D14F0 (virtual)`
-
-## GhidraMCP (`:8089`)
-
-Installed at `C:\ghidra-mcp`. Base: `http://127.0.0.1:8089`. Schema: `/mcp/schema`. Run Ghidra GUI → plugin auto-starts.
-Mutations in-memory → persist with `save_program`.
-`__thiscall` `this` locked → document type via `batch_set_comments` plate comment.
-Virtual functions: if address not in `funcs` table, check vtable `DATA` xref → that's entry point.
-
-**Read bytes from EXE (use pefile, not `/memory_bytes`):**
-```python
-import pefile; pe = pefile.PE(r"C:\GOG Games\Icewind Dale 2\IWD2.exe", fast_load=True); print(pe.get_data(0x8ABCA4 - pe.OPTIONAL_HEADER.ImageBase, 16))
-```
+- Address comment above function: `// 0x7D14F0` / `// 0x7D14F0 (virtual)`
+- Rename only when source matches Ghidra or decomp clear
+- Guesses → `FUN_` + `Analysis` bookmark → `curl -s "http://127.0.0.1:8089/search_functions?name_pattern=FUN_*&limit=50"`
+- Prefer named constants over magic numbers
 
 ## Rename Workflow
 
@@ -42,87 +40,87 @@ import pefile; pe = pefile.PE(r"C:\GOG Games\Icewind Dale 2\IWD2.exe", fast_load
 2. Rename in `.h` + all `.cpp` in ONE commit
 3. Build before push
 
-## Build & Run
-```bash
-# Kill running instance
-taskkill //f //im iwd2-re.exe 2>/dev/null || true
+## GhidraMCP (`:8089`)
 
-# Build
-cmake --build build --config Debug
+Installed at `C:\ghidra-mcp`. Run Ghidra GUI → plugin auto-starts.
+`curl -s "http://127.0.0.1:8089/get_xrefs_to?address=0x0084c44c&limit=5"`.
+Mutations in-memory → persist with `save_program`.
+`__thiscall` `this` locked → document type via `batch_set_comments` plate comment.
+Virtual functions: if address not in `funcs` table, check vtable `DATA` xref → entry point.
 
-# Deploy
-cp "build/Debug/iwd2-re.exe" "C:/GOG Games/Icewind Dale 2/" -f
-
-# Smoke test: load visible save slot 0 and wait for world engine
-python scripts/auto_start_game.py
-
-# New-game smoke test with Party.ini group
-python scripts/auto_start_game.py --new-game --party "Lady's Lament"
+**Read bytes from EXE (use pefile, not `/memory_bytes`):**
+```python
+import pefile; pe = pefile.PE(r"C:\GOG Games\Icewind Dale 2\IWD2.exe", fast_load=True); print(pe.get_data(0x8ABCA4 - pe.OPTIONAL_HEADER.ImageBase, 16))
 ```
 
+## Frida tracing
+
+Hook original `IWD2.exe` at runtime, diff against `Iwd2DebugLog`.
+Docs: `docs/frida-differential-tracing.md`. Template: `scripts/frida_formation_trace.py`.
+- `ptr(0xADDR)` absolute (no ASLR, ImageBase `0x400000`). `__thiscall`: `this` = `this.context.ecx`.
+- Hook function ENTRIES only. Mid-function hooks crash.
+- Runtime wins when decompiler disagrees on `__thiscall` args.
+- Read PE constants with `pefile`, not memory endpoint.
+
+## code-review-graph — use before Grep/Glob/Read
+
+**RULE: searching `src/` or `refs/gemrb/` → graph tools first.**
+**Query:** one bare identifier token. Retry shorter before Grep.
+Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, ghidra curl, raw binaries.
+
+- iwd2-re: default `repo_root`. Alias `iwd2`.
+- GemRB: `repo_root="C:\iwd2-re\refs\gemrb"`. Alias `gemrb`.
+- Both at once: `cross_repo_search_tool`.
+
+| Want | Tool |
+|------|------|
+| Find fn/class | `semantic_search_nodes` |
+| Callers of X | `query_graph pattern=callers_of target=X` |
+| Callees of X | `query_graph pattern=callees_of target=X` |
+| File contents | `query_graph pattern=file_summary target=path` |
+| Blast radius | `get_impact_radius` |
+| Exec paths hit | `get_affected_flows` |
+| Free traversal | `traverse_graph` |
+| Quick stats | `get_minimal_context` |
+| Review diff | `detect_changes` → `get_affected_flows` |
+| Test coverage | `query_graph pattern=tests_for` |
+
+Workflow: `semantic_search_nodes` → `query_graph callers/callees` → Read only matched lines.
+
+## Game assets
+
+| Question | File |
+|---|---|
+| Action id N? | `data/near_infinity_export/IDS/ACTION.IDS` |
+| Trigger id N? | `IDS/TRIGGER.IDS` |
+| Stat/state name? | `IDS/STATS.IDS`, `IDS/SPLSTATE.IDS` |
+| Spell SPxxx? | `SPL/SPxxx.SPL` |
+| Button slot? | `CHU/<panel>.CHU` |
+| QSlot layout? | `2DA/QSLOTS.2DA` |
+| Area edges? | `WMP/WORLDMAP.WMP` |
+| Script usage? | grep `BCS/*.BAF` + `BS/*.BAF` |
+
 ## Refs
+
 | Path | Use |
 |------|-----|
 | `data/pdb/bg2_pdb_types.txt` | BG2EE PDB layouts |
 | `refs/gemrb/` | GemRB source |
-| `refs/NearInfinity/` | File formats |
+| `refs/NearInfinity/` | File formats (.CRE/.ARE/.ITM) |
 | `refs/iesdp/` | Effects, opcodes |
 | `data/near_infinity_export/` | Game assets (BAM/CHU/ITM/CRE/ARE/2DA) |
-| `C:/ghidra-mcp` | GhidraMCP |
+| `C:\ghidra_projects\IWD2\` | Live Ghidra project |
 
-## Naming Rules
-- Rename only when source matches Ghidra or decomp clear
-- Guesses → `FUN_` + `Analysis` bookmark
-- `curl -s "http://127.0.0.1:8089/search_functions?name_pattern=FUN_*&limit=50"`
-- Prefer named constants over magic numbers when defined in file
+## Not tracked
 
-## Temp Files
-`tmp_*.txt`, `tmp_*.json`, `chunk_*.sql` = RE session noise. Not tracked. Delete freely.
+`tmp_*.txt`, `tmp_*.json`, `chunk_*.sql` = RE session noise. Delete freely.
+
+## No hacks
+
+Code must match `IWD2.exe`. No invented behavior.
+- Can't recover → leave unimplemented (return early / no-op). Missing better than wrong.
+- Unavoidable hack → `// HACK: <what> — <why> — replaces 0x<addr>`. Not `// TODO`.
 
 ## Milestone
+
 Phase 2: name remaining `sub_` (~200) + `field_` (~640). Small classes first.
-
-<!-- code-review-graph MCP tools -->
-## MCP Tools: code-review-graph
-
-**IMPORTANT: This project has a knowledge graph. ALWAYS use the
-code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase — this includes BOTH `src/` AND `refs/gemrb/`.** The
-graph is faster, cheaper (fewer tokens), and gives you structural
-context (callers, dependents, test coverage) that file scanning cannot.
-
-- Main graph (`src/`): default `repo_root` (auto-detected). Alias `iwd2`.
-- GemRB graph: `repo_root="C:\iwd2-re\refs\gemrb"`. Alias `gemrb`.
-- Both: use `cross_repo_search_tool` to search both graphs simultaneously.
-
-### When to use graph tools FIRST
-
-- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
-- **Exploring gemrb**: same tools, pass `repo_root="C:\iwd2-re\refs\gemrb"`
-- **Cross-reference gemrb ↔ IWD2**: `cross_repo_search_tool`
-- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
-- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
-- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview` + `list_communities`
-
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
-
-### Key Tools
-
-| Tool | Use when |
-| ------ | ---------- |
-| `detect_changes` | Reviewing code changes — gives risk-scored analysis |
-| `get_review_context` | Need source snippets for review — token-efficient |
-| `get_impact_radius` | Understanding blast radius of a change |
-| `get_affected_flows` | Finding which execution paths are impacted |
-| `query_graph` | Tracing callers, callees, imports, tests, dependencies |
-| `semantic_search_nodes` | Find fn/class. ⚠️ 1 token max |
-| `get_architecture_overview` | Understanding high-level codebase structure |
-| `refactor_tool` | Planning renames, finding dead code |
-
-### Workflow
-
-1. The graph auto-updates on file changes (via hooks).
-2. Use `detect_changes` for code review.
-3. Use `get_affected_flows` to understand impact.
-4. Use `query_graph` pattern="tests_for" to check coverage.
