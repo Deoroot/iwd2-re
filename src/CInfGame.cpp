@@ -2050,8 +2050,12 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     // Game time: pData[2] is elapsed seconds, convert to game ticks (*15)
     m_worldTime.m_gameTime = pData[2] * 15;
 
-    // Selected formation (offset 0x0C, word)
-    m_gameSave.m_curFormation = *reinterpret_cast<SHORT*>(pGame + 0x0C);
+    // Selected formation: GAM offset 0x0C is the INDEX (0-4) into the five
+    // formation buttons at 0x0E, not a formation id.  The active formation is
+    // quickFormations[index].  (binary 0x5A7FD5:
+    //   curFormation = *(WORD*)(pGame + 0x0E + 2 * (SHORT)pGame[0x0C]).)
+    SHORT nFormationIndex = *reinterpret_cast<SHORT*>(pGame + 0x0C);
+    m_gameSave.m_curFormation = *reinterpret_cast<SHORT*>(pGame + 0x0E + 2 * nFormationIndex);
 
     // Formation buttons 1-5 (offset 0x0E-0x16)
     memcpy(m_gameSave.m_quickFormations, pGame + 0x0E, sizeof(m_gameSave.m_quickFormations));
