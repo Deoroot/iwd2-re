@@ -971,6 +971,12 @@ void SearchThreadMain(void* userInfo)
 
                                 if (targetPointPresent || targetIdPresent) {
                                     if (!g_pBaldurChitin->GetObjectGame()->m_bInDestroyGame) {
+                                        // Goal count is target points + target objects only. The
+                                        // party positions also sit in goalPts (at indices
+                                        // [m_nTargetPoints + m_nTargetIds + cnt]) but are NOT goals:
+                                        // they feed SnapshotRemoveObject above so allies stop
+                                        // blocking the path. Binary 0x5492E0 passes nGoalPoints =
+                                        // (BYTE)m_nTargetIds + (BYTE)m_nTargetPoints (party excluded).
                                         if (searchRequest->m_frontList == CSearchRequest::LIST_FRONT) {
                                             searchRequest->m_searchRc = g_pBaldurChitin->GetObjectGame()->m_pathSearch->FindPath(&startPt,
                                                 goalPts,
