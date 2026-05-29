@@ -1481,8 +1481,11 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
             LONG leaderGridY = ptLeaderPos.y / CPathSearch::GRID_SQUARE_SIZEY;
 
             if (leaderGridX != gridTargetX || leaderGridY != gridTargetY) {
-                // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
-                BOOL passable = TRUE;
+                // 0x46A3D0
+                BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
+                POINT targetGrid = { gridTargetX, gridTargetY };
+                BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                    CPoint(leaderGridX, leaderGridY), &targetGrid, personalSpace, 10);
                 if (!passable) {
                     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
                         CGameObjectArray::THREAD_ASYNCH,
@@ -1496,6 +1499,8 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
                     }
                     return;
                 }
+                gridTargetX = targetGrid.x;
+                gridTargetY = targetGrid.y;
             }
 
             if (target.x / CPathSearch::GRID_SQUARE_SIZEX == gridTargetX
@@ -1525,8 +1530,11 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
             memberDest.x = memberOffsetX + target.x;
             memberDest.y = memberOffsetY + target.y;
         } else {
-            // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
-            BOOL passable = TRUE;
+            // 0x46A3D0
+            BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
+            POINT destGrid = { memberDestGridX, memberDestGridY };
+            BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                CPoint(spriteGridX, spriteGridY), &destGrid, personalSpace, 10);
             if (passable) {
                 memberDest.x = memberOffsetX + target.x;
                 memberDest.y = memberOffsetY + target.y;
@@ -1688,8 +1696,11 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
                 LONG leaderGridY = ptLeaderPos.y / CPathSearch::GRID_SQUARE_SIZEY;
 
                 if (leaderGridX != gridTargetX || leaderGridY != gridTargetY) {
-                    // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
-                    BOOL passable = TRUE;
+                    // 0x46A3D0
+                    BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
+                    POINT targetGrid = { gridTargetX, gridTargetY };
+                    BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                        CPoint(leaderGridX, leaderGridY), &targetGrid, personalSpace, 10);
                     if (!passable) {
                         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(memberId,
                             CGameObjectArray::THREAD_ASYNCH,
@@ -1700,6 +1711,8 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
                         }
                         return;
                     }
+                    gridTargetX = targetGrid.x;
+                    gridTargetY = targetGrid.y;
                 }
 
                 g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(memberId,
@@ -1744,8 +1757,11 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
                 pSprite->m_targetPoint.x = target.x + memberOffsetX;
                 pSprite->m_targetPoint.y = target.y + memberOffsetY;
             } else {
-                // TODO: 0x46a3d0 passability check not yet recovered; stub as passable.
-                BOOL passable = TRUE;
+                // 0x46A3D0
+                BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
+                POINT destGrid = { memberDestGridX, memberDestGridY };
+                BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                    CPoint(spriteGridX, spriteGridY), &destGrid, personalSpace, 10);
                 if (passable) {
                     pSprite->m_targetPoint.x = target.x + memberOffsetX;
                     pSprite->m_targetPoint.y = target.y + memberOffsetY;
