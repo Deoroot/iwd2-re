@@ -66,20 +66,14 @@ print(pe.get_data(0x8ABCA4 - ib, 16))
 
 **Schema reference:** `ghidra_mcp_schema.json`.
 
-## Frida differential tracing (runtime ground truth)
+## Frida tracing
 
-Static review exhausted and our build still diverges from `IWD2.exe` — or the
-decompiler is ambiguous? Hook the **original** game at runtime and diff ground
-truth against our `Iwd2DebugLog`. Full recipe + reusable hook snippets:
-**`docs/frida-differential-tracing.md`**. Template: `scripts/frida_formation_trace.py`.
-
-- No ASLR (ImageBase `0x400000`) → Ghidra addresses are absolute; `ptr(0xADDR)`
-  directly. `__thiscall`: `this = this.context.ecx`, stack args = `args[0..]`.
-- **Hook function ENTRIES only** — attaching to a jump target / mid-function
-  instruction corrupts the branch cluster and crashes the game. Resolve ids→pointers
-  via a returnAddress-filtered `GetDeny` (`0x599C70`) hook; read fields at header offsets.
-- Decompiler `__thiscall` arg recovery is unreliable — when it disagrees with runtime, runtime wins.
-- Read constants from the PE with `pefile` (see GhidraMCP note above), not a memory endpoint.
+Hook original `IWD2.exe` at runtime, diff against `Iwd2DebugLog`.
+Docs: `docs/frida-differential-tracing.md`. Template: `scripts/frida_formation_trace.py`.
+- `ptr(0xADDR)` absolute (no ASLR, ImageBase `0x400000`). `__thiscall`: `this` = `this.context.ecx`, stack args = `args[0..]`.
+- Hook function ENTRIES only. Mid-function hooks crash.
+- Runtime wins when `__thiscall` args disagree with decompiler.
+- Read PE constants with `pefile`, not memory endpoint.
 
 ## Game assets (`data/near_infinity_export/`)
 
