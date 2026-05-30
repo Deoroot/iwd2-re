@@ -426,12 +426,11 @@ void CGameObject::SetVertListPos(POSITION posVertList)
 }
 
 // 0x799E20
-// TODO: CGameSprite override at 0x731B30 handles all status triggers
-// (Global, GlobalGT, NumTimesTalkedTo, Class, etc.). Stub returns TRUE
-// so dialog conditions pass until proper evaluation is implemented.
+// TODO: CGameAIBase/CGameSprite recover the real status-trigger dispatchers.
+// Unknown/unimplemented trigger cases fall through to FALSE in the binary.
 BOOL CGameObject::EvaluateStatusTrigger(const CAITrigger& trigger)
 {
-    return TRUE;
+    return FALSE;
 }
 
 // 0x6A3C60

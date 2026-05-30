@@ -135,7 +135,7 @@ BOOL CGameJournal::AddEntry(STRREF strText, INT nChapter, LONG nTime, WORD nType
         }
     }
 
-    CGameJournalEntry* pEntry = new CGameJournalEntry();
+    CGameJournalEntry* pEntry = new CGameJournalEntry(strText, nTime, nType);
 
     BOOL bFound = FALSE;
     for (INT i = 0; i < NUM_CHAPTERS && !bFound; i++) {
@@ -392,11 +392,11 @@ void CGameJournal::Unmarshal(CSavedGameJournalEntry* pSavedEntry, DWORD nSavedEn
         pEntry->m_nTime = pSavedEntry[cnt].m_time;
         pEntry->m_wType = pSavedEntry[cnt].m_type;
 
-        pEntry->m_bCharacter = -1;
-        if (pSavedEntry[cnt].m_character != 0) {
-            pEntry->m_bCharacter = pEntry->m_bCharacter;
-        } else {
+        pEntry->m_bCharacter = 0xFF;
+        if (pSavedEntry[cnt].m_character == 0) {
             pEntry->m_bCharacter = 1;
+        } else {
+            pEntry->m_bCharacter = pSavedEntry[cnt].m_character;
         }
 
         m_aChapters[pSavedEntry[cnt].m_chapter]->AddTail(pEntry);
@@ -437,19 +437,27 @@ void CGameJournal::ChangeEntry(DWORD nIndex, CString szNewText, INT nChapter, BY
     // __LINE__: 815
     UTIL_ASSERT(m_aChapters[nChapter] != NULL);
 
-    CGameJournalEntry* pEntry;
+    CGameJournalEntry* pEntry = NULL;
+    DWORD nTempIndex = 0;
     POSITION pos = m_aChapters[nChapter]->GetHeadPosition();
     while (pos != NULL) {
         pEntry = m_aChapters[nChapter]->GetAt(pos);
         if ((nCharacter & pEntry->m_bCharacter) != 0) {
-            break;
+            if (nTempIndex == nIndex) {
+                break;
+            }
+            nTempIndex++;
         }
         m_aChapters[nChapter]->GetNext(pos);
     }
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameJournal.cpp
     // __LINE__: 829
-    UTIL_ASSERT(pEntry != NULL);
+    UTIL_ASSERT(pEntry != NULL && pos != NULL);
+
+    if (pEntry == NULL || pos == NULL) {
+        return;
+    }
 
     if (szNewText.GetLength() != 0) {
         strRes.szText = szNewText;

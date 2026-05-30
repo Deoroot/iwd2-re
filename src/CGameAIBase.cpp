@@ -1,5 +1,6 @@
 #include "CGameAIBase.h"
 
+#include "CAIConditionResponse.h"
 #include "CAIResponse.h"
 #include "CAIScript.h"
 #include "CAITrigger.h"
@@ -209,12 +210,92 @@ BOOLEAN CGameAIBase::CompressTime(DWORD deltaTime)
 }
 
 // 0x453840
-// TODO(vtable-stub): recover CGameAIBase::EvaluateStatusTrigger (status-trigger
-// evaluator). Delegates to the CGameObject base (returns TRUE) to match the
-// current fall-through; CGameSprite overrides this further at 0x731B30.
 BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
 {
-    return CGameObject::EvaluateStatusTrigger(trigger);
+    switch (trigger.m_triggerID) {
+    case CAITRIGGER_TRUE:
+        return TRUE;
+
+    case CAITRIGGER_FALSE:
+        return FALSE;
+
+    case CAITRIGGER_GLOBAL:
+    case CAITRIGGER_GLOBALGT:
+    case CAITRIGGER_GLOBALLT: {
+        CString sName = trigger.GetString1();
+        CString sScope = trigger.GetString2();
+        LONG nTriggerValue = trigger.GetSpecifics();
+        CVariableHash* pHash = NULL;
+
+        if (sScope == CString("GLOBAL")) {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sScope == CString("LOCALS")) {
+            if ((GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+                pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+            }
+        } else {
+            CString sAreaName = sScope;
+            if (sScope == CString("MYAREA") && m_pArea != NULL) {
+                sAreaName = CResRef(reinterpret_cast<BYTE*>(m_pArea->m_header.m_areaName)).GetResRefStr();
+            }
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sAreaName);
+            if (pArea != NULL) {
+                pHash = pArea->GetVariables();
+            }
+        }
+
+        CVariable* pVar = pHash != NULL ? pHash->FindKey(sName) : NULL;
+        LONG nValue = pVar != NULL ? pVar->m_intValue : 0;
+
+        if (trigger.m_triggerID == CAITRIGGER_GLOBAL) {
+            return nValue == nTriggerValue;
+        }
+        if (trigger.m_triggerID == CAITRIGGER_GLOBALGT) {
+            return nValue > nTriggerValue;
+        }
+        return nValue < nTriggerValue;
+    }
+
+    case CAITRIGGER_ENTIREPARTYONMAP: {
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        SHORT nCharacters = pGame->GetNumCharacters();
+        if (nCharacters <= 0) {
+            return FALSE;
+        }
+
+        for (SHORT nPortrait = 0; nPortrait < nCharacters; ++nPortrait) {
+            LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+            CGameSprite* pSprite = NULL;
+            BYTE rc = pGame->GetObjectArray()->GetShare(
+                nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+            if (rc != CGameObjectArray::SUCCESS || pSprite == NULL) {
+                return FALSE;
+            }
+
+            BOOL bDead = (pSprite->m_derivedStats.m_generalState & STATE_DEAD) != 0;
+            BOOL bOnMap = bDead || pSprite->GetArea() == m_pArea;
+            pGame->GetObjectArray()->ReleaseShare(
+                nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (!bOnMap) {
+                return FALSE;
+            }
+        }
+
+        return TRUE;
+    }
+
+    case CAITRIGGER_INCUTSCENEMODE:
+        return g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode == 322;
+
+    default:
+        return CGameObject::EvaluateStatusTrigger(trigger);
+    }
 }
 
 // 0x44D4B0
@@ -382,6 +463,38 @@ SHORT CGameAIBase::ExecuteAction()
         // to ACTION_DONE in SP (DAT_008cf6dc+0x96e == DAT_0085e65c).  Skip
         // the MP handshake -- recovery deferred until MP path is restored.
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x78) {
+        // 0x78 = StartCutScene (ACTION.IDS).
+        actionReturn = StartCutScene();
+    } else if (m_curAction.m_actionID == 0x7B) {
+        // 0x7B = ClearAllActions (ACTION.IDS).  The intro area uses this
+        // immediately before StartCutScene; clear party action queues without
+        // touching the current script object's remaining response actions.
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        for (SHORT nPortrait = 0; nPortrait < pGame->GetNumCharacters(); ++nPortrait) {
+            LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+            CGameAIBase* pSprite = NULL;
+            BYTE rc = pGame->GetObjectArray()->GetShare(
+                nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                pSprite->ClearActions(FALSE);
+                pGame->GetObjectArray()->ReleaseShare(
+                    nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x7F) {
+        // 0x7F = CutSceneId (ACTION.IDS).  StartCutScene consumes this as a
+        // block-local actor switch; executing it directly is a no-op.
+        actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0xA1) {
+        // 0xA1 = IncrementChapter (ACTION.IDS).
+        actionReturn = IncrementChapter();
     } else if (m_curAction.m_actionID == 0xE8) {
         // 0xE8 = StartRandomTimer (ACTION.IDS).  Rolls a random time in
         // [m_specificID2, m_specificID3] inclusive into m_specificID2, then
@@ -2455,8 +2568,7 @@ SHORT CGameAIBase::SetGlobal()
 
     CString sAreaName = sScope;
     if (sScope == CString("MYAREA") && m_pArea != NULL) {
-        // First bytes of CGameArea are CAreaFileHeader::m_areaName (RESREF).
-        sAreaName = CString(reinterpret_cast<LPCTSTR>(m_pArea));
+        sAreaName = CResRef(reinterpret_cast<BYTE*>(m_pArea->m_header.m_areaName)).GetResRefStr();
     }
 
     CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sAreaName);
@@ -3052,6 +3164,99 @@ CGameObject* CGameAIBase::ResolveActionTarget()
     return pObj;
 }
 
+// 0x44DC10 case 0xA1 - IncrementChapter(S:Chapter*).
+SHORT CGameAIBase::IncrementChapter()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    pGame->SetCurrentChapter(pGame->GetCurrentChapter() + 1);
+
+    CString sTextScreen = m_curAction.GetString1();
+    if (!sTextScreen.IsEmpty()) {
+        CMessage* msg = new CMessageStartTextScreen(
+            CResRef(sTextScreen),
+            m_id,
+            m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+    }
+
+    return ACTION_DONE;
+}
+
+// 0x44DC10 case 0x78 - StartCutScene(S:CutScene*).
+SHORT CGameAIBase::StartCutScene()
+{
+    CAIScript script(CResRef(m_curAction.GetString1()));
+    CTypedPtrList<CPtrList, CAITrigger*> triggerList;
+    LONG queuedCount = 0;
+
+    POSITION pos = script.m_caList.GetHeadPosition();
+    while (pos != NULL) {
+        CAIConditionResponse* pConditionResponse = script.m_caList.GetNext(pos);
+        if (pConditionResponse == NULL
+            || !pConditionResponse->m_condition.Hold(triggerList, this)) {
+            continue;
+        }
+
+        CAIResponse* pResponse = pConditionResponse->m_responseSet.Choose();
+        if (pResponse == NULL) {
+            continue;
+        }
+
+        CGameAIBase* pActor = this;
+        LONG actorId = CGameObjectArray::INVALID_INDEX;
+        BOOL actorShared = FALSE;
+
+        POSITION actionPos = pResponse->m_actionList.GetHeadPosition();
+        while (actionPos != NULL) {
+            CAIAction* pAction = pResponse->m_actionList.GetNext(actionPos);
+            if (pAction == NULL) {
+                continue;
+            }
+
+            if (pAction->m_actionID == 0x7F) {
+                if (actorShared) {
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                        actorId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+                actorShared = FALSE;
+                actorId = CGameObjectArray::INVALID_INDEX;
+                pActor = NULL;
+
+                CGameObject* pObj = pAction->m_acteeID.GetObjectWithType(
+                    this,
+                    CGameObject::TYPE_AIBASE,
+                    FALSE);
+                if (pObj != NULL) {
+                    pActor = static_cast<CGameAIBase*>(pObj);
+                    actorId = pObj->m_id;
+                    actorShared = TRUE;
+                }
+                continue;
+            }
+
+            if (pActor != NULL) {
+                pActor->m_queuedActions.AddTail(new CAIAction(*pAction));
+                queuedCount++;
+            }
+        }
+
+        if (actorShared) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                actorId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+    }
+
+    Iwd2DebugLog("CGameAIBase::StartCutScene script='%s' queued=%ld",
+        (LPCSTR)m_curAction.GetString1(),
+        queuedCount);
+
+    return ACTION_DONE;
+}
+
 // 0x4507E0 - case body for FloatMessage (0xF1).
 // Resolves m_acteeID, queues a CMessageFloatText so the strref (m_specificID)
 // is displayed above the target sprite.  Binary takes an SP fast path
@@ -3172,7 +3377,7 @@ SHORT CGameAIBase::IncrementGlobal()
 
     CString sAreaName = sScope;
     if (sScope == CString("MYAREA") && m_pArea != NULL) {
-        sAreaName = CString(reinterpret_cast<LPCTSTR>(m_pArea));
+        sAreaName = CResRef(reinterpret_cast<BYTE*>(m_pArea->m_header.m_areaName)).GetResRefStr();
     }
 
     CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sAreaName);

@@ -115,6 +115,7 @@ void CAIResponse::Read(CString sData)
     CString v2;
 
     v1 = CAIUtil::ReadTo(sData, CString("AC\n"), FALSE);
+    m_weight = static_cast<SHORT>(strtol(v1, NULL, 10));
 
     v2 = CAIUtil::ReadBetween(sData, CString("AC\n"));
     while (v2.GetLength() > 0) {
@@ -132,6 +133,7 @@ void CAIResponse::Read(CString sData)
 // 0x40FA30
 CAIResponseSet::CAIResponseSet()
 {
+    m_weightTotal = 0;
 }
 
 // 0x40E4B0

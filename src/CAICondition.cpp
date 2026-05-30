@@ -124,7 +124,7 @@ void CAICondition::Read(CString sData)
 
     while (sTriggerData.GetLength() > 0) {
         CAITrigger* pTrigger = new CAITrigger(CAITrigger::NO_TRIGGER, 0);
-        pTrigger->Read(sData);
+        pTrigger->Read(sTriggerData);
         m_triggerList.AddTail(pTrigger);
 
         sTriggerData = CAIUtil::ReadBetween(sData, CString("TR\n"));

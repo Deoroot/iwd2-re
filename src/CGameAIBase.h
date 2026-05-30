@@ -91,6 +91,8 @@ public:
     SHORT Shout();
     SHORT SetGlobal();
     SHORT IncrementGlobal();
+    SHORT IncrementChapter();
+    SHORT StartCutScene();
     SHORT WaitAnimation();
     SHORT HideCreature();
     SHORT FloatMessage();

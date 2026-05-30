@@ -13774,6 +13774,29 @@ SHORT CGameSprite::ExecuteAction()
         return actionReturn;
     }
 
+    if (m_curAction.m_actionID == 0xE5) {
+        // FaceObject(O:Object*) used by cutscenes.
+        SHORT actionReturn = ACTION_ERROR;
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            if ((pObj->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
+                actionReturn = FaceObject(static_cast<CGameAIBase*>(pObj));
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return actionReturn;
+    }
+
+    if (m_curAction.m_actionID == 0x100) {
+        // SetDialogueRange(I:Range*) sets the explicit squared-range override
+        // consumed by Dialogue().
+        field_7106 = m_curAction.GetSpecifics();
+        return ACTION_DONE;
+    }
+
     // 0x729032
     if (m_curAction.m_actionID == CAIAction::MOVETOPOINT
         || m_curAction.m_actionID == CAIAction::MOVETOPOINTNORECTICLE
