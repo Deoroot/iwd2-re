@@ -28,7 +28,7 @@ Original source code was never released. This project reconstructs it by analyzi
 | **Main Menu** | **Working** | Boots to CScreenConnection; mouse cursor visible and clickable |
 | **UI Screens** | Working | Options, Keymaps, Single Player, Party Select, Character Creation |
 | **Load Game** | **Working** | Save list + preview thumbnails fixed |
-| **World Screen** | **Partial** | Area + camera OK; 122 action IDs dispatched; effects, spatial queries, movement stubbed |
+| **World Screen** | **Partial** | Area + camera OK; 122 action IDs dispatched; player party pathfinding complete; NPC pathfinding implemented but untestable (NPC AI triggers not yet recovered) |
 | **Dialogue** | **Working** | StartDialog→EndDialog flow; Continue/End button; panel 7/9 switch; 10/98 message subtypes active |
 | **Action Bar** | **Working** | Skills submenu, customize menu, weapon picker, all sub-menus exit correctly |
 | **Inventory** | **Working** | Slots, weapon icons, active-set highlight, STON* fallback for empties |
@@ -43,6 +43,7 @@ Original source code was never released. This project reconstructs it by analyzi
 
 | Date | Achievement |
 |------|------------|
+| May 2026 | **Pathfinding**: A* engine (CPathSearch::FindPath), search thread, AIUpdateWalk fully recovered for all CGameSprite; player group movement working end-to-end; NPC movement code paths wired but blocked by EvaluateStatusTrigger stub |
 | May 2026 | **Dialogue**: Full dialog flow (StartDialog, EndDialog, entry/reply text, Continue/End button, reply color) per Ghidra 0x483F00–0x485700 + 0x68EA00/0x68F9D0 |
 | May 2026 | **Dialog UI**: Panel 7/9 switch, PC portrait, party bar hide, active/inactive render, clip rect fix |
 | May 2026 | **Metrics**: Deep audit — 122 action IDs (98 complete, 4 buggy), 10/98 message subtypes active, 138/162 ApplyEffect implemented, 310 TODO:Incomplete (163 empty stubs, 101 return-stubs) |
