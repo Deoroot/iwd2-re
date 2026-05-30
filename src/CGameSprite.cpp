@@ -11520,6 +11520,46 @@ void CGameSprite::ClearAI(BOOLEAN bSetSequence)
     }
 }
 
+// 0x7338E0
+//
+// CGameSprite override of CGameAIBase::SetCurrAction (0x45D190): in addition to
+// the base copy/decode, the binary resets the sprite's per-action execution
+// state. The decisive field is m_curDest = (-1, -1): MoveToPoint (0x73F560),
+// MoveToObject (0x73EDD0) and MoveToPointRange (0x73FEC0) gate their re-search
+// on `dest != m_curDest`, so without this reset a retried move toward the same
+// destination never re-issues a CSearchRequest and the sprite stalls at a
+// chokepoint. A symmetric original/ours dock differential confirmed it: the
+// original clears m_curDest here on every action change; our build, missing this
+// override, fell through to the base (which never touches m_curDest), so blocked
+// members kept m_curDest == dest and stopped re-pathing.
+//
+// DEFERRED: for non-NULL actions the binary also closes any open container,
+// updates modal-state/quickbar, broadcasts CMessage action-change notifications
+// (0x84D424 / 0x84D22C), tears down the target marker + deny-list reservation
+// (m_targetId), releases the portrait resource request, emits encumbrance
+// feedback, randomizes the move-throttle phase (field_5616 = UtilRandInt) and
+// preloads the spell-action ResRef. Those are orthogonal to the movement
+// re-search and depend on still-unrecovered spell/resource machinery; the
+// recovered behavior is the action-state reset (below) plus the base copy/decode.
+void CGameSprite::SetCurrAction(const CAIAction& action)
+{
+    m_curDest.x = -1;
+    m_curDest.y = -1;
+    field_7118 = 0;
+    field_5616 = 0;
+    field_711C = 0;
+    m_actionCount = 0;
+    m_bStartedCasting = FALSE;
+    m_interrupt = FALSE;
+    field_5630 = 0;
+    field_5632 = 0;
+    field_5636 = 0;
+    m_moveCount = 0;
+    m_bInCasting = FALSE;
+
+    CGameAIBase::SetCurrAction(action);
+}
+
 // 0x734550
 BOOL CGameSprite::HandleEffects()
 {

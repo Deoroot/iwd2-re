@@ -426,6 +426,7 @@ public:
     /* 007C */ void ClearAI(BOOLEAN bSetSequence) override;
     /* 0084 */ SHORT ExecuteAction() override;
     /* 008C */ void ProcessAI() override;
+    /* 0090 */ void SetCurrAction(const CAIAction& action) override;
     /* 0094 */ void SetScript(SHORT level, CAIScript* script) override;
     /* 009C */ const BYTE* GetVisibleTerrainTable() override;
     /* 00A0 */ const BYTE* GetTerrainTable() override;
