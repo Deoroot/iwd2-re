@@ -319,6 +319,22 @@ BYTE* CScreenWorld::GetVirtualKeysFlags()
     return m_pVirtualKeysFlags;
 }
 
+// 0x71E750
+void CScreenWorld::NormalizePanelRect(DWORD nID, CRect& rect)
+{
+    // TODO: Incomplete. Binary body at 0x71E750 is empty (COMDAT-folded with
+    // other empty virtuals); CScreenWorld's real behavior, if any, unrecovered.
+}
+
+// 0x6872D0
+void CScreenWorld::OnKeyDown(SHORT a2)
+{
+    // TODO: Incomplete. Binary 0x6872D0 is the world keyboard handler: loops
+    // over the a2 queued virtual-key events (GetVirtualKeys /
+    // GetVirtualKeysFlags) and dispatches action-bar, left-panel, portrait and
+    // hotkey actions. Not yet recovered.
+}
+
 // 0x686690
 void CScreenWorld::TimerAsynchronousUpdate()
 {

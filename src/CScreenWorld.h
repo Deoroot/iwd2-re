@@ -26,6 +26,7 @@ public:
 
     CScreenWorld();
     /* 0004 */ ~CScreenWorld() override;
+    /* 0010 */ void NormalizePanelRect(DWORD nID, CRect& rect) override;
     /* 0014 */ void EngineActivated() override;
     /* 0018 */ void EngineDeactivated() override;
     /* 0024 */ void EngineGameInit() override;
@@ -55,6 +56,7 @@ public:
     /* 00A0 */ SHORT GetNumVirtualKeys() override;
     /* 00A4 */ CKeyInfo* GetVirtualKeys() override;
     /* 00A8 */ BYTE* GetVirtualKeysFlags() override;
+    /* 00AC */ void OnKeyDown(SHORT a2) override;
     /* 00C0 */ void TimerAsynchronousUpdate() override;
     /* 00C4 */ void TimerSynchronousUpdate() override;
     /* 00D0 */ int GetSelectedCharacter() override;
