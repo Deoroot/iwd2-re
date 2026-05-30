@@ -52,6 +52,8 @@ ORIG_ABS = {
     "RotateOffsets":      0x4058e0,   # FUN_004058e0 (unnamed free fn)
     "AdjustTarget":       0x46a3d0,
     "FindPath":           0x51e150,
+    "DoAction":           0x44d780,
+    "MoveToPoint":        0x73f560,
     "AIUpdateWalk":       0x6f9040,
     "SetTargetReq":       0x707d40,   # CGameSprite::SetTarget(CSearchRequest*,int,BYTE)
     "JumpToPoint":        0x745950,
@@ -60,6 +62,13 @@ ORIG_ABS = {
     "ResolveTargetPoint": 0x72b870,
     "GetDeny":            0x599c70,
     "GetCloseObjects":    0x46cd20,   # FUN_0046cd20 (CGameArea::GetCloseObjects, unnamed in Ghidra)
+    "GetCost":            0x547b10,
+    "GetMobileCost":      0x547d30,
+    "SnapshotGetCost":    0x5485a0,
+    "SnapshotRemoveObject": 0x5488c0,
+    "SnapshotAddObjectDiagonals": 0x5489e0,
+    "AddObject":          0x547e60,
+    "RemoveObject":       0x548020,
 }
 
 # ---- OUR iwd2-re.exe: MSVC-decorated names to look up in the fresh .map ---------
@@ -69,7 +78,9 @@ OURS_MANGLED = {
     "GroupDrawMove":      "?GroupDrawMove@CAIGroup@@QAEXVCPoint@@F0@Z",
     # RotateOffsets is a free/static fn; may be absent from the .map -> optional.
     "AdjustTarget":       "?AdjustTarget@CGameArea@@QAEHVCPoint@@PAUtagPOINT@@EF@Z",
-    "FindPath":           "?FindPath@CPathSearch@@QAEHPAUtagPOINT@@0HJJPAVCSearchBitmap@@PAEHPAVCRect@@@Z",
+    "FindPath":           "?FindPath@CPathSearch@@QAEHPAUtagPOINT@@0FJJPAVCSearchBitmap@@PAEHPAVCRect@@@Z",
+    "DoAction":           "?DoAction@CGameAIBase@@UAEXXZ",
+    "MoveToPoint":        "?MoveToPoint@CGameSprite@@QAEFXZ",
     "AIUpdateWalk":       "?AIUpdateWalk@CGameSprite@@QAEXXZ",
     "SetTargetReq":       "?SetTarget@CGameSprite@@QAEXPAVCSearchRequest@@HE@Z",
     "JumpToPoint":        "?JumpToPoint@CGameSprite@@QAEFVCPoint@@H@Z",
@@ -78,6 +89,13 @@ OURS_MANGLED = {
     "ResolveTargetPoint": "?ResolveTargetPoint@CGameSprite@@QAEXPBVCAIAction@@PAU__POSITION@@@Z",
     "GetDeny":            "?GetDeny@CGameObjectArray@@QAEEJEPAPAVCGameObject@@K@Z",
     "GetCloseObjects":    "?GetCloseObjects@CGameArea@@QAEXPAU__POSITION@@ABVCPoint@@ABVCAIObjectType@@FPBEAAV?$CTypedPtrList@VCPtrList@@PAJ@@HH@Z",
+    "GetCost":            "?GetCost@CSearchBitmap@@QAEEABVCPoint@@PBEEAAFH@Z",
+    "GetMobileCost":      "?GetMobileCost@CSearchBitmap@@QAEEABVCPoint@@PBEEH@Z",
+    "SnapshotGetCost":    "?SnapshotGetCost@CSearchBitmap@@QAEEVCPoint@@H@Z",
+    "SnapshotRemoveObject": "?SnapshotRemoveObject@CSearchBitmap@@QAEXVCPoint@@EH@Z",
+    "SnapshotAddObjectDiagonals": "?SnapshotAddObjectDiagonals@CSearchBitmap@@QAEXVCPoint@@EH@Z",
+    "AddObject":          "?AddObject@CSearchBitmap@@QAEXABVCPoint@@EEHAAE@Z",
+    "RemoveObject":       "?RemoveObject@CSearchBitmap@@QAEXABVCPoint@@EEHAAE@Z",
 }
 
 # Struct field offsets differ between the two binaries: IWD2.exe is tightly
@@ -97,11 +115,17 @@ OFFSETS = {
     "original": {"listHead": 0x0a, "mPos": 0x06,
                  "reqCollision": 0x02, "reqNParty": 0x07, "reqNTargetIds": 0x08, "reqNPoints": 0x09,
                  "reqRemoveSelf": 0x0a, "reqPathSmooth": 0x24, "reqSourceId": 0x2c,
-                 "reqSourcePt": 0x30, "reqPartyIds": 0x38, "reqTargetPoints": 0x40, "reqBump": 0x54},
+                 "reqSourcePt": 0x30, "reqPartyIds": 0x38, "reqTargetPoints": 0x40, "reqBump": 0x54,
+                 "interrupt": 0x470, "actionCount": 0x474, "curAction": 0x476,
+                 "actionSpec": 0x52c, "actionSpec2": 0x530, "actionSpec3": 0x534,
+                 "actionDest": 0x540},
     "ours":     {"listHead": 0x0c, "mPos": 0x08,
                  "reqCollision": 0x04, "reqNParty": 0x09, "reqNTargetIds": 0x0a, "reqNPoints": 0x0b,
                  "reqRemoveSelf": 0x0c, "reqPathSmooth": 0x28, "reqSourceId": 0x30,
-                 "reqSourcePt": 0x34, "reqPartyIds": 0x3c, "reqTargetPoints": 0x44, "reqBump": 0x58},
+                 "reqSourcePt": 0x34, "reqPartyIds": 0x3c, "reqTargetPoints": 0x44, "reqBump": 0x58,
+                 "interrupt": 0x4b8, "actionCount": 0x4bc, "curAction": 0x4c0,
+                 "actionSpec": 0x584, "actionSpec2": 0x588, "actionSpec3": 0x58c,
+                 "actionDest": 0x598},
 }
 
 # .map line: " 0001:00090140       ?Sym@... 00491140 f   Obj.obj"
@@ -204,8 +228,13 @@ function hbytes(p, n) {
 let idToSlot = {};
 // Sprite-ptr string -> slot ordinal, persistent (party sprites are stable).
 const slotOf = {};
+const spriteBySlot = {};
 // Sprite-ptr string -> last reported [x,y], to dedupe stationary AIUpdateWalk ticks.
 const lastPos = {};
+// Active party AIUpdateWalk calls. Used to attribute mobile-cost probes.
+const aiwStack = [];
+// Active party ClearBumpPath calls. Used to attribute nested search-map probes.
+const cbpStack = [];
 
 // m_currentSearchRequest field offset, auto-calibrated from a SetTarget call
 // (after SetTarget, sprite[CSR_OFF] == the request just passed). Avoids hardcoding
@@ -230,6 +259,276 @@ function csrState(sprite) {
   try { return sprite.add(CSR_OFF).readPointer().isNull() ? 0 : 1; } catch (e) { return null; }
 }
 
+// CGameSprite::m_curDest is far beyond the CAIAction block. It gates the
+// MoveToPoint "new destination" branch, so log it separately from action.dest.
+let CURDEST_OFF = (CFG.target === "original") ? 0x556e : -1;
+function samePt(a, b) {
+  return a && b && a[0] === b[0] && a[1] === b[1];
+}
+function calibrateCurDest(sprite, desired) {
+  if (CURDEST_OFF >= 0 || dockFormationScore(desired) < 0) return;
+
+  let best = null;
+  const expected = CSR_OFF >= 0 ? CSR_OFF + 0x198 : 0x556e;
+  const scanLo = CSR_OFF >= 0 ? Math.max(0x4000, expected - 0x500) : 0x4800;
+  const scanHi = CSR_OFF >= 0 ? Math.min(0x7000, expected + 0x500) : 0x5c80;
+  for (let off = scanLo; off <= scanHi; off += 2) {
+    let cur;
+    try { cur = pt(sprite.add(off)); } catch (e) { continue; }
+    if (!samePt(cur, desired)) continue;
+
+    let score = 1000 - Math.abs(off - expected);
+    if ((off & 3) === 0) score += 2;
+    if (best === null || score > best.score) {
+      best = { off: off, score: score, pt: cur };
+    }
+  }
+
+  if (best !== null) {
+    CURDEST_OFF = best.off;
+    emit({ tag: "CALIB_CURDEST", off: best.off, pt: best.pt, score: best.score });
+  }
+}
+function curDestState(sprite) {
+  if (CURDEST_OFF < 0) return null;
+  try { return { off: CURDEST_OFF, pt: pt(sprite.add(CURDEST_OFF)) }; } catch (e) { return null; }
+}
+
+// CAIAction sits inside CGameAIBase, whose default-aligned rebuild layout has
+// drifted from the packed original. Calibrate from live MoveToPoint calls:
+// current action is one of the movement opcodes and its CAIAction destination is
+// a plausible world point near the forced dock formation.
+let ACTION_LAYOUT = null;
+function staticActionLayout() {
+  return { curAction: CFG.off.curAction, actionCount: CFG.off.actionCount,
+           interrupt: CFG.off.interrupt, actionSpec: CFG.off.actionSpec,
+           actionSpec2: CFG.off.actionSpec2, actionSpec3: CFG.off.actionSpec3,
+           actionDest: CFG.off.actionDest, source: "static" };
+}
+function movementActionId(id) {
+  return id === 23 || id === 90 || id === 261;
+}
+function plausibleWorldPoint(p) {
+  return p[0] >= 0 && p[0] < 10000 && p[1] >= 0 && p[1] < 10000;
+}
+function dockFormationScore(p) {
+  if (!plausibleWorldPoint(p)) return -100;
+  let score = 1;
+  const inDock = p[0] >= 1800 && p[0] <= 2600 && p[1] >= 800 && p[1] <= 1250;
+  if (CFG.force && !inDock) return -100;
+  if (inDock) score += 5;
+  if (CFG.force) {
+    const dx = Math.abs(p[0] - CFG.force.target[0]);
+    const dy = Math.abs(p[1] - CFG.force.target[1]);
+    if (dx <= 250 && dy <= 250) score += 2;
+  }
+  return score;
+}
+function chooseActionCountOff(sprite, curOff) {
+  const offs = [curOff - 2, curOff - 4, curOff - 6, curOff - 8, curOff - 10, curOff - 12];
+  for (let i = 0; i < offs.length; i++) {
+    try {
+      const v = sprite.add(offs[i]).readS16();
+      if (v >= 0 && v <= 500) return offs[i];
+    } catch (e) { /* try next */ }
+  }
+  return CFG.off.actionCount;
+}
+function chooseInterruptOff(sprite, curOff) {
+  const offs = [curOff - 8, curOff - 6, curOff - 10, curOff - 12, curOff - 4];
+  for (let i = 0; i < offs.length; i++) {
+    try {
+      const v = sprite.add(offs[i]).readS32();
+      if (v === 0 || v === 1) return offs[i];
+    } catch (e) { /* try next */ }
+  }
+  return CFG.off.interrupt;
+}
+function calibrateAction(sprite) {
+  if (ACTION_LAYOUT !== null) return;
+  if (CFG.target === "original") {
+    ACTION_LAYOUT = staticActionLayout();
+    return;
+  }
+
+  let best = null;
+  const destRels = [0xd8, 0xca, 0xcc, 0xc8, 0xd0, 0xc6, 0xd2, 0xc4, 0xd4, 0xdc];
+  for (let curOff = 0x420; curOff <= 0x5c0; curOff += 2) {
+    let actionId;
+    try { actionId = sprite.add(curOff).readS16(); } catch (e) { continue; }
+    if (!movementActionId(actionId)) continue;
+
+    for (let i = 0; i < destRels.length; i++) {
+      const destOff = curOff + destRels[i];
+      let dest;
+      try { dest = pt(sprite.add(destOff)); } catch (e) { continue; }
+      let score = dockFormationScore(dest);
+      if (score < 0) continue;
+      if (actionId === 23) score += 3;
+      try {
+        const spec2 = sprite.add(destOff - 0x10).readS32();
+        if (spec2 >= 0 && spec2 <= 10) score += 2;
+      } catch (e) { /* optional */ }
+      const countOff = chooseActionCountOff(sprite, curOff);
+      const interruptOff = chooseInterruptOff(sprite, curOff);
+      if (countOff >= 0) score += 1;
+      if (interruptOff >= 0) score += 1;
+      score -= Math.abs(curOff - CFG.off.curAction) / 64.0;
+
+      if (best === null || score > best.score) {
+        best = { score: score, curAction: curOff, actionCount: countOff,
+                 interrupt: interruptOff, actionSpec: destOff - 0x14,
+                 actionSpec2: destOff - 0x10, actionSpec3: destOff - 0x0c,
+                 actionDest: destOff, actionId: actionId, dest: dest,
+                 destRel: destRels[i] };
+      }
+    }
+  }
+
+  if (best !== null && best.score >= 6) {
+    ACTION_LAYOUT = { curAction: best.curAction, actionCount: best.actionCount,
+                      interrupt: best.interrupt, actionSpec: best.actionSpec,
+                      actionSpec2: best.actionSpec2, actionSpec3: best.actionSpec3,
+                      actionDest: best.actionDest, source: "calibrated" };
+    emit({ tag: "CALIB_ACTION", curAction: best.curAction,
+           actionCount: best.actionCount, interrupt: best.interrupt,
+           actionDest: best.actionDest, destRel: best.destRel,
+           actionId: best.actionId, dest: best.dest, score: best.score });
+  }
+}
+
+function actionInfo(sprite) {
+  const layout = ACTION_LAYOUT || staticActionLayout();
+  const o = {};
+  o.layout = layout.source;
+  try { o.action = sprite.add(layout.curAction).readS16(); } catch (e) { o.actionErr = "" + e; }
+  try { o.actionCount = sprite.add(layout.actionCount).readS16(); } catch (e) {}
+  try { o.interrupt = sprite.add(layout.interrupt).readS32(); } catch (e) {}
+  try { o.spec = sprite.add(layout.actionSpec).readS32(); } catch (e) {}
+  try { o.spec2 = sprite.add(layout.actionSpec2).readS32(); } catch (e) {}
+  try { o.spec3 = sprite.add(layout.actionSpec3).readS32(); } catch (e) {}
+  try { o.dest = pt(sprite.add(layout.actionDest)); } catch (e) {}
+  const cd = curDestState(sprite);
+  if (cd !== null) {
+    o.curDestOff = cd.off;
+    o.curDest = cd.pt;
+  }
+  return o;
+}
+
+const searchLayout = {};
+let FP_CTX = null;
+const SNAP_TRACE_KEYS = {};
+
+function getSearchLayout(search) {
+  const key = search.toString();
+  if (key in searchLayout) return searchLayout[key];
+
+  // CSearchBitmap is packed in the original (m_GridSquareDimensions@0xe6) and
+  // slightly shifted in our build. m_GridSquareDimensions is 0x2c bytes after
+  // m_pDynamicCost. Try known offsets first, then scan for plausible CSize pairs.
+  const dimCandidates = CFG.target === "original"
+    ? [0xe6, 0xe8, 0xe4, 0xea]
+    : [0xe8, 0xe6, 0xea, 0xec];
+  for (let i = 0; i < dimCandidates.length; i++) {
+    const off = dimCandidates[i];
+    try {
+      const cx = search.add(off).readS32();
+      const cy = search.add(off + 4).readS32();
+      const dynOff = off - 0x2c;
+      const dynPtr = search.add(dynOff).readPointer();
+      if (cx > 0 && cx <= 1024 && cy > 0 && cy <= 1024 && !dynPtr.isNull()) {
+        const layout = { dimOff: off, dynOff: dynOff, cx: cx, cy: cy, dynPtr: dynPtr };
+        searchLayout[key] = layout;
+        emit({ tag: "CALIB_SEARCH", dimOff: off, dynOff: dynOff, cx: cx, cy: cy,
+               dynPtr: dynPtr.toString() });
+        return layout;
+      }
+    } catch (e) { /* try next */ }
+  }
+
+  for (let off = 0x80; off < 0x140; off++) {
+    try {
+      const cx = search.add(off).readS32();
+      const cy = search.add(off + 4).readS32();
+      if (cx > 0 && cx <= 1024 && cy > 0 && cy <= 1024) {
+        const dynOff = off - 0x2c;
+        const dynPtr = search.add(dynOff).readPointer();
+        if (dynPtr.isNull()) continue;
+        const layout = { dimOff: off, dynOff: dynOff, cx: cx, cy: cy, dynPtr: dynPtr };
+        searchLayout[key] = layout;
+        emit({ tag: "CALIB_SEARCH", dimOff: off, dynOff: dynOff, cx: cx, cy: cy,
+               dynPtr: dynPtr.toString() });
+        return layout;
+      }
+    } catch (e) { /* keep scanning */ }
+  }
+
+  const layout = { dimOff: -1, dynOff: -1, cx: 320, cy: 320, dynPtr: ptr("0") };
+  searchLayout[key] = layout;
+  emit({ tag: "CALIB_SEARCH_FAIL", search: key });
+  return layout;
+}
+
+function dynamicFlags(search, point, personalSpace) {
+  const layout = getSearchLayout(search);
+  const out = [];
+  if (layout.dynPtr.isNull()) return out;
+  const radius = ((personalSpace - 2) / 2) | 0;
+  const minX = Math.max(point[0] - radius, 0);
+  const maxX = Math.min(point[0] + radius, layout.cx);
+  const minY = Math.max(point[1] - radius, 0);
+  const maxY = Math.min(point[1] + radius, layout.cy);
+  for (let x = minX; x <= maxX; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      try {
+        const flags = layout.dynPtr.add(y * layout.cx + x).readU8();
+        out.push([x, y, flags]);
+      } catch (e) {
+        out.push([x, y, -1]);
+      }
+    }
+  }
+  return out;
+}
+
+function snapshotFlags(search, point, personalSpace) {
+  const layout = getSearchLayout(search);
+  const out = [];
+  if (layout.dynPtr.isNull() || layout.dynOff < 0) return out;
+  let snapPtr = ptr("0");
+  try { snapPtr = search.add(layout.dynOff + 4).readPointer(); } catch (e) {}
+  if (snapPtr.isNull()) return out;
+  const radius = ((personalSpace - 2) / 2) | 0;
+  const minX = Math.max(point[0] - radius, 0);
+  const maxX = Math.min(point[0] + radius, layout.cx);
+  const minY = Math.max(point[1] - radius, 0);
+  const maxY = Math.min(point[1] + radius, layout.cy);
+  for (let x = minX; x <= maxX; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      try {
+        const flags = snapPtr.add(y * layout.cx + x).readU8();
+        out.push([x, y, flags]);
+      } catch (e) {
+        out.push([x, y, -1]);
+      }
+    }
+  }
+  return out;
+}
+
+function fpKey(start, goal0) {
+  return "" + start[0] + "," + start[1] + "->" + goal0[0] + "," + goal0[1];
+}
+
+function shouldTraceSnap(start, goal0) {
+  const key = fpKey(start, goal0);
+  if (key !== "148,72->141,84") return false;
+  if (key in SNAP_TRACE_KEYS) return false;
+  SNAP_TRACE_KEYS[key] = true;
+  return true;
+}
+
 function walkMembers(group) {
   const ids = [];
   try {
@@ -252,6 +551,15 @@ function onCommit(fn, group, ids) {
 function slotForSprite(ecx) {
   const k = ecx.toString();
   return (k in slotOf) ? slotOf[k] : -1;
+}
+function slotForInterior(p) {
+  for (const k in spriteBySlot) {
+    const sprite = spriteBySlot[k];
+    if (p.compare(sprite) >= 0 && p.compare(sprite.add(0x9000)) < 0) {
+      return { slot: parseInt(k, 10), off: p.sub(sprite).toInt32() };
+    }
+  }
+  return { slot: -1, off: -1 };
 }
 
 // ---- Commit layer (formation + orientation) ---------------------------------
@@ -328,6 +636,7 @@ function hookCommit(name, fn, layout) {
         }
         const slot = idToSlot[this.id];
         slotOf[sprite.toString()] = slot;
+        spriteBySlot[slot] = sprite;
         emit({ tag: "MEMBER", slot: slot, id: this.id,
                sprite: sprite.toString(), pos: spritePos(sprite) });
       } catch (e) { /* ignore */ }
@@ -366,11 +675,17 @@ function hookCommit(name, fn, layout) {
       this.cps = this.context.ecx;
       this.start = args[0];
       this.goals = args[1];
-      this.nGoals = args[2].toInt32();
+      this.nGoalsRaw = args[2].toInt32();
+      this.nGoalsShort = s16(args[2]);
       this.minNodes = args[3].toInt32();   // minNodeLimit
       this.maxNodes = args[4].toInt32();   // maxNodeLimit
       this.bBump = args[7].toInt32();
       this.req = args[6];   // serviceState == &request->m_serviceState == request base
+      this.startIn = pt(this.start);
+      this.goal0In = pt(this.goals);
+      this.traceSnap = shouldTraceSnap(this.startIn, this.goal0In);
+      this.snapCount = 0;
+      FP_CTX = this;
     },
     onLeave(rv) {
       try {
@@ -381,17 +696,195 @@ function hookCommit(name, fn, layout) {
           for (let i = 0; i < n; i++) path.push(pb.add(i * 4).readS32());
         }
         const goals = [];
-        for (let i = 0; i < this.nGoals && i < 8; i++) goals.push(pt(this.goals.add(i * 8)));
+        for (let i = 0; i < this.nGoalsShort && i < 8; i++) goals.push(pt(this.goals.add(i * 8)));
+        const goalBuf = [];
+        for (let i = 0; i < 8; i++) goalBuf.push(pt(this.goals.add(i * 8)));
         let reqBytes = "";
         let req = null;
         try { reqBytes = hbytes(this.req, 0x10); } catch (e) {}
         try { req = reqInfo(this.req); } catch (e) {}
         emit({ tag: "FINDPATH", rc: rv.toInt32(), bBump: this.bBump,
-               nGoalsRaw: this.nGoals, minNodes: this.minNodes, maxNodes: this.maxNodes,
-               start: pt(this.start), goals: goals, n: n,
+               nGoalsRaw: this.nGoalsRaw, nGoalsShort: this.nGoalsShort,
+               minNodes: this.minNodes, maxNodes: this.maxNodes,
+               start: pt(this.start), goals: goals, goalBuf: goalBuf, n: n,
                head: path.slice(0, 3).map(decode), tail: path.slice(-3).map(decode),
                path: path, reqBytes: reqBytes, req: req });
       } catch (e) { emit({ tag: "FINDPATH_ERR", err: "" + e }); }
+      if (FP_CTX === this) FP_CTX = null;
+    }
+  });
+})();
+
+// ---- Snapshot search-map probes inside FindPath -----------------------------
+function hookSnapshotObject(name, tag) {
+  const a = A(name);
+  if (a === null) return;
+  Interceptor.attach(a, {
+    onEnter(args) {
+      this.search = this.context.ecx;
+      this.point = [args[0].toInt32(), args[1].toInt32()];
+      this.ps = args[2].toInt32() & 0xff;
+      this.bumpable = args[3].toInt32();
+      this.before = snapshotFlags(this.search, this.point, this.ps);
+      this.ra = this.returnAddress.sub(base).toString();
+    },
+    onLeave() {
+      emit({ tag: tag, point: this.point, personalSpace: this.ps,
+             bumpable: this.bumpable, before: this.before,
+             after: snapshotFlags(this.search, this.point, this.ps),
+             raRva: this.ra });
+    }
+  });
+}
+hookSnapshotObject("SnapshotRemoveObject", "SNAPREMOVE");
+hookSnapshotObject("SnapshotAddObjectDiagonals", "SNAPDIAG");
+
+(function () {
+  const a = A("SnapshotGetCost");
+  if (a === null) return;
+  Interceptor.attach(a, {
+    onEnter(args) {
+      this.search = this.context.ecx;
+      this.point = [args[0].toInt32(), args[1].toInt32()];
+      this.bump = args[2].toInt32();
+      this.ctx = FP_CTX;
+      this.trace = this.ctx !== null && this.ctx.traceSnap && this.ctx.snapCount < 96;
+      if (this.trace) {
+        this.ctx.snapCount++;
+        this.flags = snapshotFlags(this.search, this.point, 3);
+      }
+    },
+    onLeave(rv) {
+      if (!this.trace) return;
+      emit({ tag: "SNAPCOST", fp: fpKey(this.ctx.startIn, this.ctx.goal0In),
+             idx: this.ctx.snapCount, point: this.point, bBump: this.bump,
+             rc: rv.toInt32() & 0xff, flags: this.flags });
+    }
+  });
+})();
+
+// ---- Live search-map object updates -----------------------------------------
+function hookMapObject(name, op) {
+  const a = A(name);
+  if (a === null) return;
+  Interceptor.attach(a, {
+    onEnter(args) {
+      const owner = slotForInterior(args[4]); // BOOLEAN& m_bOnSearchMap
+      this.slot = owner.slot;
+      if (this.slot < 0) return;
+      this.off = owner.off;
+      this.point = pt(args[0]);
+      this.side = args[1].toInt32() & 0xff;
+      this.ps = args[2].toInt32() & 0xff;
+      this.bumpable = args[3].toInt32();
+      this.onPtr = args[4];
+      this.onBefore = -1;
+      try { this.onBefore = this.onPtr.readU8(); } catch (e) {}
+      this.mapRa = this.returnAddress.sub(base).toString();
+    },
+    onLeave() {
+      if (this.slot < 0) return;
+      let onAfter = -1;
+      try { onAfter = this.onPtr.readU8(); } catch (e) {}
+      emit({ tag: "MAPOBJ", op: op, slot: this.slot, point: this.point,
+             side: this.side, personalSpace: this.ps, bumpable: this.bumpable,
+             onBefore: this.onBefore, onAfter: onAfter, onOff: this.off,
+             raRva: this.mapRa });
+    }
+  });
+}
+hookMapObject("AddObject", "add");
+hookMapObject("RemoveObject", "remove");
+
+// ---- GetMobileCost probes inside AIUpdateWalk -------------------------------
+// This is the gate that decides whether a sprite can enter the next search cell
+// or must call ClearBumpPath. Log dynamic flags for the probed cell(s).
+(function () {
+  const a = A("GetMobileCost");
+  if (a === null) return;
+  const aiw = A("AIUpdateWalk");
+  Interceptor.attach(a, {
+    onEnter(args) {
+      const ra = this.returnAddress;
+      this.fromAiw = aiw !== null && ra.compare(aiw) >= 0 && ra.compare(aiw.add(0x2600)) < 0;
+      if (!this.fromAiw) return;
+      const ctx = aiwStack.length > 0 ? aiwStack[aiwStack.length - 1] : null;
+      this.slot = ctx ? ctx.slot : -1;
+      this.posBefore = ctx ? ctx.pos : null;
+      this.search = this.context.ecx;
+      this.point = pt(args[0]);
+      this.ps = args[2].toInt32() & 0xff;
+      this.bCheckBump = args[3].toInt32();
+      this.mobileRa = ra.sub(base).toString();
+      this.flags = dynamicFlags(this.search, this.point, this.ps);
+    },
+    onLeave(retval) {
+      if (!this.fromAiw) return;
+      emit({ tag: "MOBILECOST", slot: this.slot, posBefore: this.posBefore,
+             point: this.point, personalSpace: this.ps, bCheckBump: this.bCheckBump,
+             rc: retval.toInt32() & 0xff, flags: this.flags, raRva: this.mobileRa });
+    }
+  });
+})();
+
+// ---- GetCost probes inside ClearBumpPath ------------------------------------
+// Split the rc=0 ClearBumpPath failures: if this returns COST_IMPASSABLE (255),
+// ClearBumpPath exits before GetCloseObjects can gather/push blocking allies.
+(function () {
+  const a = A("GetCost");
+  if (a === null) return;
+  const cbp = A("ClearBumpPath");
+  Interceptor.attach(a, {
+    onEnter(args) {
+      const ra = this.returnAddress;
+      this.fromCbp = cbp !== null && ra.compare(cbp) >= 0 && ra.compare(cbp.add(0x2600)) < 0;
+      if (!this.fromCbp) return;
+      const ctx = cbpStack.length > 0 ? cbpStack[cbpStack.length - 1] : null;
+      this.slot = ctx ? ctx.slot : -1;
+      this.cbpStart = ctx ? ctx.start : null;
+      this.cbpGoal = ctx ? ctx.goal : null;
+      this.point = pt(args[0]);
+      this.ps = args[2].toInt32() & 0xff;
+      this.tableIndex = args[3];
+      this.bCheckBump = args[4].toInt32();
+      this.costRa = ra.sub(base).toString();
+    },
+    onLeave(retval) {
+      if (!this.fromCbp) return;
+      let tableOut = null;
+      try { tableOut = this.tableIndex.readS16(); } catch (e) {}
+      emit({ tag: "GETCOST", slot: this.slot, point: this.point, personalSpace: this.ps,
+             bCheckBump: this.bCheckBump, rc: retval.toInt32() & 0xff,
+             tableIndex: tableOut, cbpStart: this.cbpStart, cbpGoal: this.cbpGoal,
+             raRva: this.costRa });
+    }
+  });
+})();
+
+// ---- GetCloseObjects (obstacle gather inside ClearBumpPath) -----------------
+// Case-1 split: how many obstacles does ClearBumpPath's gather actually find?
+// count==0 -> the blocking ally is NOT detected (gather bug); count>0 -> the
+// failure is eligibility (m_bBumpable) or placement. Filtered to ClearBumpPath
+// callers (returnAddress inside the ClearBumpPath body); raRva logged to verify.
+(function () {
+  const a = A("GetCloseObjects");
+  if (a === null) return;
+  const cbp = A("ClearBumpPath");
+  Interceptor.attach(a, {
+    onEnter(args) {
+      const ra = this.returnAddress;
+      this.fromCbp = cbp !== null && ra.compare(cbp) >= 0 && ra.compare(cbp.add(0x2600)) < 0;
+      if (!this.fromCbp) return;
+      this.center = pt(args[1]);     // const CPoint& center (world)
+      this.outList = args[5];        // CTypedPtrList<CPtrList,LONG*>& out
+      this.gcoRa = ra.sub(base).toString();
+    },
+    onLeave() {
+      if (!this.fromCbp) return;
+      let count = -1;
+      // MFC CPtrList (vptr@0, head@4, tail@8, count@0xc).
+      try { count = this.outList.add(0x0c).readS32(); } catch (e) {}
+      emit({ tag: "CLOSEOBJ", center: this.center, count: count, raRva: this.gcoRa });
     }
   });
 })();
@@ -417,13 +910,19 @@ function hookSprite(name, tag, onE, onL) {
 // AIUpdateWalk(): per-tick; emit only when the sprite's grid position changed.
 hookSprite("AIUpdateWalk", "AIWALK", function () {
   const p = spritePos(this.ecx);
+  this.aiwCtx = { slot: this.slot, pos: p };
+  aiwStack.push(this.aiwCtx);
   const k = this.ecx.toString();
   const prev = lastPos[k];
   if (!prev || prev[0] !== p[0] || prev[1] !== p[1]) {
     lastPos[k] = p;
     emit({ tag: "AIWALK", slot: this.slot, pos: p });
   }
-}, null);
+}, function () {
+  if (aiwStack.length > 0 && aiwStack[aiwStack.length - 1] === this.aiwCtx) {
+    aiwStack.pop();
+  }
+});
 
 // SetTarget(CSearchRequest*,...): re-search enqueue — the churn / stutter signal.
 // Dump the request goal-counts + the caller (raRva) to find which builder sets
@@ -439,6 +938,36 @@ hookSprite("SetTargetReq", "SETTARGET", function (args) {
 }, function () {
   // After SetTarget, m_currentSearchRequest == this.stReq -> locate its offset.
   calibrateCsr(this.ecx, this.stReq);
+});
+
+// DoAction()/MoveToPoint(): action lifetime around short nPath==1 searches.
+// The original keeps the MOVETOPOINT alive long enough to reissue a group
+// search; if ours loses actionCount or advances to FACE too early this shows it.
+hookSprite("DoAction", "DOACTION", function () {
+  calibrateAction(this.ecx);
+  const before = actionInfo(this.ecx);
+  calibrateCurDest(this.ecx, before.dest);
+  this.doBefore = actionInfo(this.ecx);
+}, function (rv) {
+  let after = actionInfo(this.ecx);
+  calibrateCurDest(this.ecx, after.dest);
+  after = actionInfo(this.ecx);
+  emit({ tag: "DOACTION", slot: this.slot, pos: spritePos(this.ecx),
+         before: this.doBefore, after: after, csr: csrState(this.ecx) });
+});
+
+hookSprite("MoveToPoint", "MOVETOPOINT", function () {
+  calibrateAction(this.ecx);
+  const before = actionInfo(this.ecx);
+  calibrateCurDest(this.ecx, before.dest);
+  this.mtpBefore = actionInfo(this.ecx);
+}, function (rv) {
+  let after = actionInfo(this.ecx);
+  calibrateCurDest(this.ecx, after.dest);
+  after = actionInfo(this.ecx);
+  emit({ tag: "MOVETOPOINT", slot: this.slot, pos: spritePos(this.ecx),
+         before: this.mtpBefore, after: after,
+         csr: csrState(this.ecx), rc: s16(rv) });
 });
 
 // JumpToPoint(CPoint dest, int): bump displacement.
@@ -460,9 +989,14 @@ hookSprite("ClearBumpPath", "CLEARBUMP", function (args) {
   this.cbpStart = pt(args[0]);
   this.cbpGoal = pt(args[1]);
   this.cbpRa = this.returnAddress.sub(base).toString();
+  this.cbpCtx = { slot: this.slot, start: this.cbpStart, goal: this.cbpGoal };
+  cbpStack.push(this.cbpCtx);
 }, function (rv) {
   emit({ tag: "CLEARBUMP", slot: this.slot, start: this.cbpStart, goal: this.cbpGoal,
          rc: rv.toInt32() & 0xff, csr: csrState(this.ecx), raRva: this.cbpRa });
+  if (cbpStack.length > 0 && cbpStack[cbpStack.length - 1] === this.cbpCtx) {
+    cbpStack.pop();
+  }
 });
 
 // Face() -> SHORT: arrival/orientation facing (return value = new direction).
