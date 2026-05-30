@@ -1257,7 +1257,21 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
 
     switch (m_nState) {
     case 0x6C:
+        // Ghidra OnLButtonPressed state 0x6C (FUN_0058ff20): formation picker
+        // reached by right-clicking a quick-formation slot.  Rebind the stashed
+        // quick slot (m_nCustomizeSlot @ +0x1976, set by OnRButtonPressed state
+        // 0x6E) to the chosen formation, then make it current:
+        //   gameSave->m_quickFormations[slot] = buttonID;        // +0x423e
+        //   gameSave->m_curFormation = m_quickFormations[slot];  // +0x423c
+        if (buttonID < 12) {
+            pGame->GetGameSave()->m_quickFormations[m_nCustomizeSlot] = static_cast<SHORT>(buttonID);
+            pGame->GetGameSave()->m_curFormation = pGame->GetGameSave()->m_quickFormations[m_nCustomizeSlot];
+            SetState(0x6E, 0);
+        }
+        return;
     case 0x6D:
+        // Ghidra state 0x6D: formation selector that does NOT rebind a quick
+        // slot â€” it only sets the current formation (gameSave +0x423c).
         if (buttonID < 12) {
             pGame->GetGameSave()->m_curFormation = static_cast<SHORT>(buttonID);
             SetState(0x6E, 0);
@@ -2225,7 +2239,11 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
     switch (m_nState) {
     case 0x6E:
         if (nButtonType >= 0x10 && nButtonType <= 0x14) {
-            m_nCurrentSelectedSpellLevel = nButtonType - 0x10;
+            // Stash the right-clicked quick-formation slot (0-4) so the picker
+            // (state 0x6C) can rebind it.  Ghidra OnRButtonPressed state 0x6E
+            // writes m_nCustomizeSlot (+0x1976) â€” the same scratch field the
+            // 0x6C picker reads.
+            m_nCustomizeSlot = nButtonType - 0x10;
             SetState(0x6C, 1);
         }
         return;
