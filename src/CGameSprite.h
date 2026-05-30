@@ -422,6 +422,7 @@ public:
     /* 0044 */ void OnFormationButton(const CPoint& pt) override;
     /* 0048 */ void RemoveFromArea() override;
     /* 004C */ void Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface) override;
+    /* 0050 */ BOOLEAN DoAIUpdate(BOOLEAN active, LONG counter) override;
     /* 0058 */ void SetCursor(LONG nToolTip) override;
     /* 007C */ void ClearAI(BOOLEAN bSetSequence) override;
     /* 0084 */ SHORT ExecuteAction() override;

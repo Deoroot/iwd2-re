@@ -11560,6 +11560,81 @@ void CGameSprite::SetCurrAction(const CAIAction& action)
     CGameAIBase::SetCurrAction(action);
 }
 
+// 0x7238C0
+// Per-frame AI gate for sprites.  Extends the bare CGameObject predicate
+// (active && (counter & m_AISpeed) == (m_AISpeed & m_id)) with the 3-tick
+// throttle counter (m_AIInhibitor) and off-screen AI culling: a neutral
+// creature (EA in 16..199) that is hidden or scrolled off-screen leaves its
+// throttle set and skips full AI this tick; party (EA <= 15) and enemies
+// (EA >= 200) always run.  The override ignores the `active` argument.
+BOOLEAN CGameSprite::DoAIUpdate(BOOLEAN active, LONG counter)
+{
+    if ((m_AISpeed & counter) != (m_AISpeed & m_id)) {
+        return FALSE;
+    }
+
+    if ((m_baseStats.m_flags & 0x200000) == 0) {
+        m_AIInhibitor = (BYTE)((m_AIInhibitor + 1) % 3);
+    } else {
+        if (m_AIInhibitor == 0) {
+            return TRUE;
+        }
+        m_AIInhibitor = 0;
+    }
+
+    if (m_AIInhibitor != 0) {
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        if (m_pArea != NULL && pGame->m_gameSave.m_mode != 0x142) {
+            CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+            if (!stats.m_bPreventAISlowDown) {
+                // EA cutoffs DAT_00847c3c (0x0F) / DAT_00847c42 (0xC8): only neutral
+                // creatures are culled; party stays below, enemies above.
+                BYTE nEnemyAlly = GetAIType().m_nEnemyAlly;
+                if (nEnemyAlly < 0xC8 && nEnemyAlly > 0x0F
+                    && pGame->GetCharacterPortraitNum(m_id) == -1) {
+                    BOOL bVisible = TRUE;
+                    // 0x8CF6D8 = g_pChitin; the byte at +0x1032 is the dev "draw-all
+                    // / disable-cull" toggle (0 in normal play).  CChitin's layout
+                    // there is #guess, so read the offset directly instead of
+                    // modelling a member at an uncertain location.
+                    if (*(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032) != 1) {
+                        LONG heightOffset = m_pArea->GetHeightOffset(m_pos, m_listType);
+                        CRect rFx;
+                        CPoint ptReference;
+                        m_animation.m_animation->CalculateFxRectMax(rFx, ptReference, heightOffset);
+
+                        LONG nBaseY = heightOffset + m_pos.y;
+                        CRect rSprite;
+                        rSprite.left = m_pos.x - ptReference.x;
+                        rSprite.top = nBaseY - ptReference.y;
+                        rSprite.right = (rFx.right - rFx.left - ptReference.x) + m_pos.x;
+                        rSprite.bottom = (rFx.bottom - rFx.top - ptReference.y) + nBaseY;
+
+                        CInfinity* pInfinity = m_pArea->GetInfinity();
+                        CRect rViewport;
+                        rViewport.left = pInfinity->nCurrentX;
+                        rViewport.top = pInfinity->nCurrentY;
+                        rViewport.right = pInfinity->nCurrentX + pInfinity->rViewPort.Width();
+                        rViewport.bottom = pInfinity->nCurrentY + pInfinity->rViewPort.Height();
+
+                        CRect rIntersect;
+                        IntersectRect(&rIntersect, &rSprite, &rViewport);
+                        bVisible = !IsRectEmpty(&rIntersect);
+                    }
+
+                    if (m_canBeSeen != 0 && bVisible) {
+                        m_AIInhibitor = 0;
+                    }
+                    return TRUE;
+                }
+            }
+        }
+        m_AIInhibitor = 0;
+    }
+
+    return TRUE;
+}
+
 // 0x734550
 BOOL CGameSprite::HandleEffects()
 {
