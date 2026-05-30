@@ -4404,7 +4404,7 @@ void CGameArea::SortLists()
 
         BOOLEAN bSort;
         if (nFrontAdd != 0
-            || (m_firstRender != 0
+            || (m_firstRender == 0
                 && m_pGame->GetWorldTimer()->m_gameTime % 5 == 0
                 && g_pBaldurChitin->GetObjectGame()->GetVisibleArea() == this)) {
             bSort = TRUE;
