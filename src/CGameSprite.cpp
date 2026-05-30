@@ -11635,6 +11635,49 @@ BOOLEAN CGameSprite::DoAIUpdate(BOOLEAN active, LONG counter)
     return TRUE;
 }
 
+// The CGameSprite vtable overrides below are present in IWD2.exe but their
+// sprite-specific behavior is not yet recovered.  Each delegates to the base so
+// the slot keeps its current fall-through behavior (an empty body would instead
+// drop the base work and regress).  Replace each body with the recovered impl.
+// Found via scripts/vtable_audit.py; grep TODO(vtable-stub) for the remaining set.
+
+// 0x6FC260 (vtable 0x2C)
+// TODO(vtable-stub): recover CGameSprite::CompressTime.
+BOOLEAN CGameSprite::CompressTime(DWORD deltaTime)
+{
+    return CGameAIBase::CompressTime(deltaTime);
+}
+
+// 0x6FD9F0 (vtable 0x30)
+// TODO(vtable-stub): recover CGameSprite::DebugDump.
+void CGameSprite::DebugDump(const CString& a1, BOOLEAN a2)
+{
+    CGameAIBase::DebugDump(a1, a2);
+}
+
+// 0x731B30 (vtable 0x64)
+// TODO(vtable-stub): recover CGameSprite::EvaluateStatusTrigger -- status-trigger
+// dispatcher (Global/GlobalGT/NumTimesTalkedTo/Class/...), ~5KB in the binary.
+BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
+{
+    return CGameAIBase::EvaluateStatusTrigger(trigger);
+}
+
+// 0x733050 (vtable 0x78)
+// TODO(vtable-stub): recover CGameSprite::AddEffect (effect-apply filter).
+void CGameSprite::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
+{
+    CGameAIBase::AddEffect(pEffect, list, noSave, immediateApply);
+}
+
+// 0x728580 (vtable 0xAC)
+// TODO(vtable-stub): recover CGameSprite::ApplyTriggers -- per-trigger-opcode
+// switch; the binary calls CGameAIBase::ApplyTriggers first.
+void CGameSprite::ApplyTriggers()
+{
+    CGameAIBase::ApplyTriggers();
+}
+
 // 0x734550
 BOOL CGameSprite::HandleEffects()
 {
