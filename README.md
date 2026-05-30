@@ -295,6 +295,7 @@ Run `data/restore.ps1` after clone to extract to `C:\projects\` and `C:\ghidra_p
 ## Related Projects
 
 - [alexbatalov/iwd2-re](https://github.com/alexbatalov/iwd2-re) — Upstream project by Alexander Batalov
+- [Bubb13/IWD2EE](https://github.com/Bubb13/IWD2EE) — Icewind Dale II: Enhanced Edition community project
 - **GemRB** — Open-source Infinity Engine implementation (see `refs/gemrb`)
 - **NearInfinity** — Infinity Engine file browser (see `refs/NearInfinity`)
 - **IESDP** — Infinity Engine Structures Description Project (see `refs/iesdp`)
