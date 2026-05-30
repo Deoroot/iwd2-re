@@ -26,6 +26,8 @@ Usage:
   python scripts/vtable_audit.py                # audit every class
   python scripts/vtable_audit.py CGameSprite    # one class (+ its base)
   python scripts/vtable_audit.py --quiet        # only classes with findings
+
+See docs/vtable_audit.md for triage notes, known noise, and example findings.
 """
 import os
 import re

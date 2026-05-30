@@ -128,6 +128,7 @@ data/near_infinity_export/
 - Verify `// 0xADDR` against Ghidra before touching.
 - Minimal diffs. One bug = one change. No refactor in bugfix commits.
 - Prefer named constants over magic numbers when defined in file.
+- `python scripts/vtable_audit.py ClassName` — catches missing virtual overrides.
 
 ## No hacks
 
