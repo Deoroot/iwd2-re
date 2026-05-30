@@ -46,7 +46,7 @@ public:
     CPathNode* PopOpenList();
     void SmoothPath(LONG* pivotPoints, LONG* pathSmooth, BYTE actualCost, CSearchBitmap* pSearchBitmap, BOOL bBump);
     SHORT BuildPathList(CPathNode* startNode, CSearchBitmap* pSearchBitmap, BOOL bBump);
-    int FindPath(POINT* startPoint, POINT* goalPoints, int nGoalPoints, LONG minNodeLimit, LONG maxNodeLimit, CSearchBitmap* pSearchBitmap, BYTE* serviceState, BOOL bBump, CRect* gridVirtual);
+    int FindPath(POINT* startPoint, POINT* goalPoints, SHORT nGoalPoints, LONG minNodeLimit, LONG maxNodeLimit, CSearchBitmap* pSearchBitmap, BYTE* serviceState, BOOL bBump, CRect* gridVirtual);
     LONG* GetPath(SHORT* nSteps);
 
     /* 0000 */ BOOL m_pathSmooth;

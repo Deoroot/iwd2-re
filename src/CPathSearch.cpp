@@ -564,7 +564,7 @@ SHORT CPathSearch::BuildPathList(CPathNode* startNode, CSearchBitmap* pSearchBit
 }
 
 // 0x51E150
-int CPathSearch::FindPath(POINT* startPoint, POINT* goalPoints, int nGoalPoints, LONG minNodeLimit, LONG maxNodeLimit, CSearchBitmap* pSearchBitmap, BYTE* serviceState, BOOL bBump, CRect* gridVirtual)
+int CPathSearch::FindPath(POINT* startPoint, POINT* goalPoints, SHORT nGoalPoints, LONG minNodeLimit, LONG maxNodeLimit, CSearchBitmap* pSearchBitmap, BYTE* serviceState, BOOL bBump, CRect* gridVirtual)
 {
     CPathNode* currentNode;
     CPathNode* childNode;
