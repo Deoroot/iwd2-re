@@ -189,12 +189,16 @@ const BYTE* CGameAIBase::GetTerrainTable()
 }
 
 // 0x44CBC0
-// Inherited from CGameObject (CGameAIBase does not override slot 0x28 in the
-// binary -- both share 0x44CBC0); kept explicit, body matches the base.
+// HACK: the binary inherits CGameObject::CanSaveGame here (slot 0x28 == 0x44CBC0,
+// which sets strError=16502 and returns FALSE). But CGameDoor/CGameContainer/
+// CGameTrigger/CGameTiledObject don't model their own CanSaveGame->TRUE overrides
+// yet, and CGameArea::CanSaveGame blocks the save if ANY object returns FALSE --
+// so a faithful FALSE here breaks all saving. Return TRUE until those overrides
+// are recovered. -- replaces 0x44CBC0
 BOOLEAN CGameAIBase::CanSaveGame(STRREF& strError)
 {
-    strError = 16502; // "You cannot save at this time."
-    return FALSE;
+    strError = -1;
+    return TRUE;
 }
 
 // 0x44D120
