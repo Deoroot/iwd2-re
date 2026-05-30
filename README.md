@@ -8,11 +8,11 @@
 
 This repository contains **reverse-engineered C++ source code** for **Icewind Dale II** (2002), the final Infinity Engine game from BioWare/Black Isle Studios.
 
-Original source code was lost, which is why [Beamdog](https://beamdog.com/) never shipped an Enhanced Edition for IWD2. This project reconstructs it by analyzing the compiled binary and translating machine code back into readable, modern C++.
+Original source code was lost, which is why [Beamdog](https://beamdog.com/) never shipped an Enhanced Edition for IWD2. This project reconstructs it by analyzing the compiled binary and translating machine code back into readable C++.
 
 This repository contains only code, not game assets. You still need to acquire those by purchasing the game on [GOG](https://www.gog.com/game/icewind_dale_2). The original working files for the assets (which would have allowed things like smoothing animations, remastering visuals, or improving audio) are also permanently lost.
 
-**Goal**: Create a fully working, open-source engine that can run Icewind Dale II, that the community can use to further improve IWD2EE or to build a full remake of the game, in the spirit of the [Daggerfall Unity](https://www.dfworkshop.net/) port.
+**Goal**: Create a fully working, open-source engine that can run Icewind Dale II, that the community can use to further improve [IWD2EE](https://github.com/Bubb13/IWD2EE) or to build a full remake of the game, in the spirit of the [Daggerfall Unity](https://www.dfworkshop.net/) port.
 
 ---
 
