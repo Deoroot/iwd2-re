@@ -8,9 +8,25 @@
 
 This repository contains **reverse-engineered C++ source code** for **Icewind Dale II** (2002), the final Infinity Engine game from BioWare/Black Isle Studios.
 
-Original source code was never released. This project reconstructs it by analyzing the compiled binary and translating machine code back into readable, modern C++.
+Original source code was lost, which is why [Beamdog](https://beamdog.com/) never shipped an Enhanced Edition for IWD2. This project reconstructs it by analyzing the compiled binary and translating machine code back into readable, modern C++.
 
-**Goal**: Create a fully working, open-source engine that can run Icewind Dale II, then extend it with community improvements.
+This repository contains only code, not game assets. You still need to acquire those by purchasing the game on [GOG](https://www.gog.com/game/icewind_dale_2). The original working files for the assets (which would have allowed things like smoothing animations, remastering visuals, or improving audio) are also permanently lost.
+
+**Goal**: Create a fully working, open-source engine that can run Icewind Dale II, that the community can use to further improve IWD2EE or to build a full remake of the game, in the spirit of the [Daggerfall Unity](https://www.dfworkshop.net/) port.
+
+---
+
+### AI Usage Disclaimer
+
+I am using AI to recover the IWD2 source code because my programming skills are nowhere near those of Alexander Batalov, the creator of the original project this fork is based on. I also rely on AI to translate messages like this one into English, as my English isn't very good.
+
+Many people are critical of using AI to "vibecode" buggy and flawed applications due to the hallucinations inherent in LLMs, and I completely understand those criticisms. However, AI is actually a perfect tool for reverse engineering. When properly guided, it ultimately invents nothing. It cannot hallucinate because it is strictly reading assembly language and pseudocode extracted from the original binary using Ghidra.
+
+Furthermore, I wasn't starting from scratch. Alexander Batalov had already put in a tremendous amount of work, meaning the AI didn't have to figure out the overall project architecture. With all the function signatures and their memory addresses already mapped out, the AI is essentially just filling in the blanks.
+
+That being said, this remains a process that requires a human to constantly monitor and steer the AI's output, along with an investment of both time and money. I primarily rely on two $20 Claude Pro subscriptions, using Opus most of the time. Cheaper, less capable models (like DeepSeek V4 Pro) unfortunately create too many issues that lead to massive amounts of wasted time debugging (we are not just reverse engineering a few kilobytes of binaries here).
+
+If I could afford a $200/month Claude or ChatGPT subscription, the reverse engineering would already be close to finished, as I wouldn't be forced to constantly wait for the 5-hour and weekly message limits to reset.
 
 ---
 
