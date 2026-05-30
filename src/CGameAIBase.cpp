@@ -262,6 +262,13 @@ void CGameAIBase::ClearActions(BOOL a1)
     }
 }
 
+// 0x799E60
+// No-op base (3-byte stub in the binary); CGameSprite overrides this at 0x733660
+// to update the current target id + target marker.
+void CGameAIBase::UpdateTarget(CGameObject* pObject)
+{
+}
+
 // 0x44D730
 void CGameAIBase::ClearTriggers()
 {

@@ -42,6 +42,7 @@ public:
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
     /* 0048 */ void RemoveFromArea() override;
     /* 006C */ virtual void ClearActions(BOOL a1);
+    /* 0070 */ virtual void UpdateTarget(CGameObject* pObject);
     /* 0074 */ virtual void AddAction(const CAIAction& action);
     /* 0078 */ virtual void AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply);
     /* 007C */ virtual void ClearAI(BOOLEAN a1);

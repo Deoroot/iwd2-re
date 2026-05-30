@@ -427,6 +427,7 @@ public:
     /* 0050 */ BOOLEAN DoAIUpdate(BOOLEAN active, LONG counter) override;
     /* 0058 */ void SetCursor(LONG nToolTip) override;
     /* 0064 */ BOOL EvaluateStatusTrigger(const CAITrigger& trigger) override;
+    /* 0070 */ void UpdateTarget(CGameObject* pObject) override;
     /* 0078 */ void AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply) override;
     /* 007C */ void ClearAI(BOOLEAN bSetSequence) override;
     /* 0084 */ SHORT ExecuteAction() override;

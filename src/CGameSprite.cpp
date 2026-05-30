@@ -11663,6 +11663,14 @@ BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
     return CGameAIBase::EvaluateStatusTrigger(trigger);
 }
 
+// 0x733660 (vtable 0x70)
+// TODO(vtable-stub): recover CGameSprite::UpdateTarget -- sets m_targetId and
+// toggles the CMarker on the old/new target (gated on m_bSelected + Orderable).
+void CGameSprite::UpdateTarget(CGameObject* pObject)
+{
+    CGameAIBase::UpdateTarget(pObject);
+}
+
 // 0x733050 (vtable 0x78)
 // TODO(vtable-stub): recover CGameSprite::AddEffect (effect-apply filter).
 void CGameSprite::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
