@@ -41,6 +41,7 @@ public:
     /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
     /* 0048 */ void RemoveFromArea() override;
+    /* 0064 */ BOOL EvaluateStatusTrigger(const CAITrigger& trigger) override;
     /* 006C */ virtual void ClearActions(BOOL a1);
     /* 0070 */ virtual void UpdateTarget(CGameObject* pObject);
     /* 0074 */ virtual void AddAction(const CAIAction& action);

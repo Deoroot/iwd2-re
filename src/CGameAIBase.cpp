@@ -188,11 +188,13 @@ const BYTE* CGameAIBase::GetTerrainTable()
     return CGameObject::DEFAULT_TERRAIN_TABLE;
 }
 
-// 0x47C830
+// 0x44CBC0
+// Inherited from CGameObject (CGameAIBase does not override slot 0x28 in the
+// binary -- both share 0x44CBC0); kept explicit, body matches the base.
 BOOLEAN CGameAIBase::CanSaveGame(STRREF& strError)
 {
-    strError = -1;
-    return TRUE;
+    strError = 16502; // "You cannot save at this time."
+    return FALSE;
 }
 
 // 0x44D120
@@ -200,6 +202,15 @@ BOOLEAN CGameAIBase::CompressTime(DWORD deltaTime)
 {
     CheckTimers(deltaTime / CTimerWorld::TIMESCALE_MSEC_PER_SEC);
     return TRUE;
+}
+
+// 0x453840
+// TODO(vtable-stub): recover CGameAIBase::EvaluateStatusTrigger (status-trigger
+// evaluator). Delegates to the CGameObject base (returns TRUE) to match the
+// current fall-through; CGameSprite overrides this further at 0x731B30.
+BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
+{
+    return CGameObject::EvaluateStatusTrigger(trigger);
 }
 
 // 0x44D4B0

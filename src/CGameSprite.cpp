@@ -11541,6 +11541,7 @@ void CGameSprite::ClearAI(BOOLEAN bSetSequence)
 // preloads the spell-action ResRef. Those are orthogonal to the movement
 // re-search and depend on still-unrecovered spell/resource machinery; the
 // recovered behavior is the action-state reset (below) plus the base copy/decode.
+// 0x7338E0
 void CGameSprite::SetCurrAction(const CAIAction& action)
 {
     m_curDest.x = -1;
