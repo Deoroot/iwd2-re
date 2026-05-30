@@ -173,15 +173,44 @@ CGameAIBase::CGameAIBase() {
 - **Git** — Version control
 
 ### Recommended
-- **Ghidra** — Reverse engineering
+- **Ghidra** — Static reverse engineering (binary → pseudocode)
   - GhidraMCP plugin for automated interaction
   - Our Ghidra project on Codeberg
+- **Frida** — Runtime differential tracing (ground truth from the original `IWD2.exe`)
+  - Hook function entries, capture live args/outputs, diff against our build's `Iwd2DebugLog`
+  - Essential when static analysis is exhausted or the decompiler is ambiguous
+  - See [`docs/frida-differential-tracing.md`](docs/frida-differential-tracing.md)
+  - Template: [`scripts/frida_formation_trace.py`](scripts/frida_formation_trace.py)
+  - `pip install frida-tools`
 - **Near Infinity** — Browse original game files
 - **Process Monitor** — Debug file access issues
 
-### Optional
-- **IDA Pro** — Alternative disassembler
-- **x64dbg** — Runtime debugging
+## AI-Assisted Reverse Engineering
+
+This codebase involves translating ~3.8M lines of `IWD2.exe` disassembly into C++. AI tools can accelerate this, but choosing the wrong model will **cost you far more time than it saves**.
+
+### Model Requirements
+
+**Use only top-tier reasoning models:**
+- **Claude OPUS** series
+- **OpenAI GPT 5.5+** series
+- Other models with comparable reverse-engineering reasoning capability
+
+### Why Weaker Models Are Dangerous
+
+Reverse engineering is unforgiving — the produced C++ must match the original binary's behavior **exactly**. A single wrong sign, flipped condition, or off-by-one constant produces:
+1. **Silent divergence** — the game runs but behaves slightly wrong (wrong formation angle, broken pathfinding, incorrect damage calc)
+2. **Delayed discovery** — bugs surface hours or days later, in a different system
+3. **Brutal debugging** — tracking down "why does this formation rotate 60° wrong?" took Frida-level ground-truth tracing; the culprit was a single sign error (`180.0` vs `-360.0`)
+
+Weaker models (GPT-4o, Claude Haiku, local models, etc.) hallucinate C++ that **looks convincing** but contains subtle logic errors. These errors are orders of magnitude harder to find than doing the RE work correctly from the start.
+
+**The rule:** if you don't have access to a top-tier reasoning model (OPUS/GPT 5.5), limit your contributions to:
+- Renaming functions/fields (after verifying in Ghidra manually)
+- Implementing stubs (small, self-contained functions you can verify byte-for-byte)
+- Testing and bug reports
+
+Do **not** attempt large-scale decompilation or complex function recovery with weaker models — it will create regressions that waste everyone's time.
 
 ## Understanding the Code
 
