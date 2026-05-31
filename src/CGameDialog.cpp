@@ -922,12 +922,27 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
     }
 
     if (pSprite->m_pArea == pGame->GetVisibleArea()) {
-        // Snap or smooth scroll to the speaker. Binary at 0x484b88..0x484bf5
-        // computes the squared distance to the speaker in screen-space; if
-        // it's below DIALOG_JUMP_CUT_OFF (= 0x77a11 in the binary) the
-        // scroll is smooth, otherwise it's a hard jump. We always smooth
-        // scroll for now -- the snap variant is a polish-only difference.
-        g_pBaldurChitin->m_pEngineWorld->StartScroll(pSprite->GetPos(), 5);
+        CInfinity* pInfinity = pSprite->m_pArea->GetInfinity();
+        CRect rViewPort(pInfinity->rViewPort);
+        CPoint ptReference(0, 0);
+        CRect rFx;
+        if (pSprite->m_animation.m_animation != NULL) {
+            pSprite->m_animation.CalculateFxRect(rFx, ptReference, pSprite->m_posZ);
+        }
+
+        CPoint ptScroll(pSprite->GetPos());
+        ptScroll.x -= rViewPort.Width() / 2;
+        ptScroll.y -= ptReference.y / 2;
+        ptScroll.y -= rViewPort.Height() / 2;
+
+        INT nCurrentX = 0;
+        INT nCurrentY = 0;
+        pInfinity->GetViewPosition(nCurrentX, nCurrentY);
+        LONG dx = nCurrentX - ptScroll.x;
+        LONG dy = nCurrentY - ptScroll.y;
+        const LONG DIALOG_JUMP_CUT_OFF = 0x77A11;
+        g_pBaldurChitin->m_pEngineWorld->StartScroll(ptScroll,
+            dx * dx + dy * dy < DIALOG_JUMP_CUT_OFF ? 5 : 0);
     }
 
     // TODO: pause-mode SetMessageScreen overlay (binary 0x484c00..0x484c50).

@@ -1549,7 +1549,153 @@ void CScreenWorld::TimerSynchronousUpdate()
 // 0x68DFD0
 BOOL CScreenWorld::TogglePauseGame(char a2, char a3, int a4)
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame == NULL) {
+        return FALSE;
+    }
+
+    if (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+        && g_pChitin->cNetwork.GetSessionHosting() == FALSE
+        && a3 == TRUE) {
+        if (pGame->m_singlePlayerPermissions.GetSinglePermission(CGamePermission::PAUSING) == FALSE) {
+            STR_RES strRes;
+            g_pBaldurChitin->GetTlkTable().Fetch(0x50DD, strRes);
+            DisplayText(CString(""),
+                strRes.szText,
+                RGB(255, 0, 0),
+                RGB(255, 0, 0),
+                -1,
+                FALSE);
+            return FALSE;
+        }
+
+        g_pBaldurChitin->GetBaldurMessage()->SendPauseRequestToServer(a2,
+            m_bPaused == FALSE);
+        return TRUE;
+    }
+
+    if (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+        && g_pChitin->cNetwork.GetSessionHosting() == TRUE) {
+        BOOL bPermitPause = TRUE;
+        if (pGame->GetGameSave()->m_mode == 386
+            || pGame->GetGameSave()->m_mode == 1282) {
+            bPermitPause = FALSE;
+        }
+        if (pGame->GetMultiplayerSettings()->m_bHostPermittedDialog == TRUE) {
+            bPermitPause = FALSE;
+        }
+        if (m_bPaused == TRUE && m_bHardPaused == TRUE) {
+            bPermitPause = FALSE;
+        }
+        if ((a2 == TRUE && m_comingOutOfDialog > 0) || bPermitPause == FALSE) {
+            return TRUE;
+        }
+    }
+
+    if (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+        && g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+        && a2 == TRUE) {
+        if (m_bPaused == TRUE) {
+            int nBlockedPopup = g_pBaldurChitin->cNetwork.GetSessionOpen() == FALSE
+                    || g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                ? 7
+                : 21;
+            if (m_nPopupState != 17
+                && m_nPopupState != nBlockedPopup
+                && field_11B6 < static_cast<int>(GetTickCount())
+                && GetTickCount() - field_11B6 < 1500) {
+                return TRUE;
+            }
+        } else if (field_11BA < GetTickCount()
+            && GetTickCount() - field_11BA < 1000) {
+            return TRUE;
+        }
+    }
+
+    if (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+        && g_pChitin->cNetwork.GetSessionHosting() == TRUE
+        && a3 == TRUE) {
+        g_pBaldurChitin->GetBaldurMessage()->PauseAnnounceStatus(m_bHardPaused,
+            m_bPaused == FALSE,
+            a4 == 0 ? g_pChitin->cNetwork.m_idLocalPlayer : a4);
+    }
+
+    STR_RES strRes;
+    strRes.szText = "";
+    CString sPlayerName("");
+    if (m_bPaused == FALSE) {
+        pGame->GetWorldTimer()->StopTime();
+        m_bPaused = TRUE;
+        if (a2 != FALSE) {
+            field_14A = TRUE;
+        }
+        pGame->m_bForceDither = TRUE;
+        g_pBaldurChitin->GetTlkTable().Fetch(0x3FC1, strRes);
+        if (g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
+            field_11B6 = GetTickCount();
+        }
+    } else {
+        UINT nPopupState = static_cast<UINT>(m_nPopupState);
+        if (nPopupState != 17) {
+            UINT nDialogPanel = g_pBaldurChitin->cNetwork.GetSessionOpen() == FALSE
+                    || g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                ? 7
+                : 21;
+
+            if (nPopupState != nDialogPanel) {
+                if (nPopupState < 18) {
+                    switch (nPopupState) {
+                    case 0:
+                    case 7:
+                        break;
+                    case 6:
+                        StopCommand();
+                        m_nPopupState = -1;
+                        break;
+                    case 8:
+                        StopContainer();
+                        m_nPopupState = -1;
+                        break;
+                    default:
+                        UTIL_ASSERT(FALSE);
+                    }
+                } else if (nPopupState < 23) {
+                    if (nPopupState < 21 && nPopupState != 19) {
+                        UTIL_ASSERT(FALSE);
+                    }
+                } else if (m_nPopupState != -1) {
+                    UTIL_ASSERT(FALSE);
+                }
+
+                pGame->GetWorldTimer()->StartTime();
+                m_bPaused = FALSE;
+                if (field_F44 == FALSE) {
+                    pGame->m_bForceDither = FALSE;
+                }
+                field_14A = FALSE;
+                g_pBaldurChitin->GetTlkTable().Fetch(0x3FC2, strRes);
+            }
+        }
+
+        if (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+            && g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL) {
+            if (g_pChitin->cNetwork.GetSessionHosting() == TRUE && a4 == 0) {
+                sPlayerName = g_pChitin->cNetwork.m_sLocalPlayerName;
+            } else {
+                INT nPlayer = g_pChitin->cNetwork.FindPlayerLocationByID(a4, FALSE);
+                if (nPlayer != -1) {
+                    g_pChitin->cNetwork.GetPlayerName(nPlayer, sPlayerName);
+                }
+            }
+        }
+    }
+
+    DisplayText(sPlayerName,
+        strRes.szText,
+        RGB(255, 0, 0),
+        RGB(255, 0, 0),
+        -1,
+        FALSE);
 
     return TRUE;
 }

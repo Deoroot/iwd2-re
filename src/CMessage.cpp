@@ -5147,6 +5147,9 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
     return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CUT_SCENE_MODE_STATUS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXT
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXTREF
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXTREF_SEND
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE
@@ -7021,7 +7024,7 @@ BYTE CMessageDisplayText::GetMsgType()
 // 0x43E060
 BYTE CMessageDisplayText::GetMsgSubType()
 {
-    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CUT_SCENE_MODE_STATUS;
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXT;
 }
 
 // 0x4FC4F0

@@ -10816,11 +10816,72 @@ void CGameSprite::ProcessAI()
         return;
     }
 
-    // TODO INCOMPLETE: the original CGameSprite::ProcessAI at 0x72B9A0 is a
-    // large state machine. This recovers the cutscene action path that the
-    // base ProcessAI cannot handle because CGameAIBase::ProcessAI returns
-    // immediately while m_inCutScene is set.
-    if (m_inCutScene) {
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
+
+    if (pWorld->m_bPaused == TRUE
+        && g_pChitin->cNetwork.GetSessionHosting() == TRUE
+        && pGame->GetGameSave()->m_cutScene == TRUE) {
+        pWorld->TogglePauseGame(0, 1, 0);
+    }
+
+    if (m_userCommandPause > 0) {
+        m_baseStats.m_flags &= 0x7FFFFFFF;
+    }
+    if (m_nCommandPause > 0) {
+        m_nCommandPause--;
+    }
+
+    m_randValue = rand() % 0x7FFF;
+
+    if ((m_derivedStats.m_generalState & STATE_DEAD) != 0
+        && m_nSequence != SEQ_AWAKE
+        && m_nSequence != SEQ_DIE
+        && m_nSequence != SEQ_TWITCH) {
+        SetSequence(SEQ_TWITCH);
+    }
+
+    if (m_pPath == NULL && m_nSequence == SEQ_WALK) {
+        if (m_animation.m_animation != NULL
+            && m_animation.m_nSequence != SEQ_WALK) {
+            SetIdleSequence();
+        }
+    }
+
+    if (m_bSelected && !Orderable(FALSE)) {
+        Unselect();
+        pGame->SelectToolbar();
+    }
+
+    SHORT curActionId = m_curAction.GetActionID();
+    if (m_bEscapingArea
+        || curActionId == CAIAction::LEAVEAREALUA
+        || curActionId == 183
+        || m_currentActionId == CAIAction::LEAVEAREALUA
+        || m_currentActionId == 183
+        || curActionId == CAIAction::STARTDIALOG
+        || curActionId == CAIAction::DIALOGUE
+        || curActionId == CAIAction::STARTDIALOGUENOSET
+        || m_currentActionId == CAIAction::STARTDIALOG
+        || m_currentActionId == CAIAction::DIALOGUE
+        || m_currentActionId == CAIAction::STARTDIALOGUENOSET
+        || curActionId == 207
+        || curActionId == 208
+        || m_currentActionId == 207
+        || m_currentActionId == 208
+        || !CanAct()) {
+        m_dialogWait = 0;
+    }
+
+    if (m_curAction.GetActionID() == CAIAction::NO_ACTION
+        && !m_queuedActions.IsEmpty()) {
+        SetCurrAction(GetNextAction(m_aiDoAction));
+        m_interrupt = FALSE;
+        m_actionCount = 0;
+        m_nCommandPause = 0;
+    }
+
+    if (!pGame->GetWorldTimer()->m_active || m_inCutScene) {
         if (m_curAction.GetActionID() == CAIAction::NO_ACTION
             && !m_queuedActions.IsEmpty()) {
             SetCurrAction(GetNextAction(m_aiDoAction));
@@ -10829,19 +10890,18 @@ void CGameSprite::ProcessAI()
 
         ResolvePausedAction(&m_curAction, m_queuedActions.GetHeadPosition());
 
-        if (m_curAction.GetActionID() == CAIAction::NO_ACTION
-            && !m_queuedActions.IsEmpty()) {
-            SetCurrAction(GetNextAction(m_aiDoAction));
-            m_interrupt = FALSE;
-        }
-
         if (m_interrupt && (m_baseStats.m_flags & 0x80000000) == 0) {
             SetCurrAction(GetNextAction(m_aiDoAction));
             m_interrupt = FALSE;
         }
 
-        if (m_curAction.GetActionID() != CAIAction::NO_ACTION
-            || !m_queuedActions.IsEmpty()) {
+        const BOOL bInstantAction = g_pBaldurChitin->GetObjectGame()
+                                        ->GetRuleTables()
+                                        .m_lInstantActions.Find(m_curAction.GetActionID())
+            != NULL;
+        const BOOL bNetworkLeaveAreaLua = g_pChitin->cNetwork.GetSessionOpen() == TRUE
+            && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA;
+        if (bInstantAction && !bNetworkLeaveAreaLua) {
             ResolveInstants(FALSE);
         }
 
@@ -10851,7 +10911,57 @@ void CGameSprite::ProcessAI()
         return;
     }
 
+    if (m_nUnselectableCounter > 0) {
+        m_nUnselectableCounter--;
+    }
+
+    m_userCommandPause--;
+    m_nCommandPause--;
+    field_44A++;
+
+    // TODO INCOMPLETE: 0x72B9A0 still has unrecovered active-combat branches
+    // for morale failure, modal actions, berserk, panic and invisibility. The
+    // recovered path below keeps the exact paused/cutscene action loop used by
+    // chapter text and dialogue, then delegates active script selection to the
+    // recovered CGameAIBase implementation until those branches are ported.
     CGameAIBase::ProcessAI();
+
+    if (ProcessEffectList()
+        && m_pArea != NULL
+        && (m_dialogWait < 1
+            || m_typeAI.m_nEnemyAlly >= CAIObjectType::EA_GOODCUTOFF
+            || m_bAllowDialogInterrupt == FALSE)) {
+        BOOL bCanResolveInstants = (m_derivedStats.m_generalState & STATE_DEAD) == 0;
+        bCanResolveInstants = bCanResolveInstants
+            && IsHelpless() == FALSE
+            && (m_derivedStats.m_generalState & (STATE_STONE_DEATH | STATE_FROZEN_DEATH)) == 0;
+
+        BOOL bCurrentInstant = g_pBaldurChitin->GetObjectGame()
+                                   ->GetRuleTables()
+                                   .m_lInstantActions.Find(m_curAction.GetActionID())
+            != NULL;
+        if (bCanResolveInstants) {
+            do {
+                ResolveInstants(TRUE);
+                bCurrentInstant = g_pBaldurChitin->GetObjectGame()
+                                      ->GetRuleTables()
+                                      .m_lInstantActions.Find(m_curAction.GetActionID())
+                    != NULL;
+            } while (bCurrentInstant
+                && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                    && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA));
+        } else {
+            while (bCurrentInstant
+                && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                    && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA)) {
+                ResolveInstants(FALSE);
+                bCurrentInstant = g_pBaldurChitin->GetObjectGame()
+                                      ->GetRuleTables()
+                                      .m_lInstantActions.Find(m_curAction.GetActionID())
+                    != NULL;
+            }
+        }
+    }
 
     // Keep the destination ground marker in sync with the current action. The
     // binary's ProcessAI (0x72b9a0) resolves m_targetPoint each tick (via
