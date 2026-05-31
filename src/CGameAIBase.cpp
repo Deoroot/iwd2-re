@@ -1536,6 +1536,23 @@ void CGameAIBase::ProcessAI()
         return;
     }
 
+    // TODO INCOMPLETE: the binary drives CGameAIArea queued actions outside the
+    // recovered ProcessAI body. Until that caller is recovered, drain the active
+    // area response before allowing a new script response to interrupt it.
+    BOOL bAreaActionFallback = m_objectType == CGameObject::TYPE_AIBASE;
+    if (bAreaActionFallback
+        && (m_curAction.m_actionID != CAIAction::NO_ACTION || !m_queuedActions.IsEmpty())) {
+        if (m_curAction.m_actionID == CAIAction::NO_ACTION) {
+            CAIAction action;
+            SetCurrAction(GetNextAction(action));
+            ResetCurrResponse();
+        }
+        if (m_curAction.m_actionID != CAIAction::NO_ACTION) {
+            DoAction();
+        }
+        return;
+    }
+
     CAIResponse localResponse;
 
     ApplyTriggers();
@@ -1630,20 +1647,12 @@ void CGameAIBase::ProcessAI()
         delete found;
     }
 
-    // NOTE: Binary's ProcessAI does NOT call DoAction.  DoAction is invoked
-    // from CGameSprite::AIUpdate (vtable +0x80) at several distinct call sites.
-    // Until those AIUpdate paths are restored, keep a DoAction call here so
-    // queued actions still execute end-to-end.
-    if (m_curAction.m_actionID == CAIAction::NO_ACTION && !m_queuedActions.IsEmpty()) {
+    if (bAreaActionFallback && m_curAction.m_actionID == CAIAction::NO_ACTION && !m_queuedActions.IsEmpty()) {
         CAIAction action;
         SetCurrAction(GetNextAction(action));
         ResetCurrResponse();
     }
-    if (m_curAction.m_actionID != CAIAction::NO_ACTION) {
-        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX) {
-            Iwd2DebugLog("ProcessAI DoAction spriteId=%ld action=%d port=%d",
-                m_id, (int)m_curAction.m_actionID, (int)g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id));
-        }
+    if (bAreaActionFallback && m_curAction.m_actionID != CAIAction::NO_ACTION) {
         DoAction();
     }
 }

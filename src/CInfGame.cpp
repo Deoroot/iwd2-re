@@ -1990,14 +1990,6 @@ BOOL CInfGame::SaveGame(unsigned char a1, unsigned char a2, unsigned char a3)
     BYTE* pGame = NULL;
     DWORD nGame = 0;
 
-    Iwd2DebugLog("SaveGame begin save=%s flags=%u,%u,%u chapter=%d chapterPtr=%p",
-        static_cast<LPCSTR>(m_sSaveGame),
-        a1,
-        a2,
-        a3,
-        GetCurrentChapter(),
-        m_variables.FindKey(CHAPTER_GLOBAL));
-
     Marshal(&pGame, &nGame, a1 || a2 || a3);
     if (pGame == NULL || nGame == 0) {
         return FALSE;
@@ -2007,17 +1999,24 @@ BOOL CInfGame::SaveGame(unsigned char a1, unsigned char a2, unsigned char a3)
     cGameFile.SetResRef(CResRef("ICEWIND2"), FALSE, TRUE);
 
     BOOL bResult = FALSE;
-    if (cGameFile.GetRes() != NULL) {
-        bResult = static_cast<CRes*>(cGameFile.GetRes())->Write(m_sTempDir, pGame, nGame);
+    CRes* pRes = static_cast<CRes*>(cGameFile.GetRes());
+    if (pRes != NULL) {
+        bResult = pRes->Write(m_sTempDir, pGame, nGame);
     }
 
     delete[] pGame;
+
+    g_pBaldurChitin->GetTlkTable().m_override.Save();
+    g_pBaldurChitin->GetTlkTable().m_override.CloseFiles();
 
     if (bResult) {
         CString sDirSave = GetDirSave();
         bResult = g_pChitin->cDimm.DirectoryRemoveFiles(sDirSave)
             && g_pChitin->cDimm.DirectoryCopyFiles(m_sTempDir, sDirSave);
     }
+
+    g_pBaldurChitin->GetTlkTable().OpenOverride(CString("temp/default.toh"),
+        CString("temp/default.tot"));
 
     EnterCriticalSection(&(g_pChitin->m_critSectDimm));
     g_pChitin->cDimm.m_cKeyTable.RescanEverything();

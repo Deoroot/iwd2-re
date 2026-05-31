@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import struct
 import sys
 import tempfile
 import threading
@@ -21,6 +22,7 @@ import frida
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
+gdi32 = ctypes.windll.gdi32
 try:
     user32.SetProcessDPIAware()
 except Exception:
@@ -38,6 +40,9 @@ WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 MK_LBUTTON = 0x0001
+SRCCOPY = 0x00CC0020
+BI_RGB = 0
+DIB_RGB_COLORS = 0
 
 NEW_GAME_BUTTON = (645, 263)
 PARTY_ROWS = [
@@ -50,6 +55,8 @@ PARTY_ROWS = [
 ]
 PARTY_DONE_BUTTON = (537, 562)
 CHAPTER_DONE_BUTTON = (514, 549)
+CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS = 1.0
+CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS = 2.0
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO = SCRIPT_DIR.parent if SCRIPT_DIR.name.lower() == "scripts" else SCRIPT_DIR
@@ -58,6 +65,26 @@ RE_EXE = REPO / "build" / "Debug" / "iwd2-re.exe"
 ORIG_EXE = GAME_DIR / "IWD2.exe"
 PARTY_INI = GAME_DIR / "Party.ini"
 LOG = REPO / "tmp_frida_intro_trace.log"
+
+
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", ctypes.wintypes.DWORD),
+        ("biWidth", ctypes.wintypes.LONG),
+        ("biHeight", ctypes.wintypes.LONG),
+        ("biPlanes", ctypes.wintypes.WORD),
+        ("biBitCount", ctypes.wintypes.WORD),
+        ("biCompression", ctypes.wintypes.DWORD),
+        ("biSizeImage", ctypes.wintypes.DWORD),
+        ("biXPelsPerMeter", ctypes.wintypes.LONG),
+        ("biYPelsPerMeter", ctypes.wintypes.LONG),
+        ("biClrUsed", ctypes.wintypes.DWORD),
+        ("biClrImportant", ctypes.wintypes.DWORD),
+    ]
+
+
+class BITMAPINFO(ctypes.Structure):
+    _fields_ = [("bmiHeader", BITMAPINFOHEADER)]
 MAP_FILE = REPO / "build" / "Debug" / "iwd2-re.map"
 LINK_IMAGE_BASE = 0x400000
 
@@ -68,6 +95,8 @@ RE_HOOKS = {
     "CAICondition::Hold": 0x04B570,
     "CAIResponseSet::Choose": 0x0572C0,
     "CAIScript::Find": 0x057D20,
+    "CGameAIBase::InsertResponse": 0x0C1E90,
+    "CGameAIBase::GetNextAction": 0x0C1B00,
     "CGameAIBase::StartCutScene": 0x0BBF00,
     "CGameDialogSprite::StartDialog": 0x140B00,
     "CGameSprite::Dialogue": 0x1BCC50,
@@ -100,6 +129,8 @@ RE_MAP_SYMBOLS = {
     "CAICondition::Hold": "?Hold@CAICondition@@QAEEAAV?$CTypedPtrList@VCPtrList@@PAVCAITrigger@@@@PAVCGameAIBase@@@Z",
     "CAIResponseSet::Choose": "?Choose@CAIResponseSet@@QAEPAVCAIResponse@@XZ",
     "CAIScript::Find": "?Find@CAIScript@@QAEPAVCAIResponse@@AAV?$CTypedPtrList@VCPtrList@@PAVCAITrigger@@@@PAVCGameAIBase@@@Z",
+    "CGameAIBase::InsertResponse": "?InsertResponse@CGameAIBase@@QAEXAAVCAIResponse@@HH@Z",
+    "CGameAIBase::GetNextAction": "?GetNextAction@CGameAIBase@@QAEAAVCAIAction@@AAV2@@Z",
     "CGameAIBase::StartCutScene": "?StartCutScene@CGameAIBase@@QAEFXZ",
     "CGameDialogSprite::StartDialog": "?StartDialog@CGameDialogSprite@@QAEHPAVCGameSprite@@@Z",
     "CGameSprite::Dialogue": "?Dialogue@CGameSprite@@QAEFPAV1@@Z",
@@ -138,6 +169,8 @@ ORIG_HOOKS = {
     "CGameAIBase::EvaluateStatusTrigger": 0x453840,
     "CGameSprite::EvaluateStatusTrigger": 0x731B30,
     "CAICondition::Hold": 0x404150,
+    "CGameAIBase::InsertResponse": 0x45C300,
+    "CGameAIBase::GetNextAction": 0x45B970,
     "CBaldurProjector::PlayMovieInternal": 0x43F230,
     "CBaldurProjector::TimerAsynchronousUpdate": 0x43F4C0,
     "CGameDialogSprite::StartDialog": 0x4839F0,
@@ -278,6 +311,28 @@ def game_surface_origin(hwnd: int) -> tuple[int, int]:
     return origin.x, origin.y
 
 
+def candidate_capture_origins(hwnd: int) -> list[tuple[str, int, int]]:
+    window = ctypes.wintypes.RECT()
+    origin = ctypes.wintypes.POINT(0, 0)
+    user32.GetWindowRect(hwnd, ctypes.byref(window))
+    user32.ClientToScreen(hwnd, ctypes.byref(origin))
+
+    candidates = [
+        ("surface", *game_surface_origin(hwnd)),
+        ("client", origin.x, origin.y),
+        ("window", window.left, window.top),
+    ]
+
+    seen: set[tuple[int, int]] = set()
+    unique: list[tuple[str, int, int]] = []
+    for name, x, y in candidates:
+        key = (x, y)
+        if key not in seen:
+            seen.add(key)
+            unique.append((name, x, y))
+    return unique
+
+
 def make_lparam(x: int, y: int) -> int:
     return (y & 0xFFFF) << 16 | (x & 0xFFFF)
 
@@ -380,6 +435,128 @@ def window_metrics(pid: int) -> dict[str, object]:
         "surfaceOrigin": list(game_surface_origin(hwnd)),
         "foreground": hwnd == user32.GetForegroundWindow(),
     }
+
+
+def capture_score(pixels: bytes) -> int:
+    score = 0
+    step = 4 * 16
+    for i in range(0, len(pixels) - 2, step):
+        b = pixels[i]
+        g = pixels[i + 1]
+        r = pixels[i + 2]
+        lum = r + g + b
+        if lum > 24:
+            score += lum
+    return score
+
+
+def write_bmp(path: Path, width: int, height: int, pixels: bytes) -> None:
+    file_header_size = 14
+    dib_header_size = 40
+    image_size = len(pixels)
+    data_offset = file_header_size + dib_header_size
+    file_size = data_offset + image_size
+
+    with path.open("wb") as f:
+        f.write(struct.pack("<2sIHHI", b"BM", file_size, 0, 0, data_offset))
+        f.write(
+            struct.pack(
+                "<IiiHHIIiiII",
+                dib_header_size,
+                width,
+                -height,
+                1,
+                32,
+                BI_RGB,
+                image_size,
+                0,
+                0,
+                0,
+                0,
+            )
+        )
+        f.write(pixels)
+
+
+def capture_game_surface(pid: int, label: str) -> tuple[Path, dict[str, object]]:
+    hwnd = find_window_for_pid(pid)
+    if hwnd == 0:
+        raise RuntimeError("window not found")
+
+    focus_window(hwnd, click=False)
+    time.sleep(0.05)
+
+    width = 800
+    height = 600
+
+    screen_dc = user32.GetDC(0)
+    if not screen_dc:
+        raise RuntimeError("GetDC failed")
+
+    try:
+        best: tuple[str, int, int, bytes, int] | None = None
+        errors: list[str] = []
+        for origin_name, origin_x, origin_y in candidate_capture_origins(hwnd):
+            mem_dc = gdi32.CreateCompatibleDC(screen_dc)
+            if not mem_dc:
+                errors.append(f"{origin_name}: CreateCompatibleDC failed")
+                continue
+
+            bitmap = gdi32.CreateCompatibleBitmap(screen_dc, width, height)
+            if not bitmap:
+                gdi32.DeleteDC(mem_dc)
+                errors.append(f"{origin_name}: CreateCompatibleBitmap failed")
+                continue
+
+            old_obj = gdi32.SelectObject(mem_dc, bitmap)
+            try:
+                if not gdi32.BitBlt(mem_dc, 0, 0, width, height, screen_dc, origin_x, origin_y, SRCCOPY):
+                    errors.append(f"{origin_name}: BitBlt failed")
+                    continue
+
+                info = BITMAPINFO()
+                info.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+                info.bmiHeader.biWidth = width
+                info.bmiHeader.biHeight = -height
+                info.bmiHeader.biPlanes = 1
+                info.bmiHeader.biBitCount = 32
+                info.bmiHeader.biCompression = BI_RGB
+                info.bmiHeader.biSizeImage = width * height * 4
+
+                pixels = ctypes.create_string_buffer(info.bmiHeader.biSizeImage)
+                rows = gdi32.GetDIBits(mem_dc, bitmap, 0, height, pixels, ctypes.byref(info), DIB_RGB_COLORS)
+                if rows != height:
+                    errors.append(f"{origin_name}: GetDIBits copied {rows} rows")
+                    continue
+
+                raw = bytes(pixels.raw)
+                score = capture_score(raw)
+                if best is None or score > best[4]:
+                    best = (origin_name, origin_x, origin_y, raw, score)
+            finally:
+                gdi32.SelectObject(mem_dc, old_obj)
+                gdi32.DeleteObject(bitmap)
+                gdi32.DeleteDC(mem_dc)
+
+        if best is None:
+            raise RuntimeError("; ".join(errors) if errors else "no capture candidates")
+
+        safe_label = re.sub(r"[^a-zA-Z0-9_.-]+", "_", label).strip("_") or "capture"
+        path = REPO / f"tmp_frida_{safe_label}.bmp"
+        origin_name, origin_x, origin_y, raw, score = best
+        write_bmp(path, width, height, raw)
+
+        return path, {"origin": origin_name, "x": origin_x, "y": origin_y, "score": score}
+    finally:
+        user32.ReleaseDC(0, screen_dc)
+
+
+def emit_screenshot(pid: int, label: str, emit) -> None:
+    try:
+        path, capture = capture_game_surface(pid, label)
+        emit({"tag": "Driver.python.screenshot", "label": label, "path": str(path), "capture": capture})
+    except Exception as e:
+        emit({"tag": "Driver.python.error", "stage": f"screenshot-{label}", "err": str(e)})
 
 
 def send_intro_dialog_replies(pid: int) -> None:
@@ -498,8 +675,11 @@ def original_ui_driver(
     ):
         return
 
-    emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": 1000})
-    time.sleep(1.0)
+    emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": int(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS * 1000)})
+    time.sleep(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS)
+    emit_screenshot(pid, "original_chapter_before_done", emit)
+    emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
+    time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
     emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
     if not click_client(pid, *CHAPTER_DONE_BUTTON):
         emit({"tag": "Driver.python.error", "stage": "chapter-done-click", "err": "window not found"})
@@ -518,11 +698,21 @@ def re_chapter_driver(
             chapter_active_seen = bool(state.get("chapter_active_seen"))
             chapter_done_seen = bool(state.get("chapter_done_seen"))
         if chapter_active_seen and not chapter_done_seen:
-            emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": 1000})
-            time.sleep(1.0)
+            emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": int(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS * 1000)})
+            time.sleep(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS)
+            emit_screenshot(pid, "re_chapter_before_done", emit)
+            emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
+            time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
             emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
             if not click_client(pid, *CHAPTER_DONE_BUTTON):
                 emit({"tag": "Driver.python.error", "stage": "re-chapter-done-click", "err": "window not found"})
+            time.sleep(0.5)
+            with state_lock:
+                chapter_done_seen = bool(state.get("chapter_done_seen"))
+            if not chapter_done_seen:
+                emit({"tag": "Driver.python.key", "target": "chapter-done", "vk": VK_RETURN, "window": window_metrics(pid)})
+                if not send_key_to_pid(pid, VK_RETURN):
+                    emit({"tag": "Driver.python.error", "stage": "re-chapter-done-enter", "err": "window not found"})
             return
         time.sleep(0.1)
 
@@ -703,6 +893,10 @@ function actionString1(thiz) {{
   return safeCString(thiz.add(O.curAction + O.actionString1));
 }}
 
+function actionIdAt(p) {{
+  try {{ return s16(p.readS16()); }} catch (e) {{ return 0; }}
+}}
+
 function objectId(thiz) {{
   try {{ return thiz.add(O.objId).readS32(); }} catch (e) {{ return 0; }}
 }}
@@ -740,11 +934,41 @@ function trigInfo(p) {{
   }}
 }}
 
+function responseActions(resp) {{
+  try {{
+    const out = [];
+    let node = resp.add(0x0c).readPointer();
+    for (let i = 0; i < 16 && !node.isNull(); i++) {{
+      const action = node.add(0x08).readPointer();
+      out.push(actionIdAt(action));
+      node = node.readPointer();
+    }}
+    return out;
+  }} catch (e) {{
+    return ['err:' + e];
+  }}
+}}
+
+function responseMeta(resp) {{
+  try {{
+    return {{
+      weight: s16(resp.readS16()),
+      responseNum: s16(resp.add(0x02).readS16()),
+      responseSetNum: s16(resp.add(0x04).readS16()),
+      scriptNum: s16(resp.add(0x06).readS16()),
+      actions: responseActions(resp),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
 const interestingActions = new Set([8, 30, 83, 109, 120, 121, 122, 123, 127, 161, 183, 229, 256, 272, 275]);
 const interestingTriggers = new Set([0x0036, 0x400f, 0x4023, 0x4030, 0x4034, 0x4035, 0x40d1, 0x40ef]);
 let execCount = 0;
 let holdCount = 0;
 let triggerCount = 0;
+let actionQueueTraceCount = 0;
 let activeChapter = ptr(0);
 let originalDriver = {{
   connTicks: 0,
@@ -1043,6 +1267,38 @@ if (false) hook('CAIResponseSet::Choose', {{
 if (false) hook('CAIScript::Find', {{
   onEnter(args) {{
     send({{ tag: 'CAIScript::Find', this: this.context.ecx.toString(), caller: args[0].toString() }});
+  }}
+}});
+
+hook('CGameAIBase::InsertResponse', {{
+  onEnter(args) {{
+    if (actionQueueTraceCount >= 120) return;
+    const meta = responseMeta(args[0]);
+    if (Array.isArray(meta.actions) && meta.actions.some(a => interestingActions.has(a))) {{
+      actionQueueTraceCount++;
+      send({{
+        tag: 'AI.InsertResponse',
+        obj: objectId(this.context.ecx),
+        this: this.context.ecx.toString(),
+        check: args[1].toInt32(),
+        clear: args[2].toInt32(),
+        response: meta,
+      }});
+    }}
+  }}
+}});
+
+hook('CGameAIBase::GetNextAction', {{
+  onEnter(args) {{
+    this.thiz = this.context.ecx;
+  }},
+  onLeave(rv) {{
+    if (actionQueueTraceCount >= 160) return;
+    const aid = actionIdAt(rv);
+    if (interestingActions.has(aid)) {{
+      actionQueueTraceCount++;
+      send({{ tag: 'AI.GetNextAction.ret', obj: objectId(this.thiz), this: this.thiz.toString(), aid }});
+    }}
   }}
 }});
 
@@ -1381,6 +1637,7 @@ def main() -> int:
             or tag.startswith("Connection.")
             or tag.startswith("SinglePlayer.")
             or tag.startswith("Chapter.")
+            or tag.startswith("AI.")
             or tag.startswith("CScreenChapter::")
             or tag.startswith("CScreenConnection::")
             or tag.startswith("SoundMixer.")

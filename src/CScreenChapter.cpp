@@ -442,7 +442,7 @@ void CScreenChapter::ResetMainPanel()
 
     INT nLine = 0;
     INT nTextLength = 0;
-    POSITION pos = m_pTextList->GetHeadPosition();
+    POSITION pos = m_pTextList->FindIndex(1);
     while (pos != NULL) {
         g_pBaldurChitin->GetTlkTable().Fetch(m_pTextList->GetAt(pos), strRes);
 
@@ -461,13 +461,15 @@ void CScreenChapter::ResetMainPanel()
                     break;
                 }
 
-                m_pTextControl->DisplayString(CString(""),
-                    CString(""),
-                    m_pTextControl->m_rgbLabelColor,
-                    m_pTextControl->m_rgbTextColor,
-                    -1,
-                    FALSE,
-                    TRUE);
+                if (strRes.szText[n] == '\n') {
+                    m_pTextControl->DisplayString(CString(""),
+                        CString(""),
+                        m_pTextControl->m_rgbLabelColor,
+                        m_pTextControl->m_rgbTextColor,
+                        -1,
+                        FALSE,
+                        TRUE);
+                }
             }
 
             m_pTextControl->DisplayString(CString(""),
