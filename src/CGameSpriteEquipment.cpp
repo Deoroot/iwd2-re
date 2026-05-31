@@ -93,10 +93,107 @@ void CGameSpriteEquipment::ClearMarshal(BOOL bUnequip)
     }
 }
 
-// 0x7124C0
-void CGameSpriteEquipment::Marshal()
+// Writes one inventory slot into the next CRE item record and stamps the
+// owning equipment-header slot with that record index. Mirrors the inlined
+// per-slot block at 0x7124C0: type 0x3A items are dropped entirely when not a
+// network message, items with file flag 0x800 reserve a record index but are
+// left blank, everything else is serialised.
+static void MarshalEquipmentItem(CItem* pItem,
+    CCreatureFileItem* pRecords,
+    BYTE& nIndex,
+    BOOLEAN bNetworkMessage,
+    WORD* pHeaderSlot)
 {
-    // TODO: Incomplete.
+    if (pItem == NULL) {
+        return;
+    }
+
+    BOOL bSerialise = TRUE;
+    if (bNetworkMessage == FALSE) {
+        if (pItem->GetItemType() == 0x3A) {
+            return;
+        }
+        if ((pItem->GetFlagsFile() & 0x800) != 0) {
+            bSerialise = FALSE;
+        }
+    }
+
+    if (bSerialise) {
+        CCreatureFileItem* pRecord = &pRecords[nIndex];
+        pItem->GetResRef().GetResRef(pRecord->m_itemId);
+        for (INT nAbility = 0; nAbility < 3; nAbility++) {
+            pRecord->m_usageCount[nAbility] = pItem->GetUsageCount(nAbility);
+        }
+        pRecord->m_wear = pItem->m_wear;
+        pRecord->m_dynamicFlags = pItem->m_flags;
+        *pHeaderSlot = nIndex;
+    }
+
+    nIndex++;
+}
+
+// 0x7124C0
+void CGameSpriteEquipment::Marshal(CCreatureFileEquipment* pHeader, CCreatureFileItem** pItems, LONG* pItemCount, BOOLEAN bNetworkMessage)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 15053
+    UTIL_ASSERT(pHeader != NULL && pItems != NULL && pItemCount != NULL);
+
+    memset(pHeader, 0xFF, sizeof(CCreatureFileEquipment));
+    pHeader->m_selectedWeapon = 1000;
+    pHeader->m_selectedWeaponAbility = 0;
+
+    *pItems = NULL;
+    *pItemCount = 0;
+
+    for (INT nSlot = 0; nSlot < NUM_SLOT; nSlot++) {
+        if (m_items[nSlot] != NULL
+            && (bNetworkMessage != FALSE || m_items[nSlot]->GetItemType() != 0x3A)) {
+            *pItemCount = *pItemCount + 1;
+        }
+    }
+
+    // The fist slot is always present and is counted but never serialised.
+    *pItemCount = *pItemCount - 1;
+    if (*pItemCount == 0) {
+        return;
+    }
+
+    *pItems = new CCreatureFileItem[*pItemCount];
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 15077
+    UTIL_ASSERT(*pItems != NULL);
+
+    BYTE nIndex = 0;
+    MarshalEquipmentItem(m_items[SLOT_HELMET], *pItems, nIndex, bNetworkMessage, &pHeader->m_helmetItem);
+    MarshalEquipmentItem(m_items[SLOT_ARMOR], *pItems, nIndex, bNetworkMessage, &pHeader->m_armorItem);
+    MarshalEquipmentItem(m_items[SLOT_SHIELD], *pItems, nIndex, bNetworkMessage, &pHeader->m_shieldItem);
+    MarshalEquipmentItem(m_items[SLOT_GAUNTLETS], *pItems, nIndex, bNetworkMessage, &pHeader->m_gauntletsItem);
+    MarshalEquipmentItem(m_items[SLOT_RING_LEFT], *pItems, nIndex, bNetworkMessage, &pHeader->m_ringLeftItem);
+    MarshalEquipmentItem(m_items[SLOT_RING_RIGHT], *pItems, nIndex, bNetworkMessage, &pHeader->m_ringRightItem);
+    MarshalEquipmentItem(m_items[SLOT_AMULET], *pItems, nIndex, bNetworkMessage, &pHeader->m_amuletItem);
+    MarshalEquipmentItem(m_items[SLOT_BELT], *pItems, nIndex, bNetworkMessage, &pHeader->m_beltItem);
+    MarshalEquipmentItem(m_items[SLOT_BOOTS], *pItems, nIndex, bNetworkMessage, &pHeader->m_bootsItem);
+    MarshalEquipmentItem(m_items[SLOT_CLOAK], *pItems, nIndex, bNetworkMessage, &pHeader->m_cloakItem);
+    for (INT nWeapon = 0; nWeapon < 8; nWeapon++) {
+        MarshalEquipmentItem(m_items[SLOT_WEAPON + nWeapon], *pItems, nIndex, bNetworkMessage, &pHeader->m_weaponItem[nWeapon]);
+    }
+    for (INT nAmmo = 0; nAmmo < 4; nAmmo++) {
+        MarshalEquipmentItem(m_items[SLOT_AMMO + nAmmo], *pItems, nIndex, bNetworkMessage, &pHeader->m_ammoItem[nAmmo]);
+    }
+    for (INT nMisc = 0; nMisc < 28; nMisc++) {
+        MarshalEquipmentItem(m_items[SLOT_MISC + nMisc], *pItems, nIndex, bNetworkMessage, &pHeader->m_miscItem[nMisc]);
+    }
+
+    if (m_selectedWeapon != SLOT_FIST) {
+        pHeader->m_selectedWeapon = m_selectedWeapon - SLOT_WEAPON;
+        pHeader->m_selectedWeaponAbility = m_selectedWeaponAbility;
+    }
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 15139
+    UTIL_ASSERT(nIndex == *pItemCount);
 }
 
 // 0x713040

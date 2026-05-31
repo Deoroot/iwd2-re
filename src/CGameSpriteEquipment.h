@@ -30,7 +30,7 @@ public:
     CGameSpriteEquipment();
     ~CGameSpriteEquipment();
     void ClearMarshal(BOOL bUnequip);
-    void Marshal();
+    void Marshal(CCreatureFileEquipment* pHeader, CCreatureFileItem** pItems, LONG* pItemCount, BOOLEAN bNetworkMessage);
     void Unmarshal(CCreatureFileEquipment* pHeader, CCreatureFileItem* pItems, DWORD nItems, CGameSprite* pSprite);
     UINT GetUsedSlotsCount();
 
