@@ -125,6 +125,7 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_107;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_AREA_TYPE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_AREA_REST_ENCOUNTER;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_SAVE_GAME;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_AREA_EXPLORED;
     static const BYTE MSG_SUBTYPE_CMESSAGE_CHANGE_STAT;
     static const BYTE MSG_SUBTYPE_CMESSAGE_120;
@@ -1784,6 +1785,19 @@ public:
 
     /* 000C */ WORD m_probDay;
     /* 000E */ WORD m_probNight;
+};
+
+class CMessageSaveGame : public CMessage {
+public:
+    CMessageSaveGame(STRREF strRef, LONG caller, LONG target);
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ STRREF m_strRef;
 };
 
 class CMessageToggleInterface : public CMessage {

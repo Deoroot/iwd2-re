@@ -16,6 +16,7 @@
 #include "CItem.h"
 #include "CPathSearch.h"
 #include "CScreenChapter.h"
+#include "CScreenCharacter.h"
 #include "CScreenConnection.h"
 #include "CScreenCreateChar.h"
 #include "CScreenLoad.h"
@@ -356,6 +357,9 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_AREA_TYPE = 109;
 
 // 0x84CF45
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_AREA_REST_ENCOUNTER = 110;
+
+// 0x84CF46
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME = 111;
 
 // 0x84CF49
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_AREA_EXPLORED = 114;
@@ -4961,6 +4965,10 @@ void CMessageHandler::AsynchronousUpdate()
     while (!m_messageList.IsEmpty()) {
         CMessage* pMsg = m_messageList.RemoveHead();
         if (pMsg != NULL) {
+            if (pMsg->GetMsgSubType() == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME) {
+                Iwd2DebugLog("MessageHandler run SaveGame recovered=%d",
+                    Iwd2MessageRunRecovered(pMsg->GetMsgSubType()));
+            }
             if (Iwd2MessageRunRecovered(pMsg->GetMsgSubType())) {
                 pMsg->Run();
             }
@@ -5083,6 +5091,12 @@ BOOL CMessageHandler::ImportantMessage(BYTE* pData, DWORD dwSize)
 // 0x4F7500
 SHORT CMessageHandler::AddMessage(CMessage* message, BOOL bForcePassThrough)
 {
+    if (message != NULL
+        && message->GetMsgSubType() == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME) {
+        Iwd2DebugLog("MessageHandler add SaveGame force=%d comm=%d",
+            bForcePassThrough,
+            message->GetCommType());
+    }
     return AddMessage(message, bForcePassThrough, message->GetCommType());
 }
 
@@ -5140,7 +5154,8 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_REPLIES;
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_REPLIES
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME;
 }
 
 // 0x4F7620
@@ -16693,6 +16708,150 @@ void CMessageSetAreaRestEncounter::Run()
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
+    }
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x453490
+CMessageSaveGame::CMessageSaveGame(STRREF strRef, LONG caller, LONG target)
+    : CMessage(caller, target)
+{
+    m_strRef = strRef;
+}
+
+// 0x43E170
+SHORT CMessageSaveGame::GetCommType()
+{
+    return BROADCAST_FORCED;
+}
+
+// 0x40A0E0
+BYTE CMessageSaveGame::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x4534B0
+BYTE CMessageSaveGame::GetMsgSubType()
+{
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME;
+}
+
+// 0x504C40
+void CMessageSaveGame::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+
+    *dwSize = sizeof(STRREF);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+    UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+
+    // Binary 0x504C40 stores only the low byte despite advertising a
+    // four-byte payload; keep the original wire layout.
+    **pData = static_cast<BYTE>(m_strRef);
+}
+
+// 0x504C80
+BOOL CMessageSaveGame::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+    UTIL_ASSERT(pData != NULL);
+
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+
+    m_strRef = *reinterpret_cast<STRREF*>(pData + cnt);
+    cnt += sizeof(STRREF);
+
+    // NOTE: Binary omits the trailing size guard here.
+
+    return TRUE;
+}
+
+// 0x504CA0
+void CMessageSaveGame::Run()
+{
+    Iwd2DebugLog("CMessageSaveGame::Run open=%d host=%d service=%d strref=%lu",
+        g_pChitin->cNetwork.GetSessionOpen(),
+        g_pChitin->cNetwork.GetSessionHosting(),
+        g_pChitin->cNetwork.GetServiceProvider(),
+        m_strRef);
+    if (g_pChitin->cNetwork.GetSessionOpen()
+        && g_pChitin->cNetwork.GetSessionHosting() != TRUE) {
+        Iwd2DebugLog("CMessageSaveGame::Run skipped client");
+        return;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    STR_RES strRes;
+    BOOLEAN bStrRefOn = CTlkTable::STRREF_ON;
+    if (bStrRefOn == TRUE) {
+        CTlkTable::STRREF_ON = FALSE;
+    }
+
+    g_pBaldurChitin->GetTlkTable().Fetch(m_strRef, strRes);
+
+    CString sSaveName;
+    sSaveName.Format("000000000-%s - %s",
+        static_cast<LPCSTR>(CBaldurEngine::FetchString(0x9BFF)),
+        static_cast<LPCSTR>(strRes.szText));
+
+    if (pGame->GetOptions()->m_nNightmareMode == 1) {
+        STR_RES strNightmareMode;
+        if (g_pBaldurChitin->GetTlkTable().Fetch(0xA193, strNightmareMode) == TRUE) {
+            CString sSuffix;
+            sSuffix.Format(" (%s)", static_cast<LPCSTR>(strNightmareMode.szText));
+            sSaveName += sSuffix;
+        }
+    }
+
+    if (bStrRefOn == TRUE) {
+        CTlkTable::STRREF_ON = TRUE;
+    }
+
+    DWORD areaFlags[CINFGAME_MAX_AREAS];
+    memset(areaFlags, 0, sizeof(areaFlags));
+
+    for (SHORT nArea = 0; nArea < CINFGAME_MAX_AREAS; nArea++) {
+        CGameArea* pArea = pGame->m_gameAreas[nArea];
+        if (pArea != NULL) {
+            areaFlags[nArea] = pArea->m_header.m_flags;
+            pArea->m_header.m_flags &= ~1u;
+        }
+    }
+
+    pGame->m_sSaveGame = sSaveName;
+    CScreenCharacter::SAVE_NAME = sSaveName;
+
+    pGame->m_bSaveScreen = 1;
+    pGame->field_50DC = 0;
+
+    if (!g_pChitin->cVideo.Is3dAccelerated()) {
+        if (pGame->field_50D8 == FALSE) {
+            pGame->SynchronousUpdate();
+        }
+        pGame->field_50D8 = TRUE;
+    }
+
+    if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL) {
+        pGame->field_50D8 = TRUE;
+    } else {
+        pGame->field_50D8 = FALSE;
+    }
+
+    Iwd2DebugLog("CMessageSaveGame::Run SaveGame save=%s",
+        static_cast<LPCSTR>(pGame->m_sSaveGame));
+    BOOL bSaved = pGame->SaveGame(0, 0, 1);
+    Iwd2DebugLog("CMessageSaveGame::Run SaveGame ret=%d", bSaved);
+
+    for (SHORT nArea = 0; nArea < CINFGAME_MAX_AREAS; nArea++) {
+        CGameArea* pArea = pGame->m_gameAreas[nArea];
+        if (pArea != NULL) {
+            pArea->m_header.m_flags = areaFlags[nArea];
+        }
     }
 }
 

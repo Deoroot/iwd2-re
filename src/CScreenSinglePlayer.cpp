@@ -1404,8 +1404,6 @@ void CScreenSinglePlayer::OnMainDoneButtonClick()
             g_pChitin->cProgressBar.m_nActionProgress = 0;
             g_pChitin->cProgressBar.m_nActionTarget = nActionTarget;
 
-            BOOL bStartupSaveGameSucceeded = FALSE;
-
             if (g_pChitin->cNetwork.GetSessionHosting() == TRUE) {
                 pGame->UpdateCharacterSlots();
 
@@ -1421,7 +1419,7 @@ void CScreenSinglePlayer::OnMainDoneButtonClick()
                     }
                 }
 
-                bStartupSaveGameSucceeded = pGame->SaveGame(0, 1, 0);
+                pGame->SaveGame(0, 1, 0);
 
                 // NOTE: Uninline.
                 m_cUIManager.KillCapture();
@@ -1477,16 +1475,8 @@ void CScreenSinglePlayer::OnMainDoneButtonClick()
                 g_pChitin->cProgressBar.m_bWaiting = FALSE;
                 g_pBaldurChitin->m_cCachingStatus.InvalidateScreen();
 
-                if (bStartupSaveGameSucceeded) {
-                    pGame->DestroyGame(FALSE, TRUE);
-                    pGame->LoadGame(FALSE, TRUE);
-                } else if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL) {
-                    // SaveGame/Unmarshal are still incomplete in this reimplementation.
-                    // Keep freshly initialized new-game state from SetupCharacters().
-                } else {
-                    pGame->DestroyGame(FALSE, TRUE);
-                    pGame->LoadGame(FALSE, TRUE);
-                }
+                pGame->DestroyGame(FALSE, TRUE);
+                pGame->LoadGame(FALSE, TRUE);
 
                 g_pChitin->cProgressBar.m_nActionProgress = g_pChitin->cProgressBar.m_nActionTarget - 1;
                 g_pChitin->m_bDisplayStale = TRUE;
@@ -1673,25 +1663,15 @@ void CScreenSinglePlayer::OnMainDoneButtonClick()
             m_bSinglePlayerStartup = FALSE;
 
             if (g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
-                if (g_pChitin->cNetwork.GetSessionHosting() == TRUE
-                    && g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
-                    && !bStartupSaveGameSucceeded) {
+                SelectEngine(g_pBaldurChitin->m_pEngineWorld);
+
+                if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL) {
                     pGame->SelectAll(FALSE);
-                    pGame->SelectToolbar();
-                    pGame->SetCurrentChapter(0);
-                    g_pBaldurChitin->m_pEngineChapter->StartChapter(CResRef("CHAPTERS"));
-                    SelectEngine(g_pBaldurChitin->m_pEngineChapter);
                 } else {
-                    SelectEngine(g_pBaldurChitin->m_pEngineWorld);
-
-                    if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL) {
-                        pGame->SelectAll(FALSE);
-                    } else {
-                        pGame->SelectCharacter(pGame->GetProtagonist(), FALSE);
-                    }
-
-                    pGame->SelectToolbar();
+                    pGame->SelectCharacter(pGame->GetProtagonist(), FALSE);
                 }
+
+                pGame->SelectToolbar();
             } else {
                 g_pBaldurChitin->m_pEngineStart->m_nEngineState = 0;
                 SelectEngine(g_pBaldurChitin->m_pEngineConnection);

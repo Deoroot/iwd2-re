@@ -56,6 +56,15 @@ const CString CGameAIBase::DEAD_GLOBAL_PREFIX("_DEAD");
 // 0x8D1810
 CAIAction CGameAIBase::m_aiAction;
 
+static void SplitScriptVariableName(const CString& sCombined, CString& sScope, CString& sName)
+{
+    // Ghidra 0x453840/0x45EDE0: script parser stores scope+name in string1.
+    // The binary treats the first six chars as scope (GLOBAL/LOCALS/MYAREA/area resref).
+    sScope = sCombined.Left(6);
+    int nNameLength = sCombined.GetLength() - 6;
+    sName = nNameLength > 0 ? sCombined.Right(nNameLength) : CString("");
+}
+
 // 0x44C4B0
 CGameAIBase::CGameAIBase()
 {
@@ -222,8 +231,9 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
     case CAITRIGGER_GLOBAL:
     case CAITRIGGER_GLOBALGT:
     case CAITRIGGER_GLOBALLT: {
-        CString sName = trigger.GetString1();
-        CString sScope = trigger.GetString2();
+        CString sScope;
+        CString sName;
+        SplitScriptVariableName(trigger.GetString1(), sScope, sName);
         LONG nTriggerValue = trigger.GetSpecifics();
         CVariableHash* pHash = NULL;
 
@@ -1429,6 +1439,24 @@ SHORT CGameAIBase::ExecuteAction()
         CMessage* msg = new CMessageToggleInterface(bHide, m_id, m_id);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x113) {
+        // 0x113 = SaveGame(I:STRREF*) (ACTION.IDS 275).  Binary case 0x451282
+        // only posts the message on SP or the MP host; clients no-op.
+        Iwd2DebugLog("ExecuteAction SaveGameAction open=%d host=%d service=%d strref=%ld",
+            g_pChitin->cNetwork.GetSessionOpen(),
+            g_pChitin->cNetwork.GetSessionHosting(),
+            g_pChitin->cNetwork.GetServiceProvider(),
+            m_curAction.GetSpecifics());
+        if (!g_pChitin->cNetwork.GetSessionOpen()
+            || g_pChitin->cNetwork.GetSessionHosting() == TRUE) {
+            CMessage* msg = new CMessageSaveGame(
+                static_cast<STRREF>(m_curAction.GetSpecifics()),
+                m_id,
+                m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+            Iwd2DebugLog("ExecuteAction SaveGameAction posted");
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x11E) {
         // 0x11E = AllowAreaResting (ACTION.IDS 286).  Binary case 0x11e
         // toggles the no-rest bit (0x2) in m_pArea->m_header.m_flags --
@@ -2518,8 +2546,9 @@ SHORT CGameAIBase::ClearActions(CGameObject* target)
 // TODO: Multiplayer broadcast (CMessage at vtable PTR_FUN_0084882c) skipped.
 SHORT CGameAIBase::SetGlobal()
 {
-    CString sName = m_curAction.GetString1();
-    CString sScope = m_curAction.GetString2();
+    CString sScope;
+    CString sName;
+    SplitScriptVariableName(m_curAction.GetString1(), sScope, sName);
     LONG nValue = m_curAction.m_specificID;
 
     if (m_curAction.m_actionID == 0x132) {
@@ -3185,73 +3214,95 @@ SHORT CGameAIBase::IncrementChapter()
 // 0x44DC10 case 0x78 - StartCutScene(S:CutScene*).
 SHORT CGameAIBase::StartCutScene()
 {
-    CAIScript script(CResRef(m_curAction.GetString1()));
-    CTypedPtrList<CPtrList, CAITrigger*> triggerList;
+    CString sScript = m_curAction.GetString1();
+    if (sScript.IsEmpty()) {
+        return ACTION_ERROR;
+    }
+
+    CAIScript script((CResRef(sScript)));
     LONG queuedCount = 0;
 
     POSITION pos = script.m_caList.GetHeadPosition();
     while (pos != NULL) {
         CAIConditionResponse* pConditionResponse = script.m_caList.GetNext(pos);
-        if (pConditionResponse == NULL
-            || !pConditionResponse->m_condition.Hold(triggerList, this)) {
+        if (pConditionResponse == NULL) {
+            Iwd2DebugLog("StartCutScene block null");
             continue;
         }
 
-        CAIResponse* pResponse = pConditionResponse->m_responseSet.Choose();
-        if (pResponse == NULL) {
+        POSITION responsePos = pConditionResponse->m_responseSet.m_responseList.GetHeadPosition();
+        if (responsePos == NULL) {
+            Iwd2DebugLog("StartCutScene block no response");
             continue;
         }
 
-        CGameAIBase* pActor = this;
-        LONG actorId = CGameObjectArray::INVALID_INDEX;
-        BOOL actorShared = FALSE;
+        CAIResponse* pResponse = pConditionResponse->m_responseSet.m_responseList.GetNext(responsePos);
+        if (pResponse == NULL || pResponse->m_actionList.GetCount() == 0) {
+            Iwd2DebugLog("StartCutScene response empty response=%p", pResponse);
+            continue;
+        }
+        Iwd2DebugLog("StartCutScene response actionCount=%ld", pResponse->m_actionList.GetCount());
 
         POSITION actionPos = pResponse->m_actionList.GetHeadPosition();
+        CAIAction* pActorAction = pResponse->m_actionList.GetNext(actionPos);
+        if (pActorAction == NULL) {
+            Iwd2DebugLog("StartCutScene actor action null");
+            continue;
+        }
+        Iwd2DebugLog("StartCutScene actor action id=%d", pActorAction->m_actionID);
+
+        CAIAction actorAction(*pActorAction);
+        actorAction.Decode(this);
+
+        CGameObject* pObject = actorAction.m_acteeID.GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            Iwd2DebugLog("StartCutScene actor unresolved");
+            continue;
+        }
+        Iwd2DebugLog("StartCutScene actor resolved id=%ld type=%u remaining=%ld",
+            pObject->GetId(),
+            pObject->GetObjectType(),
+            pResponse->m_actionList.GetCount() - 1);
+
+        CAIResponse response;
+        response.m_weight = pResponse->m_weight;
+        response.m_responseNum = pResponse->m_responseNum;
+        response.m_responseSetNum = pResponse->m_responseSetNum;
+        response.m_scriptNum = pResponse->m_scriptNum;
+
         while (actionPos != NULL) {
             CAIAction* pAction = pResponse->m_actionList.GetNext(actionPos);
-            if (pAction == NULL) {
-                continue;
-            }
-
-            if (pAction->m_actionID == 0x7F) {
-                if (actorShared) {
-                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                        actorId,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-                actorShared = FALSE;
-                actorId = CGameObjectArray::INVALID_INDEX;
-                pActor = NULL;
-
-                CGameObject* pObj = pAction->m_acteeID.GetObjectWithType(
-                    this,
-                    CGameObject::TYPE_AIBASE,
-                    FALSE);
-                if (pObj != NULL) {
-                    pActor = static_cast<CGameAIBase*>(pObj);
-                    actorId = pObj->m_id;
-                    actorShared = TRUE;
-                }
-                continue;
-            }
-
-            if (pActor != NULL) {
-                pActor->m_queuedActions.AddTail(new CAIAction(*pAction));
+            if (pAction != NULL) {
+                response.Add(*pAction);
                 queuedCount++;
             }
         }
 
-        if (actorShared) {
-            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                actorId,
+        CMessage* responseMsg = new CMessageInsertResponse(response,
+            FALSE,
+            FALSE,
+            FALSE,
+            m_id,
+            pObject->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(responseMsg, FALSE);
+
+        if ((pObject->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
+            CMessage* cutSceneMsg = new CMessageSetInCutScene(TRUE,
+                m_id,
+                pObject->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(cutSceneMsg, FALSE);
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObject->GetId(),
                 CGameObjectArray::THREAD_ASYNCH,
                 INFINITE);
-        }
     }
 
     Iwd2DebugLog("CGameAIBase::StartCutScene script='%s' queued=%ld",
-        (LPCSTR)m_curAction.GetString1(),
+        static_cast<LPCSTR>(sScript),
         queuedCount);
 
     return ACTION_DONE;
@@ -3340,8 +3391,9 @@ SHORT CGameAIBase::WaitAnimation()
 // TODO: Multiplayer broadcast (same CMessage as SetGlobal) skipped.
 SHORT CGameAIBase::IncrementGlobal()
 {
-    CString sName = m_curAction.GetString1();
-    CString sScope = m_curAction.GetString2();
+    CString sScope;
+    CString sName;
+    SplitScriptVariableName(m_curAction.GetString1(), sScope, sName);
     LONG nDelta = m_curAction.m_specificID;
 
     if (sScope == CString("GLOBAL")) {

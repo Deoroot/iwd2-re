@@ -6779,7 +6779,143 @@ void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BO
 {
     UTIL_ASSERT(pCreature != NULL && creatureSize != NULL && facing != NULL);
 
-    // TODO: Incomplete.
+    const DWORD CRE_V22_HEADER_SIZE = 0x37C;
+    const DWORD CRE_V22_OFFSETS_OFFSET = 8 + CRE_V22_HEADER_SIZE;
+    const DWORD CRE_V22_DATA_OFFSET = 0x62E;
+
+    CCreatureFileEquipment equipment;
+
+    DWORD nSize = CRE_V22_DATA_OFFSET;
+
+    for (UINT nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
+        for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
+            nSize += m_spells.m_spellsByClass[nClass].m_lists[nLevel].m_List.size() * sizeof(CCreatureFileSpell)
+                + 2 * sizeof(UINT);
+        }
+    }
+
+    for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
+        nSize += m_domainSpells.m_lists[nLevel].m_List.size() * sizeof(CCreatureFileSpell)
+            + 2 * sizeof(UINT);
+    }
+
+    nSize += m_innateSpells.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
+    nSize += m_songs.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
+    nSize += m_shapeshifts.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
+    nSize += sizeof(CCreatureFileEquipment);
+
+    *pCreature = new BYTE[nSize];
+    *creatureSize = nSize;
+    memset(*pCreature, 0, nSize);
+
+    memcpy(*pCreature, "CRE V2.2", 8);
+
+    CCreatureFileHeader header = m_baseStats;
+    header.m_subrace = m_startTypeAI.GetSubRace();
+    header.m_bRemoveFromArea = m_removeFromArea;
+    DWORD nHeaderCopySize = sizeof(header);
+    if (nHeaderCopySize > CRE_V22_HEADER_SIZE) {
+        nHeaderCopySize = CRE_V22_HEADER_SIZE;
+    }
+    memcpy(*pCreature + 8, &header, nHeaderCopySize);
+
+    CCreatureFileOffsets* offsets = reinterpret_cast<CCreatureFileOffsets*>(*pCreature + CRE_V22_OFFSETS_OFFSET);
+    offsets->m_enemyAlly = m_startTypeAI.m_nEnemyAlly;
+    offsets->m_general = m_startTypeAI.m_nGeneral;
+    offsets->m_race = m_startTypeAI.m_nRace;
+    offsets->m_class = m_startTypeAI.m_nClass;
+    offsets->m_specifics = m_startTypeAI.m_nSpecific;
+    offsets->m_gender = m_startTypeAI.m_nGender;
+    memcpy(offsets->m_specialCase, m_startTypeAI.m_SpecialCase, sizeof(offsets->m_specialCase));
+    offsets->m_alignment = m_startTypeAI.m_nAlignment;
+    offsets->m_instance = m_startTypeAI.m_nInstance;
+    strncpy(offsets->m_name, m_scriptName, SCRIPTNAME_SIZE);
+    offsets->m_avClass = m_startTypeAI.m_nAvClass;
+    offsets->m_classMask = m_startTypeAI.m_nClassMask;
+    m_dialog.GetResRef(offsets->m_dialog);
+
+    *facing = m_nDirection;
+
+    DWORD nOffset = CRE_V22_DATA_OFFSET;
+
+    for (UINT nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
+        for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
+            CGameSpriteSpellList& list = m_spells.m_spellsByClass[nClass].m_lists[nLevel];
+            offsets->m_spellListOffset[nClass][nLevel] = nOffset;
+            offsets->m_spellListCount[nClass][nLevel] = list.m_List.size();
+
+            for (UINT nIndex = 0; nIndex < list.m_List.size(); nIndex++) {
+                CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
+                pSpell->field_0 = list.m_List[nIndex].m_nID;
+                pSpell->m_nMax = list.m_List[nIndex].m_nMax;
+                pSpell->m_nCurrent = list.m_List[nIndex].m_nCurrent;
+                pSpell->field_C = list.m_List[nIndex].m_nShared;
+                nOffset += sizeof(CCreatureFileSpell);
+            }
+
+            *reinterpret_cast<UINT*>(*pCreature + nOffset) = list.m_nSharedMax;
+            nOffset += sizeof(UINT);
+            *reinterpret_cast<UINT*>(*pCreature + nOffset) = list.m_nSharedTotal;
+            nOffset += sizeof(UINT);
+        }
+    }
+
+    for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
+        CGameSpriteSpellList& list = m_domainSpells.m_lists[nLevel];
+        offsets->m_domainListOffset[nLevel] = nOffset;
+        offsets->m_domainListCount[nLevel] = list.m_List.size();
+
+        for (UINT nIndex = 0; nIndex < list.m_List.size(); nIndex++) {
+            CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
+            pSpell->field_0 = list.m_List[nIndex].m_nID;
+            pSpell->m_nMax = list.m_List[nIndex].m_nMax;
+            pSpell->m_nCurrent = list.m_List[nIndex].m_nCurrent;
+            pSpell->field_C = list.m_List[nIndex].m_nShared;
+            nOffset += sizeof(CCreatureFileSpell);
+        }
+
+        *reinterpret_cast<UINT*>(*pCreature + nOffset) = list.m_nSharedMax;
+        nOffset += sizeof(UINT);
+        *reinterpret_cast<UINT*>(*pCreature + nOffset) = list.m_nSharedTotal;
+        nOffset += sizeof(UINT);
+    }
+
+    CGameSpriteSpellList* extraLists[3] = { &m_innateSpells, &m_songs, &m_shapeshifts };
+    DWORD* extraOffsets[3] = { &offsets->m_innateListOffset, &offsets->m_songListOffset, &offsets->m_shapeListOffset };
+    DWORD* extraCounts[3] = { &offsets->m_innateListCount, &offsets->m_songListCount, &offsets->m_shapeListCount };
+
+    for (INT nList = 0; nList < 3; nList++) {
+        CGameSpriteSpellList& list = *extraLists[nList];
+        *extraOffsets[nList] = nOffset;
+        *extraCounts[nList] = list.m_List.size();
+
+        for (UINT nIndex = 0; nIndex < list.m_List.size(); nIndex++) {
+            CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
+            pSpell->field_0 = list.m_List[nIndex].m_nID;
+            pSpell->m_nMax = list.m_List[nIndex].m_nMax;
+            pSpell->m_nCurrent = list.m_List[nIndex].m_nCurrent;
+            pSpell->field_C = list.m_List[nIndex].m_nShared;
+            nOffset += sizeof(CCreatureFileSpell);
+        }
+
+        *reinterpret_cast<UINT*>(*pCreature + nOffset) = list.m_nSharedMax;
+        nOffset += sizeof(UINT);
+        *reinterpret_cast<UINT*>(*pCreature + nOffset) = list.m_nSharedTotal;
+        nOffset += sizeof(UINT);
+    }
+
+    offsets->m_equipmentListOffset = nOffset;
+    offsets->m_itemListOffset = nOffset + sizeof(CCreatureFileEquipment);
+    offsets->m_itemListCount = 0;
+    equipment.m_selectedWeapon = CGameSpriteEquipment::SLOT_FIST;
+    equipment.m_selectedWeaponAbility = 0;
+    memcpy(*pCreature + nOffset, &equipment, sizeof(equipment));
+    nOffset += sizeof(CCreatureFileEquipment);
+
+    offsets->m_effectListOffset = nOffset;
+    offsets->m_effectListCount = 0;
+
+    UTIL_ASSERT(nOffset == static_cast<DWORD>(*creatureSize));
 }
 
 // 0x70BEE0
@@ -7449,7 +7585,6 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
             creatureSize -= sizeof(unsigned int);
         }
     }
-
     for (nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
         nOffset = offsets->m_domainListOffset[nLevel];
         for (nIndex = 0; nIndex < offsets->m_domainListCount[nLevel]; nIndex++) {
@@ -7481,7 +7616,6 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
         nOffset += sizeof(unsigned int);
         creatureSize -= sizeof(unsigned int);
     }
-
     nOffset = offsets->m_innateListOffset;
     for (nIndex = 0; nIndex < offsets->m_innateListCount; nIndex++) {
         *pSpell = *reinterpret_cast<CCreatureFileSpell*>(pCreature + nOffset);

@@ -1987,9 +1987,196 @@ BOOL CInfGame::BackupQuickSave()
 // 0x5AC430
 BOOL CInfGame::SaveGame(unsigned char a1, unsigned char a2, unsigned char a3)
 {
-    // TODO: Incomplete.
+    BYTE* pGame = NULL;
+    DWORD nGame = 0;
 
-    return FALSE;
+    Iwd2DebugLog("SaveGame begin save=%s flags=%u,%u,%u chapter=%d chapterPtr=%p",
+        static_cast<LPCSTR>(m_sSaveGame),
+        a1,
+        a2,
+        a3,
+        GetCurrentChapter(),
+        m_variables.FindKey(CHAPTER_GLOBAL));
+
+    Marshal(&pGame, &nGame, a1 || a2 || a3);
+    if (pGame == NULL || nGame == 0) {
+        return FALSE;
+    }
+
+    CGameFile cGameFile;
+    cGameFile.SetResRef(CResRef("ICEWIND2"), FALSE, TRUE);
+
+    BOOL bResult = FALSE;
+    if (cGameFile.GetRes() != NULL) {
+        bResult = static_cast<CRes*>(cGameFile.GetRes())->Write(m_sTempDir, pGame, nGame);
+    }
+
+    delete[] pGame;
+
+    if (bResult) {
+        CString sDirSave = GetDirSave();
+        bResult = g_pChitin->cDimm.DirectoryRemoveFiles(sDirSave)
+            && g_pChitin->cDimm.DirectoryCopyFiles(m_sTempDir, sDirSave);
+    }
+
+    EnterCriticalSection(&(g_pChitin->m_critSectDimm));
+    g_pChitin->cDimm.m_cKeyTable.RescanEverything();
+    LeaveCriticalSection(&(g_pChitin->m_critSectDimm));
+
+    m_nLastSaveTime = m_worldTime.m_gameTime;
+
+    return bResult;
+}
+
+// 0x5A3230
+void CInfGame::Marshal(BYTE** pGame, DWORD* nGame, BOOLEAN bProgressBarInPlace)
+{
+    UTIL_ASSERT(pGame != NULL && nGame != NULL);
+
+    CSavedGamePartyCreature partyCreatures[CINFGAME_MAXCHARACTERS];
+    BYTE* partyCreatureData[CINFGAME_MAXCHARACTERS];
+    DWORD partyCreatureDataSize[CINFGAME_MAXCHARACTERS];
+    SHORT nViewedPartyMember = 0;
+    SHORT nPartyCreatures = 0;
+
+    memset(partyCreatureData, 0, sizeof(partyCreatureData));
+    memset(partyCreatureDataSize, 0, sizeof(partyCreatureDataSize));
+
+    for (SHORT nSlot = 0; nSlot < CINFGAME_MAXCHARACTERS; nSlot++) {
+        LONG nCharacterId = m_characters[nSlot];
+        if (nCharacterId == CGameObjectArray::INVALID_INDEX) {
+            continue;
+        }
+
+        CGameSprite* pSprite = NULL;
+        BYTE rc = m_cObjectArray.GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+
+        if (rc != CGameObjectArray::SUCCESS || pSprite == NULL) {
+            UTIL_ASSERT(FALSE);
+            continue;
+        }
+
+        pSprite->Marshal(partyCreatures[nPartyCreatures], FALSE);
+        partyCreatureData[nPartyCreatures] = reinterpret_cast<BYTE*>(partyCreatures[nPartyCreatures].m_creatureOffset);
+        partyCreatureDataSize[nPartyCreatures] = partyCreatures[nPartyCreatures].m_creatureSize;
+        Iwd2DebugLog("Marshal party[%d] slot=%d creSize=%u creOff=%p",
+            nPartyCreatures,
+            nSlot,
+            partyCreatureDataSize[nPartyCreatures],
+            partyCreatureData[nPartyCreatures]);
+
+        if (pSprite->m_pArea != NULL && pSprite->m_pArea == GetVisibleArea()) {
+            nViewedPartyMember = nPartyCreatures;
+        }
+
+        m_cObjectArray.ReleaseShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        nPartyCreatures++;
+    }
+
+    CVariable* pVariables = NULL;
+    WORD nVariables = 0;
+    m_variables.Marshal(&pVariables, &nVariables);
+    Iwd2DebugLog("Marshal variables count=%u chapter=%d chapterPtr=%p",
+        nVariables,
+        GetCurrentChapter(),
+        m_variables.FindKey(CHAPTER_GLOBAL));
+    for (WORD nIndex = 0; nIndex < nVariables && nIndex < 8; nIndex++) {
+        Iwd2DebugLog("Marshal var[%u] name=%s int=%ld",
+            nIndex,
+            pVariables[nIndex].m_name,
+            pVariables[nIndex].m_intValue);
+    }
+
+    WORD nJournalEntries = m_cJournal.CountEntries();
+
+    DWORD nGameSize = 8 + sizeof(CSavedGameHeader);
+    nGameSize += nPartyCreatures * sizeof(CSavedGamePartyCreature);
+    for (SHORT nIndex = 0; nIndex < nPartyCreatures; nIndex++) {
+        nGameSize += partyCreatureDataSize[nIndex];
+    }
+    nGameSize += nVariables * sizeof(CVariable);
+    nGameSize += nJournalEntries * sizeof(CSavedGameJournalEntry);
+
+    Iwd2DebugLog("Marshal sizes party=%d sizeofPC=%u var=%u sizeofVar=%u jrnl=%u sizeofJE=%u sizeofHdr=%u nGameSize=%u",
+        nPartyCreatures,
+        static_cast<unsigned>(sizeof(CSavedGamePartyCreature)),
+        nVariables,
+        static_cast<unsigned>(sizeof(CVariable)),
+        nJournalEntries,
+        static_cast<unsigned>(sizeof(CSavedGameJournalEntry)),
+        static_cast<unsigned>(sizeof(CSavedGameHeader)),
+        nGameSize);
+
+    *pGame = new BYTE[nGameSize];
+    *nGame = nGameSize;
+    memset(*pGame, 0, nGameSize);
+    memcpy(*pGame, "GAMEV2.2", 8);
+
+    CSavedGameHeader* pHeader = reinterpret_cast<CSavedGameHeader*>(*pGame + 8);
+    pHeader->m_worldTime = m_worldTime.m_gameTime / CTimerWorld::TIMESCALE_MSEC_PER_SEC;
+    pHeader->m_curFormation = 0;
+    for (SHORT nFormation = 0; nFormation < CGAMESAVE_NUM_QUICK_FORMATIONS; nFormation++) {
+        pHeader->m_quickFormations[nFormation] = m_gameSave.m_quickFormations[nFormation];
+        if (m_gameSave.m_quickFormations[nFormation] == m_gameSave.m_curFormation) {
+            pHeader->m_curFormation = nFormation;
+        }
+    }
+    pHeader->m_nPartyGold = m_gameSave.m_nPartyGold;
+    pHeader->m_nPCAreaViewed = nViewedPartyMember;
+    pHeader->m_partyCreatureTableOffset = 8 + sizeof(CSavedGameHeader);
+    pHeader->m_partyCreatureTableCount = nPartyCreatures;
+    m_gameSave.m_cResCurrentWorldArea.GetResRef(pHeader->m_currentWorldArea);
+    pHeader->m_currentLink = m_gameSave.m_nCurrentWorldLink;
+    pHeader->m_reputation = m_nReputation;
+    pHeader->m_versionNumber = 3;
+
+    if (m_pGameAreaMaster != NULL) {
+        m_pGameAreaMaster->m_resRef.GetResRef(pHeader->m_masterArea);
+    }
+
+    DWORD nOffset = pHeader->m_partyCreatureTableOffset
+        + nPartyCreatures * sizeof(CSavedGamePartyCreature);
+
+    for (SHORT nIndex = 0; nIndex < nPartyCreatures; nIndex++) {
+        CSavedGamePartyCreature savedCreature = partyCreatures[nIndex];
+        savedCreature.m_creatureOffset = nOffset;
+        memcpy(*pGame + pHeader->m_partyCreatureTableOffset + nIndex * sizeof(CSavedGamePartyCreature),
+            &savedCreature,
+            sizeof(savedCreature));
+
+        if (partyCreatureDataSize[nIndex] != 0) {
+            memcpy(*pGame + nOffset, partyCreatureData[nIndex], partyCreatureDataSize[nIndex]);
+            nOffset += partyCreatureDataSize[nIndex];
+        }
+
+        delete[] partyCreatureData[nIndex];
+    }
+
+    if (nVariables != 0) {
+        pHeader->m_globalVariablesOffset = nOffset;
+        pHeader->m_globalVariablesCount = nVariables;
+        memcpy(*pGame + nOffset, pVariables, nVariables * sizeof(CVariable));
+        nOffset += nVariables * sizeof(CVariable);
+    }
+
+    delete[] pVariables;
+
+    if (nJournalEntries != 0) {
+        pHeader->m_journalEntriesOffset = nOffset;
+        pHeader->m_journalEntriesCount = nJournalEntries;
+        m_cJournal.Marshal(reinterpret_cast<CSavedGameJournalEntry*>(*pGame + nOffset));
+        nOffset += nJournalEntries * sizeof(CSavedGameJournalEntry);
+    }
+
+    Iwd2DebugLog("Marshal end nOffset=%u nGameSize=%u", nOffset, nGameSize);
+
+    UTIL_ASSERT(nOffset == nGameSize);
 }
 
 // 0x5A7E40
@@ -2173,7 +2360,17 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     }
 
     // TODO: Load non-party characters
-    // TODO: Load global variables
+
+    DWORD nGlobalVariablesOffset = pData[0x0E];
+    DWORD nGlobalVariables = pData[0x0F];
+    if (nGlobalVariables != 0
+        && nGlobalVariablesOffset > 0
+        && nGlobalVariablesOffset + nGlobalVariables * sizeof(CVariable) <= static_cast<DWORD>(nGame)) {
+        CVariable* pVariables = reinterpret_cast<CVariable*>(pGame + nGlobalVariablesOffset);
+        for (DWORD nIndex = 0; nIndex < nGlobalVariables; nIndex++) {
+            m_variables.AddKey(pVariables[nIndex]);
+        }
+    }
 
     // Load journal entries (header offsets 0x4C=count, 0x50=offset)
     DWORD nJournalCount = pData[0x13];  // 0x4C/4 = 0x13
@@ -2962,7 +3159,7 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     // __LINE__: 8447
     UTIL_ASSERT(m_sSaveGame != "");
 
-    Iwd2DebugLogReset();
+    Iwd2DebugLog("LoadGame preserving log for CHAPTER diagnostic");
 
     Iwd2DebugLog("LoadGame begin save=%s progressRequired=%d progressInPlace=%d chars=%d group=%u activeEngine=%p worldEngine=%p",
         static_cast<LPCSTR>(m_sSaveGame),
@@ -3106,6 +3303,9 @@ void CInfGame::LoadGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlac
     Unmarshal(cGameFile.GetData(),
         cGameFile.GetDataSize(),
         bProgressBarInPlace | bProgressBarRequired);
+    Iwd2DebugLog("LoadGame after Unmarshal current=%d chapterPtr=%p",
+        GetCurrentChapter(),
+        m_variables.FindKey(CHAPTER_GLOBAL));
 
     g_pBaldurChitin->cSoundMixer.StartSong(-1, 0x1 | 0x2);
     SleepEx(500, FALSE);
@@ -3227,6 +3427,7 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
     chapter.SetName(CHAPTER_GLOBAL);
     chapter.m_intValue = -1;
     m_variables.AddKey(chapter);
+    Iwd2DebugLog("NewGame after CHAPTER add current=%d", GetCurrentChapter());
 
     m_bFromNewGame = TRUE;
 
@@ -3250,6 +3451,7 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
     Unmarshal(cGameFile.GetData(),
         cGameFile.GetDataSize(),
         bProgressBarInPlace | bProgressBarRequired);
+    Iwd2DebugLog("NewGame after Unmarshal current=%d", GetCurrentChapter());
 
     m_cOptions.m_nNightmareMode = GetPrivateProfileIntA("Game Options",
         "Nightmare Mode",

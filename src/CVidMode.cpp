@@ -14,6 +14,15 @@ typedef struct CVIDMODE_CLIP_OUTCODE {
     unsigned int top : 4;
 } CVIDMODE_CLIP_OUTCODE;
 
+// Cohen-Sutherland region bits packed into CVIDMODE_CLIP_OUTCODE::all.  Values
+// per ComputeOutCode 0x797AE0 (left=1, right=2, top=4, bottom=8).
+enum {
+    OUTCODE_LEFT = 1,
+    OUTCODE_RIGHT = 2,
+    OUTCODE_TOP = 4,
+    OUTCODE_BOTTOM = 8,
+};
+
 // 0x8FB964
 const CString CVidMode::SCREEN_SHOT_EXTENSION("bmp");
 
@@ -346,18 +355,6 @@ INT CVidMode::ApplyFadeAmount(INT nColor)
 // 0x796050
 BOOL CVidMode::DrawEllipse(const CPoint& ptCenter, const CSize& axis, const CRect& rClip, COLORREF rgbColor)
 {
-    // TEMP-INSTRUMENT (marker-bleed diag vs IWD2.exe Frida baseline): log the
-    // accel path taken + the clip rect + center.  Remove before commit.
-    {
-        static int s_dbgE = 0;
-        if (s_dbgE < 4000) {
-            s_dbgE++;
-            Iwd2DebugLog("MARKDBG Ellipse accel=%d clip=[%d,%d,%d,%d] center=(%d,%d) axis=(%d,%d)\n",
-                g_pChitin->cVideo.m_bIs3dAccelerated ? 1 : 0,
-                (int)rClip.left, (int)rClip.top, (int)rClip.right, (int)rClip.bottom,
-                (int)ptCenter.x, (int)ptCenter.y, (int)axis.cx, (int)axis.cy);
-        }
-    }
     if (g_pChitin->cVideo.m_bIs3dAccelerated) {
         return DrawEllipse3d(ptCenter, axis, rClip, rgbColor);
     }
@@ -730,18 +727,6 @@ BOOL CVidMode::DrawRect(const CRect& r, UINT nSurface, const CRect& rClip, COLOR
 // 0x798780
 BOOL CVidMode::DrawRecticle(const CVIDMODE_RECTICLE_DESCRIPTION& rd, const CRect& rClip, COLORREF rgbColor)
 {
-    // TEMP-INSTRUMENT (marker-bleed diag vs IWD2.exe Frida baseline): log the
-    // accel path taken + the clip rect + center.  Remove before commit.
-    {
-        static int s_dbgR = 0;
-        if (s_dbgR < 4000) {
-            s_dbgR++;
-            Iwd2DebugLog("MARKDBG Recticle accel=%d clip=[%d,%d,%d,%d] center=(%d,%d)\n",
-                g_pChitin->cVideo.m_bIs3dAccelerated ? 1 : 0,
-                (int)rClip.left, (int)rClip.top, (int)rClip.right, (int)rClip.bottom,
-                (int)rd.ptCenter.x, (int)rd.ptCenter.y);
-        }
-    }
     if (g_pChitin->cVideo.m_bIs3dAccelerated) {
         return DrawRecticle3d(rd, rClip, rgbColor);
     }

@@ -944,7 +944,7 @@ CGameObject* CAIObjectType::GetObject(CGameAIBase* caller, BOOL checkBackList) c
         nId = FindObjectId(caller, checkBackList);
     }
 
-    CGameObject* pObject;
+    CGameObject* pObject = NULL;
     BYTE rc;
     do {
         rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nId,

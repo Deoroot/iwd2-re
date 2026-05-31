@@ -317,6 +317,7 @@ void CVariableHash::Marshal(CVariable** pList, WORD* pCount)
         while (l.GetCount() != 0) {
             CVariable* pTemp = l.RemoveHead();
             (*pList)[index] = *pTemp;
+            index++;
             delete pTemp;
         }
     }
@@ -492,6 +493,9 @@ BOOL CNamedCreatureVariableHash::AddKey(CVariable& var)
     if (sTemp == "") {
         return FALSE;
     }
+
+    sName = sTemp;
+    var.SetName(sName);
 
     int hash = Hash(sName);
 

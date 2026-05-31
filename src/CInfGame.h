@@ -141,6 +141,7 @@ public:
     BOOLEAN CanSaveGame(STRREF& strError, BOOLEAN bInRestGame, BOOLEAN bInStore);
     BOOL BackupQuickSave();
     BOOL SaveGame(unsigned char a1, unsigned char a2, unsigned char a3);
+    void Marshal(BYTE** pGame, DWORD* nGame, BOOLEAN bProgressBarInPlace);
     BOOL Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace);
     void ProgressBarCallback(DWORD dwSize, BOOLEAN bInitialize);
     char VirtualKeyToChar(BYTE nKey);
