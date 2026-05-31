@@ -31,6 +31,7 @@ except Exception:
 VK_1 = 0x31
 VK_4 = 0x34
 VK_ESCAPE = 0x1B
+VK_RETURN = 0x0D
 VK_SPACE = 0x20
 KEYEVENTF_KEYUP = 0x0002
 MOUSEEVENTF_LEFTDOWN = 0x0002
@@ -98,8 +99,15 @@ RE_HOOKS = {
     "CGameAIBase::InsertResponse": 0x0C1E90,
     "CGameAIBase::GetNextAction": 0x0C1B00,
     "CGameAIBase::StartCutScene": 0x0BBF00,
+    "CMessageCutSceneModeStatus::Run": 0x228E60,
+    "CMessageInsertResponse::Run": 0x241BE0,
+    "CMessageSetInCutScene::Run": 0x2492A0,
     "CGameDialogSprite::StartDialog": 0x140B00,
+    "CGameDialogSprite::EnterDialog": 0x141880,
+    "CGameDialogEntry::Handle": 0x143B60,
+    "CGameDialogReply::Apply": 0x144880,
     "CGameSprite::Dialogue": 0x1BCC50,
+    "CMessageEnterDialog::Run": 0x23E2E0,
     "CScreenWorld::StartDialog": 0x34A3D0,
     "CGameJournal::AddEntry2": 0x17FEE0,
     "CGameJournal::AddEntry4": 0x17FFA0,
@@ -132,8 +140,15 @@ RE_MAP_SYMBOLS = {
     "CGameAIBase::InsertResponse": "?InsertResponse@CGameAIBase@@QAEXAAVCAIResponse@@HH@Z",
     "CGameAIBase::GetNextAction": "?GetNextAction@CGameAIBase@@QAEAAVCAIAction@@AAV2@@Z",
     "CGameAIBase::StartCutScene": "?StartCutScene@CGameAIBase@@QAEFXZ",
+    "CMessageCutSceneModeStatus::Run": "?Run@CMessageCutSceneModeStatus@@UAEXXZ",
+    "CMessageInsertResponse::Run": "?Run@CMessageInsertResponse@@UAEXXZ",
+    "CMessageSetInCutScene::Run": "?Run@CMessageSetInCutScene@@UAEXXZ",
     "CGameDialogSprite::StartDialog": "?StartDialog@CGameDialogSprite@@QAEHPAVCGameSprite@@@Z",
+    "CGameDialogSprite::EnterDialog": "?EnterDialog@CGameDialogSprite@@QAEHKPAVCGameSprite@@H@Z",
+    "CGameDialogEntry::Handle": "?Handle@CGameDialogEntry@@QAEXPAVCGameSprite@@KH@Z",
+    "CGameDialogReply::Apply": "?Apply@CGameDialogReply@@QAEPAUCGameDialogContinuation@@PAVCGameSprite@@@Z",
     "CGameSprite::Dialogue": "?Dialogue@CGameSprite@@QAEFPAV1@@Z",
+    "CMessageEnterDialog::Run": "?Run@CMessageEnterDialog@@UAEXXZ",
     "CScreenWorld::StartDialog": "?StartDialog@CScreenWorld@@QAEHPAVCGameSprite@@0EE@Z",
     "CGameJournal::AddEntry2": "?AddEntry@CGameJournal@@QAEHKG@Z",
     "CGameJournal::AddEntry4": "?AddEntry@CGameJournal@@QAEHKHJG@Z",
@@ -171,10 +186,18 @@ ORIG_HOOKS = {
     "CAICondition::Hold": 0x404150,
     "CGameAIBase::InsertResponse": 0x45C300,
     "CGameAIBase::GetNextAction": 0x45B970,
+    "CGameAIBase::StartCutScene": 0x462F90,
+    "CMessageCutSceneModeStatus::Run": 0x4FBFD0,
+    "CMessageInsertResponse::Run": 0x502570,
+    "CMessageSetInCutScene::Run": 0x506FB0,
     "CBaldurProjector::PlayMovieInternal": 0x43F230,
     "CBaldurProjector::TimerAsynchronousUpdate": 0x43F4C0,
     "CGameDialogSprite::StartDialog": 0x4839F0,
+    "CGameDialogSprite::EnterDialog": 0x483EB0,
+    "CGameDialogEntry::Handle": 0x484900,
+    "CGameDialogReply::Apply": 0x485750,
     "CGameSprite::Dialogue": 0x752DD0,
+    "CMessageEnterDialog::Run": 0x4FE2E0,
     "CScreenConnection::EngineActivated": 0x5FA9B0,
     "CScreenConnection::StartConnection": 0x600770,
     "CScreenConnection::TimerAsynchronousUpdate": 0x5FB3E0,
@@ -399,11 +422,11 @@ def send_key_to_pid(pid: int, vk: int) -> bool:
     return True
 
 
-def click_client(pid: int, x: int, y: int) -> bool:
+def click_client(pid: int, x: int, y: int, activation_click: bool = True) -> bool:
     hwnd = find_window_for_pid(pid)
     if hwnd == 0:
         return False
-    focus_window(hwnd, click=True)
+    focus_window(hwnd, click=activation_click)
     time.sleep(0.08)
     origin_x, origin_y = game_surface_origin(hwnd)
     screen_x = origin_x + x
@@ -681,7 +704,7 @@ def original_ui_driver(
     emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
     time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
     emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
-    if not click_client(pid, *CHAPTER_DONE_BUTTON):
+    if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
         emit({"tag": "Driver.python.error", "stage": "chapter-done-click", "err": "window not found"})
 
 
@@ -704,7 +727,7 @@ def re_chapter_driver(
             emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
             time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
             emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
-            if not click_client(pid, *CHAPTER_DONE_BUTTON):
+            if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
                 emit({"tag": "Driver.python.error", "stage": "re-chapter-done-click", "err": "window not found"})
             time.sleep(0.5)
             with state_lock:
@@ -733,8 +756,12 @@ const gChitinPtr = isRe ? base.add(0x854cf4) : ptr(0x008cf6d8);
 const sleepMs = new NativeFunction(Process.getModuleByName('kernel32.dll').getExportByName('Sleep'), 'void', ['uint']);
 const O = isRe
   ? {{
+      objectType: 0x04,
       objId: 0x64,
+      queuedActions: 0x45c,
       curAction: 0x4c0,
+      inCutScene: 0x5be,
+      lastActionReturn: 0x5dc,
       actionString1: 0xd0,
       triggerSpecific: 0x04,
       triggerSpecific2: 0x4c,
@@ -743,8 +770,12 @@ const O = isRe
       triggerString2: 0x58,
     }}
   : {{
+      objectType: 0x04,
       objId: 0x5c,
+      queuedActions: 0x412,
       curAction: 0x476,
+      inCutScene: 0x574,
+      lastActionReturn: 0x592,
       actionString1: 0xc2,
       triggerSpecific: 0x02,
       triggerSpecific2: 0x46,
@@ -901,6 +932,18 @@ function objectId(thiz) {{
   try {{ return thiz.add(O.objId).readS32(); }} catch (e) {{ return 0; }}
 }}
 
+function messageInfo(msg) {{
+  try {{
+    return {{
+      target: msg.add(0x04).readS32(),
+      source: msg.add(0x08).readS32(),
+      status: msg.add(0x0c).readS32(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
 function networkInfo() {{
   try {{
     const chitin = gChitinPtr.readPointer();
@@ -969,6 +1012,8 @@ let execCount = 0;
 let holdCount = 0;
 let triggerCount = 0;
 let actionQueueTraceCount = 0;
+let cutsceneTraceCount = 0;
+const cutsceneObjects = new Set();
 let activeChapter = ptr(0);
 let originalDriver = {{
   connTicks: 0,
@@ -1207,11 +1252,12 @@ hook('CGameAIBase::ExecuteAction', {{
   onEnter(args) {{
     const thiz = this.context.ecx;
     this.aid = actionId(thiz);
-    if (interestingActions.has(this.aid)) {{
+    this.obj = objectId(thiz);
+    if (interestingActions.has(this.aid) || cutsceneObjects.has(this.obj)) {{
       send({{
         tag: 'ExecuteAction',
         aid: this.aid,
-        obj: objectId(thiz),
+        obj: this.obj,
         this: thiz.toString(),
         s1: actionString1(thiz),
         net: this.aid === 275 ? networkInfo() : undefined,
@@ -1220,7 +1266,7 @@ hook('CGameAIBase::ExecuteAction', {{
     execCount++;
   }},
   onLeave(rv) {{
-    if (interestingActions.has(this.aid)) {{
+    if (interestingActions.has(this.aid) || cutsceneObjects.has(this.obj)) {{
       send({{ tag: 'ExecuteAction.ret', aid: this.aid, ret: s16(rv.toInt32()) }});
     }}
   }}
@@ -1274,17 +1320,51 @@ hook('CGameAIBase::InsertResponse', {{
   onEnter(args) {{
     if (actionQueueTraceCount >= 120) return;
     const meta = responseMeta(args[0]);
+    const obj = objectId(this.context.ecx);
     if (Array.isArray(meta.actions) && meta.actions.some(a => interestingActions.has(a))) {{
+      if (meta.actions.indexOf(229) >= 0 || meta.actions.indexOf(8) >= 0 || meta.actions.indexOf(256) >= 0) {{
+        cutsceneObjects.add(obj);
+      }}
       actionQueueTraceCount++;
       send({{
         tag: 'AI.InsertResponse',
-        obj: objectId(this.context.ecx),
+        obj,
         this: this.context.ecx.toString(),
         check: args[1].toInt32(),
         clear: args[2].toInt32(),
         response: meta,
       }});
     }}
+  }}
+}});
+
+hook('CMessageCutSceneModeStatus::Run', {{
+  onEnter(args) {{
+    const msg = this.context.ecx;
+    send({{ tag: 'Message.CutSceneModeStatus.Run', this: msg.toString(), info: messageInfo(msg) }});
+  }}
+}});
+
+hook('CMessageInsertResponse::Run', {{
+  onEnter(args) {{
+    if (cutsceneTraceCount >= 80) return;
+    const msg = this.context.ecx;
+    const info = messageInfo(msg);
+    if (cutsceneObjects.has(info.target) || info.status === 0) {{
+      cutsceneTraceCount++;
+      send({{ tag: 'Message.InsertResponse.Run', this: msg.toString(), info }});
+    }}
+  }}
+}});
+
+hook('CMessageSetInCutScene::Run', {{
+  onEnter(args) {{
+    if (cutsceneTraceCount >= 120) return;
+    const msg = this.context.ecx;
+    const info = messageInfo(msg);
+    cutsceneObjects.add(info.target);
+    cutsceneTraceCount++;
+    send({{ tag: 'Message.SetInCutScene.Run', this: msg.toString(), info }});
   }}
 }});
 
@@ -1295,9 +1375,10 @@ hook('CGameAIBase::GetNextAction', {{
   onLeave(rv) {{
     if (actionQueueTraceCount >= 160) return;
     const aid = actionIdAt(rv);
-    if (interestingActions.has(aid)) {{
+    const obj = objectId(this.thiz);
+    if (interestingActions.has(aid) || cutsceneObjects.has(obj)) {{
       actionQueueTraceCount++;
-      send({{ tag: 'AI.GetNextAction.ret', obj: objectId(this.thiz), this: this.thiz.toString(), aid }});
+      send({{ tag: 'AI.GetNextAction.ret', obj, this: this.thiz.toString(), aid }});
     }}
   }}
 }});
@@ -1463,6 +1544,36 @@ for (const name of ['CGameDialogSprite::StartDialog', 'CGameSprite::Dialogue', '
   }});
 }}
 
+hook('CMessageEnterDialog::Run', {{
+  onEnter(args) {{
+    send({{ tag: 'Message.EnterDialog.Run', this: this.context.ecx.toString() }});
+  }}
+}});
+
+hook('CGameDialogSprite::EnterDialog', {{
+  onEnter(args) {{
+    this.index = args[0].toUInt32();
+    send({{ tag: 'Dialog.EnterDialog', this: this.context.ecx.toString(), index: this.index, sprite: args[1].toString(), flag: args[2].toInt32() }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'Dialog.EnterDialog.ret', index: this.index, ret: rv.toInt32() }});
+  }}
+}});
+
+hook('CGameDialogEntry::Handle', {{
+  onEnter(args) {{
+    const thiz = this.context.ecx;
+    send({{ tag: 'Dialog.Entry.Handle', this: thiz.toString(), text: thiz.add(0x14).readU32(), replyCount: thiz.add(0x08).readS32(), sprite: args[0].toString() }});
+  }}
+}});
+
+hook('CGameDialogReply::Apply', {{
+  onEnter(args) {{
+    const thiz = this.context.ecx;
+    send({{ tag: 'Dialog.Reply.Apply', this: thiz.toString(), flags: thiz.add(0x00).readU32(), replyText: thiz.add(0x04).readU32(), journal: thiz.add(0x08).readU32(), displayListId: thiz.add(0x60).readU8(), sprite: args[0].toString() }});
+  }}
+}});
+
 hook('CGameJournal::AddEntry2', {{
   onEnter(args) {{
     send({{ tag: 'Journal.AddEntry2', strref: args[0].toInt32(), type: args[1].toInt32() }});
@@ -1574,6 +1685,7 @@ def main() -> int:
 
     state = {
         "dialog_seen": False,
+        "dialog_ready_seen": False,
         "keys_sent": False,
         "new_game_seen": False,
         "load_game_seen": False,
@@ -1612,6 +1724,8 @@ def main() -> int:
         tag = payload.get("tag", "")
         if "Dialog" in tag:
             set_state(dialog_seen=True)
+        if tag in {"Dialog.Entry.Handle", "Dialog.EnterDialog.ret"}:
+            set_state(dialog_seen=True, dialog_ready_seen=True)
         if tag == "Driver.original.active-screen":
             set_state(active_screen=payload.get("screen", ""))
         if tag == "Movie.PlayMovieInternal":
@@ -1638,6 +1752,7 @@ def main() -> int:
             or tag.startswith("SinglePlayer.")
             or tag.startswith("Chapter.")
             or tag.startswith("AI.")
+            or tag.startswith("Message.")
             or tag.startswith("CScreenChapter::")
             or tag.startswith("CScreenConnection::")
             or tag.startswith("SoundMixer.")
@@ -1705,7 +1820,7 @@ def main() -> int:
             if ns.mode == "original" and state_value("new_game_seen") and state_value("chapter_seen"):
                 if state_value("dialog_seen") or not ns.auto_chapter:
                     status = 0
-            if ns.auto_dialog and state_value("dialog_seen") and not state_value("keys_sent"):
+            if ns.auto_dialog and state_value("dialog_ready_seen") and not state_value("keys_sent"):
                 set_state(keys_sent=True)
                 send_intro_dialog_replies(pid)
             if status == 0 and (not ns.auto_dialog or state_value("keys_sent")):

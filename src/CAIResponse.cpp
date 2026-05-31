@@ -97,11 +97,9 @@ BOOL CAIResponse::InList(SHORT actionID)
 BOOL CAIResponse::InListEnd(SHORT actionID)
 {
     POSITION pos = m_actionList.GetTailPosition();
-    while (pos != NULL) {
+    if (pos != NULL) {
         CAIAction* action = m_actionList.GetPrev(pos);
-        if (action->OfType(actionID)) {
-            return TRUE;
-        }
+        return action != NULL && action->OfType(actionID);
     }
 
     return FALSE;

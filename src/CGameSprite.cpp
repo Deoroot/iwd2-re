@@ -10816,6 +10816,41 @@ void CGameSprite::ProcessAI()
         return;
     }
 
+    // TODO INCOMPLETE: the original CGameSprite::ProcessAI at 0x72B9A0 is a
+    // large state machine. This recovers the cutscene action path that the
+    // base ProcessAI cannot handle because CGameAIBase::ProcessAI returns
+    // immediately while m_inCutScene is set.
+    if (m_inCutScene) {
+        if (m_curAction.GetActionID() == CAIAction::NO_ACTION
+            && !m_queuedActions.IsEmpty()) {
+            SetCurrAction(GetNextAction(m_aiDoAction));
+            m_interrupt = FALSE;
+        }
+
+        ResolvePausedAction(&m_curAction, m_queuedActions.GetHeadPosition());
+
+        if (m_curAction.GetActionID() == CAIAction::NO_ACTION
+            && !m_queuedActions.IsEmpty()) {
+            SetCurrAction(GetNextAction(m_aiDoAction));
+            m_interrupt = FALSE;
+        }
+
+        if (m_interrupt && (m_baseStats.m_flags & 0x80000000) == 0) {
+            SetCurrAction(GetNextAction(m_aiDoAction));
+            m_interrupt = FALSE;
+        }
+
+        if (m_curAction.GetActionID() != CAIAction::NO_ACTION
+            || !m_queuedActions.IsEmpty()) {
+            ResolveInstants(FALSE);
+        }
+
+        if (!m_groupMove) {
+            ResolveTargetPoint(&m_curAction, m_queuedActions.GetHeadPosition());
+        }
+        return;
+    }
+
     CGameAIBase::ProcessAI();
 
     // Keep the destination ground marker in sync with the current action. The
@@ -11815,10 +11850,20 @@ void CGameSprite::DebugDump(const CString& a1, BOOLEAN a2)
 }
 
 // 0x731B30 (vtable 0x64)
-// TODO(vtable-stub): recover CGameSprite::EvaluateStatusTrigger -- status-trigger
-// dispatcher (Global/GlobalGT/NumTimesTalkedTo/Class/...), ~5KB in the binary.
 BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
 {
+    // TODO INCOMPLETE: original 0x731B30 is a large status-trigger dispatcher.
+    // This recovers the NumTimesTalkedTo block at 0x731F9F..0x731FCD, needed by
+    // the prologue 10HEDRON dialog entry condition.
+    switch (trigger.m_triggerID) {
+    case CAITRIGGER_NUMTIMESTALKEDTO:
+        return m_nNumberOfTimesTalkedTo == trigger.m_specificID;
+    case CAITRIGGER_NUMTIMESTALKEDTOGT:
+        return m_nNumberOfTimesTalkedTo > trigger.m_specificID;
+    case CAITRIGGER_NUMTIMESTALKEDTOLT:
+        return m_nNumberOfTimesTalkedTo < trigger.m_specificID;
+    }
+
     return CGameAIBase::EvaluateStatusTrigger(trigger);
 }
 

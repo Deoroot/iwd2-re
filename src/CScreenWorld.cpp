@@ -329,10 +329,70 @@ void CScreenWorld::NormalizePanelRect(DWORD nID, CRect& rect)
 // 0x6872D0
 void CScreenWorld::OnKeyDown(SHORT a2)
 {
-    // TODO: Incomplete. Binary 0x6872D0 is the world keyboard handler: loops
-    // over the a2 queued virtual-key events (GetVirtualKeys /
-    // GetVirtualKeysFlags) and dispatches action-bar, left-panel, portrait and
-    // hotkey actions. Not yet recovered.
+    // TODO INCOMPLETE: Binary 0x6872D0 is the full world keyboard handler. It
+    // also dispatches action-bar, left-panel, portrait, chat, scroll and debug
+    // hotkeys. This recovers the dialog response path needed by the prologue
+    // conversation.
+    for (SHORT nKeyFlag = 0; nKeyFlag < a2; nKeyFlag++) {
+        BYTE nKey = m_pVirtualKeysFlags[nKeyFlag];
+
+        if (m_cUIManager.OnKeyDown(nKey)) {
+            continue;
+        }
+
+        if (!m_bInControlOfDialog || !m_internalLoadedDialog.m_waitingForResponse) {
+            if (nKey == VK_TAB) {
+                m_cUIManager.ForceToolTip();
+            }
+            continue;
+        }
+
+        if (nKey == VK_RETURN) {
+            CUIPanel* pPanel = m_cUIManager.GetPanel(9);
+            CUIControlBase* pControl = pPanel != NULL ? pPanel->GetControl(0) : NULL;
+            if (pControl != NULL && pControl->m_bActive) {
+                DWORD nTickCount = GetTickCount();
+                if (field_11BA + 600U < nTickCount) {
+                    static_cast<CUIControlButton*>(pControl)->OnLButtonClick(CPoint(0, 0));
+                    field_11BA = nTickCount;
+                }
+            }
+            continue;
+        }
+
+        BYTE nResponse = 0;
+        if (nKey >= '1' && nKey <= '9') {
+            nResponse = nKey - '0';
+        } else if (nKey >= VK_NUMPAD1 && nKey <= VK_NUMPAD9) {
+            nResponse = nKey - VK_NUMPAD0;
+        }
+
+        if (nResponse == 0) {
+            continue;
+        }
+
+        DWORD nCurrentEntryIndex = m_internalLoadedDialog.m_currentEntryIndex;
+        if (nCurrentEntryIndex >= static_cast<DWORD>(m_internalLoadedDialog.m_dialogEntries.GetCount())) {
+            continue;
+        }
+
+        CGameDialogEntry* pEntry = m_internalLoadedDialog.m_dialogEntries.GetAt(nCurrentEntryIndex);
+        if (pEntry == NULL) {
+            continue;
+        }
+
+        for (INT nReply = 0; nReply < pEntry->GetCount(); nReply++) {
+            CGameDialogReply* pReply = pEntry->GetAt(nReply);
+            if (pReply != NULL && pReply->m_displayListId == nResponse) {
+                DWORD nTickCount = GetTickCount();
+                if (field_11BA + 600U < nTickCount) {
+                    m_internalLoadedDialog.m_responseMarker = nReply;
+                    field_11BA = nTickCount;
+                }
+                break;
+            }
+        }
+    }
 }
 
 // 0x686690
