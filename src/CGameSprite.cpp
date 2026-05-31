@@ -6782,8 +6782,7 @@ void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BO
     const DWORD CRE_V22_HEADER_SIZE = 0x37C;
     const DWORD CRE_V22_OFFSETS_OFFSET = 8 + CRE_V22_HEADER_SIZE;
     const DWORD CRE_V22_DATA_OFFSET = 0x62E;
-
-    CCreatureFileEquipment equipment;
+    const DWORD CRE_EFFECT_SIZE = 0x108;
 
     DWORD nSize = CRE_V22_DATA_OFFSET;
 
@@ -6802,7 +6801,19 @@ void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BO
     nSize += m_innateSpells.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
     nSize += m_songs.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
     nSize += m_shapeshifts.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
-    nSize += sizeof(CCreatureFileEquipment);
+    // Equipment header + inventory item records (CGameSpriteEquipment::Marshal
+    // at 0x7124C0 builds both; nItemCount excludes the fist slot).
+    CCreatureFileEquipment equipment;
+    CCreatureFileItem* pItems = NULL;
+    LONG nItemCount = 0;
+    m_equipment.Marshal(&equipment, &pItems, &nItemCount, a5);
+    nSize += sizeof(CCreatureFileEquipment) + nItemCount * sizeof(CCreatureFileItem);
+
+    // Active (timed) effects, serialised as version-2 (0x108-byte) records.
+    BYTE* pEffectData = NULL;
+    ULONG nEffectBytes = m_timedEffectList.Marshal(&pEffectData, 1, a4 == FALSE);
+    DWORD nEffectCount = nEffectBytes / CRE_EFFECT_SIZE;
+    nSize += nEffectCount * CRE_EFFECT_SIZE;
 
     *pCreature = new BYTE[nSize];
     *creatureSize = nSize;
@@ -6905,17 +6916,30 @@ void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BO
     }
 
     offsets->m_equipmentListOffset = nOffset;
-    offsets->m_itemListOffset = nOffset + sizeof(CCreatureFileEquipment);
-    offsets->m_itemListCount = 0;
-    equipment.m_selectedWeapon = CGameSpriteEquipment::SLOT_FIST;
-    equipment.m_selectedWeaponAbility = 0;
-    memcpy(*pCreature + nOffset, &equipment, sizeof(equipment));
+    memcpy(*pCreature + nOffset, &equipment, sizeof(CCreatureFileEquipment));
     nOffset += sizeof(CCreatureFileEquipment);
 
-    offsets->m_effectListOffset = nOffset;
-    offsets->m_effectListCount = 0;
+    if (nItemCount != 0) {
+        offsets->m_itemListOffset = nOffset;
+        offsets->m_itemListCount = nItemCount;
+        memcpy(*pCreature + nOffset, pItems, nItemCount * sizeof(CCreatureFileItem));
+        nOffset += nItemCount * sizeof(CCreatureFileItem);
+        delete[] pItems;
+    }
+
+    if (nEffectCount != 0) {
+        offsets->m_effectListCount = nEffectCount;
+        offsets->m_effectListOffset = nOffset;
+        memcpy(*pCreature + nOffset, pEffectData, nEffectCount * CRE_EFFECT_SIZE);
+        nOffset += nEffectCount * CRE_EFFECT_SIZE;
+        delete[] reinterpret_cast<CGameEffectBase*>(pEffectData);
+    }
 
     UTIL_ASSERT(nOffset == static_cast<DWORD>(*creatureSize));
+
+    // TODO: 0x70B2F0 also temporarily shifts the sprite position fields around
+    // the body and calls RemoveAllOfType(0xBA) on the equiped + timed effect
+    // lists afterwards; not yet ported (does not affect the saved size).
 }
 
 // 0x70BEE0

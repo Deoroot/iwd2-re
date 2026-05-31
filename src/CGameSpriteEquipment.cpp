@@ -146,15 +146,20 @@ void CGameSpriteEquipment::Marshal(CCreatureFileEquipment* pHeader, CCreatureFil
     *pItems = NULL;
     *pItemCount = 0;
 
+    // The fist slot is never serialised. The binary (0x7124C0) counts every
+    // slot including the fist then subtracts one; skipping the fist slot
+    // directly yields the same record count when a fist is equipped and avoids
+    // a one-record heap overrun when one is not.
     for (INT nSlot = 0; nSlot < NUM_SLOT; nSlot++) {
+        if (nSlot == SLOT_FIST) {
+            continue;
+        }
         if (m_items[nSlot] != NULL
             && (bNetworkMessage != FALSE || m_items[nSlot]->GetItemType() != 0x3A)) {
             *pItemCount = *pItemCount + 1;
         }
     }
 
-    // The fist slot is always present and is counted but never serialised.
-    *pItemCount = *pItemCount - 1;
     if (*pItemCount == 0) {
         return;
     }
