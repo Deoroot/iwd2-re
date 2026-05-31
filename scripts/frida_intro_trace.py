@@ -8,6 +8,7 @@ import ctypes
 import ctypes.wintypes
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -57,6 +58,8 @@ RE_EXE = REPO / "build" / "Debug" / "iwd2-re.exe"
 ORIG_EXE = GAME_DIR / "IWD2.exe"
 PARTY_INI = GAME_DIR / "Party.ini"
 LOG = REPO / "tmp_frida_intro_trace.log"
+MAP_FILE = REPO / "build" / "Debug" / "iwd2-re.map"
+LINK_IMAGE_BASE = 0x400000
 
 RE_HOOKS = {
     "CGameAIBase::ExecuteAction": 0x0B2FC0,
@@ -74,10 +77,52 @@ RE_HOOKS = {
     "CGameJournal::SetQuestDone": 0x180B90,
     "CGameJournal::DeleteEntry": 0x1810F0,
     "CInfGame::SetCurrentChapter": 0x203220,
+    "CScreenChapter::EngineActivated": 0x273470,
+    "CScreenChapter::TimerAsynchronousUpdate": 0x273E60,
+    "CScreenChapter::OnDoneButtonClick": 0x275370,
+    "CScreenChapter::StartChapter": 0x2756D0,
+    "CScreenChapter::StartChapterMultiplayerHost": 0x2757F0,
+    "CScreenChapter::StartText": 0x2749D0,
+    "CScreenChapter::ResetMainPanel": 0x273600,
+    "CSoundMixer::StartSong": 0x365F00,
+    "CSound::Play": 0x3618E0,
+    "CInfGame::NewGame": 0x1F0900,
     "CInfGame::SaveGame": 0x1EB580,
     "CInfGame::LoadGame": 0x1EFFC0,
     "CInfGame::Unmarshal": 0x1EC260,
     "CMessageSaveGame::Run": 0x23D7C0,
+}
+
+RE_MAP_SYMBOLS = {
+    "CGameAIBase::ExecuteAction": "?ExecuteAction@CGameAIBase@@UAEFXZ",
+    "CGameAIBase::EvaluateStatusTrigger": "?EvaluateStatusTrigger@CGameAIBase@@UAEHABVCAITrigger@@@Z",
+    "CGameSprite::EvaluateStatusTrigger": "?EvaluateStatusTrigger@CGameSprite@@UAEHABVCAITrigger@@@Z",
+    "CAICondition::Hold": "?Hold@CAICondition@@QAEEAAV?$CTypedPtrList@VCPtrList@@PAVCAITrigger@@@@PAVCGameAIBase@@@Z",
+    "CAIResponseSet::Choose": "?Choose@CAIResponseSet@@QAEPAVCAIResponse@@XZ",
+    "CAIScript::Find": "?Find@CAIScript@@QAEPAVCAIResponse@@AAV?$CTypedPtrList@VCPtrList@@PAVCAITrigger@@@@PAVCGameAIBase@@@Z",
+    "CGameAIBase::StartCutScene": "?StartCutScene@CGameAIBase@@QAEFXZ",
+    "CGameDialogSprite::StartDialog": "?StartDialog@CGameDialogSprite@@QAEHPAVCGameSprite@@@Z",
+    "CGameSprite::Dialogue": "?Dialogue@CGameSprite@@QAEFPAV1@@Z",
+    "CScreenWorld::StartDialog": "?StartDialog@CScreenWorld@@QAEHPAVCGameSprite@@0EE@Z",
+    "CGameJournal::AddEntry2": "?AddEntry@CGameJournal@@QAEHKG@Z",
+    "CGameJournal::AddEntry4": "?AddEntry@CGameJournal@@QAEHKHJG@Z",
+    "CGameJournal::SetQuestDone": "?SetQuestDone@CGameJournal@@QAEXK@Z",
+    "CGameJournal::DeleteEntry": "?DeleteEntry@CGameJournal@@QAEXK@Z",
+    "CInfGame::SetCurrentChapter": "?SetCurrentChapter@CInfGame@@QAEXH@Z",
+    "CScreenChapter::EngineActivated": "?EngineActivated@CScreenChapter@@UAEXXZ",
+    "CScreenChapter::TimerAsynchronousUpdate": "?TimerAsynchronousUpdate@CScreenChapter@@UAEXXZ",
+    "CScreenChapter::OnDoneButtonClick": "?OnDoneButtonClick@CScreenChapter@@QAEXXZ",
+    "CScreenChapter::StartChapter": "?StartChapter@CScreenChapter@@QAEXABVCResRef@@@Z",
+    "CScreenChapter::StartChapterMultiplayerHost": "?StartChapterMultiplayerHost@CScreenChapter@@QAEXEPAE@Z",
+    "CScreenChapter::StartText": "?StartText@CScreenChapter@@QAEHABVCResRef@@@Z",
+    "CScreenChapter::ResetMainPanel": "?ResetMainPanel@CScreenChapter@@QAEXXZ",
+    "CSoundMixer::StartSong": "?StartSong@CSoundMixer@@QAEXHK@Z",
+    "CSound::Play": "?Play@CSound@@QAEHH@Z",
+    "CInfGame::NewGame": "?NewGame@CInfGame@@QAEXEE@Z",
+    "CInfGame::SaveGame": "?SaveGame@CInfGame@@QAEHEEE@Z",
+    "CInfGame::LoadGame": "?LoadGame@CInfGame@@QAEXEE@Z",
+    "CInfGame::Unmarshal": "?Unmarshal@CInfGame@@QAEHPAEJE@Z",
+    "CMessageSaveGame::Run": "?Run@CMessageSaveGame@@UAEXXZ",
 }
 
 ORIG_HOOKS = {
@@ -111,6 +156,10 @@ ORIG_HOOKS = {
     "CScreenChapter::OnDoneButtonClick": 0x5D4190,
     "CScreenChapter::StartChapter": 0x5D4380,
     "CScreenChapter::StartChapterMultiplayerHost": 0x5D4450,
+    "CScreenChapter::StartText": 0x5D4650,
+    "CScreenChapter::ResetMainPanel": 0x5D3A80,
+    "CSoundMixer::StartSong": 0x7AC4F0,
+    "CSound::Play": 0x7A9B10,
     "CScreenWorld::StartDialog": 0x68EA00,
     "CGameJournal::AddEntry4": 0x4C63B0,
     "CGameJournal::SetQuestDone": 0x4C7220,
@@ -152,6 +201,32 @@ def read_result(path: Path) -> dict[str, str]:
         if sep:
             values[key] = value
     return values
+
+
+def resolve_re_hooks_from_map() -> dict[str, int]:
+    hooks = dict(RE_HOOKS)
+    if not MAP_FILE.exists():
+        return hooks
+
+    wanted = {decorated: name for name, decorated in RE_MAP_SYMBOLS.items()}
+    found: set[str] = set()
+    for line in MAP_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        decorated = parts[1]
+        name = wanted.get(decorated)
+        if name is None:
+            continue
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", parts[2]):
+            continue
+        hooks[name] = int(parts[2], 16) - LINK_IMAGE_BASE
+        found.add(name)
+
+    missing = sorted(set(RE_MAP_SYMBOLS) - found)
+    if missing:
+        raise SystemExit(f"missing symbols in {MAP_FILE}: {', '.join(missing)}")
+    return hooks
 
 
 def find_window_for_pid(pid: int) -> int:
@@ -430,8 +505,29 @@ def original_ui_driver(
         emit({"tag": "Driver.python.error", "stage": "chapter-done-click", "err": "window not found"})
 
 
-def make_js(mode: str, party_index: int, auto_chapter: bool) -> str:
-    hooks = RE_HOOKS if mode == "re" else ORIG_HOOKS
+def re_chapter_driver(
+    pid: int,
+    timeout: float,
+    state: dict[str, object],
+    state_lock: threading.Lock,
+    emit,
+) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with state_lock:
+            chapter_active_seen = bool(state.get("chapter_active_seen"))
+            chapter_done_seen = bool(state.get("chapter_done_seen"))
+        if chapter_active_seen and not chapter_done_seen:
+            emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": 1000})
+            time.sleep(1.0)
+            emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
+            if not click_client(pid, *CHAPTER_DONE_BUTTON):
+                emit({"tag": "Driver.python.error", "stage": "re-chapter-done-click", "err": "window not found"})
+            return
+        time.sleep(0.1)
+
+
+def make_js(mode: str, party_index: int, auto_chapter: bool, hooks: dict[str, int]) -> str:
     hooks_json = json.dumps(hooks)
     is_re = "true" if mode == "re" else "false"
     auto_chapter_js = "true" if auto_chapter else "false"
@@ -496,6 +592,9 @@ const SP_ORIG = {{
 const CHAPTER_ORIG = {{
   started: 0x01b4,
 }};
+const CHAPTER = isRe
+  ? {{ textListCandidates: [0x0144, 0x0148, 0x014c, 0x0150, 0x0154], started: 0x01b8 }}
+  : {{ textListCandidates: [0x0144], started: 0x01b4 }};
 const PROJECTOR_ORIG = {{
   deactivate: 0x0112,
   field144: 0x0144,
@@ -534,6 +633,39 @@ function resRefString(p) {{
   }} catch (e) {{
     return '<bad-resref>';
   }}
+}}
+
+function chapterTextState(chapter) {{
+  for (const textListOff of CHAPTER.textListCandidates) {{
+    try {{
+      const list = chapter.add(textListOff).readPointer();
+    if (list.isNull()) {{
+        continue;
+    }}
+
+    const count = list.add(0x0c).readS32();
+      if (count <= 0 || count > 8) {{
+        continue;
+      }}
+
+    const out = [];
+    let node = list.add(0x04).readPointer();
+    for (let i = 0; i < count && i < 4 && !node.isNull(); i++) {{
+        const strref = node.add(0x08).readS32();
+        if (strref < 0 || strref > 1000000) {{
+          throw new Error('implausible strref ' + strref);
+        }}
+        out.push(strref);
+      node = node.readPointer();
+    }}
+      if (out.length > 0) {{
+        return {{ offset: textListOff, count, strrefs: out }};
+      }}
+  }} catch (e) {{
+      // Try the next candidate; RE and original layouts differ under VS2019.
+    }}
+  }}
+  return {{ err: 'no plausible CList at chapter text offsets' }};
 }}
 
 function readBool32(p, off) {{
@@ -613,6 +745,7 @@ const interestingTriggers = new Set([0x0036, 0x400f, 0x4023, 0x4030, 0x4034, 0x4
 let execCount = 0;
 let holdCount = 0;
 let triggerCount = 0;
+let activeChapter = ptr(0);
 let originalDriver = {{
   connTicks: 0,
   connReadyAt: 0,
@@ -823,6 +956,9 @@ for (const name of [
       if (!isRe && name === 'CScreenChapter::EngineActivated') {{
         originalDriver.chapterStarted = true;
       }}
+      if (name === 'CScreenChapter::EngineActivated') {{
+        activeChapter = this.context.ecx;
+      }}
       send({{ tag: name, this: this.context.ecx.toString() }});
     }}
   }});
@@ -987,6 +1123,7 @@ hook('CScreenSinglePlayer::OnMainDoneButtonClick', {{
 
 hook('CScreenChapter::StartChapter', {{
   onEnter(args) {{
+    activeChapter = this.context.ecx;
     originalDriver.chapterStarted = true;
     send({{ tag: 'Chapter.StartChapter', this: this.context.ecx.toString(), resref: resRefString(args[0]) }});
   }}
@@ -994,8 +1131,28 @@ hook('CScreenChapter::StartChapter', {{
 
 hook('CScreenChapter::StartChapterMultiplayerHost', {{
   onEnter(args) {{
+    activeChapter = this.context.ecx;
     originalDriver.chapterStarted = true;
     send({{ tag: 'Chapter.StartChapterMultiplayerHost', this: this.context.ecx.toString(), chapter: args[0].toInt32(), resref: resRefString(args[1]) }});
+  }}
+}});
+
+hook('CScreenChapter::StartText', {{
+  onEnter(args) {{
+    this.thiz = this.context.ecx;
+    activeChapter = this.thiz;
+    send({{ tag: 'Chapter.StartText', this: this.thiz.toString(), resref: resRefString(args[0]) }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'Chapter.StartText.ret', this: this.thiz.toString(), ret: rv.toInt32(), text: chapterTextState(this.thiz) }});
+  }}
+}});
+
+hook('CScreenChapter::ResetMainPanel', {{
+  onEnter(args) {{
+    const thiz = this.context.ecx;
+    activeChapter = thiz;
+    send({{ tag: 'Chapter.ResetMainPanel', this: thiz.toString(), text: chapterTextState(thiz) }});
   }}
 }});
 
@@ -1008,6 +1165,27 @@ hook('CScreenChapter::TimerAsynchronousUpdate', {{
 hook('CScreenChapter::OnDoneButtonClick', {{
   onEnter(args) {{
     send({{ tag: 'Chapter.OnDoneButtonClick', this: this.context.ecx.toString() }});
+  }}
+}});
+
+hook('CSoundMixer::StartSong', {{
+  onEnter(args) {{
+    const song = args[0].toInt32();
+    if (song === -1 || song === 41 || song === 42) {{
+      send({{ tag: 'SoundMixer.StartSong', song, flags: args[1].toInt32() }});
+    }}
+  }}
+}});
+
+hook('CSound::Play', {{
+  onEnter(args) {{
+    const thiz = this.context.ecx;
+    if (!activeChapter.isNull()) {{
+      const delta = thiz.toUInt32() - activeChapter.toUInt32();
+      if (delta >= 0x140 && delta < 0x1d0) {{
+        send({{ tag: 'Chapter.VoiceSound.Play', this: thiz.toString(), delta, resref: resRefString(thiz.add(0x0c)), replay: args[0].toInt32() }});
+      }}
+    }}
   }}
 }});
 
@@ -1121,6 +1299,7 @@ def main() -> int:
 
     LOG.write_text("", encoding="utf-8")
     party_index = resolve_party(ns.party)
+    hooks = resolve_re_hooks_from_map() if ns.mode == "re" else ORIG_HOOKS
 
     proc = None
     result_path = None
@@ -1143,6 +1322,7 @@ def main() -> int:
         "new_game_seen": False,
         "load_game_seen": False,
         "chapter_seen": False,
+        "chapter_active_seen": False,
         "connection_seen": False,
         "singleplayer_seen": False,
         "chapter_done_seen": False,
@@ -1191,7 +1371,9 @@ def main() -> int:
             set_state(new_game_seen=True)
         if tag == "LoadGame":
             set_state(load_game_seen=True)
-        if tag in {"Chapter.StartChapter", "Chapter.StartChapterMultiplayerHost", "CScreenChapter::EngineActivated"}:
+        if tag == "CScreenChapter::EngineActivated":
+            set_state(chapter_seen=True, chapter_active_seen=True)
+        if tag in {"Chapter.StartChapter", "Chapter.StartChapterMultiplayerHost"}:
             set_state(chapter_seen=True)
         should_print = (
             tag in {"ready", "StartCutScene", "StartCutScene.ret", "NewGame", "Movie.PlayMovieInternal"}
@@ -1201,6 +1383,7 @@ def main() -> int:
             or tag.startswith("Chapter.")
             or tag.startswith("CScreenChapter::")
             or tag.startswith("CScreenConnection::")
+            or tag.startswith("SoundMixer.")
             or tag in {"SaveGame", "SaveGame.ret", "LoadGame", "UnmarshalGame", "UnmarshalGame.ret", "SetCurrentChapter", "CMessageSaveGame::Run", "AddMessage.SaveGame"}
             or "Dialog" in tag
             or tag.startswith("Journal.")
@@ -1212,7 +1395,9 @@ def main() -> int:
         with LOG.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
-    script = session.create_script(make_js(ns.mode, party_index, ns.auto_chapter))
+    if ns.mode == "re":
+        print(f"resolved_re_hooks={len(hooks)} map={MAP_FILE}", flush=True)
+    script = session.create_script(make_js(ns.mode, party_index, ns.auto_chapter, hooks))
     script.on("message", on_message)
     script.load()
     if spawned:
@@ -1234,6 +1419,18 @@ def main() -> int:
             args=(pid, party_index, ns.timeout, ns.auto_chapter, state, state_lock, stop_movie_keys, emit_driver),
             daemon=True,
         ).start()
+    else:
+        threading.Thread(
+            target=keep_game_focused,
+            args=(pid, ns.timeout),
+            daemon=True,
+        ).start()
+        if ns.auto_chapter:
+            threading.Thread(
+                target=re_chapter_driver,
+                args=(pid, ns.timeout, state, state_lock, emit_driver),
+                daemon=True,
+            ).start()
 
     deadline = time.time() + ns.timeout
     status = 1

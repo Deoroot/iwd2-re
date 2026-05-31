@@ -1,6 +1,5 @@
 #include "CScreenChapter.h"
 
-#include "AutoLoad.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CGameJournal.h"
@@ -290,8 +289,6 @@ void CScreenChapter::OnPortraitLClick(DWORD nPortrait)
 // 0x5D3600
 void CScreenChapter::TimerAsynchronousUpdate()
 {
-    static BOOL s_autoDoneClicked = FALSE;
-
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenChapter.cpp
@@ -356,12 +353,6 @@ void CScreenChapter::TimerAsynchronousUpdate()
         if (nElapsed > 2000 && g_pBaldurChitin->cNetwork.GetSessionOpen()) {
             OnDoneButtonClick();
         }
-    }
-
-    if (!s_autoDoneClicked && Iwd2AutoLoad::IsEnabled() && m_bStarted) {
-        s_autoDoneClicked = TRUE;
-        OnDoneButtonClick();
-        return;
     }
 
     UpdateCursorShape(0);
@@ -672,6 +663,8 @@ void CScreenChapter::StartChapterMultiplayerHost(BYTE nChapter, BYTE* resRef)
 
     // NOTE: Uninline.
     StartChapter(CResRef(resRef));
+
+    SelectEngine(g_pBaldurChitin->m_pEngineChapter);
 }
 
 // 0x5D4650

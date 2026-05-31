@@ -19,6 +19,7 @@
 #include "CGameTrigger.h"
 #include "CInfGame.h"
 #include "CScreenCharacter.h"
+#include "CScreenChapter.h"
 #include "CScreenWorld.h"
 #include "CSpell.h"
 #include "CTimerWorld.h"
@@ -3197,15 +3198,23 @@ CGameObject* CGameAIBase::ResolveActionTarget()
 SHORT CGameAIBase::IncrementChapter()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-    pGame->SetCurrentChapter(pGame->GetCurrentChapter() + 1);
 
-    CString sTextScreen = m_curAction.GetString1();
-    if (!sTextScreen.IsEmpty()) {
-        CMessage* msg = new CMessageStartTextScreen(
-            CResRef(sTextScreen),
-            m_id,
-            m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+    CString sChapter = m_curAction.GetString1();
+    if (sChapter.IsEmpty()) {
+        sChapter = "CHAPTERS";
+    }
+
+    BYTE resRef[RESREF_SIZE];
+    CResRef(sChapter).GetResRef(resRef);
+
+    // TODO: Incomplete. The MP client request path is not recovered here yet.
+    // The binary SP/host path opens the chapter screen through
+    // CScreenChapter::StartChapterMultiplayerHost.
+    if (!g_pChitin->cNetwork.GetSessionOpen()
+        || g_pChitin->cNetwork.GetSessionHosting() == TRUE) {
+        g_pBaldurChitin->m_pEngineChapter->StartChapterMultiplayerHost(
+            static_cast<BYTE>(pGame->GetCurrentChapter() + 1),
+            resRef);
     }
 
     return ACTION_DONE;

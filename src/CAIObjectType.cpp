@@ -7,6 +7,156 @@
 #include "CInfGame.h"
 #include "CUtil.h"
 
+namespace {
+
+BOOL ShareObject(LONG id, CGameObject*& pObject)
+{
+    pObject = NULL;
+    if (id == CGameObjectArray::INVALID_INDEX) {
+        return FALSE;
+    }
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(id,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    return rc == CGameObjectArray::SUCCESS && pObject != NULL;
+}
+
+void ReleaseObject(CGameObject* pObject)
+{
+    if (pObject != NULL) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+}
+
+BOOL IsAIBaseObject(CGameObject* pObject)
+{
+    return pObject != NULL
+        && (pObject->GetObjectType() & CGameObject::TYPE_AIBASE) != 0;
+}
+
+BOOL SetTypeFromObject(CAIObjectType& type, CGameObject* pObject)
+{
+    if (!IsAIBaseObject(pObject)) {
+        return FALSE;
+    }
+
+    type.Set(pObject->GetAIType());
+    type.SetInstance(pObject->GetId());
+    return TRUE;
+}
+
+CGameAIBase* AsAIBase(CGameObject* pObject)
+{
+    if (!IsAIBaseObject(pObject)) {
+        return NULL;
+    }
+
+    return static_cast<CGameAIBase*>(pObject);
+}
+
+LONG FindNamedCreatureId(CGameAIBase* caller, const CString& name)
+{
+    CVariable* pVar = NULL;
+
+    if (caller->GetArea() != NULL) {
+        pVar = caller->GetArea()->GetNamedCreatures()->FindKey(name);
+    }
+
+    if (pVar == NULL) {
+        pVar = g_pBaldurChitin->GetObjectGame()->GetNamedCreatures()->FindKey(name);
+    }
+
+    if (pVar == NULL) {
+        return CGameObjectArray::INVALID_INDEX;
+    }
+
+    return pVar->GetIntValue();
+}
+
+BOOL ResolveConcreteObject(CAIObjectType& type, CGameAIBase* caller, BOOL checkBackList, CGameObject*& pObject)
+{
+    pObject = type.GetObjectWithType(caller,
+        CGameObject::TYPE_AIBASE,
+        checkBackList);
+    if (pObject == NULL) {
+        type.Set(CAIObjectType::NOONE);
+        return FALSE;
+    }
+
+    SetTypeFromObject(type, pObject);
+    return TRUE;
+}
+
+LONG GetPartyCharacterId(BYTE specialCase)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    switch (specialCase) {
+    case 2:
+        return pGame->GetFixedOrderCharacterId(0);
+    case 21:
+    case 22:
+    case 23:
+    case 24:
+    case 25:
+    case 26:
+        return pGame->GetFixedOrderCharacterId(static_cast<SHORT>(specialCase - 21));
+    case 27:
+        return pGame->GetProtagonist();
+    default:
+        return CGameObjectArray::INVALID_INDEX;
+    }
+}
+
+BOOL ResolveObjectId(CAIObjectType& type, CGameAIBase* caller, LONG id, CGameObject*& pObject)
+{
+    ReleaseObject(pObject);
+    pObject = NULL;
+
+    if (id == CGameObjectArray::INVALID_INDEX) {
+        type.Set(CAIObjectType::NOONE);
+        return FALSE;
+    }
+
+    type.Set(CAIObjectType::ANYONE);
+    type.SetInstance(id);
+    return ResolveConcreteObject(type, caller, FALSE, pObject);
+}
+
+BOOL ResolveStoredType(CAIObjectType& type, CGameAIBase* caller, const CAIObjectType& stored, CGameObject*& pObject)
+{
+    ReleaseObject(pObject);
+    pObject = NULL;
+
+    type.Set(stored);
+    return ResolveConcreteObject(type, caller, FALSE, pObject);
+}
+
+BOOL ResolveStoredTypeChecked(CAIObjectType& type, CGameAIBase* caller, const CAIObjectType& stored, const CAIObjectType& original, CGameObject*& pObject)
+{
+    if (!ResolveStoredType(type, caller, stored, pObject)) {
+        return FALSE;
+    }
+
+    if (!original.IsOver(pObject->GetPos())) {
+        ReleaseObject(pObject);
+        pObject = NULL;
+        type.Set(CAIObjectType::NOONE);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+}
+
 // 0x847C34
 const BYTE CAIObjectType::EA_ALL = CAIOBJECTTYPE_EA_ALL;
 
@@ -869,7 +1019,184 @@ void CAIObjectType::Set(const CAIObjectType& type)
 // 0x40B880
 void CAIObjectType::Decode(CGameAIBase* caller)
 {
-    // TODO: Incomplete.
+    // TODO: Incomplete. Recovered name resolution, fixed-order party members,
+    // protagonist, and last-object fields needed by recovered script execution.
+    // Ranking and nearest-object selector cases are still deliberately unresolved.
+    if (caller == NULL) {
+        Set(NOONE);
+        return;
+    }
+
+    CAIObjectType original(*this);
+    BYTE specialCase[5];
+    for (int index = 0; index < 5; index++) {
+        specialCase[index] = m_SpecialCase[index];
+    }
+
+    CGameObject* pObject = NULL;
+    BOOL resolvedByName = FALSE;
+    CAIObjectType resolvedType;
+
+    CString name = GetName();
+    if (!name.IsEmpty() && original.m_nInstance == -1) {
+        LONG id = FindNamedCreatureId(caller, name);
+        if (!ShareObject(id, pObject)) {
+            Set(NOONE);
+            return;
+        }
+
+        if (!IsAIBaseObject(pObject) || !original.IsOver(pObject->GetPos())) {
+            ReleaseObject(pObject);
+            Set(NOONE);
+            return;
+        }
+
+        SetTypeFromObject(resolvedType, pObject);
+        resolvedByName = TRUE;
+    }
+
+    if (specialCase[0] == 0) {
+        if (resolvedByName) {
+            Set(resolvedType);
+            ReleaseObject(pObject);
+        }
+        return;
+    }
+
+    if (!resolvedByName) {
+        if (!ShareObject(caller->GetId(), pObject)) {
+            Set(NOONE);
+            return;
+        }
+
+        if (!IsAIBaseObject(pObject) || !original.IsOver(pObject->GetPos())) {
+            ReleaseObject(pObject);
+            Set(NOONE);
+            return;
+        }
+    }
+
+    if (original.m_nInstance >= 0) {
+        ReleaseObject(pObject);
+        return;
+    }
+
+    if (resolvedByName) {
+        Set(resolvedType);
+    } else {
+        Set(original);
+    }
+
+    for (int index = 0; index < 5; index++) {
+        CGameAIBase* pAIBase = AsAIBase(pObject);
+        if (pAIBase == NULL) {
+            Set(NOONE);
+            ReleaseObject(pObject);
+            return;
+        }
+
+        switch (specialCase[index]) {
+        case 0:
+            SetTypeFromObject(*this, pObject);
+            ReleaseObject(pObject);
+            return;
+        case 1:
+            if (original.IsOver(caller->GetPos())) {
+                if (!ResolveObjectId(*this, caller, caller->GetId(), pObject)) {
+                    return;
+                }
+            }
+            break;
+        case 2:
+        case 21:
+        case 22:
+        case 23:
+        case 24:
+        case 25:
+        case 26:
+        case 27:
+            if (!ResolveObjectId(*this, caller, GetPartyCharacterId(specialCase[index]), pObject)) {
+                return;
+            }
+            if (!original.IsOver(pObject->GetPos())) {
+                ReleaseObject(pObject);
+                Set(NOONE);
+                return;
+            }
+            break;
+        case 8:
+            if (!ResolveStoredType(*this, caller, pAIBase->field_EA, pObject)) {
+                return;
+            }
+            break;
+        case 9:
+            if (!ResolveStoredType(*this, caller, pAIBase->field_126, pObject)) {
+                return;
+            }
+            break;
+        case 10:
+            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lAttacker, original, pObject)) {
+                return;
+            }
+            break;
+        case 11:
+            if (!ResolveStoredType(*this, caller, pAIBase->field_162, pObject)) {
+                return;
+            }
+            break;
+        case 13:
+            if (!ResolveStoredType(*this, caller, pAIBase->m_lOrderedBy, pObject)) {
+                return;
+            }
+            break;
+        case 16:
+            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lHelp, original, pObject)) {
+                return;
+            }
+            break;
+        case 17:
+            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lTrigger, original, pObject)) {
+                return;
+            }
+            break;
+        case 18:
+            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lSeen, original, pObject)) {
+                return;
+            }
+            break;
+        case 19:
+            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lTalkedTo, original, pObject)) {
+                return;
+            }
+            break;
+        case 20:
+            if (!ResolveStoredType(*this, caller, pAIBase->m_lHeard, pObject)) {
+                return;
+            }
+            break;
+        case 51:
+            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->field_342, original, pObject)) {
+                return;
+            }
+            break;
+        case 54:
+            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->field_37E, original, pObject)) {
+                return;
+            }
+            break;
+        case 55:
+            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->field_3BA, original, pObject)) {
+                return;
+            }
+            break;
+        default:
+            Set(NOONE);
+            ReleaseObject(pObject);
+            return;
+        }
+    }
+
+    ReleaseObject(pObject);
 }
 
 // 0x40CAC0
