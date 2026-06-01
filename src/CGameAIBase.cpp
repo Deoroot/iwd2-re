@@ -11,6 +11,7 @@
 #include "CGameDoor.h"
 #include "DebugLog.h"
 #include "CGameEffect.h"
+#include "CGameJournal.h"
 #include "CGameSpawning.h"
 #include "CGameSprite.h"
 #include "CGameStatic.h"
@@ -1547,7 +1548,15 @@ void CGameAIBase::ProcessAI()
             SetCurrAction(GetNextAction(action));
             ResetCurrResponse();
         }
-        if (m_curAction.m_actionID != CAIAction::NO_ACTION) {
+
+        BOOL bCanDoAction = m_curAction.m_actionID != CAIAction::NO_ACTION;
+        if (bCanDoAction && !g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active) {
+            bCanDoAction = g_pBaldurChitin->GetObjectGame()
+                               ->GetRuleTables()
+                               .m_lInstantActions.Find(m_curAction.GetActionID()) != NULL;
+        }
+
+        if (bCanDoAction) {
             DoAction();
         }
         return;
@@ -1652,7 +1661,15 @@ void CGameAIBase::ProcessAI()
         SetCurrAction(GetNextAction(action));
         ResetCurrResponse();
     }
-    if (bAreaActionFallback && m_curAction.m_actionID != CAIAction::NO_ACTION) {
+
+    BOOL bCanDoAreaAction = bAreaActionFallback && m_curAction.m_actionID != CAIAction::NO_ACTION;
+    if (bCanDoAreaAction && !g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active) {
+        bCanDoAreaAction = g_pBaldurChitin->GetObjectGame()
+                               ->GetRuleTables()
+                               .m_lInstantActions.Find(m_curAction.GetActionID()) != NULL;
+    }
+
+    if (bCanDoAreaAction) {
         DoAction();
     }
 }
@@ -3221,9 +3238,22 @@ SHORT CGameAIBase::IncrementChapter()
     // CScreenChapter::StartChapterMultiplayerHost.
     if (!g_pChitin->cNetwork.GetSessionOpen()
         || g_pChitin->cNetwork.GetSessionHosting() == TRUE) {
+        BYTE nChapter = static_cast<BYTE>(pGame->GetCurrentChapter() + 1);
+
         g_pBaldurChitin->m_pEngineChapter->StartChapterMultiplayerHost(
-            static_cast<BYTE>(pGame->GetCurrentChapter() + 1),
+            nChapter,
             resRef);
+
+        CList<STRREF, STRREF>* pTextList = pGame->GetRuleTables().GetChapterText(CResRef(resRef), nChapter);
+        if (pTextList != NULL) {
+            if (pTextList->GetCount() > 1) {
+                POSITION pos = pTextList->GetHeadPosition();
+                pTextList->GetNext(pos);
+                pGame->GetJournal()->AddEntry(pTextList->GetNext(pos), 0);
+            }
+
+            delete pTextList;
+        }
     }
 
     return ACTION_DONE;

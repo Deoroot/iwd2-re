@@ -57,7 +57,7 @@ PARTY_ROWS = [
 PARTY_DONE_BUTTON = (537, 562)
 CHAPTER_DONE_BUTTON = (514, 549)
 CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS = 1.0
-CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS = 2.0
+CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS = 0.0
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO = SCRIPT_DIR.parent if SCRIPT_DIR.name.lower() == "scripts" else SCRIPT_DIR
@@ -88,9 +88,29 @@ class BITMAPINFO(ctypes.Structure):
     _fields_ = [("bmiHeader", BITMAPINFOHEADER)]
 MAP_FILE = REPO / "build" / "Debug" / "iwd2-re.map"
 LINK_IMAGE_BASE = 0x400000
+RE_GLOBALS = {
+    "g_pBaldurChitin": 0x859CF0,
+    "g_pChitin": 0x859CF4,
+}
+ORIG_GLOBALS = {
+    "g_pBaldurChitin": 0x008CF6DC,
+    "g_pChitin": 0x008CF6D8,
+}
+RE_MAP_GLOBALS = {
+    "?g_pBaldurChitin@@3PAVCBaldurChitin@@A": "g_pBaldurChitin",
+    "?g_pChitin@@3PAVCChitin@@A": "g_pChitin",
+}
 
 RE_HOOKS = {
+    "CChitin::SelectEngine": 0x097870,
+    "CChitin::AsynchronousUpdate": 0x095DA0,
+    "CBaldurEngine::SelectEngine": 0x088A60,
     "CGameAIBase::ExecuteAction": 0x0B2FC0,
+    "CGameAIBase::ProcessAI": 0x0B8680,
+    "CGameSprite::ExecuteAction": 0x1954D0,
+    "CGameSprite::ProcessAI": 0x1959B0,
+    "CGameSprite::ResolveInstants": 0x1B6A70,
+    "CGameSprite::CanSpeak": 0x19F180,
     "CGameAIBase::EvaluateStatusTrigger": 0x0B1DA0,
     "CGameSprite::EvaluateStatusTrigger": 0x1948D0,
     "CAICondition::Hold": 0x04B570,
@@ -103,12 +123,40 @@ RE_HOOKS = {
     "CMessageInsertResponse::Run": 0x241BE0,
     "CMessageSetInCutScene::Run": 0x2492A0,
     "CGameDialogSprite::StartDialog": 0x140B00,
+    "CGameDialogSprite::EndDialog": 0x1426D0,
     "CGameDialogSprite::EnterDialog": 0x141880,
     "CGameDialogEntry::Handle": 0x143B60,
     "CGameDialogReply::Apply": 0x144880,
     "CGameSprite::Dialogue": 0x1BCC50,
+    "CGameSprite::MoveToObject": 0x1BE770,
     "CMessageEnterDialog::Run": 0x23E2E0,
+    "CMessageExitDialogMode::Run": 0x22BAD0,
     "CScreenWorld::StartDialog": 0x34A3D0,
+    "CScreenWorld::EndDialog": 0x34E850,
+    "CScreenWorld::StartScroll": 0x34AC00,
+    "CScreenWorld::DisplayTextColored": 0x350560,
+    "CScreenWorld::DisplayTextSimple": 0x350750,
+    "CScreenWorld::TogglePauseGame": 0x34BFA0,
+    "CScreenWorld::CheckEndOfHardPause": 0x3513E0,
+    "CTimerWorld::StartTime": 0x370DF0,
+    "CTimerWorld::StopTime": 0x370ED0,
+    "CBaldurMessage::DisplayText": 0x224330,
+    "CBaldurMessage::DisplayTextRef": 0x224430,
+    "CBaldurMessage::RequestClientSignal": 0x21C110,
+    "CBaldurMessage::OnRequestClientSignal": 0x21C280,
+    "CBaldurMessage::SendSignal": 0x21C460,
+    "CBaldurMessage::OnSignal": 0x21C660,
+    "CBaldurMessage::NonBlockingWaitForSignal": 0x21C6F0,
+    "CBaldurMessage::SendProgressBarStatus": 0x21E4C0,
+    "CBaldurMessage::OnProgressBarStatus": 0x21E670,
+    "CBaldurMessage::PollSpecificMessageType": 0x223450,
+    "CMessageDisplayText::Run": 0x229AE0,
+    "CMessageDisplayTextRef::Run": 0x22A000,
+    "CMessageDisplayTextRefSend::Run": 0x238E10,
+    "CGameArea::AIUpdate": 0x12AA20,
+    "CGameArea::OnActivation": 0x131F30,
+    "CGameArea::OnDeactivation": 0x132290,
+    "CGameArea::Render": 0x136160,
     "CGameJournal::AddEntry2": 0x17FEE0,
     "CGameJournal::AddEntry4": 0x17FFA0,
     "CGameJournal::SetQuestDone": 0x180B90,
@@ -120,18 +168,36 @@ RE_HOOKS = {
     "CScreenChapter::StartChapter": 0x2756D0,
     "CScreenChapter::StartChapterMultiplayerHost": 0x2757F0,
     "CScreenChapter::StartText": 0x2749D0,
+    "CScreenChapter::StopText": 0x275C50,
     "CScreenChapter::ResetMainPanel": 0x273600,
     "CSoundMixer::StartSong": 0x365F00,
     "CSound::Play": 0x3618E0,
     "CInfGame::NewGame": 0x1F0900,
     "CInfGame::SaveGame": 0x1EB580,
     "CInfGame::LoadGame": 0x1EFFC0,
+    "CInfGame::WaitForEngine": 0x1E99B0,
     "CInfGame::Unmarshal": 0x1EC260,
     "CMessageSaveGame::Run": 0x23D7C0,
+    "CScreenConnection::EngineActivated": 0x296D30,
+    "CScreenConnection::StartConnection": 0x2A0990,
+    "CScreenConnection::OnNewGameButtonClick": 0x29A4D0,
+    "CScreenSinglePlayer::EngineActivated": 0x31C7A0,
+    "CScreenSinglePlayer::TimerAsynchronousUpdate": 0x31D330,
+    "CScreenSinglePlayer::OnDoneButtonClick": 0x31E670,
+    "CScreenSinglePlayer::OnMainDoneButtonClick": 0x320190,
+    "CScreenSinglePlayer::OnPartySelectionDoneButtonClick": 0x322440,
 }
 
 RE_MAP_SYMBOLS = {
+    "CChitin::SelectEngine": "?SelectEngine@CChitin@@UAEXPAVCWarp@@@Z",
+    "CChitin::AsynchronousUpdate": "?AsynchronousUpdate@CChitin@@UAEXIIKKK@Z",
+    "CBaldurEngine::SelectEngine": "?SelectEngine@CBaldurEngine@@UAEXPAVCWarp@@@Z",
     "CGameAIBase::ExecuteAction": "?ExecuteAction@CGameAIBase@@UAEFXZ",
+    "CGameAIBase::ProcessAI": "?ProcessAI@CGameAIBase@@UAEXXZ",
+    "CGameSprite::ExecuteAction": "?ExecuteAction@CGameSprite@@UAEFXZ",
+    "CGameSprite::ProcessAI": "?ProcessAI@CGameSprite@@UAEXXZ",
+    "CGameSprite::ResolveInstants": "?ResolveInstants@CGameSprite@@QAEXH@Z",
+    "CGameSprite::CanSpeak": "?CanSpeak@CGameSprite@@QAEHHH@Z",
     "CGameAIBase::EvaluateStatusTrigger": "?EvaluateStatusTrigger@CGameAIBase@@UAEHABVCAITrigger@@@Z",
     "CGameSprite::EvaluateStatusTrigger": "?EvaluateStatusTrigger@CGameSprite@@UAEHABVCAITrigger@@@Z",
     "CAICondition::Hold": "?Hold@CAICondition@@QAEEAAV?$CTypedPtrList@VCPtrList@@PAVCAITrigger@@@@PAVCGameAIBase@@@Z",
@@ -144,12 +210,40 @@ RE_MAP_SYMBOLS = {
     "CMessageInsertResponse::Run": "?Run@CMessageInsertResponse@@UAEXXZ",
     "CMessageSetInCutScene::Run": "?Run@CMessageSetInCutScene@@UAEXXZ",
     "CGameDialogSprite::StartDialog": "?StartDialog@CGameDialogSprite@@QAEHPAVCGameSprite@@@Z",
+    "CGameDialogSprite::EndDialog": "?EndDialog@CGameDialogSprite@@QAEXXZ",
     "CGameDialogSprite::EnterDialog": "?EnterDialog@CGameDialogSprite@@QAEHKPAVCGameSprite@@H@Z",
     "CGameDialogEntry::Handle": "?Handle@CGameDialogEntry@@QAEXPAVCGameSprite@@KH@Z",
     "CGameDialogReply::Apply": "?Apply@CGameDialogReply@@QAEPAUCGameDialogContinuation@@PAVCGameSprite@@@Z",
     "CGameSprite::Dialogue": "?Dialogue@CGameSprite@@QAEFPAV1@@Z",
+    "CGameSprite::MoveToObject": "?MoveToObject@CGameSprite@@QAEFPAVCGameObject@@@Z",
     "CMessageEnterDialog::Run": "?Run@CMessageEnterDialog@@UAEXXZ",
+    "CMessageExitDialogMode::Run": "?Run@CMessageExitDialogMode@@UAEXXZ",
     "CScreenWorld::StartDialog": "?StartDialog@CScreenWorld@@QAEHPAVCGameSprite@@0EE@Z",
+    "CScreenWorld::EndDialog": "?EndDialog@CScreenWorld@@QAEXEE@Z",
+    "CScreenWorld::StartScroll": "?StartScroll@CScreenWorld@@QAEXVCPoint@@F@Z",
+    "CScreenWorld::DisplayTextColored": "?DisplayText@CScreenWorld@@QAEPAU__POSITION@@ABV?$CStringT@DV?$StrTraitMFC_DLL@DV?$ChTraitsCRT@D@ATL@@@@@ATL@@0KKJE@Z",
+    "CScreenWorld::DisplayTextSimple": "?DisplayText@CScreenWorld@@QAEPAU__POSITION@@ABV?$CStringT@DV?$StrTraitMFC_DLL@DV?$ChTraitsCRT@D@ATL@@@@@ATL@@0JE@Z",
+    "CScreenWorld::TogglePauseGame": "?TogglePauseGame@CScreenWorld@@QAEHDDH@Z",
+    "CScreenWorld::CheckEndOfHardPause": "?CheckEndOfHardPause@CScreenWorld@@QAEXXZ",
+    "CTimerWorld::StartTime": "?StartTime@CTimerWorld@@QAEXXZ",
+    "CTimerWorld::StopTime": "?StopTime@CTimerWorld@@QAEXXZ",
+    "CBaldurMessage::DisplayText": "?DisplayText@CBaldurMessage@@QAEHABV?$CStringT@DV?$StrTraitMFC_DLL@DV?$ChTraitsCRT@D@ATL@@@@@ATL@@0KKJJJ@Z",
+    "CBaldurMessage::DisplayTextRef": "?DisplayTextRef@CBaldurMessage@@QAEHKKKKJJJ@Z",
+    "CBaldurMessage::RequestClientSignal": "?RequestClientSignal@CBaldurMessage@@QAEEE@Z",
+    "CBaldurMessage::OnRequestClientSignal": "?OnRequestClientSignal@CBaldurMessage@@QAEEHPAEK@Z",
+    "CBaldurMessage::SendSignal": "?SendSignal@CBaldurMessage@@QAEEEE@Z",
+    "CBaldurMessage::OnSignal": "?OnSignal@CBaldurMessage@@QAEEHPAEK@Z",
+    "CBaldurMessage::NonBlockingWaitForSignal": "?NonBlockingWaitForSignal@CBaldurMessage@@QAEEEE@Z",
+    "CBaldurMessage::SendProgressBarStatus": "?SendProgressBarStatus@CBaldurMessage@@QAEEJJEJEK@Z",
+    "CBaldurMessage::OnProgressBarStatus": "?OnProgressBarStatus@CBaldurMessage@@QAEEHPAEK@Z",
+    "CBaldurMessage::PollSpecificMessageType": "?PollSpecificMessageType@CBaldurMessage@@QAEPAEEEAAHAAK@Z",
+    "CMessageDisplayText::Run": "?Run@CMessageDisplayText@@UAEXXZ",
+    "CMessageDisplayTextRef::Run": "?Run@CMessageDisplayTextRef@@UAEXXZ",
+    "CMessageDisplayTextRefSend::Run": "?Run@CMessageDisplayTextRefSend@@UAEXXZ",
+    "CGameArea::AIUpdate": "?AIUpdate@CGameArea@@QAEXXZ",
+    "CGameArea::OnActivation": "?OnActivation@CGameArea@@QAEXXZ",
+    "CGameArea::OnDeactivation": "?OnDeactivation@CGameArea@@QAEXXZ",
+    "CGameArea::Render": "?Render@CGameArea@@QAEXPAVCVidMode@@H@Z",
     "CGameJournal::AddEntry2": "?AddEntry@CGameJournal@@QAEHKG@Z",
     "CGameJournal::AddEntry4": "?AddEntry@CGameJournal@@QAEHKHJG@Z",
     "CGameJournal::SetQuestDone": "?SetQuestDone@CGameJournal@@QAEXK@Z",
@@ -161,14 +255,24 @@ RE_MAP_SYMBOLS = {
     "CScreenChapter::StartChapter": "?StartChapter@CScreenChapter@@QAEXABVCResRef@@@Z",
     "CScreenChapter::StartChapterMultiplayerHost": "?StartChapterMultiplayerHost@CScreenChapter@@QAEXEPAE@Z",
     "CScreenChapter::StartText": "?StartText@CScreenChapter@@QAEHABVCResRef@@@Z",
+    "CScreenChapter::StopText": "?StopText@CScreenChapter@@QAEXH@Z",
     "CScreenChapter::ResetMainPanel": "?ResetMainPanel@CScreenChapter@@QAEXXZ",
     "CSoundMixer::StartSong": "?StartSong@CSoundMixer@@QAEXHK@Z",
     "CSound::Play": "?Play@CSound@@QAEHH@Z",
     "CInfGame::NewGame": "?NewGame@CInfGame@@QAEXEE@Z",
     "CInfGame::SaveGame": "?SaveGame@CInfGame@@QAEHEEE@Z",
     "CInfGame::LoadGame": "?LoadGame@CInfGame@@QAEXEE@Z",
+    "CInfGame::WaitForEngine": "?WaitForEngine@CInfGame@@QAEXH@Z",
     "CInfGame::Unmarshal": "?Unmarshal@CInfGame@@QAEHPAEJE@Z",
     "CMessageSaveGame::Run": "?Run@CMessageSaveGame@@UAEXXZ",
+    "CScreenConnection::EngineActivated": "?EngineActivated@CScreenConnection@@UAEXXZ",
+    "CScreenConnection::StartConnection": "?StartConnection@CScreenConnection@@QAEXE@Z",
+    "CScreenConnection::OnNewGameButtonClick": "?OnNewGameButtonClick@CScreenConnection@@QAEXXZ",
+    "CScreenSinglePlayer::EngineActivated": "?EngineActivated@CScreenSinglePlayer@@UAEXXZ",
+    "CScreenSinglePlayer::TimerAsynchronousUpdate": "?TimerAsynchronousUpdate@CScreenSinglePlayer@@UAEXXZ",
+    "CScreenSinglePlayer::OnDoneButtonClick": "?OnDoneButtonClick@CScreenSinglePlayer@@QAEXXZ",
+    "CScreenSinglePlayer::OnMainDoneButtonClick": "?OnMainDoneButtonClick@CScreenSinglePlayer@@QAEXXZ",
+    "CScreenSinglePlayer::OnPartySelectionDoneButtonClick": "?OnPartySelectionDoneButtonClick@CScreenSinglePlayer@@QAEXXZ",
 }
 
 ORIG_HOOKS = {
@@ -179,8 +283,14 @@ ORIG_HOOKS = {
     "CChitin::InitInstance": 0x790080,
     "CChitin::SelectEngine": 0x790860,
     "CChitin::AsynchronousUpdate": 0x78F0E0,
+    "CBaldurEngine::SelectEngine": 0x427990,
     "CChitin::WinMain": 0x7926B0,
     "CGameAIBase::ExecuteAction": 0x44DC10,
+    "CGameAIBase::ProcessAI": 0x45CA10,
+    "CGameSprite::ExecuteAction": 0x728F80,
+    "CGameSprite::ProcessAI": 0x72B9A0,
+    "CGameSprite::ResolveInstants": 0x728BC0,
+    "CGameSprite::CanSpeak": 0x7010A0,
     "CGameAIBase::EvaluateStatusTrigger": 0x453840,
     "CGameSprite::EvaluateStatusTrigger": 0x731B30,
     "CAICondition::Hold": 0x404150,
@@ -193,11 +303,14 @@ ORIG_HOOKS = {
     "CBaldurProjector::PlayMovieInternal": 0x43F230,
     "CBaldurProjector::TimerAsynchronousUpdate": 0x43F4C0,
     "CGameDialogSprite::StartDialog": 0x4839F0,
+    "CGameDialogSprite::EndDialog": 0x483CF0,
     "CGameDialogSprite::EnterDialog": 0x483EB0,
     "CGameDialogEntry::Handle": 0x484900,
     "CGameDialogReply::Apply": 0x485750,
     "CGameSprite::Dialogue": 0x752DD0,
+    "CGameSprite::MoveToObject": 0x73EDD0,
     "CMessageEnterDialog::Run": 0x4FE2E0,
+    "CMessageExitDialogMode::Run": 0x4FFB70,
     "CScreenConnection::EngineActivated": 0x5FA9B0,
     "CScreenConnection::StartConnection": 0x600770,
     "CScreenConnection::TimerAsynchronousUpdate": 0x5FB3E0,
@@ -213,16 +326,44 @@ ORIG_HOOKS = {
     "CScreenChapter::StartChapter": 0x5D4380,
     "CScreenChapter::StartChapterMultiplayerHost": 0x5D4450,
     "CScreenChapter::StartText": 0x5D4650,
+    "CScreenChapter::StopText": 0x5D47A0,
     "CScreenChapter::ResetMainPanel": 0x5D3A80,
     "CSoundMixer::StartSong": 0x7AC4F0,
     "CSound::Play": 0x7A9B10,
     "CScreenWorld::StartDialog": 0x68EA00,
+    "CScreenWorld::EndDialog": 0x68F9D0,
+    "CScreenWorld::StartScroll": 0x68C340,
+    "CScreenWorld::DisplayTextColored": 0x692290,
+    "CScreenWorld::DisplayTextSimple": 0x692460,
+    "CScreenWorld::TogglePauseGame": 0x68DFD0,
+    "CScreenWorld::CheckEndOfHardPause": 0x693680,
+    "CTimerWorld::StartTime": 0x54F970,
+    "CTimerWorld::StopTime": 0x54F9F0,
+    "CBaldurMessage::DisplayText": 0x43DF60,
+    "CBaldurMessage::DisplayTextRef": 0x43E0E0,
+    "CBaldurMessage::RequestClientSignal": 0x4331A0,
+    "CBaldurMessage::OnRequestClientSignal": 0x4332B0,
+    "CBaldurMessage::SendSignal": 0x4333C0,
+    "CBaldurMessage::OnSignal": 0x433530,
+    "CBaldurMessage::NonBlockingWaitForSignal": 0x433580,
+    "CBaldurMessage::SendProgressBarStatus": 0x433BE0,
+    "CBaldurMessage::OnProgressBarStatus": 0x433D30,
+    "CBaldurMessage::PollSpecificMessageType": 0x43C390,
+    "CMessageDisplayText::Run": 0x4FC4F0,
+    "CMessageDisplayTextRef::Run": 0x4FC740,
+    "CMessageDisplayTextRefSend::Run": 0x4FCC30,
+    "CGameArea::AIUpdate": 0x46E3D0,
+    "CGameArea::OnActivation": 0x4750E0,
+    "CGameArea::OnDeactivation": 0x475330,
+    "CGameArea::Render": 0x477740,
+    "CGameJournal::AddEntry2": 0x4C6360,
     "CGameJournal::AddEntry4": 0x4C63B0,
     "CGameJournal::SetQuestDone": 0x4C7220,
     "CGameJournal::DeleteEntry": 0x4C7560,
     "CInfGame::SetCurrentChapter": 0x435110,
     "CInfGame::NewGame": 0x5ABA20,
     "CInfGame::LoadGame": 0x5AB190,
+    "CInfGame::WaitForEngine": 0x59FA00,
     "CInfGame::Unmarshal": 0x5A7E40,
     "CInfGame::SaveGame": 0x5AC430,
 }
@@ -283,6 +424,30 @@ def resolve_re_hooks_from_map() -> dict[str, int]:
     if missing:
         raise SystemExit(f"missing symbols in {MAP_FILE}: {', '.join(missing)}")
     return hooks
+
+
+def resolve_re_globals_from_map() -> dict[str, int]:
+    globals_ = dict(RE_GLOBALS)
+    if not MAP_FILE.exists():
+        return globals_
+
+    found: set[str] = set()
+    for line in MAP_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        name = RE_MAP_GLOBALS.get(parts[1])
+        if name is None:
+            continue
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", parts[2]):
+            continue
+        globals_[name] = int(parts[2], 16) - LINK_IMAGE_BASE
+        found.add(name)
+
+    missing = sorted(set(RE_MAP_GLOBALS.values()) - found)
+    if missing:
+        raise SystemExit(f"missing globals in {MAP_FILE}: {', '.join(missing)}")
+    return globals_
 
 
 def find_window_for_pid(pid: int) -> int:
@@ -589,6 +754,49 @@ def send_intro_dialog_replies(pid: int) -> None:
         time.sleep(1.25)
 
 
+def auto_intro_dialog_driver(
+    pid: int,
+    timeout: float,
+    state: dict[str, object],
+    state_lock: threading.Lock,
+    emit,
+) -> None:
+    # 10HEDRON new-game path: thank him, ask for the guard, add journal, then exit.
+    actions = {
+        2579: [VK_1],
+        2585: [VK_4],
+        2625: [VK_1],
+        2627: [VK_1],
+        2630: [VK_1, VK_RETURN],
+        2631: [VK_1, VK_RETURN],
+    }
+    handled_serial = 0
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        with state_lock:
+            if bool(state.get("dialog_exit_seen")):
+                return
+            serial = int(state.get("dialog_entry_serial", 0) or 0)
+            text = int(state.get("last_dialog_text", 0) or 0)
+            reply_count = int(state.get("last_dialog_reply_count", 0) or 0)
+
+        if serial > handled_serial and text in actions:
+            handled_serial = serial
+            delay = 0.8 if text in {2630, 2631} else 0.45
+            time.sleep(delay)
+            for vk in actions[text]:
+                emit({"tag": "Driver.python.key", "target": "intro-dialog", "entry": text, "replyCount": reply_count, "vk": vk, "window": window_metrics(pid)})
+                if not send_key_to_pid(pid, vk):
+                    emit({"tag": "Driver.python.error", "stage": "intro-dialog-key", "entry": text, "vk": vk, "err": "window not found"})
+                    return
+                time.sleep(0.25)
+            with state_lock:
+                state["keys_sent"] = True
+        else:
+            time.sleep(0.1)
+
+
 def keep_game_focused(pid: int, duration: float) -> None:
     deadline = time.time() + duration
     logged = False
@@ -701,8 +909,9 @@ def original_ui_driver(
     emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": int(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS * 1000)})
     time.sleep(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS)
     emit_screenshot(pid, "original_chapter_before_done", emit)
-    emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
-    time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
+    if CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS > 0:
+        emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
+        time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
     emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
     if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
         emit({"tag": "Driver.python.error", "stage": "chapter-done-click", "err": "window not found"})
@@ -724,8 +933,9 @@ def re_chapter_driver(
             emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": int(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS * 1000)})
             time.sleep(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS)
             emit_screenshot(pid, "re_chapter_before_done", emit)
-            emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
-            time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
+            if CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS > 0:
+                emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
+                time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
             emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
             if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
                 emit({"tag": "Driver.python.error", "stage": "re-chapter-done-click", "err": "window not found"})
@@ -740,28 +950,38 @@ def re_chapter_driver(
         time.sleep(0.1)
 
 
-def make_js(mode: str, party_index: int, auto_chapter: bool, hooks: dict[str, int]) -> str:
+def make_js(mode: str, party_index: int, auto_chapter: bool, hooks: dict[str, int], globals_: dict[str, int]) -> str:
     hooks_json = json.dumps(hooks)
+    globals_json = json.dumps(globals_)
     is_re = "true" if mode == "re" else "false"
     auto_chapter_js = "true" if auto_chapter else "false"
     return f"""
 'use strict';
 
 const hooks = {hooks_json};
+const globals = {globals_json};
 const isRe = {is_re};
 const requestedParty = {party_index};
 const autoChapter = {auto_chapter_js};
 const base = isRe ? Process.getModuleByName('iwd2-re.exe').base : ptr(0);
-const gChitinPtr = isRe ? base.add(0x854cf4) : ptr(0x008cf6d8);
+const gBaldurChitinPtr = isRe ? base.add(globals.g_pBaldurChitin) : ptr(globals.g_pBaldurChitin);
+const gChitinPtr = isRe ? base.add(globals.g_pChitin) : ptr(globals.g_pChitin);
 const sleepMs = new NativeFunction(Process.getModuleByName('kernel32.dll').getExportByName('Sleep'), 'void', ['uint']);
 const O = isRe
   ? {{
       objectType: 0x04,
       objId: 0x64,
-      queuedActions: 0x45c,
+      pos: 0x08,
+      area: 0x14,
+      queuedActions: 0x458,
       curAction: 0x4c0,
-      inCutScene: 0x5be,
-      lastActionReturn: 0x5dc,
+      inCutScene: 0x5cc,
+      lastActionReturn: 0x5ea,
+      derivedStats: 0x8a8,
+      active: 0x4678,
+      activeAI: 0x467c,
+      activeImprisonment: 0x4680,
+      animationTypePtr: 0x46c4,
       actionString1: 0xd0,
       triggerSpecific: 0x04,
       triggerSpecific2: 0x4c,
@@ -772,16 +992,36 @@ const O = isRe
   : {{
       objectType: 0x04,
       objId: 0x5c,
+      pos: 0x06,
+      area: 0x12,
       queuedActions: 0x412,
       curAction: 0x476,
       inCutScene: 0x574,
       lastActionReturn: 0x592,
+      derivedStats: 0x920,
+      active: 0x50a6,
+      activeAI: 0x50aa,
+      activeImprisonment: 0x50ae,
+      animationTypePtr: 0x50f0,
       actionString1: 0xc2,
       triggerSpecific: 0x02,
       triggerSpecific2: 0x46,
       triggerSpecific3: 0x4a,
       triggerString1: 0x4e,
       triggerString2: 0x52,
+    }};
+const W = isRe
+  ? {{
+      timer: 0x1b60,
+      paused: 0x0144,
+      hardPaused: 0x014c,
+      comingOutDialog: 0x11bc,
+    }}
+  : {{
+      timer: 0x1b78,
+      paused: 0x013e,
+      hardPaused: 0x0146,
+      comingOutDialog: 0x11c6,
     }};
 const CHITIN_ORIG = {{
   engineActive: 0x0048,
@@ -816,6 +1056,17 @@ const CHAPTER_ORIG = {{
 const CHAPTER = isRe
   ? {{ textListCandidates: [0x0144, 0x0148, 0x014c, 0x0150, 0x0154], started: 0x01b8 }}
   : {{ textListCandidates: [0x0144], started: 0x01b4 }};
+const AREA = isRe
+  ? {{
+      areaLoaded: 0x01ef,
+      firstRender: 0x03d8,
+      currentSong: 0x0ae6,
+    }}
+  : {{
+      areaLoaded: 0x01ef,
+      firstRender: 0x03da,
+      currentSong: 0x0ae8,
+    }};
 const PROJECTOR_ORIG = {{
   deactivate: 0x0112,
   field144: 0x0144,
@@ -839,6 +1090,12 @@ function safeCString(p) {{
   }} catch (e) {{
     return '<bad-cstring>';
   }}
+}}
+
+function shortText(s) {{
+  if (s === undefined || s === null) return '';
+  const text = '' + s;
+  return text.length > 220 ? text.slice(0, 220) + '...' : text;
 }}
 
 function resRefString(p) {{
@@ -938,6 +1195,41 @@ function messageInfo(msg) {{
       target: msg.add(0x04).readS32(),
       source: msg.add(0x08).readS32(),
       status: msg.add(0x0c).readS32(),
+      status8: msg.add(0x0c).readU8(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
+function displayTextMessageInfo(msg) {{
+  try {{
+    return {{
+      target: msg.add(0x04).readS32(),
+      source: msg.add(0x08).readS32(),
+      name: shortText(safeCString(msg.add(0x0c))),
+      text: shortText(safeCString(msg.add(0x10))),
+      nameColor: msg.add(0x14).readU32(),
+      textColor: msg.add(0x18).readU32(),
+      marker: msg.add(0x1c).readS32(),
+      moveToTop: msg.add(0x20).readU8(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
+function displayTextRefMessageInfo(msg) {{
+  try {{
+    return {{
+      target: msg.add(0x04).readS32(),
+      source: msg.add(0x08).readS32(),
+      name: msg.add(0x0c).readS32(),
+      text: msg.add(0x10).readS32(),
+      nameColor: msg.add(0x14).readU32(),
+      textColor: msg.add(0x18).readU32(),
+      marker: msg.add(0x1c).readS32(),
+      moveToTop: msg.add(0x20).readU8(),
     }};
   }} catch (e) {{
     return {{ err: '' + e }};
@@ -955,6 +1247,216 @@ function networkInfo() {{
     }};
   }} catch (e) {{
     return {{ err: '' + e }};
+  }}
+}}
+
+function signalPayload(p) {{
+  try {{
+    const offset = 3;
+    return {{
+      type: p.add(offset).readU8(),
+      data: p.add(offset + 1).readU8(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
+function requestSignalPayload(p) {{
+  try {{
+    const offset = 3;
+    return {{
+      signal: p.add(offset).readU8(),
+      b8e7528: p.add(offset + 1).readU8(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
+function progressBarPayload(p) {{
+  try {{
+    const offset = 3;
+    return {{
+      actionProgress: p.add(offset).readS32(),
+      actionTarget: p.add(offset + 4).readS32(),
+      waiting: p.add(offset + 8).readU8(),
+      waitingReason: p.add(offset + 9).readS32(),
+      timeoutVisible: p.add(offset + 13).readU8(),
+      secondsToTimeout: p.add(offset + 14).readU32(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
+function isKnown(p) {{
+  return p !== undefined && !p.isNull();
+}}
+
+function worldInfo() {{
+  const out = {{}};
+  try {{
+    let game = knownObjectGame;
+    if (!isKnown(game) && isKnown(knownWorldTimer)) {{
+      game = knownWorldTimer.sub(W.timer);
+    }}
+
+    let timer = knownWorldTimer;
+    if (!isKnown(timer) && isKnown(game)) {{
+      timer = game.add(W.timer);
+    }}
+
+    let world = knownScreenWorld;
+    if ((!isKnown(game) || !isKnown(world)) && isKnown(gBaldurChitinPtr)) {{
+      const chitin = gBaldurChitinPtr.readPointer();
+      if (!isKnown(game)) {{
+        game = chitin.add(CHITIN_ORIG.objectGame).readPointer();
+      }}
+      if (!isKnown(world)) {{
+        world = chitin.add(CHITIN_ORIG.engineWorld).readPointer();
+      }}
+      if (!isKnown(timer) && isKnown(game)) {{
+        timer = game.add(W.timer);
+      }}
+    }}
+
+    out.game = isKnown(game) ? game.toString() : '0x0';
+    out.worldTimer = isKnown(timer) ? timer.toString() : '0x0';
+    out.world = isKnown(world) ? world.toString() : '0x0';
+    out.gameTime = isKnown(timer) ? timer.readU32() : -1;
+    out.timerActive = isKnown(timer) ? timer.add(0x04).readU8() : -1;
+    out.paused = isKnown(world) ? world.add(W.paused).readU8() : -1;
+    out.hardPaused = isKnown(world) ? world.add(W.hardPaused).readS32() : -1;
+    out.comingOutDialog = isKnown(world) ? world.add(W.comingOutDialog).readS32() : -1;
+    return out;
+  }} catch (e) {{
+    out.err = '' + e;
+    return out;
+  }}
+}}
+
+function areaInfo(area) {{
+  const out = {{}};
+  try {{
+    out.ptr = area.toString();
+    out.loaded = area.add(AREA.areaLoaded).readU8();
+    out.firstRender = area.add(AREA.firstRender).readU8();
+    out.currentSong = area.add(AREA.currentSong).readS16();
+    out.world = worldInfo();
+    out.chitin = chitinInfo();
+    return out;
+  }} catch (e) {{
+    out.err = '' + e;
+    out.ptr = area.toString();
+    return out;
+  }}
+}}
+
+function chitinInfo() {{
+  const out = {{}};
+  try {{
+    const chitin = gChitinPtr.readPointer();
+    out.chitin = chitin.toString();
+    out.engineActive = chitin.add(0x0048).readS32();
+    out.activeEngine = chitin.add(0x03c4).readPointer().toString();
+    out.displayStale = chitin.add(0x193a).readS32();
+    out.inSynchronousUpdate = chitin.add(0x193e).readS32();
+    return out;
+  }} catch (e) {{
+    out.err = '' + e;
+    return out;
+  }}
+}}
+
+function spriteInfo(thiz) {{
+  try {{
+    return {{
+      obj: objectId(thiz),
+      aid: actionId(thiz),
+      cut: thiz.add(O.inCutScene).readU8(),
+      lastActionReturn: thiz.add(O.lastActionReturn).readS16(),
+    }};
+  }} catch (e) {{
+    return {{ obj: 0, aid: 0, cut: 0, lastActionReturn: 0, err: '' + e, ptr: thiz.toString() }};
+  }}
+}}
+
+function spriteSpeechInfo(thiz) {{
+  try {{
+    return {{
+      obj: objectId(thiz),
+      aid: actionId(thiz),
+      cut: thiz.add(O.inCutScene).readU8(),
+      pos: [thiz.add(O.pos).readS32(), thiz.add(O.pos + 4).readS32()],
+      area: thiz.add(O.area).readPointer().toString(),
+      generalState: thiz.add(O.derivedStats).readU32(),
+      active: thiz.add(O.active).readS32(),
+      activeAI: thiz.add(O.activeAI).readS32(),
+      activeImprisonment: thiz.add(O.activeImprisonment).readS32(),
+      lastActionReturn: thiz.add(O.lastActionReturn).readS16(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e, ptr: thiz.toString() }};
+  }}
+}}
+
+function rectInfo(p) {{
+  try {{
+    return {{
+      left: p.add(0x00).readS32(),
+      top: p.add(0x04).readS32(),
+      right: p.add(0x08).readS32(),
+      bottom: p.add(0x0c).readS32(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
+function pointInfo(p) {{
+  try {{
+    return {{ x: p.add(0x00).readS32(), y: p.add(0x04).readS32() }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
+function hookCalculateFxRectForDialogSprite(sprite) {{
+  try {{
+    const animType = sprite.add(O.animationTypePtr).readPointer();
+    if (!isKnown(animType)) return null;
+    activeDialogAnimType = animType;
+
+    const fn = animType.readPointer().add(0x04).readPointer();
+    const key = fn.toString();
+    if (calcFxHooks[key]) return key;
+    calcFxHooks[key] = true;
+    Interceptor.attach(fn, {{
+      onEnter(args) {{
+        this.thiz = this.context.ecx;
+        this.rFx = args[0];
+        this.ptReference = args[1];
+        this.posZ = args[2].toInt32();
+        this.inDialog = isKnown(activeDialogAnimType) && this.thiz.equals(activeDialogAnimType);
+      }},
+      onLeave(rv) {{
+        if (!this.inDialog) return;
+        send({{
+          tag: 'CGameAnimationType.CalculateFxRect.ret',
+          fn: key,
+          this: this.thiz.toString(),
+          rFx: rectInfo(this.rFx),
+          ptReference: pointInfo(this.ptReference),
+          posZ: this.posZ,
+        }});
+      }}
+    }});
+    send({{ tag: 'hooked-dynamic', name: 'CGameAnimationType::CalculateFxRect', addr: key }});
+    return key;
+  }} catch (e) {{
+    send({{ tag: 'hook-dynamic-error', name: 'CGameAnimationType::CalculateFxRect', err: '' + e }});
+    return null;
   }}
 }}
 
@@ -1006,15 +1508,32 @@ function responseMeta(resp) {{
   }}
 }}
 
-const interestingActions = new Set([8, 30, 83, 109, 120, 121, 122, 123, 127, 161, 183, 229, 256, 272, 275]);
+const interestingActions = new Set([8, 83, 109, 120, 121, 122, 123, 127, 161, 183, 229, 256, 272, 275]);
 const interestingTriggers = new Set([0x0036, 0x400f, 0x4023, 0x4030, 0x4034, 0x4035, 0x40d1, 0x40ef]);
 let execCount = 0;
 let holdCount = 0;
 let triggerCount = 0;
 let actionQueueTraceCount = 0;
 let cutsceneTraceCount = 0;
+let aiBaseTraceCount = 0;
+let spriteAiTraceCount = 0;
+let resolveTraceCount = 0;
+let pauseTraceCount = 0;
+let soundTraceCount = 0;
+let songTraceCount = 0;
+let areaTraceCount = 0;
+let waitForEngineTraceCount = 0;
+let progressPollTraceCount = 0;
 const cutsceneObjects = new Set();
+let knownObjectGame = ptr(0);
+let knownWorldTimer = ptr(0);
+let knownScreenWorld = ptr(0);
 let activeChapter = ptr(0);
+let chapterStopSeen = false;
+let activeDialogueThis = ptr(0);
+let activeDialogueTarget = ptr(0);
+let activeDialogAnimType = ptr(0);
+const calcFxHooks = {{}};
 let originalDriver = {{
   connTicks: 0,
   connReadyAt: 0,
@@ -1235,9 +1754,37 @@ for (const name of [
 
 hook('CChitin::SelectEngine', {{
   onEnter(args) {{
-    send({{ tag: 'CChitin::SelectEngine', this: this.context.ecx.toString(), engine: args[0].toString() }});
+    send({{ tag: 'CChitin::SelectEngine', this: this.context.ecx.toString(), engine: args[0].toString(), chitin: chitinInfo() }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CChitin::SelectEngine.ret', chitin: chitinInfo() }});
   }}
 }});
+
+hook('CBaldurEngine::SelectEngine', {{
+  onEnter(args) {{
+    send({{ tag: 'CBaldurEngine::SelectEngine', this: this.context.ecx.toString(), engine: args[0].toString(), chitin: chitinInfo() }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CBaldurEngine::SelectEngine.ret', chitin: chitinInfo() }});
+  }}
+}});
+
+if (isRe) {{
+  hook('CInfGame::WaitForEngine', {{
+    onEnter(args) {{
+      if (waitForEngineTraceCount >= 120) return;
+      waitForEngineTraceCount++;
+      this.traced = true;
+      this.before = {{ world: worldInfo(), chitin: chitinInfo() }};
+      send({{ tag: 'CInfGame.WaitForEngine', this: this.context.ecx.toString(), waitDisplayStale: args[0].toInt32(), before: this.before }});
+    }},
+    onLeave(rv) {{
+      if (!this.traced) return;
+      send({{ tag: 'CInfGame.WaitForEngine.ret', before: this.before, after: {{ world: worldInfo(), chitin: chitinInfo() }} }});
+    }}
+  }});
+}}
 
 hook('CChitin::AsynchronousUpdate', {{
   onEnter(args) {{
@@ -1269,6 +1816,300 @@ hook('CGameAIBase::ExecuteAction', {{
     if (interestingActions.has(this.aid) || cutsceneObjects.has(this.obj)) {{
       send({{ tag: 'ExecuteAction.ret', aid: this.aid, ret: s16(rv.toInt32()) }});
     }}
+  }}
+}});
+
+hook('CGameAIBase::ProcessAI', {{
+  onEnter(args) {{
+    const thiz = this.context.ecx;
+    const info = spriteInfo(thiz);
+    if (aiBaseTraceCount < 260 && (interestingActions.has(info.aid) || cutsceneObjects.has(info.obj) || info.cut !== 0)) {{
+      aiBaseTraceCount++;
+      send({{ tag: 'AIBase.ProcessAI', this: thiz.toString(), info, world: worldInfo() }});
+    }}
+  }}
+}});
+
+hook('CGameSprite::ExecuteAction', {{
+  onEnter(args) {{
+    const thiz = this.context.ecx;
+    this.info = spriteInfo(thiz);
+    if (interestingActions.has(this.info.aid) || cutsceneObjects.has(this.info.obj)) {{
+      send({{
+        tag: 'Sprite.ExecuteAction',
+        this: thiz.toString(),
+        info: this.info,
+        s1: actionString1(thiz),
+        world: worldInfo(),
+      }});
+    }}
+  }},
+  onLeave(rv) {{
+    if (this.info && (interestingActions.has(this.info.aid) || cutsceneObjects.has(this.info.obj))) {{
+      send({{ tag: 'Sprite.ExecuteAction.ret', info: this.info, ret: s16(rv.toInt32()), world: worldInfo() }});
+    }}
+  }}
+}});
+
+hook('CGameSprite::ProcessAI', {{
+  onEnter(args) {{
+    const thiz = this.context.ecx;
+    const info = spriteInfo(thiz);
+    if (spriteAiTraceCount < 220 && (interestingActions.has(info.aid) || cutsceneObjects.has(info.obj) || info.cut !== 0)) {{
+      spriteAiTraceCount++;
+      send({{ tag: 'Sprite.ProcessAI', this: thiz.toString(), info, world: worldInfo() }});
+    }}
+  }}
+}});
+
+hook('CGameSprite::ResolveInstants', {{
+  onEnter(args) {{
+    const thiz = this.context.ecx;
+    this.thiz = thiz;
+    this.info = spriteInfo(thiz);
+    if (resolveTraceCount < 220 && (interestingActions.has(this.info.aid) || cutsceneObjects.has(this.info.obj) || this.info.cut !== 0)) {{
+      resolveTraceCount++;
+      send({{
+        tag: 'Sprite.ResolveInstants',
+        this: thiz.toString(),
+        info: this.info,
+        dropNonInstants: args[0].toInt32(),
+        world: worldInfo(),
+      }});
+    }}
+  }},
+  onLeave(rv) {{
+    if (this.info && resolveTraceCount < 240 && (interestingActions.has(this.info.aid) || cutsceneObjects.has(this.info.obj) || this.info.cut !== 0)) {{
+      resolveTraceCount++;
+      send({{ tag: 'Sprite.ResolveInstants.ret', before: this.info, after: spriteInfo(this.thiz), world: worldInfo() }});
+    }}
+  }}
+}});
+
+hook('CScreenWorld::TogglePauseGame', {{
+  onEnter(args) {{
+    if (pauseTraceCount >= 80) return;
+    pauseTraceCount++;
+    this.traced = true;
+    knownScreenWorld = this.context.ecx;
+    this.before = worldInfo();
+    send({{
+      tag: 'World.TogglePauseGame',
+      this: this.context.ecx.toString(),
+      a2: args[0].toInt32() & 0xff,
+      a3: args[1].toInt32() & 0xff,
+      a4: args[2].toInt32(),
+      before: this.before,
+    }});
+  }},
+  onLeave(rv) {{
+    if (!this.traced) return;
+    send({{ tag: 'World.TogglePauseGame.ret', ret: rv.toInt32(), before: this.before, after: worldInfo() }});
+  }}
+}});
+
+for (const name of ['CGameArea::OnActivation', 'CGameArea::OnDeactivation']) {{
+  hook(name, {{
+    onEnter(args) {{
+      const area = this.context.ecx;
+      this.area = area;
+      send({{ tag: name, info: areaInfo(area) }});
+    }},
+    onLeave(rv) {{
+      send({{ tag: name + '.ret', info: areaInfo(this.area) }});
+    }}
+  }});
+}}
+
+hook('CGameArea::AIUpdate', {{
+  onEnter(args) {{
+    const area = this.context.ecx;
+    this.area = area;
+    const info = areaInfo(area);
+    if (areaTraceCount < 160 && (chapterStopSeen || info.firstRender > 0)) {{
+      areaTraceCount++;
+      this.traced = true;
+      send({{ tag: 'CGameArea.AIUpdate', info }});
+    }}
+  }},
+  onLeave(rv) {{
+    if (!this.traced) return;
+    send({{ tag: 'CGameArea.AIUpdate.ret', info: areaInfo(this.area) }});
+  }}
+}});
+
+hook('CGameArea::Render', {{
+  onEnter(args) {{
+    const area = this.context.ecx;
+    this.area = area;
+    const info = areaInfo(area);
+    if (areaTraceCount < 220 && (chapterStopSeen || info.firstRender > 0)) {{
+      areaTraceCount++;
+      this.traced = true;
+      send({{ tag: 'CGameArea.Render', info }});
+    }}
+  }},
+  onLeave(rv) {{
+    if (!this.traced) return;
+    send({{ tag: 'CGameArea.Render.ret', info: areaInfo(this.area) }});
+  }}
+}});
+
+for (const name of ['CTimerWorld::StartTime', 'CTimerWorld::StopTime']) {{
+  hook(name, {{
+    onEnter(args) {{
+      knownWorldTimer = this.context.ecx;
+      this.before = worldInfo();
+      send({{ tag: name, this: knownWorldTimer.toString(), caller: this.returnAddress.toString(), before: this.before }});
+    }},
+    onLeave(rv) {{
+      send({{ tag: name + '.ret', after: worldInfo() }});
+    }}
+  }});
+}}
+
+hook('CScreenWorld::CheckEndOfHardPause', {{
+  onEnter(args) {{
+    knownScreenWorld = this.context.ecx;
+    this.before = worldInfo();
+    send({{ tag: 'World.CheckEndOfHardPause', this: knownScreenWorld.toString(), before: this.before, network: networkInfo() }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'World.CheckEndOfHardPause.ret', before: this.before, after: worldInfo(), network: networkInfo() }});
+  }}
+}});
+
+hook('CScreenChapter::StopText', {{
+  onEnter(args) {{
+    chapterStopSeen = true;
+    activeChapter = this.context.ecx;
+    this.before = worldInfo();
+    send({{ tag: 'Chapter.StopText', this: activeChapter.toString(), notifyServer: args[0].toInt32(), before: this.before, network: networkInfo() }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'Chapter.StopText.ret', after: worldInfo(), network: networkInfo() }});
+  }}
+}});
+
+hook('CBaldurMessage::RequestClientSignal', {{
+  onEnter(args) {{
+    this.info = {{ signal: args[0].toInt32() & 0xff, world: worldInfo(), network: networkInfo() }};
+    send({{ tag: 'Message.RequestClientSignal', info: this.info }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'Message.RequestClientSignal.ret', info: this.info, ret: rv.toInt32() }});
+  }}
+}});
+
+hook('CBaldurMessage::OnRequestClientSignal', {{
+  onEnter(args) {{
+    send({{
+      tag: 'Message.OnRequestClientSignal',
+      from: args[0].toInt32(),
+      size: args[2].toInt32(),
+      payload: requestSignalPayload(args[1]),
+      world: worldInfo(),
+      network: networkInfo(),
+    }});
+  }}
+}});
+
+hook('CBaldurMessage::SendSignal', {{
+  onEnter(args) {{
+    this.info = {{
+      signalType: args[0].toInt32() & 0xff,
+      signal: args[1].toInt32() & 0xff,
+      world: worldInfo(),
+      network: networkInfo(),
+    }};
+    send({{ tag: 'Message.SendSignal', info: this.info }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'Message.SendSignal.ret', info: this.info, ret: rv.toInt32() }});
+  }}
+}});
+
+hook('CBaldurMessage::OnSignal', {{
+  onEnter(args) {{
+    send({{
+      tag: 'Message.OnSignal',
+      from: args[0].toInt32(),
+      size: args[2].toInt32(),
+      payload: signalPayload(args[1]),
+      world: worldInfo(),
+      network: networkInfo(),
+    }});
+  }}
+}});
+
+hook('CBaldurMessage::NonBlockingWaitForSignal', {{
+  onEnter(args) {{
+    this.info = {{
+      signalType: args[0].toInt32() & 0xff,
+      waitFor: args[1].toInt32() & 0xff,
+      world: worldInfo(),
+      network: networkInfo(),
+    }};
+    send({{ tag: 'Message.NonBlockingWaitForSignal', info: this.info }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'Message.NonBlockingWaitForSignal.ret', info: this.info, ret: rv.toInt32(), world: worldInfo() }});
+  }}
+}});
+
+hook('CBaldurMessage::SendProgressBarStatus', {{
+  onEnter(args) {{
+    send({{
+      tag: 'Message.SendProgressBarStatus',
+      actionProgress: args[0].toInt32(),
+      actionTarget: args[1].toInt32(),
+      waiting: args[2].toInt32() & 0xff,
+      waitingReason: args[3].toInt32(),
+      timeoutVisible: args[4].toInt32() & 0xff,
+      secondsToTimeout: args[5].toInt32(),
+      world: worldInfo(),
+    }});
+  }}
+}});
+
+if (isRe) {{
+  hook('CBaldurMessage::PollSpecificMessageType', {{
+    onEnter(args) {{
+      this.type = args[0].toInt32() & 0xff;
+      this.subtype = args[1].toInt32() & 0xff;
+      this.fromPtr = args[2];
+      this.sizePtr = args[3];
+      this.trace = (this.type === 66 && this.subtype === 83 && progressPollTraceCount < 220);
+    }},
+    onLeave(rv) {{
+      if (!this.trace) return;
+      progressPollTraceCount++;
+      const p = rv;
+      let payload = null;
+      if (!p.isNull()) {{
+        payload = progressBarPayload(p);
+      }}
+      send({{
+        tag: 'Message.PollProgressBarStatus.ret',
+        ptr: p.toString(),
+        from: this.fromPtr.readS32(),
+        size: this.sizePtr.readU32(),
+        payload,
+        world: worldInfo(),
+      }});
+    }}
+  }});
+}}
+
+hook('CBaldurMessage::OnProgressBarStatus', {{
+  onEnter(args) {{
+    send({{
+      tag: 'Message.OnProgressBarStatus',
+      from: args[0].toInt32(),
+      size: args[2].toInt32(),
+      payload: progressBarPayload(args[1]),
+      world: worldInfo(),
+    }});
   }}
 }});
 
@@ -1454,7 +2295,11 @@ hook('CScreenSinglePlayer::OnPartySelectionDoneButtonClick', {{
 
 hook('CScreenSinglePlayer::OnMainDoneButtonClick', {{
   onEnter(args) {{
-    send({{ tag: 'SinglePlayer.OnMainDoneButtonClick', this: this.context.ecx.toString() }});
+    this.thiz = this.context.ecx;
+    send({{ tag: 'SinglePlayer.OnMainDoneButtonClick', this: this.thiz.toString(), chitin: chitinInfo(), world: worldInfo() }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'SinglePlayer.OnMainDoneButtonClick.ret', this: this.thiz.toString(), chitin: chitinInfo(), world: worldInfo() }});
   }}
 }});
 
@@ -1508,8 +2353,9 @@ hook('CScreenChapter::OnDoneButtonClick', {{
 hook('CSoundMixer::StartSong', {{
   onEnter(args) {{
     const song = args[0].toInt32();
-    if (song === -1 || song === 41 || song === 42) {{
-      send({{ tag: 'SoundMixer.StartSong', song, flags: args[1].toInt32() }});
+    if (songTraceCount < 80) {{
+      songTraceCount++;
+      send({{ tag: 'SoundMixer.StartSong', song, flags: args[1].toInt32(), caller: this.returnAddress.toString(), world: worldInfo() }});
     }}
   }}
 }});
@@ -1517,10 +2363,15 @@ hook('CSoundMixer::StartSong', {{
 hook('CSound::Play', {{
   onEnter(args) {{
     const thiz = this.context.ecx;
+    const resref = resRefString(thiz.add(0x0c));
+    if (soundTraceCount < 160) {{
+      soundTraceCount++;
+      send({{ tag: 'Sound.Play', this: thiz.toString(), resref, replay: args[0].toInt32(), world: worldInfo() }});
+    }}
     if (!activeChapter.isNull()) {{
       const delta = thiz.toUInt32() - activeChapter.toUInt32();
       if (delta >= 0x140 && delta < 0x1d0) {{
-        send({{ tag: 'Chapter.VoiceSound.Play', this: thiz.toString(), delta, resref: resRefString(thiz.add(0x0c)), replay: args[0].toInt32() }});
+        send({{ tag: 'Chapter.VoiceSound.Play', this: thiz.toString(), delta, resref, replay: args[0].toInt32(), world: worldInfo() }});
       }}
     }}
   }}
@@ -1539,14 +2390,123 @@ hook('CGameAIBase::StartCutScene', {{
 for (const name of ['CGameDialogSprite::StartDialog', 'CGameSprite::Dialogue', 'CScreenWorld::StartDialog']) {{
   hook(name, {{
     onEnter(args) {{
-      send({{ tag: name, this: this.context.ecx.toString(), a0: args[0].toString(), a1: args[1].toString() }});
+      this.name = name;
+      if (name === 'CScreenWorld::StartDialog') {{
+        knownScreenWorld = this.context.ecx;
+      }}
+      if (name === 'CGameSprite::Dialogue') {{
+        activeDialogueThis = this.context.ecx;
+        activeDialogueTarget = args[0];
+        send({{
+          tag: name,
+          this: this.context.ecx.toString(),
+          a0: args[0].toString(),
+          info: spriteSpeechInfo(this.context.ecx),
+          targetInfo: spriteSpeechInfo(args[0]),
+          world: worldInfo(),
+        }});
+      }} else {{
+        send({{ tag: name, this: this.context.ecx.toString(), a0: args[0].toString(), a1: args[1].toString() }});
+      }}
+    }},
+    onLeave(rv) {{
+      send({{ tag: this.name + '.ret', ret: s16(rv.toInt32()), world: worldInfo() }});
+      if (this.name === 'CGameSprite::Dialogue') {{
+        activeDialogueThis = ptr(0);
+        activeDialogueTarget = ptr(0);
+      }}
     }}
   }});
 }}
 
+hook('CScreenWorld::StartScroll', {{
+  onEnter(args) {{
+    knownScreenWorld = this.context.ecx;
+    send({{
+      tag: 'CScreenWorld.StartScroll',
+      this: knownScreenWorld.toString(),
+      dest: {{ x: args[0].toInt32(), y: args[1].toInt32() }},
+      speed: s16(args[2].toInt32()),
+      caller: this.returnAddress.toString(),
+      world: worldInfo(),
+    }});
+  }}
+}});
+
+hook('CGameSprite::CanSpeak', {{
+  onEnter(args) {{
+    this.thiz = this.context.ecx;
+    this.ignoreDeath = args[0].toInt32();
+    this.ignoreSilence = args[1].toInt32();
+    this.shouldLog = !activeDialogueThis.isNull()
+      && (this.thiz.equals(activeDialogueThis) || this.thiz.equals(activeDialogueTarget));
+  }},
+  onLeave(rv) {{
+    if (this.shouldLog) {{
+      send({{
+        tag: 'CGameSprite::CanSpeak.ret',
+        this: this.thiz.toString(),
+        ignoreDeath: this.ignoreDeath,
+        ignoreSilence: this.ignoreSilence,
+        ret: rv.toInt32(),
+        info: spriteSpeechInfo(this.thiz),
+        world: worldInfo(),
+      }});
+    }}
+  }}
+}});
+
+hook('CGameSprite::MoveToObject', {{
+  onEnter(args) {{
+    this.thiz = this.context.ecx;
+    this.target = args[0];
+    send({{ tag: 'CGameSprite::MoveToObject', this: this.thiz.toString(), target: this.target.toString(), info: spriteInfo(this.thiz), world: worldInfo() }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CGameSprite::MoveToObject.ret', ret: s16(rv.toInt32()), info: spriteInfo(this.thiz), world: worldInfo() }});
+  }}
+}});
+
 hook('CMessageEnterDialog::Run', {{
   onEnter(args) {{
     send({{ tag: 'Message.EnterDialog.Run', this: this.context.ecx.toString() }});
+  }}
+}});
+
+hook('CMessageExitDialogMode::Run', {{
+  onEnter(args) {{
+    const msg = this.context.ecx;
+    send({{
+      tag: 'Message.ExitDialogMode.Run',
+      this: msg.toString(),
+      target: msg.add(0x04).readS32(),
+      source: msg.add(0x08).readS32(),
+      buttonPushed: msg.add(0x0c).readU8(),
+      world: worldInfo(),
+    }});
+  }}
+}});
+
+hook('CScreenWorld::EndDialog', {{
+  onEnter(args) {{
+    knownScreenWorld = this.context.ecx;
+    this.before = worldInfo();
+    send({{
+      tag: 'CScreenWorld.EndDialog',
+      this: knownScreenWorld.toString(),
+      force: args[0].toInt32() & 0xff,
+      fullEnd: args[1].toInt32() & 0xff,
+      before: this.before,
+    }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CScreenWorld.EndDialog.ret', before: this.before, after: worldInfo() }});
+  }}
+}});
+
+hook('CGameDialogSprite::EndDialog', {{
+  onEnter(args) {{
+    send({{ tag: 'CGameDialogSprite.EndDialog', this: this.context.ecx.toString(), world: worldInfo() }});
   }}
 }});
 
@@ -1563,7 +2523,16 @@ hook('CGameDialogSprite::EnterDialog', {{
 hook('CGameDialogEntry::Handle', {{
   onEnter(args) {{
     const thiz = this.context.ecx;
-    send({{ tag: 'Dialog.Entry.Handle', this: thiz.toString(), text: thiz.add(0x14).readU32(), replyCount: thiz.add(0x08).readS32(), sprite: args[0].toString() }});
+    const sprite = args[0];
+    send({{
+      tag: 'Dialog.Entry.Handle',
+      this: thiz.toString(),
+      text: thiz.add(0x14).readU32(),
+      replyCount: thiz.add(0x08).readS32(),
+      sprite: sprite.toString(),
+      spriteInfo: spriteSpeechInfo(sprite),
+      calcFxHook: hookCalculateFxRectForDialogSprite(sprite),
+    }});
   }}
 }});
 
@@ -1574,15 +2543,105 @@ hook('CGameDialogReply::Apply', {{
   }}
 }});
 
+hook('CBaldurMessage::DisplayText', {{
+  onEnter(args) {{
+    this.info = {{
+      name: shortText(safeCString(args[0])),
+      text: shortText(safeCString(args[1])),
+      nameColor: args[2].toUInt32(),
+      textColor: args[3].toUInt32(),
+      marker: args[4].toInt32(),
+      caller: args[5].toInt32(),
+      target: args[6].toInt32(),
+      world: worldInfo(),
+    }};
+    send({{ tag: 'Message.DisplayText', info: this.info }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'Message.DisplayText.ret', info: this.info, ret: rv.toInt32() }});
+  }}
+}});
+
+hook('CBaldurMessage::DisplayTextRef', {{
+  onEnter(args) {{
+    this.info = {{
+      name: args[0].toInt32(),
+      text: args[1].toInt32(),
+      nameColor: args[2].toUInt32(),
+      textColor: args[3].toUInt32(),
+      marker: args[4].toInt32(),
+      caller: args[5].toInt32(),
+      target: args[6].toInt32(),
+      world: worldInfo(),
+    }};
+    send({{ tag: 'Message.DisplayTextRef', info: this.info }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'Message.DisplayTextRef.ret', info: this.info, ret: rv.toInt32() }});
+  }}
+}});
+
+hook('CMessageDisplayText::Run', {{
+  onEnter(args) {{
+    const msg = this.context.ecx;
+    send({{ tag: 'Message.DisplayText.Run', this: msg.toString(), info: displayTextMessageInfo(msg), world: worldInfo() }});
+  }}
+}});
+
+for (const name of ['CMessageDisplayTextRef::Run', 'CMessageDisplayTextRefSend::Run']) {{
+  hook(name, {{
+    onEnter(args) {{
+      const msg = this.context.ecx;
+      send({{ tag: name.replace('CMessage', 'Message.').replace('::', '.'), this: msg.toString(), info: displayTextRefMessageInfo(msg), world: worldInfo() }});
+    }}
+  }});
+}}
+
+hook('CScreenWorld::DisplayTextColored', {{
+  onEnter(args) {{
+    knownScreenWorld = this.context.ecx;
+    this.info = {{
+      name: shortText(safeCString(args[0])),
+      text: shortText(safeCString(args[1])),
+      nameColor: args[2].toUInt32(),
+      textColor: args[3].toUInt32(),
+      marker: args[4].toInt32(),
+      moveToTop: args[5].toInt32() & 0xff,
+      world: worldInfo(),
+    }};
+    send({{ tag: 'CScreenWorld.DisplayTextColored', this: knownScreenWorld.toString(), info: this.info }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CScreenWorld.DisplayTextColored.ret', info: this.info, ret: rv.toString(), world: worldInfo() }});
+  }}
+}});
+
+hook('CScreenWorld::DisplayTextSimple', {{
+  onEnter(args) {{
+    knownScreenWorld = this.context.ecx;
+    this.info = {{
+      name: shortText(safeCString(args[0])),
+      text: shortText(safeCString(args[1])),
+      marker: args[2].toInt32(),
+      moveToTop: args[3].toInt32() & 0xff,
+      world: worldInfo(),
+    }};
+    send({{ tag: 'CScreenWorld.DisplayTextSimple', this: knownScreenWorld.toString(), info: this.info }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CScreenWorld.DisplayTextSimple.ret', info: this.info, ret: rv.toString(), world: worldInfo() }});
+  }}
+}});
+
 hook('CGameJournal::AddEntry2', {{
   onEnter(args) {{
-    send({{ tag: 'Journal.AddEntry2', strref: args[0].toInt32(), type: args[1].toInt32() }});
+    send({{ tag: 'Journal.AddEntry2', strref: args[0].toInt32(), type: args[1].toInt32(), caller: this.returnAddress.toString() }});
   }}
 }});
 
 hook('CGameJournal::AddEntry4', {{
   onEnter(args) {{
-    send({{ tag: 'Journal.AddEntry4', strref: args[0].toInt32(), time: args[1].toInt32(), type: args[2].toInt32(), character: args[3].toInt32() }});
+    send({{ tag: 'Journal.AddEntry4', strref: args[0].toInt32(), time: args[1].toInt32(), type: args[2].toInt32(), character: args[3].toInt32(), caller: this.returnAddress.toString() }});
   }}
 }});
 
@@ -1606,12 +2665,14 @@ hook('CInfGame::SetCurrentChapter', {{
 
 hook('CInfGame::NewGame', {{
   onEnter(args) {{
+    knownObjectGame = this.context.ecx;
     send({{ tag: 'NewGame', progressRequired: args[0].toInt32(), progressInPlace: args[1].toInt32() }});
   }}
 }});
 
 hook('CInfGame::SaveGame', {{
   onEnter(args) {{
+    knownObjectGame = this.context.ecx;
     send({{ tag: 'SaveGame', a0: args[0].toInt32(), a1: args[1].toInt32(), a2: args[2].toInt32() }});
   }},
   onLeave(rv) {{
@@ -1627,12 +2688,14 @@ hook('CMessageSaveGame::Run', {{
 
 hook('CInfGame::LoadGame', {{
   onEnter(args) {{
+    knownObjectGame = this.context.ecx;
     send({{ tag: 'LoadGame', a0: args[0].toInt32(), a1: args[1].toInt32() }});
   }}
 }});
 
 hook('CInfGame::Unmarshal', {{
   onEnter(args) {{
+    knownObjectGame = this.context.ecx;
     send({{ tag: 'UnmarshalGame', size: args[1].toInt32(), a2: args[2].toInt32() }});
   }},
   onLeave(rv) {{
@@ -1667,6 +2730,7 @@ def main() -> int:
     LOG.write_text("", encoding="utf-8")
     party_index = resolve_party(ns.party)
     hooks = resolve_re_hooks_from_map() if ns.mode == "re" else ORIG_HOOKS
+    globals_ = resolve_re_globals_from_map() if ns.mode == "re" else ORIG_GLOBALS
 
     proc = None
     result_path = None
@@ -1686,6 +2750,15 @@ def main() -> int:
     state = {
         "dialog_seen": False,
         "dialog_ready_seen": False,
+        "dialog_exit_seen": False,
+        "dialog_exit_time": 0.0,
+        "dialog_entry_serial": 0,
+        "last_dialog_text": 0,
+        "last_dialog_reply_count": 0,
+        "post_dialog_save_seen": False,
+        "post_dialog_paused_for_saving_seen": False,
+        "post_dialog_paused_seen": False,
+        "post_dialog_unpaused_seen": False,
         "keys_sent": False,
         "new_game_seen": False,
         "load_game_seen": False,
@@ -1726,6 +2799,24 @@ def main() -> int:
             set_state(dialog_seen=True)
         if tag in {"Dialog.Entry.Handle", "Dialog.EnterDialog.ret"}:
             set_state(dialog_seen=True, dialog_ready_seen=True)
+        if tag == "Dialog.Entry.Handle":
+            with state_lock:
+                state["dialog_entry_serial"] = int(state.get("dialog_entry_serial", 0) or 0) + 1
+                state["last_dialog_text"] = int(payload.get("text", 0) or 0)
+                state["last_dialog_reply_count"] = int(payload.get("replyCount", 0) or 0)
+        if tag in {"Message.ExitDialogMode.Run", "CScreenWorld.EndDialog.ret", "CGameDialogSprite.EndDialog"}:
+            set_state(dialog_exit_seen=True, dialog_exit_time=time.time())
+        if state_value("dialog_exit_seen") and tag == "SaveGame.ret":
+            set_state(post_dialog_save_seen=True)
+        if state_value("dialog_exit_seen") and tag == "CScreenWorld.DisplayTextColored":
+            info = payload.get("info", {})
+            text = info.get("text") if isinstance(info, dict) else None
+            if text == "Paused for saving game":
+                set_state(post_dialog_paused_for_saving_seen=True)
+            elif text == "PAUSED":
+                set_state(post_dialog_paused_seen=True)
+            elif text == "UNPAUSED":
+                set_state(post_dialog_unpaused_seen=True)
         if tag == "Driver.original.active-screen":
             set_state(active_screen=payload.get("screen", ""))
         if tag == "Movie.PlayMovieInternal":
@@ -1753,6 +2844,11 @@ def main() -> int:
             or tag.startswith("Chapter.")
             or tag.startswith("AI.")
             or tag.startswith("Message.")
+            or tag.startswith("Sprite.")
+            or tag.startswith("World.")
+            or tag.startswith("CScreenWorld.")
+            or tag.startswith("CGameDialogSprite.")
+            or tag.startswith("CTimerWorld::")
             or tag.startswith("CScreenChapter::")
             or tag.startswith("CScreenConnection::")
             or tag.startswith("SoundMixer.")
@@ -1769,7 +2865,7 @@ def main() -> int:
 
     if ns.mode == "re":
         print(f"resolved_re_hooks={len(hooks)} map={MAP_FILE}", flush=True)
-    script = session.create_script(make_js(ns.mode, party_index, ns.auto_chapter, hooks))
+    script = session.create_script(make_js(ns.mode, party_index, ns.auto_chapter, hooks, globals_))
     script.on("message", on_message)
     script.load()
     if spawned:
@@ -1803,10 +2899,17 @@ def main() -> int:
                 args=(pid, ns.timeout, state, state_lock, emit_driver),
                 daemon=True,
             ).start()
+    if ns.auto_dialog:
+        threading.Thread(
+            target=auto_intro_dialog_driver,
+            args=(pid, ns.timeout, state, state_lock, emit_driver),
+            daemon=True,
+        ).start()
 
     deadline = time.time() + ns.timeout
     status = 1
     loaded_reported = False
+    loaded_ok = False
     try:
         while time.time() < deadline:
             if proc is not None and proc.poll() is not None:
@@ -1815,15 +2918,27 @@ def main() -> int:
             if result_path is not None and result_path.exists() and not loaded_reported:
                 result = read_result(result_path)
                 print(f"{result.get('status', 'unknown')}: {result.get('detail', '')}", flush=True)
-                status = 0 if result.get("status") == "loaded" else 1
+                loaded_ok = result.get("status") == "loaded"
+                if not loaded_ok:
+                    status = 1
                 loaded_reported = True
-            if ns.mode == "original" and state_value("new_game_seen") and state_value("chapter_seen"):
+            if ns.auto_dialog:
+                if (
+                    state_value("keys_sent")
+                    and state_value("dialog_exit_seen")
+                    and state_value("post_dialog_save_seen")
+                    and state_value("post_dialog_paused_for_saving_seen")
+                    and state_value("post_dialog_paused_seen")
+                    and state_value("post_dialog_unpaused_seen")
+                ):
+                    status = 0
+            elif ns.mode == "re":
+                if loaded_ok:
+                    status = 0
+            elif ns.mode == "original" and state_value("new_game_seen") and state_value("chapter_seen"):
                 if state_value("dialog_seen") or not ns.auto_chapter:
                     status = 0
-            if ns.auto_dialog and state_value("dialog_ready_seen") and not state_value("keys_sent"):
-                set_state(keys_sent=True)
-                send_intro_dialog_replies(pid)
-            if status == 0 and (not ns.auto_dialog or state_value("keys_sent")):
+            if status == 0:
                 break
             time.sleep(0.25)
     finally:

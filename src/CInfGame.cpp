@@ -1985,26 +1985,66 @@ BOOL CInfGame::BackupQuickSave()
 }
 
 // 0x5AC430
-BOOL CInfGame::SaveGame(unsigned char a1, unsigned char a2, unsigned char a3)
+BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgressBarInPlace, unsigned char bSaveScreen)
 {
     BYTE* pGame = NULL;
     DWORD nGame = 0;
+    const BOOLEAN bProgressBar = bProgressBarRequired || bProgressBarInPlace;
 
-    Marshal(&pGame, &nGame, a1 || a2 || a3);
-    if (pGame == NULL || nGame == 0) {
-        return FALSE;
+    for (BYTE nArea = 0; nArea < CINFGAME_MAX_AREAS; nArea++) {
+        if (m_gameAreas[nArea] != NULL) {
+            m_gameAreas[nArea]->SaveMusicPosition();
+        }
     }
 
-    CGameFile cGameFile;
-    cGameFile.SetResRef(CResRef("ICEWIND2"), FALSE, TRUE);
+    const BOOLEAN bMultiplayerHostSave = g_pChitin->cNetwork.GetSessionOpen() == TRUE
+        && g_pBaldurChitin->m_pEngineMultiPlayer != NULL
+        && g_pBaldurChitin->m_pEngineMultiPlayer->m_bMultiplayerStartup == FALSE;
 
+    if (bMultiplayerHostSave) {
+        g_pBaldurChitin->m_pEngineWorld->StartSaveGameMultiplayerHost();
+        g_pBaldurChitin->GetBaldurMessage()->UpdateDemandCharacters(TRUE,
+            0,
+            bProgressBar);
+        g_pBaldurChitin->GetBaldurMessage()->PurgeDroppedPlayers();
+        g_pBaldurChitin->GetBaldurMessage()->BroadcastUpdateCharacterSlot(TRUE,
+            0,
+            bProgressBar);
+        g_pBaldurChitin->GetBaldurMessage()->RequestClientSignal(CBaldurMessage::SIGNAL_END_MAJOR_EVENT);
+    }
+
+    if (bSaveScreen != FALSE) {
+        m_bSaveScreen = TRUE;
+    }
+
+    Icewind586B70::Instance()->SaveSummonLinks();
+
+    // TODO INCOMPLETE: 0x5AC430 also drives disk-space failure shutdown,
+    // progress-bar target accounting, area/store resource writes, and temp-save
+    // directory staging. The recovered path below keeps the multiplayer
+    // hard-pause/signaling behavior and existing game marshal/write flow.
+    for (BYTE nStore = 0; nStore < CINFGAME_MAX_AREAS; nStore++) {
+        if (m_aServerStore[nStore] != NULL) {
+            m_aServerStore[nStore]->Marshal(m_sTempDir);
+        }
+    }
+
+    Marshal(&pGame, &nGame, bProgressBar);
     BOOL bResult = FALSE;
-    CRes* pRes = static_cast<CRes*>(cGameFile.GetRes());
-    if (pRes != NULL) {
-        bResult = pRes->Write(m_sTempDir, pGame, nGame);
+
+    if (pGame != NULL && nGame != 0) {
+        CGameFile cGameFile;
+        cGameFile.SetResRef(CResRef("ICEWIND2"), FALSE, TRUE);
+
+        CRes* pRes = static_cast<CRes*>(cGameFile.GetRes());
+        if (pRes != NULL) {
+            bResult = pRes->Write(m_sTempDir, pGame, nGame);
+        }
     }
 
-    delete[] pGame;
+    if (pGame != NULL) {
+        delete[] pGame;
+    }
 
     g_pBaldurChitin->GetTlkTable().m_override.Save();
     g_pBaldurChitin->GetTlkTable().m_override.CloseFiles();
@@ -2022,7 +2062,24 @@ BOOL CInfGame::SaveGame(unsigned char a1, unsigned char a2, unsigned char a3)
     g_pChitin->cDimm.m_cKeyTable.RescanEverything();
     LeaveCriticalSection(&(g_pChitin->m_critSectDimm));
 
+    SaveOptions();
+    g_pBaldurChitin->SaveOptions();
+
     m_nLastSaveTime = m_worldTime.m_gameTime;
+
+    if (bMultiplayerHostSave) {
+        while (g_pBaldurChitin->m_pEngineWorld->m_bHardPaused == TRUE
+            && g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
+            g_pBaldurChitin->m_pEngineWorld->CheckEndOfHardPause();
+            g_pBaldurChitin->GetBaldurMessage()->HandleBlockingMessages();
+            g_pChitin->m_bDisplayStale = TRUE;
+            SleepEx(60, FALSE);
+        }
+
+        if (g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
+            g_pBaldurChitin->m_cCachingStatus.InvalidateScreen();
+        }
+    }
 
     return bResult;
 }
@@ -2325,7 +2382,7 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
 
                 if (memcmp(pCreData, "CRE V2.2", 8) == 0) {
                     CGameSprite* pSprite = new CGameSprite(pCreData, creSize, 0,
-                        CGameObject::TYPE_SPRITE, -1, 0, 0, 0,
+                        0, -1, 0, 0, INT_MAX,
                         CPoint(posX, posY), facing);
 
                     if (pSprite != NULL && pSprite->m_id != CGameObjectArray::INVALID_INDEX) {

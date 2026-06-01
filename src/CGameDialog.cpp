@@ -877,11 +877,13 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
     strRes.cSound.SetChannel(6,
         reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
-    if (strRes.cSound.m_nLooping == 0) {
-        strRes.cSound.SetFireForget(TRUE);
+    if (strRes.cSound.GetRes() != NULL) {
+        if (strRes.cSound.m_nLooping == 0) {
+            strRes.cSound.SetFireForget(TRUE);
+        }
+        SleepEx(10, 0);
+        strRes.cSound.Play(FALSE);
     }
-    SleepEx(10, 0);
-    strRes.cSound.Play(FALSE);
 
     g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
         CString(""),
@@ -941,11 +943,22 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
         LONG dx = nCurrentX - ptScroll.x;
         LONG dy = nCurrentY - ptScroll.y;
         const LONG DIALOG_JUMP_CUT_OFF = 0x77A11;
+        const SHORT DIALOG_SCROLL_SPEED = 0x10;
         g_pBaldurChitin->m_pEngineWorld->StartScroll(ptScroll,
-            dx * dx + dy * dy < DIALOG_JUMP_CUT_OFF ? 5 : 0);
+            dx * dx + dy * dy < DIALOG_JUMP_CUT_OFF ? DIALOG_SCROLL_SPEED : 0);
     }
 
     // TODO: pause-mode SetMessageScreen overlay (binary 0x484c00..0x484c50).
+
+    strRes.cSound.SetChannel(6,
+        reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
+    if (strRes.cSound.GetRes() != NULL) {
+        if (strRes.cSound.m_nLooping == 0) {
+            strRes.cSound.SetFireForget(TRUE);
+        }
+        SleepEx(10, 0);
+        strRes.cSound.Play(FALSE);
+    }
 
     // Binary 0x485070: reply text color flips to red when player controls dialog.
     BOOLEAN bInControl = g_pBaldurChitin->m_pEngineWorld->m_bInControlOfDialog;
@@ -983,11 +996,13 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
             rrep.cSound.SetChannel(6,
                 reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
-            if (rrep.cSound.m_nLooping == 0) {
-                rrep.cSound.SetFireForget(TRUE);
+            if (rrep.cSound.GetRes() != NULL) {
+                if (rrep.cSound.m_nLooping == 0) {
+                    rrep.cSound.SetFireForget(TRUE);
+                }
+                SleepEx(10, 0);
+                rrep.cSound.Play(FALSE);
             }
-            SleepEx(10, 0);
-            rrep.cSound.Play(FALSE);
         }
 
         pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
@@ -1033,11 +1048,13 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
             rrep.cSound.SetChannel(6,
                 reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
-            if (rrep.cSound.m_nLooping == 0) {
-                rrep.cSound.SetFireForget(TRUE);
+            if (rrep.cSound.GetRes() != NULL) {
+                if (rrep.cSound.m_nLooping == 0) {
+                    rrep.cSound.SetFireForget(TRUE);
+                }
+                SleepEx(10, 0);
+                rrep.cSound.Play(FALSE);
             }
-            SleepEx(10, 0);
-            rrep.cSound.Play(FALSE);
 
             pReply->m_displayPosition = g_pBaldurChitin->m_pEngineWorld->DisplayText(
                 sLine,
@@ -1071,11 +1088,13 @@ void CGameDialogEntry::Handle(CGameSprite* pSprite, COLORREF playerColor, int a3
 
             btnRes.cSound.SetChannel(6,
                 reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea()));
-            if (btnRes.cSound.m_nLooping == 0) {
-                btnRes.cSound.SetFireForget(TRUE);
+            if (btnRes.cSound.GetRes() != NULL) {
+                if (btnRes.cSound.m_nLooping == 0) {
+                    btnRes.cSound.SetFireForget(TRUE);
+                }
+                SleepEx(10, 0);
+                btnRes.cSound.Play(FALSE);
             }
-            SleepEx(10, 0);
-            btnRes.cSound.Play(FALSE);
 
             // Binary 0x4854e2: display empty text so the reply gets a
             // non-NULL m_displayPosition. RemoveReplies needs this to

@@ -967,7 +967,7 @@ CGameSprite::CGameSprite(BYTE* pCreature, LONG creatureSize, int a3, WORD type, 
         m_followRange = followRange;
         m_posStart = startPos;
         m_timeOfDayVisible = timeOfDayVisible;
-        m_active = (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->GetCurrentHour() & 1) != 0;
+        m_active = ((timeOfDayVisible >> g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->GetCurrentHour()) & 0x1) != 0;
         m_activeAI = TRUE;
         m_activeImprisonment = TRUE;
 
@@ -10881,7 +10881,8 @@ void CGameSprite::ProcessAI()
         m_nCommandPause = 0;
     }
 
-    if (!pGame->GetWorldTimer()->m_active || m_inCutScene) {
+    BOOL bWorldTimerActive = pGame->GetWorldTimer()->m_active;
+    if (!bWorldTimerActive || m_inCutScene) {
         if (m_curAction.GetActionID() == CAIAction::NO_ACTION
             && !m_queuedActions.IsEmpty()) {
             SetCurrAction(GetNextAction(m_aiDoAction));
@@ -10895,14 +10896,22 @@ void CGameSprite::ProcessAI()
             m_interrupt = FALSE;
         }
 
-        const BOOL bInstantAction = g_pBaldurChitin->GetObjectGame()
-                                        ->GetRuleTables()
-                                        .m_lInstantActions.Find(m_curAction.GetActionID())
-            != NULL;
-        const BOOL bNetworkLeaveAreaLua = g_pChitin->cNetwork.GetSessionOpen() == TRUE
-            && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA;
-        if (bInstantAction && !bNetworkLeaveAreaLua) {
-            ResolveInstants(FALSE);
+        BOOL bResolveAction = bWorldTimerActive;
+        if (!bWorldTimerActive) {
+            bResolveAction = g_pBaldurChitin->GetObjectGame()
+                                 ->GetRuleTables()
+                                 .m_lInstantActions.Find(m_curAction.GetActionID())
+                != NULL;
+        }
+
+        if (bResolveAction
+            && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA)) {
+            // TODO INCOMPLETE: this cutscene fast path stands in for the
+            // unrecovered active branch at 0x72DAC5. Runtime traces show active
+            // cutscene sprites use dropNonInstants=TRUE; paused/timer-stopped
+            // instant-only resolution still uses FALSE.
+            ResolveInstants(bWorldTimerActive);
         }
 
         if (!m_groupMove) {
@@ -10921,9 +10930,9 @@ void CGameSprite::ProcessAI()
 
     // TODO INCOMPLETE: 0x72B9A0 still has unrecovered active-combat branches
     // for morale failure, modal actions, berserk, panic and invisibility. The
-    // recovered path below keeps the exact paused/cutscene action loop used by
-    // chapter text and dialogue, then delegates active script selection to the
-    // recovered CGameAIBase implementation until those branches are ported.
+    // recovered path below keeps the exact paused action loop used by chapter
+    // text before delegating active script selection to the recovered
+    // CGameAIBase implementation until those branches are ported.
     CGameAIBase::ProcessAI();
 
     if (ProcessEffectList()

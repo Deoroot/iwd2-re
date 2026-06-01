@@ -403,6 +403,12 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_SWAPITEM_REQUEST = 82;
 // 0x84CF5A
 const BYTE CBaldurMessage::MSG_SUBTYPE_SWAPITEM_REPLY = 114;
 
+// 0x84CF5E
+const BYTE CBaldurMessage::MSG_TYPE_CHAPTER = 74;
+
+// 0x84CF60
+const BYTE CBaldurMessage::MSG_SUBTYPE_CHAPTER_ANNOUNCE_STATUS = 97;
+
 // 0x84CF64
 const BYTE CBaldurMessage::MSG_TYPE_JOURNAL = 106;
 
@@ -2520,25 +2526,235 @@ BOOLEAN CBaldurMessage::OnSignal(INT nMsgFrom, BYTE* pMessage, DWORD dwSize)
 // 0x433580
 BOOLEAN CBaldurMessage::NonBlockingWaitForSignal(BYTE signalType, BYTE signalToWaitFor)
 {
-    // TODO: Incomplete.
+    CString sPlayerName;
+    BOOLEAN signalReceived[CNETWORK_MAX_PLAYERS];
+    DWORD dwSize;
+    BYTE* pMessage;
+    BYTE nLocalPlayer;
+    BYTE nQueue;
+    INT nQueueChecked;
+    BOOLEAN bComplete;
 
-    return -1;
+    if (!g_pChitin->cNetwork.GetSessionOpen()) {
+        return -1;
+    }
+
+    nLocalPlayer = static_cast<BYTE>(g_pChitin->cNetwork.m_nLocalPlayer);
+    if (nLocalPlayer == 0xFF) {
+        nLocalPlayer = 0;
+    }
+
+    if (signalType == SIGNAL_SERVER) {
+        for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+            signalReceived[nPlayer] = FALSE;
+        }
+        signalReceived[nLocalPlayer] = TRUE;
+    } else {
+        for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+            signalReceived[nPlayer] = TRUE;
+        }
+        signalReceived[nLocalPlayer] = FALSE;
+    }
+
+    nQueue = m_nSignalQueueStart;
+    nQueueChecked = 0;
+    if (nQueue != m_nSignalQueueEnd) {
+        do {
+            if (nQueueChecked >= m_nSignalQueueSize) {
+                break;
+            }
+
+            if (m_pnSignalType[nQueue] == signalType
+                && m_pnSignalData[nQueue] == signalToWaitFor) {
+                signalReceived[m_pnSignalFrom[nQueue]] = TRUE;
+            }
+
+            nQueue = (nQueue + 1) % m_nSignalQueueSize;
+            nQueueChecked++;
+        } while (nQueue != m_nSignalQueueEnd);
+    }
+
+    bComplete = TRUE;
+    for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+        if (g_pChitin->cNetwork.GetPlayerID(nPlayer) != 0
+            && signalReceived[nPlayer] == FALSE
+            && bComplete == TRUE) {
+            bComplete = FALSE;
+            g_pChitin->cNetwork.GetPlayerName(nPlayer, sPlayerName);
+        }
+    }
+
+    if (bComplete == TRUE) {
+        RemoveSignalsFromQueue(signalType, signalToWaitFor);
+    } else if (g_pChitin->cNetwork.PeekSpecificMessage(sPlayerName, MSG_TYPE_SIGNAL, MSG_SUBTYPE_SIGNAL) == TRUE) {
+        pMessage = g_pChitin->cNetwork.FetchSpecificMessage(sPlayerName,
+            MSG_TYPE_SIGNAL,
+            MSG_SUBTYPE_SIGNAL,
+            dwSize);
+
+        m_pnSignalFrom[m_nSignalQueueEnd] = static_cast<BYTE>(g_pChitin->cNetwork.FindPlayerLocationByName(sPlayerName, FALSE));
+        m_pnSignalType[m_nSignalQueueEnd] = *reinterpret_cast<BYTE*>(pMessage + CNetwork::SPEC_MSG_HEADER_LENGTH);
+        m_pnSignalData[m_nSignalQueueEnd] = *reinterpret_cast<BYTE*>(pMessage + CNetwork::SPEC_MSG_HEADER_LENGTH + sizeof(BYTE));
+        m_nSignalQueueEnd = (m_nSignalQueueEnd + 1) % m_nSignalQueueSize;
+
+        delete pMessage;
+    }
+
+    return bComplete;
 }
 
 // 0x4337D0
 BYTE CBaldurMessage::KickOutWaitingForSignal(BYTE signalType, BYTE signalToWaitFor)
 {
-    // TODO: Incomplete.
+    CString sPlayerName;
+    BOOLEAN signalReceived[CNETWORK_MAX_PLAYERS];
+    BYTE nLocalPlayer;
+    BYTE nQueue;
+    INT nQueueChecked;
+    BOOLEAN bComplete;
 
-    return FALSE;
+    if (!g_pChitin->cNetwork.GetSessionOpen()) {
+        return -1;
+    }
+
+    nLocalPlayer = static_cast<BYTE>(g_pChitin->cNetwork.m_nLocalPlayer);
+    if (nLocalPlayer == 0xFF) {
+        nLocalPlayer = 0;
+    }
+
+    if (signalType == SIGNAL_SERVER) {
+        for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+            signalReceived[nPlayer] = FALSE;
+        }
+        signalReceived[nLocalPlayer] = TRUE;
+    } else {
+        for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+            signalReceived[nPlayer] = TRUE;
+        }
+        signalReceived[nLocalPlayer] = FALSE;
+    }
+
+    nQueue = m_nSignalQueueStart;
+    nQueueChecked = 0;
+    if (nQueue != m_nSignalQueueEnd) {
+        do {
+            if (nQueueChecked >= m_nSignalQueueSize) {
+                break;
+            }
+
+            if (m_pnSignalType[nQueue] == signalType
+                && m_pnSignalData[nQueue] == signalToWaitFor) {
+                signalReceived[m_pnSignalFrom[nQueue]] = TRUE;
+            }
+
+            nQueue = (nQueue + 1) % m_nSignalQueueSize;
+            nQueueChecked++;
+        } while (nQueue != m_nSignalQueueEnd);
+    }
+
+    bComplete = TRUE;
+    for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+        if (g_pChitin->cNetwork.GetPlayerID(nPlayer) != 0
+            && signalReceived[nPlayer] == FALSE
+            && bComplete == TRUE) {
+            bComplete = FALSE;
+            g_pChitin->cNetwork.GetPlayerName(nPlayer, sPlayerName);
+            KickPlayerRequest(sPlayerName);
+        }
+    }
+
+    return TRUE;
 }
 
 // 0x433950
 BOOLEAN CBaldurMessage::WaitForSignal(BYTE signalType, BYTE signalToWaitFor)
 {
-    // TODO: Incomplete.
+    CString sPlayerName;
+    BOOLEAN signalReceived[CNETWORK_MAX_PLAYERS];
+    DWORD dwSize;
+    BYTE* pMessage;
+    BYTE nLocalPlayer;
+    BYTE nQueue;
+    INT nQueueChecked;
+    BOOLEAN bComplete;
 
-    return FALSE;
+    if (!g_pChitin->cNetwork.GetSessionOpen()) {
+        return FALSE;
+    }
+
+    nLocalPlayer = static_cast<BYTE>(g_pChitin->cNetwork.m_nLocalPlayer);
+    if (nLocalPlayer == 0xFF) {
+        nLocalPlayer = 0;
+    }
+
+    if (signalType == SIGNAL_SERVER) {
+        for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+            signalReceived[nPlayer] = FALSE;
+        }
+        signalReceived[nLocalPlayer] = TRUE;
+    } else {
+        for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+            signalReceived[nPlayer] = TRUE;
+        }
+        signalReceived[nLocalPlayer] = FALSE;
+    }
+
+    do {
+        nQueue = m_nSignalQueueStart;
+        nQueueChecked = 0;
+        if (nQueue != m_nSignalQueueEnd) {
+            do {
+                if (nQueueChecked >= m_nSignalQueueSize) {
+                    break;
+                }
+
+                if (m_pnSignalType[nQueue] == signalType
+                    && m_pnSignalData[nQueue] == signalToWaitFor) {
+                    signalReceived[m_pnSignalFrom[nQueue]] = TRUE;
+                }
+
+                nQueue = (nQueue + 1) % m_nSignalQueueSize;
+                nQueueChecked++;
+            } while (nQueue != m_nSignalQueueEnd);
+        }
+
+        bComplete = TRUE;
+        for (INT nPlayer = 0; nPlayer < CNETWORK_MAX_PLAYERS; nPlayer++) {
+            if (g_pChitin->cNetwork.GetPlayerID(nPlayer) != 0
+                && signalReceived[nPlayer] == FALSE
+                && bComplete == TRUE) {
+                bComplete = FALSE;
+                g_pChitin->cNetwork.GetPlayerName(nPlayer, sPlayerName);
+            }
+        }
+
+        if (bComplete != TRUE) {
+            if (g_pChitin->cNetwork.PeekSpecificMessage(sPlayerName, MSG_TYPE_SIGNAL, MSG_SUBTYPE_SIGNAL) == TRUE) {
+                pMessage = g_pChitin->cNetwork.FetchSpecificMessage(sPlayerName,
+                    MSG_TYPE_SIGNAL,
+                    MSG_SUBTYPE_SIGNAL,
+                    dwSize);
+
+                m_pnSignalFrom[m_nSignalQueueEnd] = static_cast<BYTE>(g_pChitin->cNetwork.FindPlayerLocationByName(sPlayerName, FALSE));
+                m_pnSignalType[m_nSignalQueueEnd] = *reinterpret_cast<BYTE*>(pMessage + CNetwork::SPEC_MSG_HEADER_LENGTH);
+                m_pnSignalData[m_nSignalQueueEnd] = *reinterpret_cast<BYTE*>(pMessage + CNetwork::SPEC_MSG_HEADER_LENGTH + sizeof(BYTE));
+                m_nSignalQueueEnd = (m_nSignalQueueEnd + 1) % m_nSignalQueueSize;
+
+                delete pMessage;
+            } else {
+                g_pChitin->m_bDisplayStale = TRUE;
+                SleepEx(60, FALSE);
+            }
+        }
+
+        if (!g_pChitin->cNetwork.GetSessionOpen()) {
+            return FALSE;
+        }
+    } while (bComplete != TRUE);
+
+    RemoveSignalsFromQueue(signalType, signalToWaitFor);
+
+    return TRUE;
 }
 
 // 0x433BE0
@@ -3139,9 +3355,41 @@ BOOLEAN CBaldurMessage::OnPauseAnnounceStatus(INT nMsgFrom, BYTE* pMessage, DWOR
 // 0x434EB0
 BOOLEAN CBaldurMessage::ChapterAnnounceStatus(BYTE nChapter, CResRef cResRef)
 {
-    // TODO: Incomplete.
+    if (g_pChitin->cNetwork.GetSessionOpen() != TRUE
+        || g_pChitin->cNetwork.GetSessionHosting() != TRUE) {
+        return FALSE;
+    }
 
-    return FALSE;
+    CString sResRef;
+    cResRef.CopyToString(sResRef);
+
+    BYTE nResRefLength = static_cast<BYTE>(sResRef.GetLength());
+    DWORD dwSize = sizeof(BYTE) + sizeof(BYTE) + nResRefLength;
+    BYTE* pByteMessage = CreateBuffer(dwSize);
+    if (pByteMessage == NULL) {
+        return FALSE;
+    }
+
+    DWORD cnt = 0;
+
+    pByteMessage[cnt] = nChapter;
+    cnt += sizeof(BYTE);
+
+    pByteMessage[cnt] = nResRefLength;
+    cnt += sizeof(BYTE);
+
+    memcpy(pByteMessage + cnt, sResRef.GetBuffer(nResRefLength), nResRefLength);
+
+    g_pChitin->cNetwork.SendSpecificMessage(CString(""),
+        CNetwork::SEND_GUARANTEED | CNetwork::SEND_ALL_PLAYERS,
+        MSG_TYPE_CHAPTER,
+        MSG_SUBTYPE_CHAPTER_ANNOUNCE_STATUS,
+        pByteMessage,
+        dwSize);
+
+    DestroyBuffer(pByteMessage);
+
+    return TRUE;
 }
 
 // 0x435360
