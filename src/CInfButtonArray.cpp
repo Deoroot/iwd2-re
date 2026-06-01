@@ -17,6 +17,9 @@
 // 0x851700
 const BYTE CInfButtonArray::STATE_NONE = 0;
 
+// 0x8E6820
+static CGameButtonList* g_pButtonArrayPickerList = NULL;
+
 // 0x587960
 CInfButtonSettings::CInfButtonSettings()
 {
@@ -49,6 +52,8 @@ CInfButtonArray::CInfButtonArray()
 
     m_nCustomizeSlot = 0;
     m_nSelectedButton = 100;
+    field_16E0 = -1;
+    field_16E4 = 0;
     m_nState = STATE_NONE;
     memset(field_1986, 0, sizeof(field_1986));
     m_nStateStackDepth = 0;
@@ -67,19 +72,18 @@ CInfButtonArray::CInfButtonArray()
     m_nCurrentSelectedSpellLevel = 0;
     m_currentAbilityResRef = "";
     m_nQuickWeaponSlot = 0;
-    m_pPickerList = NULL;
     m_nPickerPage = 0;
 }
 
 // NOTE: Convenience.
 void CInfButtonArray::ClearPickerList()
 {
-    if (m_pPickerList != NULL) {
-        while (!m_pPickerList->IsEmpty()) {
-            delete m_pPickerList->RemoveHead();
+    if (g_pButtonArrayPickerList != NULL) {
+        while (!g_pButtonArrayPickerList->IsEmpty()) {
+            delete g_pButtonArrayPickerList->RemoveHead();
         }
-        delete m_pPickerList;
-        m_pPickerList = NULL;
+        delete g_pButtonArrayPickerList;
+        g_pButtonArrayPickerList = NULL;
     }
     m_nPickerPage = 0;
 }
@@ -119,7 +123,7 @@ void CInfButtonArray::RebuildPickerList()
         // case 1 â†’ GetItemUsages(slot, 1, -1).  Slot 0x2B = 43 is
         // SLOT_WEAPON; the offset converts the quick-weapon button index
         // (0..7) into the actual inventory slot (43..50).
-        m_pPickerList = pSprite->GetItemUsages(
+        g_pButtonArrayPickerList = pSprite->GetItemUsages(
             static_cast<SHORT>(m_nCurrentSelectedSpellLevel + CGameSpriteEquipment::SLOT_WEAPON),
             1,
             -1);
@@ -130,9 +134,9 @@ void CInfButtonArray::RebuildPickerList()
         //   class == 3 && level != 0 â†’ domain spells (FUN_007155c0)
         //   otherwise              â†’ regular class spells (FUN_00714f70)
         if (m_nCurrentSelectedSpellClass == 3 && m_nCurrentSelectedSpellLevel != 0) {
-            m_pPickerList = pSprite->GetDomainSpellsButtonList();
+            g_pButtonArrayPickerList = pSprite->GetDomainSpellsButtonList();
         } else {
-            m_pPickerList = pSprite->GetSpellsButtonList(m_nCurrentSelectedSpellClass);
+            g_pButtonArrayPickerList = pSprite->GetSpellsButtonList(m_nCurrentSelectedSpellClass);
         }
         break;
     case 0x68:
@@ -141,7 +145,7 @@ void CInfButtonArray::RebuildPickerList()
         // alt-flag â†’ GetItemUsages(slot + 0xF, 3, -1).  Slot 0xF = 15 is
         // SLOT_MISC; the offset converts the quick-item button index
         // (0..2) into the inventory slot (15..17).
-        m_pPickerList = pSprite->GetItemUsages(
+        g_pButtonArrayPickerList = pSprite->GetItemUsages(
             static_cast<SHORT>(m_nCurrentSelectedSpellLevel + CGameSpriteEquipment::SLOT_MISC),
             3,
             -1);
@@ -149,11 +153,11 @@ void CInfButtonArray::RebuildPickerList()
     case 0x70:
     case 0x71:
     case 0x7A:
-        m_pPickerList = pSprite->GetSongsButtonList();
+        g_pButtonArrayPickerList = pSprite->GetSongsButtonList();
         break;
     case 0x6A:
     case 0x6B:
-        m_pPickerList = pSprite->GetInternalButtonList();
+        g_pButtonArrayPickerList = pSprite->GetInternalButtonList();
         break;
     default:
         break;
@@ -295,8 +299,8 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
         m_nState = nState;
         RebuildPickerList();
         m_nPickerPage = 0;
-        INT nEntries = (m_pPickerList != NULL)
-            ? static_cast<INT>(m_pPickerList->GetCount())
+        INT nEntries = (g_pButtonArrayPickerList != NULL)
+            ? static_cast<INT>(g_pButtonArrayPickerList->GetCount())
             : 0;
         if (nEntries > 12) {
             // Paging layout â€” slot 0 = page up, slots 1-10 = entries
@@ -726,7 +730,7 @@ void CInfButtonArray::UpdateButtons()
                 nIconNormalFrame = 0;
                 nIconSelectedFrame = 0;
                 bHasOverlay = FALSE;
-            } else if (m_pPickerList != NULL) {
+            } else if (g_pButtonArrayPickerList != NULL) {
                 // Picker list entry â€” pull icon + tooltip from the
                 // CGameButtonList built in RebuildPickerList.  Two layouts:
                 //   * â‰¤ 12 entries: nEntry = buttonType - 0x15 (slot maps
@@ -734,7 +738,7 @@ void CInfButtonArray::UpdateButtons()
                 //   * > 12 entries (paging): nEntry = page * 10 + (buttonType
                 //     - 0x15); slots 0 + 11 hold the 0x21/0x22 arrows and
                 //     fall through to their own UpdateButtons cases.
-                INT nListCount = static_cast<INT>(m_pPickerList->GetCount());
+                INT nListCount = static_cast<INT>(g_pButtonArrayPickerList->GetCount());
                 INT nEntry;
                 if (nListCount > 12) {
                     nEntry = m_nPickerPage * 10 + (m_buttonTypes[nButton] - 0x15);
@@ -742,9 +746,9 @@ void CInfButtonArray::UpdateButtons()
                     nEntry = m_buttonTypes[nButton] - 0x15;
                 }
                 POSITION pos = (nEntry >= 0 && nEntry < nListCount)
-                    ? m_pPickerList->FindIndex(nEntry)
+                    ? g_pButtonArrayPickerList->FindIndex(nEntry)
                     : NULL;
-                CButtonData* pEntry = (pos != NULL) ? m_pPickerList->GetAt(pos) : NULL;
+                CButtonData* pEntry = (pos != NULL) ? g_pButtonArrayPickerList->GetAt(pos) : NULL;
                 if (pEntry != NULL && pEntry->m_icon != "") {
                     cIconResRef = pEntry->m_icon;
                     nIconNormalFrame = 0;
@@ -1298,8 +1302,8 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             return;
         }
         if (nButtonType == 0x22) {
-            INT nMax = (m_pPickerList != NULL)
-                ? (static_cast<INT>(m_pPickerList->GetCount()) - 10) / 10 + 1
+            INT nMax = (g_pButtonArrayPickerList != NULL)
+                ? (static_cast<INT>(g_pButtonArrayPickerList->GetCount()) - 10) / 10 + 1
                 : 0;
             if (m_nPickerPage + 1 <= nMax) {
                 m_nPickerPage++;
@@ -1317,15 +1321,15 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         // We don't yet have ports of the song-play / innate-use helpers, so
         // those states fall back to UseButtonAction which is the underlying
         // generic dispatcher used by all four wrappers in the binary.
-        if (nButtonType >= 0x15 && nButtonType <= 0x20 && m_pPickerList != NULL) {
-            INT nListCount = static_cast<INT>(m_pPickerList->GetCount());
+        if (nButtonType >= 0x15 && nButtonType <= 0x20 && g_pButtonArrayPickerList != NULL) {
+            INT nListCount = static_cast<INT>(g_pButtonArrayPickerList->GetCount());
             INT nEntry = (nListCount > 12)
                 ? (m_nPickerPage * 10 + (nButtonType - 0x15))
                 : (nButtonType - 0x15);
             POSITION pos = (nEntry >= 0 && nEntry < nListCount)
-                ? m_pPickerList->FindIndex(nEntry)
+                ? g_pButtonArrayPickerList->FindIndex(nEntry)
                 : NULL;
-            CButtonData* pEntry = (pos != NULL) ? m_pPickerList->GetAt(pos) : NULL;
+            CButtonData* pEntry = (pos != NULL) ? g_pButtonArrayPickerList->GetAt(pos) : NULL;
             if (pEntry != NULL && !pEntry->m_bDisabled) {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;

@@ -696,6 +696,139 @@ BOOL CDimm::DirectoryRemoveFiles(const CString& sDirectoryName)
     return bResult;
 }
 
+// 0x784A50
+BOOL CDimm::CompressDirectory(const CString& sDirName)
+{
+    CString sResolvedDirName;
+    CString sFileName;
+    CString sFilePath;
+    CString sPattern;
+    CStringList lFilesToDelete;
+    CFile input;
+    CFile output;
+    BYTE* pSrc = NULL;
+    BYTE* pDest = NULL;
+    DWORD nMaxSrcSize = 0;
+    DWORD nMaxDestSize = 0;
+
+    if (!g_pChitin->lAliases.ResolveFileName(sDirName, sResolvedDirName)) {
+        sResolvedDirName = sDirName;
+    }
+
+    if (!sResolvedDirName.IsEmpty() && sResolvedDirName.Right(1) != "\\") {
+        sResolvedDirName += "\\";
+    }
+
+    if (!output.Open(sResolvedDirName + "ICEWIND2.SAV",
+            CFile::OpenFlags::modeWrite | CFile::OpenFlags::typeBinary | CFile::OpenFlags::shareExclusive | CFile::OpenFlags::modeCreate,
+            NULL)) {
+        return FALSE;
+    }
+
+    output.Write("SAV V1.0", 8);
+
+    sPattern = sResolvedDirName + "*.*";
+
+    WIN32_FIND_DATAA findFileData;
+    HANDLE hFindFile = FindFirstFileA(sPattern, &findFileData);
+    if (hFindFile == INVALID_HANDLE_VALUE) {
+        output.Close();
+        return FALSE;
+    }
+
+    BOOL bResult = TRUE;
+    do {
+        if ((findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != FILE_ATTRIBUTE_DIRECTORY) {
+            sFileName = findFileData.cFileName;
+            if (sFileName.CompareNoCase("ICEWIND2.SAV") != 0
+                && strnicmp(findFileData.cFileName, "ICEWIND2.GAM", 10) != 0
+                && strnicmp(sFileName.Right(3), "BMP", 3) != 0
+                && strnicmp(findFileData.cFileName, "WORLDMAP.WMP", 12) != 0
+                && strncmp(findFileData.cFileName, "EXPMAP.WMP", 10) != 0) {
+                sFilePath = sResolvedDirName + findFileData.cFileName;
+                if (!input.Open(sFilePath,
+                        CFile::OpenFlags::modeRead | CFile::OpenFlags::typeBinary | CFile::OpenFlags::shareExclusive,
+                        NULL)) {
+                    bResult = FALSE;
+                    break;
+                }
+
+                DWORD nSrcSize = static_cast<DWORD>(input.GetLength());
+                DWORD nDestSize = nSrcSize + nSrcSize / 1000 + 12;
+                if (nDestSize < 0x400) {
+                    nDestSize = 0x400;
+                }
+
+                DWORD nRequiredSrcSize = max(nSrcSize, 1);
+                if (nRequiredSrcSize > nMaxSrcSize) {
+                    delete[] pSrc;
+                    nMaxSrcSize = nRequiredSrcSize;
+                    pSrc = new BYTE[nMaxSrcSize];
+                    if (pSrc == NULL) {
+                        bResult = FALSE;
+                        input.Close();
+                        break;
+                    }
+                }
+
+                if (nDestSize > nMaxDestSize) {
+                    delete[] pDest;
+                    nMaxDestSize = nDestSize;
+                    pDest = new BYTE[nMaxDestSize];
+                    if (pDest == NULL) {
+                        bResult = FALSE;
+                        input.Close();
+                        break;
+                    }
+                }
+
+                if (nSrcSize != 0) {
+                    input.Read(pSrc, nSrcSize);
+                }
+                input.Close();
+
+                int err = CUtil::Compress(pDest, &nDestSize, pSrc, nSrcSize, 1);
+                if (err != 0) {
+                    CString sErr;
+                    sErr.Format("Compress in save game failed.  Error code %d.\n", err);
+                    sErr += "Please report this error and look at icewind2.log file, too!";
+                    UTIL_ASSERT_MSG(FALSE, sErr);
+                    bResult = FALSE;
+                    break;
+                }
+
+                DWORD nFileNameLength = sFileName.GetLength() + 1;
+                output.Write(&nFileNameLength, sizeof(nFileNameLength));
+                output.Write(static_cast<LPCSTR>(sFileName), nFileNameLength);
+                output.Write(&nSrcSize, sizeof(nSrcSize));
+                output.Write(&nDestSize, sizeof(nDestSize));
+                output.Write(pDest, nDestSize);
+
+                lFilesToDelete.AddTail(sFilePath);
+            }
+        }
+    } while (FindNextFileA(hFindFile, &findFileData));
+
+    FindClose(hFindFile);
+    output.Close();
+
+    if (bResult) {
+        POSITION pos = lFilesToDelete.GetHeadPosition();
+        while (pos != NULL) {
+            sFilePath = lFilesToDelete.GetAt(pos);
+            if (!DeleteFileA(sFilePath)) {
+                bResult = FALSE;
+            }
+            lFilesToDelete.GetNext(pos);
+        }
+    }
+
+    delete[] pSrc;
+    delete[] pDest;
+
+    return bResult;
+}
+
 // 0x785190
 BOOL CDimm::UncompressDirectory(const CString& sTempDir, const CString& sSaveDir)
 {

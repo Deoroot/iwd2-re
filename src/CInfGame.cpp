@@ -2020,9 +2020,9 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
     Icewind586B70::Instance()->SaveSummonLinks();
 
     // TODO INCOMPLETE: 0x5AC430 also drives disk-space failure shutdown,
-    // progress-bar target accounting, area/store resource writes, and temp-save
-    // directory staging. The recovered path below keeps the multiplayer
-    // hard-pause/signaling behavior and existing game marshal/write flow.
+    // progress-bar target accounting, and area/store resource writes. The
+    // recovered path below keeps the multiplayer hard-pause/signaling behavior
+    // and existing game marshal/write flow.
     for (BYTE nStore = 0; nStore < CINFGAME_MAX_AREAS; nStore++) {
         if (m_aServerStore[nStore] != NULL) {
             m_aServerStore[nStore]->Marshal(m_sTempDir);
@@ -2051,8 +2051,12 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
 
     if (bResult) {
         CString sDirSave = GetDirSave();
-        bResult = g_pChitin->cDimm.DirectoryRemoveFiles(sDirSave)
-            && g_pChitin->cDimm.DirectoryCopyFiles(m_sTempDir, sDirSave);
+        bResult = g_pChitin->cDimm.DirectoryRemoveFiles(m_sTempSaveDir)
+            && g_pChitin->cDimm.DirectoryCopyFiles(m_sTempDir, m_sTempSaveDir)
+            && g_pChitin->cDimm.CompressDirectory(m_sTempSaveDir)
+            && g_pChitin->cDimm.DirectoryRemoveFiles(sDirSave)
+            && g_pChitin->cDimm.DirectoryCopyFiles(m_sTempSaveDir, sDirSave);
+        g_pChitin->cDimm.DirectoryRemoveFiles(m_sTempSaveDir);
     }
 
     g_pBaldurChitin->GetTlkTable().OpenOverride(CString("temp/default.toh"),

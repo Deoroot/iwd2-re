@@ -175,9 +175,12 @@ RE_HOOKS = {
     "CInfGame::NewGame": 0x1F0900,
     "CInfGame::SaveGame": 0x1EB580,
     "CInfGame::LoadGame": 0x1EFFC0,
+    "CInfGame::AddPartyGold": 0x1FDAD0,
+    "CInfGame::GetGameSave": 0x205E40,
     "CInfGame::WaitForEngine": 0x1E99B0,
     "CInfGame::Unmarshal": 0x1EC260,
     "CMessageSaveGame::Run": 0x23D7C0,
+    "CMessagePartyGold::Run": 0x22D5F0,
     "CScreenConnection::EngineActivated": 0x296D30,
     "CScreenConnection::StartConnection": 0x2A0990,
     "CScreenConnection::OnNewGameButtonClick": 0x29A4D0,
@@ -186,6 +189,7 @@ RE_HOOKS = {
     "CScreenSinglePlayer::OnDoneButtonClick": 0x31E670,
     "CScreenSinglePlayer::OnMainDoneButtonClick": 0x320190,
     "CScreenSinglePlayer::OnPartySelectionDoneButtonClick": 0x322440,
+    "CScreenWorld::UpdatePartyGoldStatus": 0x34A820,
 }
 
 RE_MAP_SYMBOLS = {
@@ -262,9 +266,12 @@ RE_MAP_SYMBOLS = {
     "CInfGame::NewGame": "?NewGame@CInfGame@@QAEXEE@Z",
     "CInfGame::SaveGame": "?SaveGame@CInfGame@@QAEHEEE@Z",
     "CInfGame::LoadGame": "?LoadGame@CInfGame@@QAEXEE@Z",
+    "CInfGame::AddPartyGold": "?AddPartyGold@CInfGame@@QAEXJ@Z",
+    "CInfGame::GetGameSave": "?GetGameSave@CInfGame@@QAEPAVCGameSave@@XZ",
     "CInfGame::WaitForEngine": "?WaitForEngine@CInfGame@@QAEXH@Z",
     "CInfGame::Unmarshal": "?Unmarshal@CInfGame@@QAEHPAEJE@Z",
     "CMessageSaveGame::Run": "?Run@CMessageSaveGame@@UAEXXZ",
+    "CMessagePartyGold::Run": "?Run@CMessagePartyGold@@UAEXXZ",
     "CScreenConnection::EngineActivated": "?EngineActivated@CScreenConnection@@UAEXXZ",
     "CScreenConnection::StartConnection": "?StartConnection@CScreenConnection@@QAEXE@Z",
     "CScreenConnection::OnNewGameButtonClick": "?OnNewGameButtonClick@CScreenConnection@@QAEXXZ",
@@ -273,6 +280,7 @@ RE_MAP_SYMBOLS = {
     "CScreenSinglePlayer::OnDoneButtonClick": "?OnDoneButtonClick@CScreenSinglePlayer@@QAEXXZ",
     "CScreenSinglePlayer::OnMainDoneButtonClick": "?OnMainDoneButtonClick@CScreenSinglePlayer@@QAEXXZ",
     "CScreenSinglePlayer::OnPartySelectionDoneButtonClick": "?OnPartySelectionDoneButtonClick@CScreenSinglePlayer@@QAEXXZ",
+    "CScreenWorld::UpdatePartyGoldStatus": "?UpdatePartyGoldStatus@CScreenWorld@@UAEXXZ",
 }
 
 ORIG_HOOKS = {
@@ -363,9 +371,13 @@ ORIG_HOOKS = {
     "CInfGame::SetCurrentChapter": 0x435110,
     "CInfGame::NewGame": 0x5ABA20,
     "CInfGame::LoadGame": 0x5AB190,
+    "CInfGame::AddPartyGold": 0x5BF610,
+    "CInfGame::GetGameSave": 0x453050,
     "CInfGame::WaitForEngine": 0x59FA00,
     "CInfGame::Unmarshal": 0x5A7E40,
     "CInfGame::SaveGame": 0x5AC430,
+    "CMessagePartyGold::Run": 0x503150,
+    "CScreenWorld::UpdatePartyGoldStatus": 0x694AE0,
 }
 
 
@@ -850,10 +862,10 @@ def original_ui_driver(
 
     if not wait_for(
         "connection",
-        lambda s: s.get("active_screen") == "connection"
+        lambda s: (s.get("active_screen") == "connection" or s.get("connection_seen"))
         and (
             s.get("intro_movie_seen")
-            or (not s.get("movie_seen") and time.time() - driver_started_at > 3.0)
+            or (not s.get("movie_seen") and time.time() - driver_started_at > 8.0)
         ),
         max_seconds=min(12.0, timeout),
     ):
@@ -861,40 +873,77 @@ def original_ui_driver(
 
     stop_movie_keys.set()
     time.sleep(0.25)
-    emit({"tag": "Driver.python.click", "target": "new-game", "pos": NEW_GAME_BUTTON, "window": window_metrics(pid)})
-    if not click_client(pid, *NEW_GAME_BUTTON):
-        emit({"tag": "Driver.python.error", "stage": "new-game-click", "err": "window not found"})
-        return
-    time.sleep(1.0)
-    first_click_state = snapshot()
-    if first_click_state.get("active_screen") != "singleplayer" and not first_click_state.get("new_game_seen"):
-        emit({"tag": "Driver.python.retry", "target": "new-game", "pos": NEW_GAME_BUTTON, "window": window_metrics(pid)})
+    hwnd = find_window_for_pid(pid)
+    if hwnd:
+        focus_window(hwnd, click=True)
+
+    new_game_seen = False
+    new_game_deadline = time.time() + min(4.0, max(0.0, deadline - time.time()))
+    while time.time() < new_game_deadline:
+        s = snapshot()
+        if (
+            s.get("new_game_seen")
+            or s.get("original_newgame_clicked")
+            or s.get("active_screen") == "singleplayer"
+            or s.get("singleplayer_seen")
+        ):
+            new_game_seen = True
+            break
+        time.sleep(0.1)
+
+    if not new_game_seen:
+        emit({"tag": "Driver.python.click", "target": "new-game", "pos": NEW_GAME_BUTTON, "window": window_metrics(pid)})
         if not click_client(pid, *NEW_GAME_BUTTON):
-            emit({"tag": "Driver.python.error", "stage": "new-game-retry", "err": "window not found"})
-            return
+            emit({"tag": "Driver.python.warn", "stage": "new-game-click", "err": "window not found"})
+            if not wait_for("new-game-after-missing-window", lambda s: s.get("new_game_seen"), max_seconds=20.0):
+                return
+        time.sleep(1.0)
+        first_click_state = snapshot()
+        if first_click_state.get("active_screen") != "singleplayer" and not first_click_state.get("new_game_seen"):
+            emit({"tag": "Driver.python.retry", "target": "new-game", "pos": NEW_GAME_BUTTON, "window": window_metrics(pid)})
+            if not click_client(pid, *NEW_GAME_BUTTON):
+                emit({"tag": "Driver.python.error", "stage": "new-game-retry", "err": "window not found"})
+                return
 
     if not wait_for(
-        "singleplayer",
-        lambda s: s.get("active_screen") == "singleplayer" or s.get("singleplayer_seen"),
-        max_seconds=10.0,
+        "post-newgame",
+        lambda s: s.get("active_screen") in {"singleplayer", "chapter"}
+        or s.get("singleplayer_seen")
+        or s.get("chapter_seen")
+        or s.get("dialog_seen"),
+        max_seconds=30.0,
     ):
         return
 
-    if party_index < 0 or party_index >= len(PARTY_ROWS):
-        emit({"tag": "Driver.python.error", "stage": "party-index", "party": party_index, "visible": len(PARTY_ROWS)})
-        return
+    post_newgame_state = snapshot()
+    if (
+        not post_newgame_state.get("chapter_seen")
+        and not post_newgame_state.get("dialog_seen")
+        and (
+            post_newgame_state.get("active_screen") == "singleplayer"
+            or post_newgame_state.get("singleplayer_seen")
+        )
+    ):
+        if not wait_for(
+            "party-selection",
+            lambda s: s.get("active_screen") == "chapter" or s.get("chapter_seen") or s.get("dialog_seen"),
+            max_seconds=8.0,
+        ):
+            if party_index < 0 or party_index >= len(PARTY_ROWS):
+                emit({"tag": "Driver.python.error", "stage": "party-index", "party": party_index, "visible": len(PARTY_ROWS)})
+                return
 
-    time.sleep(0.35)
-    emit({"tag": "Driver.python.click", "target": "party-row", "party": party_index, "pos": PARTY_ROWS[party_index], "window": window_metrics(pid)})
-    if not click_client(pid, *PARTY_ROWS[party_index]):
-        emit({"tag": "Driver.python.error", "stage": "party-row-click", "err": "window not found"})
-        return
+            time.sleep(0.35)
+            emit({"tag": "Driver.python.click", "target": "party-row", "party": party_index, "pos": PARTY_ROWS[party_index], "window": window_metrics(pid)})
+            if not click_client(pid, *PARTY_ROWS[party_index]):
+                emit({"tag": "Driver.python.error", "stage": "party-row-click", "err": "window not found"})
+                return
 
-    time.sleep(0.2)
-    emit({"tag": "Driver.python.click", "target": "party-done", "pos": PARTY_DONE_BUTTON, "window": window_metrics(pid)})
-    if not click_client(pid, *PARTY_DONE_BUTTON):
-        emit({"tag": "Driver.python.error", "stage": "party-done-click", "err": "window not found"})
-        return
+            time.sleep(0.2)
+            emit({"tag": "Driver.python.click", "target": "party-done", "pos": PARTY_DONE_BUTTON, "window": window_metrics(pid)})
+            if not click_client(pid, *PARTY_DONE_BUTTON):
+                emit({"tag": "Driver.python.error", "stage": "party-done-click", "err": "window not found"})
+                return
 
     if not auto_chapter:
         return
@@ -1023,6 +1072,12 @@ const W = isRe
       hardPaused: 0x0146,
       comingOutDialog: 0x11c6,
     }};
+const GAME = {{
+  partyGold: 0x4238,
+  mode: 0x43e2,
+  cutScene: 0x43e6,
+  forceDither: 0x48e4,
+}};
 const CHITIN_ORIG = {{
   engineActive: 0x0048,
   reinitializing: 0x00e0,
@@ -1329,6 +1384,10 @@ function worldInfo() {{
     out.paused = isKnown(world) ? world.add(W.paused).readU8() : -1;
     out.hardPaused = isKnown(world) ? world.add(W.hardPaused).readS32() : -1;
     out.comingOutDialog = isKnown(world) ? world.add(W.comingOutDialog).readS32() : -1;
+    out.partyGold = isKnown(game) ? game.add(GAME.partyGold).readU32() : -1;
+    out.mode = isKnown(game) ? game.add(GAME.mode).readU32() : -1;
+    out.cutScene = isKnown(game) ? game.add(GAME.cutScene).readU8() : -1;
+    out.forceDither = isKnown(game) ? game.add(GAME.forceDither).readU8() : -1;
     return out;
   }} catch (e) {{
     out.err = '' + e;
@@ -1524,8 +1583,10 @@ let songTraceCount = 0;
 let areaTraceCount = 0;
 let waitForEngineTraceCount = 0;
 let progressPollTraceCount = 0;
+let getGameSaveTraceCount = 0;
 const cutsceneObjects = new Set();
 let knownObjectGame = ptr(0);
+let knownGameSave = ptr(0);
 let knownWorldTimer = ptr(0);
 let knownScreenWorld = ptr(0);
 let activeChapter = ptr(0);
@@ -1602,64 +1663,6 @@ function tryOriginalNewGame(conn, reason) {{
   }}
 }}
 
-function tryOriginalPartySelection(sp, reason) {{
-  if (isRe || originalDriver.partyDone) return;
-
-  let lobbyMode = 0;
-  let partyCount = 0;
-  let hasPopup = false;
-  try {{
-    lobbyMode = sp.add(SP_ORIG.lobbyMode).readS32();
-    partyCount = sp.add(SP_ORIG.partyCount).readS32();
-    hasPopup = popupStackHasTail(sp, SP_ORIG.popupStack);
-  }} catch (e) {{
-    send({{ tag: 'Driver.original.error', stage: 'singleplayer-state', err: '' + e }});
-    return;
-  }}
-
-  if (lobbyMode !== 1 || partyCount <= 0) {{
-    return;
-  }}
-
-  if (requestedParty < 0 || requestedParty >= partyCount) {{
-    originalDriver.partyDone = true;
-    send({{
-      tag: 'Driver.original.error',
-      stage: 'party-index',
-      requestedParty,
-      partyCount,
-    }});
-    return;
-  }}
-
-  if (!hasPopup && originalDriver.spTicks < 20) {{
-    return;
-  }}
-
-  const top = Math.max(Math.min(requestedParty, partyCount - 6), 0);
-  try {{
-    sp.add(SP_ORIG.topParty).writeS32(top);
-    sp.add(SP_ORIG.party).writeS32(requestedParty - top);
-    sp.add(SP_ORIG.selectedPopup).writeS32(10);
-
-    originalDriver.partyDone = true;
-    send({{
-      tag: 'Driver.original.party-selected',
-      reason,
-      this: sp.toString(),
-      requestedParty,
-      partyCount,
-      hasPopup,
-    }});
-    send({{ tag: 'Driver.original.party-call', target: 'CScreenSinglePlayer::OnPartySelectionDoneButtonClick' }});
-    callThis('CScreenSinglePlayer::OnPartySelectionDoneButtonClick', sp);
-    send({{ tag: 'Driver.original.party-call.ret', target: 'CScreenSinglePlayer::OnPartySelectionDoneButtonClick' }});
-  }} catch (e) {{
-    originalDriver.partyDone = false;
-    send({{ tag: 'Driver.original.error', stage: 'party-select', err: '' + e }});
-  }}
-}}
-
 function tryOriginalChapterDone(chapter, reason) {{
   if (isRe || !autoChapter || originalDriver.chapterDone || !originalDriver.chapterStarted) return;
   try {{
@@ -1712,6 +1715,10 @@ function tryOriginalDriverFromChitin(chitin, reason) {{
     if (activeText !== originalDriver.lastActiveEngine) {{
       originalDriver.lastActiveEngine = activeText;
       send({{ tag: 'Driver.original.active-screen', reason, screen, active: activeText }});
+    }}
+
+    if (screen === 'connection') {{
+      tryOriginalNewGame(conn, reason);
     }}
   }} catch (e) {{
     send({{ tag: 'Driver.original.error', stage: 'chitin-driver', err: '' + e }});
@@ -2255,6 +2262,7 @@ hook('CScreenConnection::TimerAsynchronousUpdate', {{
   onLeave(rv) {{
     if (isRe) return;
     originalDriver.connTicks++;
+    tryOriginalNewGame(this.thiz, 'connection-timer');
   }}
 }});
 
@@ -2680,9 +2688,71 @@ hook('CInfGame::SaveGame', {{
   }}
 }});
 
+hook('CInfGame::AddPartyGold', {{
+  onEnter(args) {{
+    knownObjectGame = this.context.ecx;
+    this.before = worldInfo();
+    this.gold = args[0].toInt32();
+    send({{ tag: 'CInfGame.AddPartyGold', gold: this.gold, before: this.before, net: networkInfo() }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CInfGame.AddPartyGold.ret', gold: this.gold, before: this.before, after: worldInfo(), net: networkInfo() }});
+  }}
+}});
+
+hook('CInfGame::GetGameSave', {{
+  onEnter(args) {{
+    this.game = this.context.ecx;
+  }},
+  onLeave(rv) {{
+    knownGameSave = rv;
+    let delta = -1;
+    try {{
+      delta = rv.sub(this.game).toInt32();
+    }} catch (e) {{
+      delta = -1;
+    }}
+    if (getGameSaveTraceCount < 30) {{
+      getGameSaveTraceCount++;
+      send({{ tag: 'CInfGame.GetGameSave.ret', game: this.game.toString(), save: rv.toString(), delta: delta }});
+    }}
+  }}
+}});
+
+function partyGoldMessageInfo(msg) {{
+  try {{
+    return {{
+      gold: msg.add(0x0c).readS32(),
+      adjustment: msg.add(0x10).readU8(),
+      feedback: msg.add(0x11).readU8(),
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e }};
+  }}
+}}
+
 hook('CMessageSaveGame::Run', {{
   onEnter(args) {{
     send({{ tag: 'CMessageSaveGame::Run', this: this.context.ecx.toString() }});
+  }}
+}});
+
+hook('CMessagePartyGold::Run', {{
+  onEnter(args) {{
+    this.msg = this.context.ecx;
+    this.info = partyGoldMessageInfo(this.msg);
+    this.before = worldInfo();
+    send({{ tag: 'CMessagePartyGold.Run', this: this.msg.toString(), info: this.info, before: this.before }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CMessagePartyGold.Run.ret', this: this.msg.toString(), info: this.info, before: this.before, after: worldInfo() }});
+  }}
+}});
+
+hook('CScreenWorld::UpdatePartyGoldStatus', {{
+  onEnter(args) {{
+    knownScreenWorld = this.context.ecx;
+    send({{ tag: 'CScreenWorld.UpdatePartyGoldStatus', this: knownScreenWorld.toString(), world: worldInfo() }});
   }}
 }});
 
@@ -2761,6 +2831,7 @@ def main() -> int:
         "post_dialog_unpaused_seen": False,
         "keys_sent": False,
         "new_game_seen": False,
+        "original_newgame_clicked": False,
         "load_game_seen": False,
         "chapter_seen": False,
         "chapter_active_seen": False,
@@ -2819,6 +2890,8 @@ def main() -> int:
                 set_state(post_dialog_unpaused_seen=True)
         if tag == "Driver.original.active-screen":
             set_state(active_screen=payload.get("screen", ""))
+        if tag == "Driver.original.newgame-click":
+            set_state(original_newgame_clicked=True)
         if tag == "Movie.PlayMovieInternal":
             resref = str(payload.get("resref", "")).upper()
             set_state(movie_seen=True, intro_movie_seen=state_value("intro_movie_seen") or resref == "INTRO")
@@ -2852,7 +2925,22 @@ def main() -> int:
             or tag.startswith("CScreenChapter::")
             or tag.startswith("CScreenConnection::")
             or tag.startswith("SoundMixer.")
-            or tag in {"SaveGame", "SaveGame.ret", "LoadGame", "UnmarshalGame", "UnmarshalGame.ret", "SetCurrentChapter", "CMessageSaveGame::Run", "AddMessage.SaveGame"}
+            or tag in {
+                "SaveGame",
+                "SaveGame.ret",
+                "LoadGame",
+                "UnmarshalGame",
+                "UnmarshalGame.ret",
+                "SetCurrentChapter",
+                "CMessageSaveGame::Run",
+                "AddMessage.SaveGame",
+                "CInfGame.AddPartyGold",
+                "CInfGame.AddPartyGold.ret",
+                "CInfGame.GetGameSave.ret",
+                "CMessagePartyGold.Run",
+                "CMessagePartyGold.Run.ret",
+                "CScreenWorld.UpdatePartyGoldStatus",
+            }
             or "Dialog" in tag
             or tag.startswith("Journal.")
             or (tag == "ExecuteAction" and payload.get("aid") in {8, 120, 121, 122, 123, 127, 161, 183, 229, 256, 272, 275})

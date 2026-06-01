@@ -36,6 +36,7 @@ public:
     void* InternalDemand(CRes* pRes);
     void DestroyKeyTable();
     BOOL DirectoryCopyFiles(const CString& sSource, const CString& sDest);
+    BOOL CompressDirectory(const CString& sDirName);
     BOOL DirectoryRemoveFiles(const CString& sDirectoryName);
     BOOL UncompressDirectory(const CString& sTempDir, const CString& sSaveDir);
     int Dump(CRes* pRes, int a2, int a3);

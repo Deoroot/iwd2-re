@@ -5406,6 +5406,7 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PARTY_GOLD
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_REPLIES
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_IN_CUT_SCENE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME;

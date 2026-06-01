@@ -218,12 +218,32 @@ void CScreenLoad::EngineActivated()
 
     if (!s_autoLoadOriginalCompleted && m_nEngineState == 1 && Iwd2AutoLoad::IsAction("load")) {
         s_autoLoadOriginalCompleted = TRUE;
-        INT nSlot = Iwd2AutoLoad::GetSlot(0);
-        INT nGameSlot = nSlot + m_nTopGameSlot;
-        if (nSlot < 0 || nSlot >= GAME_SLOTS || nGameSlot < 0 || nGameSlot >= m_nNumGameSlots) {
-            Iwd2AutoLoad::WriteResult("error", "requested save slot is not visible or does not exist");
+
+        char sAutoSaveName[MAX_PATH];
+        if (Iwd2AutoLoad::GetSaveName(sAutoSaveName, sizeof(sAutoSaveName))) {
+            INT nGameSlot = -1;
+            for (INT nIndex = 0; nIndex < m_nNumGameSlots; nIndex++) {
+                CScreenLoadGameSlot* pSlot = m_aGameSlots[nIndex];
+                if (pSlot != NULL && pSlot->m_sFileName.CompareNoCase(sAutoSaveName) == 0) {
+                    nGameSlot = nIndex;
+                    break;
+                }
+            }
+
+            if (nGameSlot < 0) {
+                Iwd2AutoLoad::WriteResult("error", "requested save name does not exist");
+            } else {
+                m_nTopGameSlot = max(min(nGameSlot, m_nNumGameSlots - GAME_SLOTS), 0);
+                LoadGame(nGameSlot - m_nTopGameSlot);
+            }
         } else {
-            LoadGame(nSlot);
+            INT nSlot = Iwd2AutoLoad::GetSlot(0);
+            INT nGameSlot = nSlot + m_nTopGameSlot;
+            if (nSlot < 0 || nSlot >= GAME_SLOTS || nGameSlot < 0 || nGameSlot >= m_nNumGameSlots) {
+                Iwd2AutoLoad::WriteResult("error", "requested save slot is not visible or does not exist");
+            } else {
+                LoadGame(nSlot);
+            }
         }
     }
 }

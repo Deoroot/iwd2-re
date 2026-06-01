@@ -30,6 +30,8 @@ class CGameButtonList;
 // FUN_00589ff0; we hardcode SetState(0x72, 0) since customize entry only
 // comes from 0x72).
 
+#pragma pack(push, 2)
+
 class CInfButtonSettings {
 public:
     CInfButtonSettings();
@@ -45,6 +47,7 @@ public:
     /* 01C8 */ int m_nIconSequence;
     /* 01CC */ int m_bSelected;
     /* 01D0 */ int m_bActiveWeaponSet;
+    /* 01D4 */ int field_1D4;
     /* 01D8 */ int m_nCount;
     /* 01DC */ BOOL m_bGreyOut;
 };
@@ -71,7 +74,10 @@ public:
     void SetSelectedButton(INT nSelectedButton);
 
     /* 0000 */ CInfButtonSettings m_buttonArray[12];
+    /* 1680 */ BYTE field_1680[0x30];
     /* 16B0 */ INT m_buttonTypes[12];
+    /* 16E0 */ INT field_16E0;
+    /* 16E4 */ INT field_16E4;
     /* 16E8 */ CVidCell field_16E8;
     /* 17C2 */ CVidCell field_17C2;
     /* 189C */ CVidCell field_189C;
@@ -87,15 +93,10 @@ public:
     /* 19E0 */ CResRef m_currentAbilityResRef;
     /* 19E8 */ BYTE m_nQuickWeaponSlot;
 
-    // Dynamic spell/item/ability/song picker list — populated by SetState
-    // when entering a picker state (0x66/0x67 spellbook, 0x68/0x69 item,
-    // 0x6A/0x6B ability, 0x70/0x71/0x7A song).  Mirrors original
-    // DAT_008e6820 (global pointer in Ghidra) but scoped to the array
-    // instance.  NULL outside of picker states.  Owned by us — freed in
-    // ClearPickerList().
-    CGameButtonList* m_pPickerList;
     void ClearPickerList();
     void RebuildPickerList();
 };
+
+#pragma pack(pop)
 
 #endif /* CINFBUTTONARRAY_H_ */

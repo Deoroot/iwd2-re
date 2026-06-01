@@ -57,6 +57,16 @@ int GetParty(int defaultParty)
     return atoi(value);
 }
 
+bool GetSaveName(char* value, int size)
+{
+    if (value == NULL || size <= 0) {
+        return false;
+    }
+
+    value[0] = '\0';
+    return GetEnv("IWD2_RE_AUTO_SAVE_NAME", value, static_cast<DWORD>(size)) > 0;
+}
+
 void WriteResult(const char* status, const char* detail)
 {
     char path[MAX_PATH];

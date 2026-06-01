@@ -23,6 +23,8 @@ class CAITrigger;
 class CGameSprite;
 class CSearchBitmap;
 
+#pragma pack(push, 2)
+
 class CAIGroup {
 public:
     static const LONG OFFSET_MULTIPLIER;
@@ -113,5 +115,7 @@ public:
     /* 0002 */ BOOL m_groupChanged;
     /* 0006 */ CTypedPtrList<CPtrList, LONG*> m_memberList;
 };
+
+#pragma pack(pop)
 
 #endif /* CAIGROUP_H_ */

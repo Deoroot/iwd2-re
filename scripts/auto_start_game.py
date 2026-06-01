@@ -50,6 +50,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-launch", action="store_true", help="attach to an already launched process is not implemented")
     ap.add_argument("--slot", type=int, default=0, help="visible load-screen slot to load, 0-4")
+    ap.add_argument("--save-name", help="exact MPSave directory name to load")
     ap.add_argument("--new-game", action="store_true", help="start a new game instead of loading a save")
     ap.add_argument("--party", default="Lady's Lament", help="party index or Party.ini name for --new-game")
     ap.add_argument("--timeout", type=float, default=120.0, help="seconds to wait for world activation")
@@ -71,8 +72,12 @@ def main() -> int:
         description = f"new game with party {args.party!r}"
     else:
         env["IWD2_RE_AUTO_ACTION"] = "load"
-        env["IWD2_RE_AUTO_SLOT"] = str(args.slot)
-        description = f"visible save slot {args.slot}"
+        if args.save_name:
+            env["IWD2_RE_AUTO_SAVE_NAME"] = args.save_name
+            description = f"save {args.save_name!r}"
+        else:
+            env["IWD2_RE_AUTO_SLOT"] = str(args.slot)
+            description = f"visible save slot {args.slot}"
 
     proc = subprocess.Popen([str(EXE)], cwd=str(GAME_DIR), env=env)
     print(f"pid={proc.pid}; auto {description}")
