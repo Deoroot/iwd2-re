@@ -38,6 +38,7 @@ CGameTrigger::CGameTrigger(CGameArea* pArea, CAreaFileTriggerObject* pTriggerObj
     m_cursorType = pTriggerObject->m_cursorType != 30 ? pTriggerObject->m_cursorType : 42;
     memcpy(m_newArea, pTriggerObject->m_newArea, RESREF_SIZE);
     memcpy(m_newEntryPoint, pTriggerObject->m_newEntryPoint, SCRIPTNAME_SIZE);
+    memcpy(m_scriptRes, pTriggerObject->m_script, RESREF_SIZE);
     m_dwFlags = pTriggerObject->m_dwFlags;
     m_description = pTriggerObject->m_description;
     m_nPolygon = pTriggerObject->m_pickPointCount;
@@ -82,7 +83,7 @@ CGameTrigger::CGameTrigger(CGameArea* pArea, CAreaFileTriggerObject* pTriggerObj
                     || (y2 == y1 && y1 == y0)
                     || (x2 != x1
                         && x1 != x0
-                        && 1000 * (y2 - y1) / (x2 - x1) != 1000 * (y1 - y0) / (x1 - x0))) {
+                        && 1000 * (y2 - y1) / (x2 - x1) == 1000 * (y1 - y0) / (x1 - x0))) {
                     m_pPolygon[cnt - adjust - 1] = m_pPolygon[cnt - adjust];
                     adjust++;
                 }
@@ -528,4 +529,67 @@ CPoint& CGameTrigger::GetPos()
 BOOL CGameTrigger::IsTrapActive()
 {
     return m_trapActivated && (m_dwFlags & 0x100) == 0;
+}
+
+// 0x4CFF70
+void CGameTrigger::Marshal(CAreaFileTriggerObject** pTriggerObject)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameTrigger.cpp
+    // __LINE__: 1235
+    UTIL_ASSERT(pTriggerObject != NULL);
+
+    *pTriggerObject = new CAreaFileTriggerObject();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameTrigger.cpp
+    // __LINE__: 1241
+    UTIL_ASSERT(*pTriggerObject != NULL);
+
+    memset(*pTriggerObject, 0, sizeof(CAreaFileTriggerObject));
+
+    if (m_nPolygon != 0) {
+        CAreaPoint* pPoints = new CAreaPoint[m_nPolygon];
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameTrigger.cpp
+        // __LINE__: 1246
+        UTIL_ASSERT(pPoints != NULL);
+
+        for (WORD cnt = 0; cnt < m_nPolygon; cnt++) {
+            pPoints[cnt].m_xPos = static_cast<WORD>(m_pPolygon[cnt].x);
+            pPoints[cnt].m_yPos = static_cast<WORD>(m_pPolygon[cnt].y);
+        }
+
+        (*pTriggerObject)->m_pickPointStart = reinterpret_cast<DWORD>(pPoints);
+        (*pTriggerObject)->m_pickPointCount = m_nPolygon;
+    }
+
+    (*pTriggerObject)->m_triggerType = m_triggerType;
+    (*pTriggerObject)->m_boundingRectLeft = static_cast<WORD>(m_rBounding.left);
+    (*pTriggerObject)->m_boundingRectTop = static_cast<WORD>(m_rBounding.top);
+    (*pTriggerObject)->m_boundingRectRight = static_cast<WORD>(m_rBounding.right) - 1;
+    (*pTriggerObject)->m_boundingRectBottom = static_cast<WORD>(m_rBounding.bottom) - 1;
+
+    if ((m_dwFlags & 0x200) == 0) {
+        (*pTriggerObject)->m_transitionWalkToX = static_cast<WORD>(m_pos.x);
+        (*pTriggerObject)->m_transitionWalkToY = static_cast<WORD>(m_pos.y);
+    } else {
+        (*pTriggerObject)->m_transitionWalkToX = static_cast<WORD>(m_ptUsePoint.x);
+        (*pTriggerObject)->m_transitionWalkToY = static_cast<WORD>(m_ptUsePoint.y);
+    }
+
+    (*pTriggerObject)->m_cursorType = m_cursorType;
+    memcpy((*pTriggerObject)->m_newArea, m_newArea, RESREF_SIZE);
+    memcpy((*pTriggerObject)->m_newEntryPoint, m_newEntryPoint, SCRIPTNAME_SIZE);
+    (*pTriggerObject)->m_dwFlags = m_dwFlags;
+    (*pTriggerObject)->m_description = m_description;
+    (*pTriggerObject)->m_posXTrapOrigin = static_cast<WORD>(m_posTrapOrigin.x);
+    (*pTriggerObject)->m_posYTrapOrigin = static_cast<WORD>(m_posTrapOrigin.y);
+    memcpy((*pTriggerObject)->m_scriptName, m_scriptName, SCRIPTNAME_SIZE);
+    (*pTriggerObject)->m_trapDetectionDifficulty = m_trapDetectionDifficulty;
+    (*pTriggerObject)->m_trapDisarmingDifficulty = m_trapDisarmingDifficulty;
+    (*pTriggerObject)->m_trapActivated = m_trapActivated;
+    (*pTriggerObject)->m_trapDetected = m_trapDetected;
+    m_keyType.GetResRef((*pTriggerObject)->m_keyType);
+    memcpy((*pTriggerObject)->m_script, m_scriptRes, RESREF_SIZE);
+    (*pTriggerObject)->field_88 = m_ptUsePoint.x;
+    (*pTriggerObject)->field_8C = m_ptUsePoint.y;
 }

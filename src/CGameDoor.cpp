@@ -123,7 +123,7 @@ CGameDoor::CGameDoor(CGameArea* pArea, CAreaFileDoorObject* pDoorObject, CAreaPo
                     || (y2 == y1 && y1 == y0)
                     || (x2 != x1
                         && x1 != x0
-                        && 1000 * (y2 - y1) / (x2 - x1) != 1000 * (y1 - y0) / (x1 - x0))) {
+                        && 1000 * (y2 - y1) / (x2 - x1) == 1000 * (y1 - y0) / (x1 - x0))) {
                     m_pOpenPolygon[cnt - adjust - 1] = m_pOpenPolygon[cnt - adjust];
                     adjust++;
                 }
@@ -162,7 +162,7 @@ CGameDoor::CGameDoor(CGameArea* pArea, CAreaFileDoorObject* pDoorObject, CAreaPo
                     || (y2 == y1 && y1 == y0)
                     || (x2 != x1
                         && x1 != x0
-                        && 1000 * (y2 - y1) / (x2 - x1) != 1000 * (y1 - y0) / (x1 - x0))) {
+                        && 1000 * (y2 - y1) / (x2 - x1) == 1000 * (y1 - y0) / (x1 - x0))) {
                     m_pClosedPolygon[cnt - adjust - 1] = m_pClosedPolygon[cnt - adjust];
                     adjust++;
                 }
@@ -201,7 +201,7 @@ CGameDoor::CGameDoor(CGameArea* pArea, CAreaFileDoorObject* pDoorObject, CAreaPo
     m_ptOpenDest.x = (pDoorObject->m_openBoundingRectLeft + pDoorObject->m_openBoundingRectRight) / 2;
     m_ptOpenDest.y = pDoorObject->m_openBoundingRectBottom;
 
-    m_nClosedSearch = pDoorObject->m_openSearchSquaresCount;
+    m_nClosedSearch = pDoorObject->m_closedSearchSquaresCount;
     if (m_nClosedSearch != 0) {
         m_pClosedSearch = new CPoint[m_nClosedSearch];
 

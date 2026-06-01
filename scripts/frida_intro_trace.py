@@ -189,6 +189,7 @@ RE_HOOKS = {
     "CMessageDisplayTextRef::Run": 0x22A000,
     "CMessageDisplayTextRefSend::Run": 0x238E10,
     "CGameArea::AIUpdate": 0x12AA20,
+    "CGameArea::Unmarshal": 0x130E20,
     "CGameArea::OnActivation": 0x131F30,
     "CGameArea::OnDeactivation": 0x132290,
     "CGameArea::Render": 0x136160,
@@ -287,6 +288,7 @@ RE_MAP_SYMBOLS = {
     "CMessageDisplayTextRef::Run": "?Run@CMessageDisplayTextRef@@UAEXXZ",
     "CMessageDisplayTextRefSend::Run": "?Run@CMessageDisplayTextRefSend@@UAEXXZ",
     "CGameArea::AIUpdate": "?AIUpdate@CGameArea@@QAEXXZ",
+    "CGameArea::Unmarshal": "?Unmarshal@CGameArea@@QAEXPAEJABV?$CStringT@DV?$StrTraitMFC_DLL@DV?$ChTraitsCRT@D@ATL@@@@@ATL@@E@Z",
     "CGameArea::OnActivation": "?OnActivation@CGameArea@@QAEXXZ",
     "CGameArea::OnDeactivation": "?OnDeactivation@CGameArea@@QAEXXZ",
     "CGameArea::Render": "?Render@CGameArea@@QAEXPAVCVidMode@@H@Z",
@@ -410,6 +412,7 @@ ORIG_HOOKS = {
     "CMessageDisplayTextRef::Run": 0x4FC740,
     "CMessageDisplayTextRefSend::Run": 0x4FCC30,
     "CGameArea::AIUpdate": 0x46E3D0,
+    "CGameArea::Unmarshal": 0x472DE0,
     "CGameArea::OnActivation": 0x4750E0,
     "CGameArea::OnDeactivation": 0x475330,
     "CGameArea::Render": 0x477740,
@@ -1589,6 +1592,76 @@ function resRefString(p) {{
   }}
 }}
 
+function fixedString(p, maxLen) {{
+  try {{
+    const bytes = p.readByteArray(maxLen);
+    const view = new Uint8Array(bytes);
+    let out = '';
+    for (let i = 0; i < view.length; i++) {{
+      if (view[i] === 0) break;
+      out += String.fromCharCode(view[i]);
+    }}
+    return out;
+  }} catch (e) {{
+    return '<bad-fixed-string>';
+  }}
+}}
+
+function areaFileSummary(pArea, areaSize) {{
+  try {{
+    const signature = fixedString(pArea, 8);
+    const offsets = pArea.add(0x64);
+    const creatureOffset = offsets.add(0x00).readU32();
+    const creatureCount = offsets.add(0x04).readU16();
+    const pointsOffset = offsets.add(0x28).readU32();
+    const pointsCount = offsets.add(0x2c).readU16();
+    const entryOffset = offsets.add(0x14).readU32();
+    const entryCount = offsets.add(0x18).readU32();
+    const field4c = pArea.add(8 + 0x4c).readU32();
+    const headerBytes = [
+      field4c & 0xff,
+      (field4c >>> 8) & 0xff,
+      (field4c >>> 16) & 0xff,
+      (field4c >>> 24) & 0xff,
+    ];
+    const masks = {{}};
+    const externalMasks = {{}};
+    const samples = [];
+    const safeCount = Math.min(creatureCount, 160);
+    for (let i = 0; i < safeCount; i++) {{
+      const creature = pArea.add(creatureOffset + i * 0x110);
+      const name = fixedString(creature, 0x20);
+      const res = fixedString(creature.add(0x80), 8);
+      const b2e = creature.add(0x2e).readU8();
+      const b2f = creature.add(0x2f).readU8();
+      masks[b2f] = (masks[b2f] || 0) + 1;
+      if (res.length > 0) {{
+        externalMasks[b2f] = (externalMasks[b2f] || 0) + 1;
+      }}
+      if (i < 12 || name.toUpperCase().indexOf('HED') >= 0 || res.toUpperCase().indexOf('HED') >= 0) {{
+        samples.push({{ i, name, res, b2e, b2f }});
+      }}
+    }}
+    return {{
+      signature,
+      areaSize,
+      field4c,
+      headerBytes,
+      creatureOffset,
+      creatureCount,
+      pointsOffset,
+      pointsCount,
+      entryOffset,
+      entryCount,
+      masks,
+      externalMasks,
+      samples,
+    }};
+  }} catch (e) {{
+    return {{ err: '' + e, areaSize, pArea: pArea.toString() }};
+  }}
+}}
+
 function chapterTextState(chapter) {{
   for (const textListOff of CHAPTER.textListCandidates) {{
     try {{
@@ -2443,6 +2516,12 @@ for (const name of ['CGameArea::OnActivation', 'CGameArea::OnDeactivation']) {{
     }}
   }});
 }}
+
+hook('CGameArea::Unmarshal', {{
+  onEnter(args) {{
+    send({{ tag: 'CGameArea.Unmarshal', this: this.context.ecx.toString(), area: areaFileSummary(args[0], args[1].toInt32()) }});
+  }}
+}});
 
 hook('CGameArea::AIUpdate', {{
   onEnter(args) {{
@@ -3560,11 +3639,6 @@ def main() -> int:
     if spawned:
         frida.resume(pid)
     if ns.mode == "original":
-        threading.Thread(
-            target=keep_game_focused,
-            args=(pid, ns.timeout),
-            daemon=True,
-        ).start()
         stop_movie_keys = threading.Event()
         threading.Thread(
             target=skip_original_startup_movies,
@@ -3577,11 +3651,6 @@ def main() -> int:
             daemon=True,
         ).start()
     else:
-        threading.Thread(
-            target=keep_game_focused,
-            args=(pid, ns.timeout),
-            daemon=True,
-        ).start()
         if ns.auto_chapter:
             threading.Thread(
                 target=re_chapter_driver,

@@ -184,6 +184,7 @@ public:
     void IncrHeightDynamic(const CPoint& point);
     void DecrHeightDynamic(const CPoint& point);
     COLORREF GetTintColor(const CPoint& cPoint, BYTE listType);
+    void Marshal(BYTE** pArea, DWORD* nArea, BOOLEAN bProgressBarInPlace);
     void Unmarshal(BYTE* pArea, LONG areaSize, const CString& sName, BOOLEAN bProgressBarInPlace);
     void ProgressBarCallback(DWORD dwSize, BOOLEAN bInitialize);
     void SetListenPosition();

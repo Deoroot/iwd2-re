@@ -29,11 +29,167 @@
 #include "CUtil.h"
 #include "CVidPoly.h"
 #include "DebugLog.h"
+
+#include <vector>
+
 // 0x8D212C
 INT CGameArea::dword_8D212C;
 
 // 0x8D2138
 BOOLEAN CGameArea::byte_8D2138;
+
+namespace {
+
+struct CGameAreaMarshalWork {
+    std::vector<CAreaFileCreature*> creatures;
+    std::vector<CAreaFileTriggerObject*> triggers;
+    std::vector<CAreaFileRandomMonsterSpawningPoint*> spawnings;
+    std::vector<CAreaFileContainer*> containers;
+    std::vector<CAreaFileSoundObject*> sounds;
+    std::vector<CAreaFileDoorObject*> doors;
+    std::vector<CAreaFileStaticObject*> statics;
+    DWORD creatureDataSize;
+    DWORD pointsCount;
+    DWORD itemCount;
+
+    CGameAreaMarshalWork()
+    {
+        creatureDataSize = 0;
+        pointsCount = 0;
+        itemCount = 0;
+    }
+};
+
+void CGameAreaAppendBytes(BYTE* pArea, DWORD& cnt, const void* pData, DWORD nData)
+{
+    if (nData != 0) {
+        memcpy(pArea + cnt, pData, nData);
+        cnt += nData;
+    }
+}
+
+void CGameAreaAppendPointBlock(BYTE* pArea, DWORD& cnt, DWORD& pointerOrOffset, WORD count)
+{
+    if (count != 0) {
+        CAreaPoint* pPoints = reinterpret_cast<CAreaPoint*>(pointerOrOffset);
+        DWORD nBytes = sizeof(CAreaPoint) * count;
+        DWORD offset = cnt;
+        CGameAreaAppendBytes(pArea, cnt, pPoints, nBytes);
+        delete[] pPoints;
+        pointerOrOffset = offset;
+    }
+}
+
+template <class T>
+void CGameAreaDeleteVector(std::vector<T*>& values)
+{
+    for (size_t index = 0; index < values.size(); index++) {
+        delete values[index];
+    }
+    values.clear();
+}
+
+void CGameAreaMarshalObject(CGameObject* pObject, CGameAreaMarshalWork& work)
+{
+    BYTE objectType = pObject->GetObjectType();
+
+    if (objectType == CGameObject::TYPE_NONE
+        || objectType == CGameObject::TYPE_AIBASE
+        || objectType == CGameObject::TYPE_OBJECT_MARKER
+        || objectType == CGameObject::TYPE_TEXT
+        || objectType == CGameObject::TYPE_TILED_OBJECT) {
+        return;
+    }
+
+    if (objectType == CGameObject::TYPE_SOUND) {
+        CAreaFileSoundObject* pSoundObject = NULL;
+        static_cast<CGameSound*>(pObject)->Marshal(&pSoundObject);
+        work.sounds.push_back(pSoundObject);
+        return;
+    }
+
+    if (objectType == CGameObject::TYPE_SPAWNING) {
+        CAreaFileRandomMonsterSpawningPoint* pSpawningObject = NULL;
+        static_cast<CGameSpawning*>(pObject)->Marshal(&pSpawningObject);
+        work.spawnings.push_back(pSpawningObject);
+        return;
+    }
+
+    if (objectType == CGameObject::TYPE_SPRITE) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+        if (!pSprite->m_bGlobal) {
+            CAreaFileCreature* pCreature = NULL;
+            pSprite->Marshal(&pCreature);
+            work.creatureDataSize += pCreature->m_creatureSize;
+            work.creatures.push_back(pCreature);
+        }
+        return;
+    }
+
+    if (objectType == CGameObject::TYPE_CONTAINER) {
+        CAreaFileContainer* pContainerObject = NULL;
+        static_cast<CGameContainer*>(pObject)->Marshal(&pContainerObject);
+        work.pointsCount += pContainerObject->m_pickPointCount;
+        work.itemCount += pContainerObject->m_itemCount;
+        work.containers.push_back(pContainerObject);
+        return;
+    }
+
+    if (objectType == CGameObject::TYPE_DOOR) {
+        CAreaFileDoorObject* pDoorObject = NULL;
+        static_cast<CGameDoor*>(pObject)->Marshal(&pDoorObject);
+        work.pointsCount += pDoorObject->m_openSelectionPointCount;
+        work.pointsCount += pDoorObject->m_closedSelectionPointCount;
+        work.pointsCount += pDoorObject->m_openSearchSquaresCount;
+        work.pointsCount += pDoorObject->m_closedSearchSquaresCount;
+        work.doors.push_back(pDoorObject);
+        return;
+    }
+
+    if (objectType == CGameObject::TYPE_STATIC) {
+        CAreaFileStaticObject* pStaticObject = NULL;
+        static_cast<CGameStatic*>(pObject)->Marshal(&pStaticObject);
+        work.statics.push_back(pStaticObject);
+        return;
+    }
+
+    if (objectType == CGameObject::TYPE_TRIGGER) {
+        CAreaFileTriggerObject* pTriggerObject = NULL;
+        static_cast<CGameTrigger*>(pObject)->Marshal(&pTriggerObject);
+        work.pointsCount += pTriggerObject->m_pickPointCount;
+        work.triggers.push_back(pTriggerObject);
+        return;
+    }
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
+    // __LINE__: 4337
+    UTIL_ASSERT(FALSE);
+}
+
+void CGameAreaMarshalList(CGameArea* pArea, CTypedPtrList<CPtrList, int*>& list, CGameAreaMarshalWork& work)
+{
+    CInfGame* pGame = pArea->m_pGame != NULL
+        ? pArea->m_pGame
+        : g_pBaldurChitin->GetObjectGame();
+
+    POSITION pos = list.GetHeadPosition();
+    while (pos != NULL) {
+        LONG id = reinterpret_cast<LONG>(list.GetNext(pos));
+        CGameObject* pObject = NULL;
+        BYTE rc = pGame->GetObjectArray()->GetShare(id,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+        if (rc == CGameObjectArray::SUCCESS) {
+            CGameAreaMarshalObject(pObject, work);
+            pGame->GetObjectArray()->ReleaseShare(id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+    }
+}
+
+} // namespace
 
 // 0x469B60
 CGameArea::CGameArea(BYTE id)
@@ -1972,6 +2128,323 @@ void CGameArea::ClearMarshal()
     LeaveCriticalSection(&(g_pBaldurChitin->m_pEngineWorld->field_106));
 }
 
+// 0x471630
+void CGameArea::Marshal(BYTE** pArea, DWORD* nArea, BOOLEAN bProgressBarInPlace)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
+    // __LINE__: 4239
+    UTIL_ASSERT(pArea != NULL && nArea != NULL);
+
+    CGameAreaMarshalWork work;
+    BYTE* pVisibility = NULL;
+    DWORD nVisibility = 0;
+    CVariable* pVariables = NULL;
+    WORD nVariables = 0;
+
+    if (m_pGame == NULL) {
+        m_pGame = g_pBaldurChitin->GetObjectGame();
+    }
+
+    DWORD dwPerArea = CInfGame::PROGRESSBAR_AREA_ADDITIONAL / 25;
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(0, TRUE);
+    }
+
+    *pArea = NULL;
+    *nArea = 0;
+
+    CGameAreaMarshalList(this, m_lVertSortFlight, work);
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea * 4, FALSE);
+    }
+
+    CGameAreaMarshalList(this, m_lVertSort, work);
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea * 4, FALSE);
+    }
+
+    CGameAreaMarshalList(this, m_lVertSortBack, work);
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea * 4, FALSE);
+    }
+
+    m_visibility.Marshal(&pVisibility, &nVisibility);
+    m_variables.Marshal(&pVariables, &nVariables);
+
+    DWORD nEntryPoints = m_entryPoints.GetCount();
+    DWORD nUserMapNotes = m_cGameAreaNotes.m_areaNoteList.GetCount();
+
+    *nArea = 0x2A0
+        + nVisibility
+        + work.creatureDataSize
+        + static_cast<DWORD>(work.creatures.size()) * sizeof(CAreaFileCreature)
+        + static_cast<DWORD>(work.triggers.size()) * sizeof(CAreaFileTriggerObject)
+        + static_cast<DWORD>(work.spawnings.size()) * sizeof(CAreaFileRandomMonsterSpawningPoint)
+        + static_cast<DWORD>(work.containers.size()) * sizeof(CAreaFileContainer)
+        + static_cast<DWORD>(work.sounds.size()) * sizeof(CAreaFileSoundObject)
+        + static_cast<DWORD>(work.doors.size()) * sizeof(CAreaFileDoorObject)
+        + static_cast<DWORD>(work.statics.size()) * sizeof(CAreaFileStaticObject)
+        + work.pointsCount * sizeof(CAreaPoint)
+        + work.itemCount * sizeof(CCreatureFileItem)
+        + static_cast<DWORD>(nVariables) * sizeof(CAreaVariable)
+        + nEntryPoints * sizeof(CAreaFileCharacterEntryPoint)
+        + nUserMapNotes * sizeof(CAreaUserNote);
+
+    *pArea = new BYTE[*nArea];
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
+    // __LINE__: 4562
+    UTIL_ASSERT(*pArea != NULL);
+
+    memset(*pArea, 0, *nArea);
+    memcpy(*pArea, "AREAV9.1", 8);
+
+    if (m_pGame != NULL) {
+        m_header.m_lastSaved = m_pGame->GetWorldTimer()->m_gameTime / CTimerWorld::TIMESCALE_MSEC_PER_SEC;
+    }
+
+    memcpy(*pArea + 8, &m_header, sizeof(CAreaFileHeader));
+
+    CAreaFileOffsets* pOffsets = reinterpret_cast<CAreaFileOffsets*>(*pArea + 8 + sizeof(CAreaFileHeader));
+    pOffsets->m_areaSoundsAndMusicOffset = 0x12C;
+    pOffsets->m_restingEncounterOffset = 0x1BC;
+    memcpy(*pArea + pOffsets->m_areaSoundsAndMusicOffset, &m_headerSound, sizeof(CAreaSoundsAndMusic));
+    memcpy(*pArea + pOffsets->m_restingEncounterOffset, &m_headerRestEncounter, sizeof(CAreaFileRestEncounter));
+
+    DWORD cnt = 0x2A0;
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (nVisibility != 0) {
+        pOffsets->m_visibilityMapOffset = cnt;
+        pOffsets->m_visibilityMapCount = nVisibility;
+        CGameAreaAppendBytes(*pArea, cnt, pVisibility, nVisibility);
+        delete[] pVisibility;
+        pVisibility = NULL;
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (!work.statics.empty()) {
+        pOffsets->m_staticObjectListOffset = cnt;
+        pOffsets->m_staticObjectListCount = work.statics.size();
+        for (size_t index = 0; index < work.statics.size(); index++) {
+            CGameAreaAppendBytes(*pArea, cnt, work.statics[index], sizeof(CAreaFileStaticObject));
+        }
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (!work.sounds.empty()) {
+        pOffsets->m_soundObjectOffset = cnt;
+        pOffsets->m_soundObjectCount = static_cast<WORD>(work.sounds.size());
+        for (size_t index = 0; index < work.sounds.size(); index++) {
+            CGameAreaAppendBytes(*pArea, cnt, work.sounds[index], sizeof(CAreaFileSoundObject));
+        }
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (!work.spawnings.empty()) {
+        pOffsets->m_randomMonsterSpawningPointTableOffset = cnt;
+        pOffsets->m_randomMonsterSpawningPointTableCount = work.spawnings.size();
+        for (size_t index = 0; index < work.spawnings.size(); index++) {
+            CGameAreaAppendBytes(*pArea, cnt, work.spawnings[index], sizeof(CAreaFileRandomMonsterSpawningPoint));
+        }
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (!work.creatures.empty()) {
+        for (size_t index = 0; index < work.creatures.size(); index++) {
+            BYTE* pCreatureData = reinterpret_cast<BYTE*>(work.creatures[index]->m_creatureOffset);
+            DWORD nCreatureData = work.creatures[index]->m_creatureSize;
+            work.creatures[index]->m_creatureOffset = cnt;
+            CGameAreaAppendBytes(*pArea, cnt, pCreatureData, nCreatureData);
+            delete[] pCreatureData;
+        }
+
+        pOffsets->m_creatureTableOffset = cnt;
+        pOffsets->m_creatureTableCount = static_cast<WORD>(work.creatures.size());
+        for (size_t index = 0; index < work.creatures.size(); index++) {
+            CGameAreaAppendBytes(*pArea, cnt, work.creatures[index], sizeof(CAreaFileCreature));
+        }
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (work.pointsCount != 0) {
+        pOffsets->m_pointsOffset = cnt;
+        pOffsets->m_pointsCount = static_cast<WORD>(work.pointsCount);
+
+        DWORD nPointIndex = 0;
+        for (size_t index = 0; index < work.containers.size(); index++) {
+            CAreaFileContainer* pContainer = work.containers[index];
+            if (pContainer->m_pickPointCount != 0) {
+                CGameAreaAppendPointBlock(*pArea, cnt, pContainer->m_pickPointStart, pContainer->m_pickPointCount);
+                pContainer->m_pickPointStart = nPointIndex;
+                nPointIndex += pContainer->m_pickPointCount;
+            }
+        }
+
+        for (size_t index = 0; index < work.doors.size(); index++) {
+            CAreaFileDoorObject* pDoor = work.doors[index];
+            if (pDoor->m_openSelectionPointCount != 0) {
+                CGameAreaAppendPointBlock(*pArea, cnt, pDoor->m_openSelectionPointStart, pDoor->m_openSelectionPointCount);
+                pDoor->m_openSelectionPointStart = nPointIndex;
+                nPointIndex += pDoor->m_openSelectionPointCount;
+            }
+            if (pDoor->m_closedSelectionPointCount != 0) {
+                CGameAreaAppendPointBlock(*pArea, cnt, pDoor->m_closedSelectionPointStart, pDoor->m_closedSelectionPointCount);
+                pDoor->m_closedSelectionPointStart = nPointIndex;
+                nPointIndex += pDoor->m_closedSelectionPointCount;
+            }
+            if (pDoor->m_openSearchSquaresCount != 0) {
+                CGameAreaAppendPointBlock(*pArea, cnt, pDoor->m_openSearchSquaresStart, pDoor->m_openSearchSquaresCount);
+                pDoor->m_openSearchSquaresStart = nPointIndex;
+                nPointIndex += pDoor->m_openSearchSquaresCount;
+            }
+            if (pDoor->m_closedSearchSquaresCount != 0) {
+                CGameAreaAppendPointBlock(*pArea, cnt, pDoor->m_closedSearchSquaresStart, pDoor->m_closedSearchSquaresCount);
+                pDoor->m_closedSearchSquaresStart = nPointIndex;
+                nPointIndex += pDoor->m_closedSearchSquaresCount;
+            }
+        }
+
+        for (size_t index = 0; index < work.triggers.size(); index++) {
+            CAreaFileTriggerObject* pTrigger = work.triggers[index];
+            if (pTrigger->m_pickPointCount != 0) {
+                CGameAreaAppendPointBlock(*pArea, cnt, pTrigger->m_pickPointStart, pTrigger->m_pickPointCount);
+                pTrigger->m_pickPointStart = nPointIndex;
+                nPointIndex += pTrigger->m_pickPointCount;
+            }
+        }
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (!work.doors.empty()) {
+        pOffsets->m_doorObjectListOffset = cnt;
+        pOffsets->m_doorObjectListCount = work.doors.size();
+        for (size_t index = 0; index < work.doors.size(); index++) {
+            CGameAreaAppendBytes(*pArea, cnt, work.doors[index], sizeof(CAreaFileDoorObject));
+        }
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (!work.triggers.empty()) {
+        pOffsets->m_triggerObjectListOffset = cnt;
+        pOffsets->m_triggerObjectListCount = static_cast<WORD>(work.triggers.size());
+        for (size_t index = 0; index < work.triggers.size(); index++) {
+            CGameAreaAppendBytes(*pArea, cnt, work.triggers[index], sizeof(CAreaFileTriggerObject));
+        }
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (work.itemCount != 0) {
+        pOffsets->m_itemObjectsOffset = cnt;
+        pOffsets->m_itemObjectsCount = static_cast<WORD>(work.itemCount);
+
+        DWORD nItemIndex = 0;
+        for (size_t index = 0; index < work.containers.size(); index++) {
+            CAreaFileContainer* pContainer = work.containers[index];
+            if (pContainer->m_itemCount != 0) {
+                CCreatureFileItem* pItems = reinterpret_cast<CCreatureFileItem*>(pContainer->m_startingItem);
+                pContainer->m_startingItem = nItemIndex;
+                CGameAreaAppendBytes(*pArea, cnt, pItems, sizeof(CCreatureFileItem) * pContainer->m_itemCount);
+                delete[] pItems;
+                nItemIndex += pContainer->m_itemCount;
+            }
+        }
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (!work.containers.empty()) {
+        pOffsets->m_containerListOffset = cnt;
+        pOffsets->m_containerListCount = static_cast<WORD>(work.containers.size());
+        for (size_t index = 0; index < work.containers.size(); index++) {
+            CGameAreaAppendBytes(*pArea, cnt, work.containers[index], sizeof(CAreaFileContainer));
+        }
+    }
+
+    if (nVariables != 0) {
+        pOffsets->m_areaScriptVariablesOffset = cnt;
+        pOffsets->m_areaScriptVariablesCount = nVariables;
+        CGameAreaAppendBytes(*pArea, cnt, pVariables, sizeof(CAreaVariable) * nVariables);
+        delete[] pVariables;
+        pVariables = NULL;
+    }
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    if (nEntryPoints != 0) {
+        pOffsets->m_characterEntryPointTableOffset = cnt;
+        pOffsets->m_characterEntryPointTableCount = nEntryPoints;
+
+        POSITION pos = m_entryPoints.GetHeadPosition();
+        while (pos != NULL) {
+            CAreaFileCharacterEntryPoint* pEntryPoint = m_entryPoints.GetNext(pos);
+            CGameAreaAppendBytes(*pArea, cnt, pEntryPoint, sizeof(CAreaFileCharacterEntryPoint));
+        }
+    }
+
+    if (nUserMapNotes != 0) {
+        pOffsets->m_userMapNotesOffset = cnt;
+        pOffsets->m_userMapNotesCount = nUserMapNotes;
+        m_cGameAreaNotes.Marshal(pArea, cnt);
+    }
+
+    m_resRef.GetResRef(pOffsets->m_script);
+
+    if (bProgressBarInPlace == TRUE) {
+        ProgressBarCallback(dwPerArea, FALSE);
+    }
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
+    // __LINE__: 4913
+    UTIL_ASSERT(cnt == *nArea);
+
+    CGameAreaDeleteVector(work.creatures);
+    CGameAreaDeleteVector(work.triggers);
+    CGameAreaDeleteVector(work.spawnings);
+    CGameAreaDeleteVector(work.containers);
+    CGameAreaDeleteVector(work.sounds);
+    CGameAreaDeleteVector(work.doors);
+    CGameAreaDeleteVector(work.statics);
+
+    if (pVisibility != NULL) {
+        delete[] pVisibility;
+    }
+    if (pVariables != NULL) {
+        delete[] pVariables;
+    }
+}
+
 // 0x470D20
 BOOLEAN CGameArea::GetEntryPoint(const CString& sName, CPoint& ptEnter, SHORT& facing)
 {
@@ -2351,6 +2824,23 @@ void CGameArea::Unmarshal(BYTE* pArea, LONG areaSize, const CString& sName, BOOL
     // CREATURES
     CCreatureFile creatureData;
     CVariable creatureName;
+    BYTE creatureDifficultyStage;
+    LONG nAveragePartyLevel = m_pGame->GetAveragePartyLevel();
+    BYTE nMinimumPartyLevel = static_cast<BYTE>(m_header.field_4C & 0xFF);
+    BYTE nMaximumPartyLevel = static_cast<BYTE>((m_header.field_4C >> 8) & 0xFF);
+    if (nAveragePartyLevel < nMaximumPartyLevel) {
+        creatureDifficultyStage = static_cast<BYTE>((nMinimumPartyLevel <= nAveragePartyLevel) + 1);
+    } else {
+        creatureDifficultyStage = 3;
+    }
+    m_header.field_4C = (m_header.field_4C & 0xFF00FFFF) | ((nAveragePartyLevel & 0xFF) << 16);
+
+    BYTE creatureDifficultyMask;
+    if (creatureDifficultyStage < 3) {
+        creatureDifficultyMask = static_cast<BYTE>((creatureDifficultyStage > 1) + 1);
+    } else {
+        creatureDifficultyMask = 4;
+    }
 
     if (offsets->m_creatureTableCount != 0) {
         for (DWORD nCreature = 0; nCreature < offsets->m_creatureTableCount; nCreature++) {
@@ -2376,8 +2866,9 @@ void CGameArea::Unmarshal(BYTE* pArea, LONG areaSize, const CString& sName, BOOL
                 // __LINE__: 5211
                 UTIL_ASSERT(pCreature->m_creatureSize == 0);
 
-                if (pCreature->m_expirationTime == -1
-                    || pCreature->m_expirationTime * CTimerWorld::TIMESCALE_MSEC_PER_SEC > m_pGame->GetWorldTimer()->m_gameTime) {
+                if ((pCreature->structureAlignment1[0] & creatureDifficultyMask) != 0
+                    && (pCreature->m_expirationTime == -1
+                    || pCreature->m_expirationTime * CTimerWorld::TIMESCALE_MSEC_PER_SEC > m_pGame->GetWorldTimer()->m_gameTime)) {
                     // NOTE: Uninline.
                     creatureData.SetResRef(CResRef(pCreature->m_creatureData), TRUE, TRUE);
 
@@ -2530,6 +3021,7 @@ void CGameArea::Unmarshal(BYTE* pArea, LONG areaSize, const CString& sName, BOOL
             memcpy(pEntryPoint,
                 pArea + offsets->m_characterEntryPointTableOffset + sizeof(CAreaFileCharacterEntryPoint) * nEntryPoint,
                 sizeof(CAreaFileCharacterEntryPoint));
+            m_entryPoints.AddTail(pEntryPoint);
 
             areaSize -= sizeof(CAreaFileCharacterEntryPoint);
 

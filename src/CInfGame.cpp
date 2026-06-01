@@ -2071,6 +2071,30 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
         delete[] pGame;
     }
 
+    for (BYTE nArea = 0; nArea < CINFGAME_MAX_AREAS; nArea++) {
+        CGameArea* pArea = m_gameAreas[nArea];
+        if (pArea != NULL && (pArea->m_header.m_flags & 0x1) == 0) {
+            BYTE* pAreaData = NULL;
+            DWORD nAreaData = 0;
+            pArea->Marshal(&pAreaData, &nAreaData, bProgressBar);
+            if (pAreaData != NULL && nAreaData != 0) {
+                CAreaFile cAreaFile;
+                cAreaFile.SetResRef(pArea->m_resRef, FALSE, TRUE);
+
+                CRes* pRes = static_cast<CRes*>(cAreaFile.GetRes());
+                if (pRes != NULL) {
+                    bResult = pRes->Write(m_sTempDir, pAreaData, nAreaData) && bResult;
+                }
+            } else {
+                bResult = FALSE;
+            }
+
+            if (pAreaData != NULL) {
+                delete[] pAreaData;
+            }
+        }
+    }
+
     m_cWorldMap.Marshal(m_sTempDir);
 
     g_pBaldurChitin->GetTlkTable().m_override.Save();

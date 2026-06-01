@@ -23,6 +23,7 @@ public:
 
     void SetDrawPoly(SHORT time);
     BOOL IsTrapActive();
+    void Marshal(CAreaFileTriggerObject** pTriggerObject);
 
     /* 0598 */ WORD m_triggerType;
     /* 059A */ CRect m_rBounding;
