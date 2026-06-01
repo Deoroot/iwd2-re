@@ -14155,6 +14155,42 @@ SHORT CGameSprite::ExecuteAction()
     return CGameAIBase::ExecuteAction();
 }
 
+static void SetDialogueTalkedTo(CGameSprite* pSource, CGameSprite* pTarget)
+{
+    pSource->m_lTalkedTo.Set(pTarget->GetAIType());
+    pTarget->m_lTalkedTo.Set(pSource->GetAIType());
+}
+
+static void QueueSetNumTimesTalkedTo(CGameSprite* pSource, CGameSprite* pSprite)
+{
+    if ((pSource->m_derivedStats.m_generalState & 0x2000) == 0
+        && pSprite->GetAIType().m_nEnemyAlly != CAIObjectType::EA_PC) {
+        CMessage* pMessage = new CMessageSetNumTimesTalkedTo(
+            pSprite->m_nNumberOfTimesTalkedTo + 1,
+            pSource->GetId(),
+            pSprite->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+    }
+}
+
+static void QueueClearDialogActions(CGameSprite* pTarget)
+{
+    CMessage* pMessage = new CMessageClearDialogActions(
+        pTarget->GetId(),
+        pTarget->GetId());
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+}
+
+static void QueueDialogueStartedMessages(CGameSprite* pSource, CGameSprite* pTarget)
+{
+    QueueClearDialogActions(pTarget);
+    QueueSetNumTimesTalkedTo(pSource, pSource);
+    QueueSetNumTimesTalkedTo(pSource, pTarget);
+    // TODO INCOMPLETE: original 0x752DD0/0x7537A0 also queues two
+    // CMessageAddAction payloads here; the exact CAIAction fields still need
+    // to be recovered before wiring them.
+}
+
 // 0x752DD0
 SHORT CGameSprite::Dialogue(CGameSprite* pTarget)
 {
@@ -14216,13 +14252,12 @@ SHORT CGameSprite::Dialogue(CGameSprite* pTarget)
     }
 
     if (bEnter) {
-        // In range (binary LAB_00752FF0).  DEFERRED: the pre-enter
-        // CAIObjectType::Set of m_lTalkedTo on both sprites and the post-enter
-        // freeze/face messages (vtables 0x84D06C / 0x84D29C), pending recovery
-        // of those message classes.
+        // In range (binary LAB_00752FF0).
+        SetDialogueTalkedTo(this, pTarget);
         if (!g_pBaldurChitin->m_pEngineWorld->StartDialog(pTarget, this, 0, 0)) {
             return ACTION_ERROR;
         }
+        QueueDialogueStartedMessages(this, pTarget);
         return ACTION_DONE;
     }
 
@@ -14234,8 +14269,9 @@ SHORT CGameSprite::Dialogue(CGameSprite* pTarget)
     if (result == ACTION_ERROR
         && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
         // Pathing failed but the target is visible -- talk from here anyway.
+        SetDialogueTalkedTo(this, pTarget);
         if (g_pBaldurChitin->m_pEngineWorld->StartDialog(pTarget, this, 0, 0)) {
-            // DEFERRED: same post-enter messages as the in-range branch.
+            QueueDialogueStartedMessages(this, pTarget);
             result = ACTION_DONE;
         } else {
             result = ACTION_ERROR;
@@ -14303,12 +14339,13 @@ SHORT CGameSprite::PlayerDialog(CGameSprite* pTarget)
     if (inRange && hasLOS) {
         // DEFERRED (binary 0x753A60..0x753B40): break the caller's invisibility
         // (item effect 0x88) and sanctuary (0xA0, m_spellStates) before talking,
-        // CAIObjectType::Set m_lTalkedTo on both sprites, and the post-enter
-        // freeze/face messages -- pending those effect/message classes.
+        // pending those effect classes.
+        SetDialogueTalkedTo(this, pTarget);
         BOOL started = g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0);
         if (!started) {
             return ACTION_ERROR;
         }
+        QueueDialogueStartedMessages(this, pTarget);
         return ACTION_DONE;
     }
 
@@ -14319,9 +14356,11 @@ SHORT CGameSprite::PlayerDialog(CGameSprite* pTarget)
     }
     if (result == ACTION_ERROR
         && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
+        SetDialogueTalkedTo(this, pTarget);
         BOOL started = g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0);
         if (started) {
-            // DEFERRED: same invisibility/sanctuary break + post-enter messages.
+            // DEFERRED: same invisibility/sanctuary break.
+            QueueDialogueStartedMessages(this, pTarget);
             result = ACTION_DONE;
         } else {
             result = ACTION_ERROR;

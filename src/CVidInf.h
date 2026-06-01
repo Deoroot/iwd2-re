@@ -50,6 +50,7 @@ public:
     /* 00FC */ BOOL RenderPointer() override;
     /* 0100 */ void RestoreSurfaces() override;
     /* 010C */ void ParsePixelFormat(const DDPIXELFORMAT& ddpf) override;
+    /* 0110 */ BOOLEAN PrintSurfaceToBmp(LPBYTE& data, int nSurface, const CRect& r, LONG& size, short nScale) override;
     /* 011C */ ~CVidInf() override;
     /* 0120 */ BOOL CreateSurfaces3d() override;
     /* 0124 */ BOOL DestroySurfaces3d(CVidMode* pNextVidMode) override;

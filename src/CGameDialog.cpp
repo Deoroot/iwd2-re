@@ -93,7 +93,8 @@ BOOL CGameDialogSprite::StartDialog(CGameSprite* pSprite)
     }
 
     Iwd2DebugLog("CGameDialogSprite::StartDialog talkerId=%ld entryCount=%d",
-        pSprite->GetId(), m_dialogEntriesOrdered.GetCount());
+        pSprite->GetId(),
+        m_dialogEntriesOrdered.GetCount());
 
     for (INT nIndex = 0; nIndex < m_dialogEntriesOrdered.GetCount(); nIndex++) {
         CGameDialogEntry* pEntry = m_dialogEntriesOrdered.GetAt(nIndex);

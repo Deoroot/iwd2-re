@@ -1901,6 +1901,136 @@ BOOLEAN CVidInf::SaveScreen()
     return TRUE;
 }
 
+// 0x79EC20
+BOOLEAN CVidInf::PrintSurfaceToBmp(LPBYTE& data, int nSurface, const CRect& r, LONG& size, short nScale)
+{
+    data = NULL;
+    size = 0;
+
+    if (nScale <= 0) {
+        return FALSE;
+    }
+
+    const LONG nWidth = (r.right - r.left) / nScale;
+    const LONG nHeight = (r.bottom - r.top) / nScale;
+    if (nWidth <= 0 || nHeight <= 0) {
+        return FALSE;
+    }
+
+    const LONG nPadding = (4 - ((nWidth * 3) & 3)) & 3;
+    const LONG nStride = nWidth * 3 + nPadding;
+    size = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER) + nStride * nHeight;
+
+    data = new BYTE[size];
+    if (data == NULL) {
+        UTIL_ASSERT(FALSE);
+        return FALSE;
+    }
+    memset(data, 0, size);
+
+    BITMAPFILEHEADER* pFileHeader = reinterpret_cast<BITMAPFILEHEADER*>(data);
+    BITMAPINFOHEADER* pInfoHeader = reinterpret_cast<BITMAPINFOHEADER*>(data + sizeof(BITMAPFILEHEADER));
+
+    pFileHeader->bfType = 0x4D42;
+    pFileHeader->bfSize = size;
+    pFileHeader->bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+
+    pInfoHeader->biSize = sizeof(BITMAPINFOHEADER);
+    pInfoHeader->biWidth = nWidth;
+    pInfoHeader->biHeight = nHeight;
+    pInfoHeader->biPlanes = 1;
+    pInfoHeader->biBitCount = 24;
+    pInfoHeader->biCompression = BI_RGB;
+    pInfoHeader->biClrUsed = 0x1000000;
+
+    DDSURFACEDESC surfaceDesc;
+    surfaceDesc.dwSize = sizeof(surfaceDesc);
+
+    CRect rLock;
+    rLock.CopyRect(r);
+
+    if (!LockSurface(nSurface, &surfaceDesc, rLock)) {
+        delete[] data;
+        data = NULL;
+        size = 0;
+        return FALSE;
+    }
+
+    BYTE* pDstBase = data + pFileHeader->bfOffBits;
+    const BYTE* pSurface = reinterpret_cast<const BYTE*>(surfaceDesc.lpSurface);
+    const LONG lPitch = surfaceDesc.lPitch;
+    const int nBitsPerPixel = g_pChitin->cVideo.GetBitsPerPixels();
+
+    for (LONG y = 0; y < nHeight; y++) {
+        BYTE* pDst = pDstBase + y * nStride;
+        const LONG nSourceY = (nHeight - 1 - y) * nScale;
+
+        for (LONG x = 0; x < nWidth; x++) {
+            const LONG nSourceX = x * nScale;
+            const LONG nSampleWidth = (x == nWidth - 1)
+                ? r.right - r.left - nSourceX
+                : nScale;
+            const LONG nSampleHeight = nScale;
+            const LONG nSamples = nSampleWidth * nSampleHeight;
+
+            DWORD nBlue = 0;
+            DWORD nGreen = 0;
+            DWORD nRed = 0;
+
+            for (LONG sampleY = 0; sampleY < nSampleHeight; sampleY++) {
+                const BYTE* pRow = pSurface + (nSourceY + sampleY) * lPitch;
+
+                for (LONG sampleX = 0; sampleX < nSampleWidth; sampleX++) {
+                    switch (nBitsPerPixel) {
+                    case 16: {
+                        const WORD nPixel = reinterpret_cast<const WORD*>(pRow)[nSourceX + sampleX];
+                        nBlue += (nPixel & m_dwBBitMask) >> m_dwBBitShift;
+                        nGreen += (nPixel & m_dwGBitMask) >> m_dwGBitShift;
+                        nRed += (nPixel & m_dwRBitMask) >> m_dwRBitShift;
+                        break;
+                    }
+                    case 24: {
+                        const BYTE* pPixel = pRow + (nSourceX + sampleX) * 3;
+                        nBlue += pPixel[m_dwBBitShift / 8];
+                        nGreen += pPixel[m_dwGBitShift / 8];
+                        nRed += pPixel[m_dwRBitShift / 8];
+                        break;
+                    }
+                    case 32: {
+                        const BYTE* pPixel = pRow + (nSourceX + sampleX) * 4;
+                        nBlue += pPixel[m_dwBBitShift / 8];
+                        nGreen += pPixel[m_dwGBitShift / 8];
+                        nRed += pPixel[m_dwRBitShift / 8];
+                        break;
+                    }
+                    default:
+                        UnLockSurface(nSurface, surfaceDesc.lpSurface);
+                        delete[] data;
+                        data = NULL;
+                        size = 0;
+                        return FALSE;
+                    }
+                }
+            }
+
+            if (nBitsPerPixel == 16) {
+                pDst[0] = static_cast<BYTE>(((nBlue / nSamples) << 8) >> m_dwBBitCount);
+                pDst[1] = static_cast<BYTE>(((nGreen / nSamples) << 8) >> m_dwGBitCount);
+                pDst[2] = static_cast<BYTE>(((nRed / nSamples) << 8) >> m_dwRBitCount);
+            } else {
+                pDst[0] = static_cast<BYTE>(nBlue / nSamples);
+                pDst[1] = static_cast<BYTE>(nGreen / nSamples);
+                pDst[2] = static_cast<BYTE>(nRed / nSamples);
+            }
+
+            pDst += 3;
+        }
+    }
+
+    UnLockSurface(nSurface, surfaceDesc.lpSurface);
+    return TRUE;
+}
+
 // 0x79F6A0
 BOOL CVidInf::RenderPointer()
 {

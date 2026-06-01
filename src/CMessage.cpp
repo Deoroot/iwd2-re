@@ -5394,6 +5394,7 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
 {
     return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CLEAR_DIALOG_ACTIONS
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CUT_SCENE_MODE_STATUS
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXTREF
@@ -5408,6 +5409,7 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PARTY_GOLD
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_REPLIES
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_NUM_TIMES_TALKED_TO
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_IN_CUT_SCENE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME;
 }
@@ -17027,14 +17029,8 @@ BOOL CMessageSaveGame::UnmarshalMessage(BYTE* pData, DWORD dwSize)
 // 0x504CA0
 void CMessageSaveGame::Run()
 {
-    Iwd2DebugLog("CMessageSaveGame::Run open=%d host=%d service=%d strref=%lu",
-        g_pChitin->cNetwork.GetSessionOpen(),
-        g_pChitin->cNetwork.GetSessionHosting(),
-        g_pChitin->cNetwork.GetServiceProvider(),
-        m_strRef);
     if (g_pChitin->cNetwork.GetSessionOpen()
         && g_pChitin->cNetwork.GetSessionHosting() != TRUE) {
-        Iwd2DebugLog("CMessageSaveGame::Run skipped client");
         return;
     }
 
@@ -17083,23 +17079,49 @@ void CMessageSaveGame::Run()
     pGame->m_bSaveScreen = 1;
     pGame->field_50DC = 0;
 
+    BOOL bRestoreDisplayStale = FALSE;
+
     if (!g_pChitin->cVideo.Is3dAccelerated()) {
         if (pGame->field_50D8 == FALSE) {
+            // The original pump serializes this path. In the RE build the
+            // message thread can overlap the render-thread synchronous update;
+            // hold the pending repaint so an older capture cannot consume the
+            // save-screen flag armed below for the deferred copy pass.
+            bRestoreDisplayStale = g_pChitin->m_bDisplayStale;
+            g_pChitin->m_bDisplayStale = FALSE;
+            while (g_pChitin->m_bInSynchronousUpdate) {
+                SleepEx(10, FALSE);
+            }
             pGame->SynchronousUpdate();
         }
         pGame->field_50D8 = TRUE;
     }
 
-    if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL) {
+    if (g_pBaldurChitin->GetActiveEngine() == g_pBaldurChitin->m_pEngineWorld) {
         pGame->field_50D8 = TRUE;
     } else {
         pGame->field_50D8 = FALSE;
     }
 
-    Iwd2DebugLog("CMessageSaveGame::Run SaveGame save=%s",
+    Iwd2DebugLog("CMessageSaveGame before SaveGame active=%p world=%p saveScreen=%d field50D8=%d field50DC=%d save='%s'",
+        g_pBaldurChitin->GetActiveEngine(),
+        g_pBaldurChitin->m_pEngineWorld,
+        pGame->m_bSaveScreen,
+        pGame->field_50D8,
+        pGame->field_50DC,
         static_cast<LPCSTR>(pGame->m_sSaveGame));
-    BOOL bSaved = pGame->SaveGame(0, 0, 1);
-    Iwd2DebugLog("CMessageSaveGame::Run SaveGame ret=%d", bSaved);
+
+    pGame->SaveGame(0, 0, 1);
+
+    if (bRestoreDisplayStale || (pGame->m_bSaveScreen != 0 && pGame->field_50D8 != FALSE)) {
+        g_pChitin->m_bDisplayStale = TRUE;
+    }
+
+    Iwd2DebugLog("CMessageSaveGame after SaveGame saveScreen=%d field50D8=%d field50DC=%d displayStale=%d",
+        pGame->m_bSaveScreen,
+        pGame->field_50D8,
+        pGame->field_50DC,
+        g_pChitin->m_bDisplayStale);
 
     for (SHORT nArea = 0; nArea < CINFGAME_MAX_AREAS; nArea++) {
         CGameArea* pArea = pGame->m_gameAreas[nArea];

@@ -174,6 +174,87 @@ void CWorldMap::SetResRef(const CResRef& cResRef)
     }
 }
 
+// 0x558F40
+void CWorldMap::Marshal(const CString& sDirName)
+{
+    const DWORD nMapCount = m_cHeader.m_nMapCount;
+    DWORD nData = 8 + sizeof(CWorldMapHeader) + nMapCount * sizeof(CWorldMapData);
+
+    for (DWORD nMap = 0; nMap < nMapCount; nMap++) {
+        nData += m_pData[nMap].m_nAreas * sizeof(CWorldMapArea);
+        nData += m_pData[nMap].m_nLinks * sizeof(CWorldMapLinks);
+    }
+
+    BYTE* pData = new BYTE[nData];
+    if (pData == NULL) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CWorldMap.cpp
+        // __LINE__: 363
+        UTIL_ASSERT(FALSE);
+        return;
+    }
+
+    memset(pData, 0, nData);
+    memcpy(pData, "WMAPV1.0", 8);
+
+    CWorldMapHeader header = m_cHeader;
+    header.m_nMapOffset = 8 + sizeof(CWorldMapHeader);
+    memcpy(pData + 8, &header, sizeof(header));
+
+    DWORD nAreasOffset = header.m_nMapOffset + nMapCount * sizeof(CWorldMapData);
+    DWORD nLinksOffset = nAreasOffset;
+    for (DWORD nMap = 0; nMap < nMapCount; nMap++) {
+        nLinksOffset += m_pData[nMap].m_nAreas * sizeof(CWorldMapArea);
+    }
+
+    DWORD cnt = header.m_nMapOffset;
+    DWORD nCurrentAreasOffset = nAreasOffset;
+    DWORD nCurrentLinksOffset = nLinksOffset;
+
+    for (DWORD nMap = 0; nMap < nMapCount; nMap++) {
+        CWorldMapData mapData = m_pData[nMap];
+        mapData.m_nAreasOffset = nCurrentAreasOffset;
+        mapData.m_nOffsetToLinks = nCurrentLinksOffset;
+
+        memcpy(pData + cnt, &mapData, sizeof(mapData));
+
+        nCurrentAreasOffset += mapData.m_nAreas * sizeof(CWorldMapArea);
+        nCurrentLinksOffset += mapData.m_nLinks * sizeof(CWorldMapLinks);
+        cnt += sizeof(CWorldMapData);
+    }
+
+    for (DWORD nMap = 0; nMap < nMapCount; nMap++) {
+        if (m_pData[nMap].m_nAreas != 0) {
+            const DWORD nAreasSize = m_pData[nMap].m_nAreas * sizeof(CWorldMapArea);
+            memcpy(pData + cnt, m_ppAreas[nMap], nAreasSize);
+            cnt += nAreasSize;
+        }
+    }
+
+    for (DWORD nMap = 0; nMap < nMapCount; nMap++) {
+        if (m_pData[nMap].m_nLinks != 0) {
+            const DWORD nLinksSize = m_pData[nMap].m_nLinks * sizeof(CWorldMapLinks);
+            memcpy(pData + cnt, m_ppLinks[nMap], nLinksSize);
+            cnt += nLinksSize;
+        }
+    }
+
+    if (cnt != nData) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CWorldMap.cpp
+        // __LINE__: 424
+        UTIL_ASSERT(FALSE);
+    }
+
+    CWorldMapFile cWorldMapFile;
+    cWorldMapFile.SetResRef(m_cResRef, FALSE, TRUE);
+
+    CRes* pRes = static_cast<CRes*>(cWorldMapFile.GetRes());
+    if (pRes != NULL) {
+        pRes->Write(sDirName, pData, nData);
+    }
+
+    delete[] pData;
+}
+
 // 0x559490
 CWorldMapData* CWorldMap::GetMap(DWORD nMap)
 {

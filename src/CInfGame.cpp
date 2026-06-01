@@ -5,6 +5,7 @@
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
 #include "CBaldurProjector.h"
+#include "CCacheStatus.h"
 #include "CGameAnimationType.h"
 #include "CGameArea.h"
 #include "CGameContainer.h"
@@ -34,6 +35,7 @@
 #include "CUIManager.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
+#include "CVidInf.h"
 #include "DebugLog.h"
 #include "Icewind586B70.h"
 #include "IcewindMisc.h"
@@ -168,6 +170,20 @@ static const char* off_8AFC50[FIFTY_THREE] = {
     "Quick Formation Slot4",
     "Quick Formation Slot5",
 };
+
+static BOOL WriteRawBufferToFile(const CString& sFileName, const BYTE* pData, DWORD nData)
+{
+    CFile file;
+    if (!file.Open(sFileName,
+            CFile::OpenFlags::modeCreate | CFile::OpenFlags::modeWrite | CFile::OpenFlags::typeBinary,
+            NULL)) {
+        return FALSE;
+    }
+
+    file.Write(pData, nData);
+    file.Close();
+    return TRUE;
+}
 
 // 0x8AFD24
 static const char* off_8AFD24[FIFTY_THREE] = {
@@ -1132,7 +1148,7 @@ void CInfGame::WaitForEngine(BOOL a1)
             }
 
             while (g_pChitin->m_bDisplayStale == TRUE
-                || (g_pChitin->m_bDisplayStale == TRUE && a1)) {
+                || (g_pChitin->m_bInSynchronousUpdate == TRUE && a1)) {
                 SleepEx(5, FALSE);
             }
 
@@ -1991,6 +2007,14 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
     DWORD nGame = 0;
     const BOOLEAN bProgressBar = bProgressBarRequired || bProgressBarInPlace;
 
+    Iwd2DebugLog("CInfGame::SaveGame enter progressRequired=%d progressInPlace=%d saveScreenArg=%d saveScreen=%d field50D8=%d field50DC=%d",
+        bProgressBarRequired,
+        bProgressBarInPlace,
+        bSaveScreen,
+        m_bSaveScreen,
+        field_50D8,
+        field_50DC);
+
     for (BYTE nArea = 0; nArea < CINFGAME_MAX_AREAS; nArea++) {
         if (m_gameAreas[nArea] != NULL) {
             m_gameAreas[nArea]->SaveMusicPosition();
@@ -2015,6 +2039,7 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
 
     if (bSaveScreen != FALSE) {
         m_bSaveScreen = TRUE;
+        Iwd2DebugLog("CInfGame::SaveGame set saveScreen=%d field50D8=%d field50DC=%d", m_bSaveScreen, field_50D8, field_50DC);
     }
 
     Icewind586B70::Instance()->SaveSummonLinks();
@@ -2045,6 +2070,8 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
     if (pGame != NULL) {
         delete[] pGame;
     }
+
+    m_cWorldMap.Marshal(m_sTempDir);
 
     g_pBaldurChitin->GetTlkTable().m_override.Save();
     g_pBaldurChitin->GetTlkTable().m_override.CloseFiles();
@@ -2077,13 +2104,23 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
             g_pBaldurChitin->m_pEngineWorld->CheckEndOfHardPause();
             g_pBaldurChitin->GetBaldurMessage()->HandleBlockingMessages();
             g_pChitin->m_bDisplayStale = TRUE;
-            SleepEx(60, FALSE);
+            if (g_pBaldurChitin->GetActiveEngine() == g_pBaldurChitin->m_pEngineWorld) {
+                SynchronousUpdate();
+            } else {
+                SleepEx(60, FALSE);
+            }
         }
 
         if (g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
             g_pBaldurChitin->m_cCachingStatus.InvalidateScreen();
         }
     }
+
+    Iwd2DebugLog("CInfGame::SaveGame exit result=%d saveScreen=%d field50D8=%d field50DC=%d",
+        bResult,
+        m_bSaveScreen,
+        field_50D8,
+        field_50DC);
 
     return bResult;
 }
@@ -3511,7 +3548,14 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
     Unmarshal(cGameFile.GetData(),
         cGameFile.GetDataSize(),
         bProgressBarInPlace | bProgressBarRequired);
-    Iwd2DebugLog("NewGame after Unmarshal current=%d", GetCurrentChapter());
+    Iwd2DebugLog("NewGame after Unmarshal current=%d chars=%d visibleArea=%u progress=%ld/%ld displayStale=%d inSync=%d",
+        GetCurrentChapter(),
+        m_nCharacters,
+        m_visibleArea,
+        g_pChitin->cProgressBar.m_nActionProgress,
+        g_pChitin->cProgressBar.m_nActionTarget,
+        g_pChitin->m_bDisplayStale,
+        g_pChitin->m_bInSynchronousUpdate);
 
     m_cOptions.m_nNightmareMode = GetPrivateProfileIntA("Game Options",
         "Nightmare Mode",
@@ -3525,6 +3569,7 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
     // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
     // __LINE__: 8769
     UTIL_ASSERT(m_nCharacters == 0);
+    Iwd2DebugLog("NewGame after no-characters assert");
 
     m_bAnotherPlayerJoinedGame = FALSE;
 
@@ -3537,8 +3582,18 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
         SetThreadPriority(g_pChitin->m_hMusicThread, nMusicThreadPriority);
     }
 
+    m_nLastSaveTime = m_worldTime.m_gameTime;
+
     if (bProgressBarInPlace || bProgressBarRequired) {
+        Iwd2DebugLog("NewGame before final ProgressBarCallback progress=%ld/%ld",
+            g_pChitin->cProgressBar.m_nActionProgress,
+            g_pChitin->cProgressBar.m_nActionTarget);
         ProgressBarCallback(156250, FALSE);
+        Iwd2DebugLog("NewGame after final ProgressBarCallback progress=%ld/%ld displayStale=%d inSync=%d",
+            g_pChitin->cProgressBar.m_nActionProgress,
+            g_pChitin->cProgressBar.m_nActionTarget,
+            g_pChitin->m_bDisplayStale,
+            g_pChitin->m_bInSynchronousUpdate);
     }
 
     if (!bProgressBarInPlace && bProgressBarRequired == TRUE) {
@@ -3546,7 +3601,15 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
         g_pChitin->cProgressBar.m_bDisableMinibars = TRUE;
         g_pChitin->m_bDisplayStale = TRUE;
 
+        Iwd2DebugLog("NewGame before final WaitForEngine progress=%ld/%ld displayStale=%d inSync=%d",
+            g_pChitin->cProgressBar.m_nActionProgress,
+            g_pChitin->cProgressBar.m_nActionTarget,
+            g_pChitin->m_bDisplayStale,
+            g_pChitin->m_bInSynchronousUpdate);
         WaitForEngine(TRUE);
+        Iwd2DebugLog("NewGame after final WaitForEngine displayStale=%d inSync=%d",
+            g_pChitin->m_bDisplayStale,
+            g_pChitin->m_bInSynchronousUpdate);
 
         g_pChitin->SetProgressBar(FALSE,
             0,
@@ -3559,9 +3622,11 @@ void CInfGame::NewGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace
             FALSE,
             FALSE,
             255);
+        Iwd2DebugLog("NewGame after SetProgressBar false");
     }
 
     m_nReputation = -10;
+    Iwd2DebugLog("NewGame end reputation=%d lastSaveTime=%lu", m_nReputation, m_nLastSaveTime);
 }
 
 // 0x5AC0A0
@@ -5626,7 +5691,184 @@ BYTE CInfGame::GetFrameRate()
 // 0x5BE900
 void CInfGame::SynchronousUpdate()
 {
-    // TODO: Incomplete.
+    if (m_bSaveScreen != 0 || field_50DC != 0) {
+        Iwd2DebugLog("CInfGame::SynchronousUpdate enter saveScreen=%d field50D8=%d field50DC=%d active=%p world=%p save='%s'",
+            m_bSaveScreen,
+            field_50D8,
+            field_50DC,
+            g_pBaldurChitin->GetActiveEngine(),
+            g_pBaldurChitin->m_pEngineWorld,
+            static_cast<LPCSTR>(m_sSaveGame));
+    }
+
+    if (m_bSaveScreen == 0) {
+        DestroyDisposableItems();
+        return;
+    }
+
+    CString sDefaultDir = GetDirSaveRoot() + "default\\";
+
+    if (field_50D8 != FALSE && field_50DC == 0) {
+        CString sDirSave = GetDirSave();
+
+        CString sSource = sDefaultDir + "ICEWIND2.BMP";
+        CString sTarget = sDirSave + "ICEWIND2.BMP";
+        BOOL bCopied = CopyFileA(sSource, sTarget, FALSE);
+        Iwd2DebugLog("CInfGame::SynchronousUpdate copy default screen source='%s' target='%s' copied=%d err=%lu",
+            static_cast<LPCSTR>(sSource),
+            static_cast<LPCSTR>(sTarget),
+            bCopied,
+            GetLastError());
+        static_cast<void>(bCopied);
+        DeleteFileA(sSource);
+
+        for (SHORT nPortrait = 0; nPortrait < CINFGAME_MAXCHARACTERS; nPortrait++) {
+            sSource.Format("%sdefault\\PORTRT%d.BMP",
+                static_cast<LPCSTR>(GetDirSaveRoot()),
+                nPortrait);
+            sTarget.Format("%sPORTRT%d.BMP",
+                static_cast<LPCSTR>(sDirSave),
+                nPortrait);
+            bCopied = CopyFileA(sSource, sTarget, FALSE);
+            Iwd2DebugLog("CInfGame::SynchronousUpdate copy default portrait%d source='%s' target='%s' copied=%d err=%lu",
+                nPortrait,
+                static_cast<LPCSTR>(sSource),
+                static_cast<LPCSTR>(sTarget),
+                bCopied,
+                GetLastError());
+            static_cast<void>(bCopied);
+            DeleteFileA(sSource);
+        }
+
+        m_bSaveScreen = 0;
+        field_50D8 = FALSE;
+        DestroyDisposableItems();
+        return;
+    }
+
+    CVidMode* pVidMode = g_pChitin->GetCurrentVideoMode();
+    if (pVidMode == NULL || g_pBaldurChitin->m_pEngineWorld == NULL) {
+        DestroyDisposableItems();
+        return;
+    }
+
+    Sleep(100);
+
+    const BYTE nPrevBrightnessCorrection = pVidMode->m_nBrightnessCorrection;
+    const BYTE nPrevGammaCorrection = pVidMode->m_nGammaCorrection;
+    pVidMode->m_nBrightnessCorrection = 0;
+    pVidMode->m_nGammaCorrection = 0;
+
+    m_cVRamPool.InvalidateAll();
+    pVidMode->LoadFogOWarSurfaces(FOGOWAR_RESREF);
+
+    m_bSaveScreen = 0;
+
+    const BOOL bPrevDither = CCacheStatus::dword_8D0BA8;
+    CCacheStatus::dword_8D0BA8 = FALSE;
+    g_pBaldurChitin->m_pEngineWorld->SaveScreen();
+    CCacheStatus::dword_8D0BA8 = bPrevDither;
+
+    CString sWriteDir;
+    if (field_50DC == 0 && g_pBaldurChitin->GetActiveEngine() != g_pBaldurChitin->m_pEngineWorld) {
+        sWriteDir = GetDirSave();
+    } else {
+        if (g_pBaldurChitin->GetActiveEngine() == NULL) {
+            sWriteDir = sDefaultDir;
+        } else if (field_50DC == 0) {
+            sWriteDir = sDefaultDir;
+            field_50D8 = TRUE;
+        } else {
+            sWriteDir = GetDirSave();
+            field_50DC = 0;
+            field_50D8 = FALSE;
+        }
+    }
+
+    g_pChitin->cDimm.AddToDirectoryList(sWriteDir, TRUE);
+
+    LPBYTE pScreenData = NULL;
+    LONG nScreenData = 0;
+    if (pVidMode->PrintSurfaceToBmp(pScreenData,
+            CVIDINF_SURFACE_BACK,
+            CInfinity::stru_8E79A8,
+            nScreenData,
+            5)) {
+        WriteRawBufferToFile(sWriteDir + "ICEWIND2.BMP", pScreenData, nScreenData);
+    }
+
+    if (pScreenData != NULL) {
+        delete[] pScreenData;
+    }
+
+    SHORT nPortraitFile = 0;
+    for (SHORT nSlot = 0; nSlot < CINFGAME_MAXCHARACTERS; nSlot++) {
+        LONG nCharacterId = m_characters[nSlot];
+        if (nCharacterId == CGameObjectArray::INVALID_INDEX) {
+            continue;
+        }
+
+        CGameSprite* pSprite = NULL;
+        BYTE rc;
+        do {
+            rc = m_cObjectArray.GetShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS || pSprite == NULL) {
+            continue;
+        }
+
+        CVidBitmap vbPortrait;
+        vbPortrait.SetResRef(CResRef(pSprite->GetBaseStats()->m_portraitSmall), TRUE, TRUE);
+
+        if (vbPortrait.GetBitCount(FALSE) != 24 && vbPortrait.GetBitCount(FALSE) != 8) {
+            vbPortrait.SetResRef(CResRef(SILHOUETTE_PORTRAIT_SM), TRUE, TRUE);
+        }
+
+        m_cObjectArray.ReleaseShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        CSize portraitSize;
+        vbPortrait.GetImageDimensions(portraitSize, FALSE);
+
+        CRect rPortrait(0, 0, portraitSize.cx, portraitSize.cy);
+        vbPortrait.RenderDirect(CVIDINF_SURFACE_2, 0, 0, rPortrait, 0, TRUE);
+
+        LPBYTE pPortraitData = NULL;
+        LONG nPortraitData = 0;
+        if (pVidMode->PrintSurfaceToBmp(pPortraitData,
+                CVIDINF_SURFACE_2,
+                rPortrait,
+                nPortraitData,
+                2)) {
+            CString sPortraitFile;
+            sPortraitFile.Format("%sPORTRT%d.BMP",
+                static_cast<LPCSTR>(sWriteDir),
+                nPortraitFile);
+            WriteRawBufferToFile(sPortraitFile, pPortraitData, nPortraitData);
+            nPortraitFile++;
+        }
+
+        if (pPortraitData != NULL) {
+            delete[] pPortraitData;
+        }
+    }
+
+    g_pChitin->cDimm.RemoveFromDirectoryList(GetDirSave(), TRUE);
+
+    pVidMode->m_nBrightnessCorrection = nPrevBrightnessCorrection;
+    pVidMode->m_nGammaCorrection = nPrevGammaCorrection;
+    m_cVRamPool.InvalidateAll();
+    pVidMode->LoadFogOWarSurfaces(FOGOWAR_RESREF);
+
+    // TODO INCOMPLETE: 0x5BE900 also locks the visible area's object lists and
+    // mirrors the exact CRes request/cancel lifecycle around the generated BMP
+    // resources. The recovered path above preserves the observable save files.
+    DestroyDisposableItems();
 }
 
 // 0x5C0520

@@ -6,9 +6,11 @@ import argparse
 import configparser
 import ctypes
 import ctypes.wintypes
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import struct
 import sys
@@ -30,13 +32,21 @@ except Exception:
 
 VK_1 = 0x31
 VK_4 = 0x34
+VK_5 = 0x35
 VK_ESCAPE = 0x1B
 VK_RETURN = 0x0D
 VK_SPACE = 0x20
+VK_MENU = 0x12
 KEYEVENTF_KEYUP = 0x0002
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+HWND_TOPMOST = -1
+HWND_NOTOPMOST = -2
 SW_RESTORE = 9
+SW_SHOW = 5
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_SHOWWINDOW = 0x0040
 WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
@@ -46,6 +56,7 @@ BI_RGB = 0
 DIB_RGB_COLORS = 0
 
 NEW_GAME_BUTTON = (645, 263)
+BEGIN_GAME_BUTTON = (645, 232)
 PARTY_ROWS = [
     (124, 150),
     (124, 212),
@@ -56,6 +67,8 @@ PARTY_ROWS = [
 ]
 PARTY_DONE_BUTTON = (537, 562)
 CHAPTER_DONE_BUTTON = (514, 549)
+HEDRON_REVISIT_CLICKS_RE = [(524, 265), (512, 257), (520, 245)]
+HEDRON_REVISIT_CLICKS_ORIGINAL = [(500, 252), (500, 264), (490, 258), (512, 257), (480, 267)]
 CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS = 1.0
 CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS = 0.0
 
@@ -66,6 +79,28 @@ RE_EXE = REPO / "build" / "Debug" / "iwd2-re.exe"
 ORIG_EXE = GAME_DIR / "IWD2.exe"
 PARTY_INI = GAME_DIR / "Party.ini"
 LOG = REPO / "tmp_frida_intro_trace.log"
+AUTOSAVE_DIR = GAME_DIR / "MPSave" / "000000000-Autosave - Prologue"
+AUTOSAVE_DEFAULT_DIR = GAME_DIR / "MPSave" / "default"
+AUTOSAVE_REQUIRED = [
+    ("save", "ICEWIND2.GAM"),
+    ("save", "ICEWIND2.SAV"),
+    ("save", "WORLDMAP.WMP"),
+    ("save", "ICEWIND2.BMP"),
+    ("save", "PORTRT0.BMP"),
+    ("save", "PORTRT1.BMP"),
+    ("save", "PORTRT2.BMP"),
+    ("save", "PORTRT3.BMP"),
+    ("save", "PORTRT4.BMP"),
+    ("save", "PORTRT5.BMP"),
+    ("default", "ICEWIND2.GAM"),
+    ("default", "ICEWIND2.SAV"),
+    ("default", "WORLDMAP.WMP"),
+]
+AUTOSAVE_SOURCE_DIRS = {
+    "save": AUTOSAVE_DIR,
+    "default": AUTOSAVE_DEFAULT_DIR,
+}
+AUTOSAVE_SNAPSHOT_PREFIX = "tmp_frida_autosave_"
 
 
 class BITMAPINFOHEADER(ctypes.Structure):
@@ -174,6 +209,7 @@ RE_HOOKS = {
     "CSound::Play": 0x3618E0,
     "CInfGame::NewGame": 0x1F0900,
     "CInfGame::SaveGame": 0x1EB580,
+    "CInfGame::SynchronousUpdate": 0x1FC000,
     "CInfGame::LoadGame": 0x1EFFC0,
     "CInfGame::AddPartyGold": 0x1FDAD0,
     "CInfGame::GetGameSave": 0x205E40,
@@ -181,6 +217,7 @@ RE_HOOKS = {
     "CInfGame::Unmarshal": 0x1EC260,
     "CMessageSaveGame::Run": 0x23D7C0,
     "CMessagePartyGold::Run": 0x22D5F0,
+    "CVidInf::PrintSurfaceToBmp": 0x3CAF70,
     "CScreenConnection::EngineActivated": 0x296D30,
     "CScreenConnection::StartConnection": 0x2A0990,
     "CScreenConnection::OnNewGameButtonClick": 0x29A4D0,
@@ -195,6 +232,11 @@ RE_HOOKS = {
 RE_MAP_SYMBOLS = {
     "CChitin::SelectEngine": "?SelectEngine@CChitin@@UAEXPAVCWarp@@@Z",
     "CChitin::AsynchronousUpdate": "?AsynchronousUpdate@CChitin@@UAEXIIKKK@Z",
+    "CChitin::OnAltEnter": "?OnAltEnter@CChitin@@UAEEE@Z",
+    "CChitin::OnAltTab": "?OnAltTab@CChitin@@UAEXPAUHWND__@@H@Z",
+    "CChitin::Resume": "?Resume@CChitin@@QAEXXZ",
+    "CBaldurChitin::SetProgressBarActivateEngine": "?SetProgressBarActivateEngine@CBaldurChitin@@UAEXH@Z",
+    "CBaldurChitin::SetProgressBar": "?SetProgressBar@CBaldurChitin@@UAEXEJHHEJEJEEK@Z",
     "CBaldurEngine::SelectEngine": "?SelectEngine@CBaldurEngine@@UAEXPAVCWarp@@@Z",
     "CGameAIBase::ExecuteAction": "?ExecuteAction@CGameAIBase@@UAEFXZ",
     "CGameAIBase::ProcessAI": "?ProcessAI@CGameAIBase@@UAEXXZ",
@@ -265,6 +307,7 @@ RE_MAP_SYMBOLS = {
     "CSound::Play": "?Play@CSound@@QAEHH@Z",
     "CInfGame::NewGame": "?NewGame@CInfGame@@QAEXEE@Z",
     "CInfGame::SaveGame": "?SaveGame@CInfGame@@QAEHEEE@Z",
+    "CInfGame::SynchronousUpdate": "?SynchronousUpdate@CInfGame@@QAEXXZ",
     "CInfGame::LoadGame": "?LoadGame@CInfGame@@QAEXEE@Z",
     "CInfGame::AddPartyGold": "?AddPartyGold@CInfGame@@QAEXJ@Z",
     "CInfGame::GetGameSave": "?GetGameSave@CInfGame@@QAEPAVCGameSave@@XZ",
@@ -272,6 +315,7 @@ RE_MAP_SYMBOLS = {
     "CInfGame::Unmarshal": "?Unmarshal@CInfGame@@QAEHPAEJE@Z",
     "CMessageSaveGame::Run": "?Run@CMessageSaveGame@@UAEXXZ",
     "CMessagePartyGold::Run": "?Run@CMessagePartyGold@@UAEXXZ",
+    "CVidInf::PrintSurfaceToBmp": "?PrintSurfaceToBmp@CVidInf@@UAEEAAPAEHABVCRect@@AAJF@Z",
     "CScreenConnection::EngineActivated": "?EngineActivated@CScreenConnection@@UAEXXZ",
     "CScreenConnection::StartConnection": "?StartConnection@CScreenConnection@@QAEXE@Z",
     "CScreenConnection::OnNewGameButtonClick": "?OnNewGameButtonClick@CScreenConnection@@QAEXXZ",
@@ -286,11 +330,16 @@ RE_MAP_SYMBOLS = {
 ORIG_HOOKS = {
     "CBaldurChitin::CBaldurChitin": 0x421E40,
     "CBaldurChitin::Init": 0x423800,
+    "CBaldurChitin::SetProgressBar": 0x425710,
     "CChitin::InitApplication": 0x790FE0,
     "CChitin::InitGraphics": 0x791150,
     "CChitin::InitInstance": 0x790080,
+    "CChitin::OnAltEnter": 0x7912F0,
+    "CChitin::OnAltTab": 0x7914D0,
+    "CChitin::Resume": 0x790570,
     "CChitin::SelectEngine": 0x790860,
     "CChitin::AsynchronousUpdate": 0x78F0E0,
+    "CBaldurChitin::SetProgressBarActivateEngine": 0x422C30,
     "CBaldurEngine::SelectEngine": 0x427990,
     "CChitin::WinMain": 0x7926B0,
     "CGameAIBase::ExecuteAction": 0x44DC10,
@@ -376,7 +425,9 @@ ORIG_HOOKS = {
     "CInfGame::WaitForEngine": 0x59FA00,
     "CInfGame::Unmarshal": 0x5A7E40,
     "CInfGame::SaveGame": 0x5AC430,
+    "CInfGame::SynchronousUpdate": 0x5BE900,
     "CMessagePartyGold::Run": 0x503150,
+    "CVidInf::PrintSurfaceToBmp": 0x79EC20,
     "CScreenWorld::UpdatePartyGoldStatus": 0x694AE0,
 }
 
@@ -549,6 +600,27 @@ def post_mouse_click(hwnd: int, screen_x: int, screen_y: int) -> None:
     user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, make_lparam(client_x, client_y))
 
 
+def physical_mouse_click(hwnd: int, screen_x: int, screen_y: int) -> None:
+    previous = ctypes.wintypes.POINT(0, 0)
+    user32.GetCursorPos(ctypes.byref(previous))
+    blocked = bool(user32.BlockInput(True))
+    try:
+        focus_window(hwnd, click=False)
+        time.sleep(0.03)
+        user32.SetCursorPos(screen_x, screen_y)
+        time.sleep(0.02)
+        user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        # IWD2 polls mouse state from the engine tick; short synthetic clicks can
+        # be missed while Frida hooks slow the frame loop.
+        time.sleep(0.12)
+        user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        time.sleep(0.02)
+    finally:
+        user32.SetCursorPos(previous.x, previous.y)
+        if blocked:
+            user32.BlockInput(False)
+
+
 def focus_window(hwnd: int, click: bool = False) -> bool:
     if hwnd == 0:
         return False
@@ -558,33 +630,50 @@ def focus_window(hwnd: int, click: bool = False) -> bool:
     target_thread = user32.GetWindowThreadProcessId(hwnd, None)
     foreground_thread = user32.GetWindowThreadProcessId(foreground, None) if foreground else 0
 
-    if target_thread:
-        user32.AttachThreadInput(current_thread, target_thread, True)
-    if foreground_thread and foreground_thread != target_thread:
-        user32.AttachThreadInput(current_thread, foreground_thread, True)
+    attached_target = False
+    attached_foreground = False
+    try:
+        if target_thread:
+            attached_target = bool(user32.AttachThreadInput(current_thread, target_thread, True))
+        if foreground_thread and foreground_thread != target_thread:
+            attached_foreground = bool(user32.AttachThreadInput(current_thread, foreground_thread, True))
 
-    user32.ShowWindow(hwnd, SW_RESTORE)
-    user32.BringWindowToTop(hwnd)
-    user32.SetActiveWindow(hwnd)
-    user32.SetFocus(hwnd)
-    ok = bool(user32.SetForegroundWindow(hwnd))
+        try:
+            user32.LockSetForegroundWindow(2)
+        except AttributeError:
+            pass
 
-    if click:
-        pt = ctypes.wintypes.POINT(20, 20)
-        user32.ClientToScreen(hwnd, ctypes.byref(pt))
-        user32.SetCursorPos(pt.x, pt.y)
-        time.sleep(0.03)
-        user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-        time.sleep(0.03)
-        user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-        ok = True
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        user32.ShowWindow(hwnd, SW_SHOW)
+        user32.BringWindowToTop(hwnd)
+        user32.SetActiveWindow(hwnd)
+        user32.SetFocus(hwnd)
+        ok = bool(user32.SetForegroundWindow(hwnd))
 
-    if foreground_thread and foreground_thread != target_thread:
-        user32.AttachThreadInput(current_thread, foreground_thread, False)
-    if target_thread:
-        user32.AttachThreadInput(current_thread, target_thread, False)
+        if user32.GetForegroundWindow() != hwnd:
+            user32.keybd_event(VK_MENU, 0, 0, 0)
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+            user32.BringWindowToTop(hwnd)
+            user32.SetActiveWindow(hwnd)
+            user32.SetFocus(hwnd)
+            ok = bool(user32.SetForegroundWindow(hwnd)) or ok
 
-    return ok
+        if click:
+            user32.PostMessageW(hwnd, WM_MOUSEMOVE, 0, make_lparam(20, 20))
+            time.sleep(0.02)
+            user32.PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, make_lparam(20, 20))
+            time.sleep(0.02)
+            user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, make_lparam(20, 20))
+            ok = True
+
+        return ok or user32.GetForegroundWindow() == hwnd
+    finally:
+        if attached_foreground:
+            user32.AttachThreadInput(current_thread, foreground_thread, False)
+        if attached_target:
+            user32.AttachThreadInput(current_thread, target_thread, False)
 
 
 def send_key_to_pid(pid: int, vk: int) -> bool:
@@ -603,17 +692,12 @@ def click_client(pid: int, x: int, y: int, activation_click: bool = True) -> boo
     hwnd = find_window_for_pid(pid)
     if hwnd == 0:
         return False
-    focus_window(hwnd, click=activation_click)
-    time.sleep(0.08)
+    focus_window(hwnd, click=False)
+    time.sleep(0.04 if activation_click else 0.02)
     origin_x, origin_y = game_surface_origin(hwnd)
     screen_x = origin_x + x
     screen_y = origin_y + y
-    user32.SetCursorPos(screen_x, screen_y)
-    time.sleep(0.04)
-    user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-    time.sleep(0.04)
-    user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-    post_mouse_click(hwnd, screen_x, screen_y)
+    physical_mouse_click(hwnd, screen_x, screen_y)
     return True
 
 
@@ -731,6 +815,9 @@ def capture_game_surface(pid: int, label: str) -> tuple[Path, dict[str, object]]
 
                 raw = bytes(pixels.raw)
                 score = capture_score(raw)
+                if origin_name == "surface" and score > 100000:
+                    best = (origin_name, origin_x, origin_y, raw, score)
+                    break
                 if best is None or score > best[4]:
                     best = (origin_name, origin_x, origin_y, raw, score)
             finally:
@@ -759,6 +846,191 @@ def emit_screenshot(pid: int, label: str, emit) -> None:
         emit({"tag": "Driver.python.error", "stage": f"screenshot-{label}", "err": str(e)})
 
 
+def autosave_snapshot_dir(mode: str) -> Path:
+    return REPO / f"{AUTOSAVE_SNAPSHOT_PREFIX}{mode}"
+
+
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def bmp_info(path: Path) -> dict[str, object]:
+    try:
+        data = path.read_bytes()
+    except OSError as e:
+        return {"valid": False, "err": str(e)}
+    if len(data) < 54:
+        return {"valid": False, "err": "short bmp"}
+    if data[:2] != b"BM":
+        return {"valid": False, "err": "missing BM signature"}
+    file_size, _, _, pixel_offset = struct.unpack_from("<IHHI", data, 2)
+    dib_size = struct.unpack_from("<I", data, 14)[0]
+    if dib_size < 40 or len(data) < 14 + dib_size:
+        return {"valid": False, "err": "invalid DIB header"}
+    width, height, planes, bit_count, compression = struct.unpack_from("<iiHHI", data, 18)
+    valid = (
+        file_size == len(data)
+        and pixel_offset <= len(data)
+        and width > 0
+        and height != 0
+        and planes == 1
+        and bit_count in {8, 16, 24, 32}
+        and compression == BI_RGB
+    )
+    return {
+        "valid": valid,
+        "fileSize": file_size,
+        "pixelOffset": pixel_offset,
+        "dibSize": dib_size,
+        "width": width,
+        "height": height,
+        "bitCount": bit_count,
+        "compression": compression,
+    }
+
+
+def describe_autosave_file(path: Path) -> dict[str, object]:
+    stat = path.stat()
+    info: dict[str, object] = {
+        "size": stat.st_size,
+        "mtime": stat.st_mtime,
+        "sha256": file_sha256(path),
+    }
+    if path.suffix.lower() == ".bmp":
+        info["bmp"] = bmp_info(path)
+    return info
+
+
+def autosave_file_valid(path: Path, not_before: float) -> bool:
+    if not path.is_file():
+        return False
+    stat = path.stat()
+    if stat.st_size <= 0 or stat.st_mtime < not_before - 1.0:
+        return False
+    if path.suffix.lower() == ".bmp":
+        return bool(bmp_info(path).get("valid"))
+    return True
+
+
+def autosave_artifacts_ready(not_before: float) -> bool:
+    for source_name, name in AUTOSAVE_REQUIRED:
+        path = AUTOSAVE_SOURCE_DIRS[source_name] / name
+        if not autosave_file_valid(path, not_before):
+            return False
+    return True
+
+
+def snapshot_autosave(mode: str, not_before: float, emit) -> tuple[bool, Path]:
+    target_dir = autosave_snapshot_dir(mode)
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    files = set()
+    missing = []
+    invalid = []
+    for source_name, name in AUTOSAVE_REQUIRED:
+        source_dir = AUTOSAVE_SOURCE_DIRS[source_name]
+        source = source_dir / name
+        rel_name = f"{source_name}/{name}"
+        if not source.is_file():
+            missing.append(rel_name)
+            continue
+        if not autosave_file_valid(source, not_before):
+            invalid.append(rel_name)
+        target = target_dir / source_name / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        files.add(rel_name)
+
+    for source_name, source_dir in AUTOSAVE_SOURCE_DIRS.items():
+        for source in sorted(source_dir.iterdir() if source_dir.is_dir() else []):
+            rel_name = f"{source_name}/{source.name}"
+            if source.is_file() and rel_name not in files:
+                target = target_dir / source_name / source.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                files.add(rel_name)
+
+    details = {}
+    for path in sorted(target_dir.rglob("*")):
+        if path.is_file():
+            details[path.relative_to(target_dir).as_posix()] = describe_autosave_file(path)
+
+    valid = not missing and not invalid
+    emit({
+        "tag": "Driver.autosave.snapshot",
+        "mode": mode,
+        "dir": str(target_dir),
+        "valid": valid,
+        "missing": missing,
+        "invalid": invalid,
+        "files": details,
+    })
+    return valid, target_dir
+
+
+def compare_autosave_snapshots(mode: str, emit) -> None:
+    if mode != "re":
+        return
+    original_dir = autosave_snapshot_dir("original")
+    re_dir = autosave_snapshot_dir("re")
+    if not original_dir.is_dir() or not re_dir.is_dir():
+        emit({
+            "tag": "Driver.autosave.compare",
+            "mode": mode,
+            "available": False,
+            "originalDir": str(original_dir),
+            "reDir": str(re_dir),
+        })
+        return
+
+    names = sorted(
+        {p.relative_to(original_dir).as_posix() for p in original_dir.rglob("*") if p.is_file()}
+        | {p.relative_to(re_dir).as_posix() for p in re_dir.rglob("*") if p.is_file()}
+    )
+    files = {}
+    exact_match = True
+    for name in names:
+        original = original_dir / name
+        recovered = re_dir / name
+        entry = {
+            "originalExists": original.is_file(),
+            "reExists": recovered.is_file(),
+        }
+        if original.is_file():
+            original_info = describe_autosave_file(original)
+            entry["originalSize"] = original_info["size"]
+            entry["originalSha256"] = original_info["sha256"]
+            if "bmp" in original_info:
+                entry["originalBmp"] = original_info["bmp"]
+        if recovered.is_file():
+            re_info = describe_autosave_file(recovered)
+            entry["reSize"] = re_info["size"]
+            entry["reSha256"] = re_info["sha256"]
+            if "bmp" in re_info:
+                entry["reBmp"] = re_info["bmp"]
+        entry["sizeEqual"] = entry.get("originalSize") == entry.get("reSize")
+        entry["sha256Equal"] = entry.get("originalSha256") == entry.get("reSha256")
+        if not (entry["originalExists"] and entry["reExists"] and entry["sizeEqual"] and entry["sha256Equal"]):
+            exact_match = False
+        files[name] = entry
+
+    emit({
+        "tag": "Driver.autosave.compare",
+        "mode": mode,
+        "available": True,
+        "exactMatch": exact_match,
+        "originalDir": str(original_dir),
+        "reDir": str(re_dir),
+        "files": files,
+    })
+
+
 def send_intro_dialog_replies(pid: int) -> None:
     # 10HEDRON path: 1 -> 4 -> 1 adds journal #739, then exits via 1 -> 1.
     for vk in [VK_1, VK_4, VK_1, VK_1, VK_1, VK_1]:
@@ -768,10 +1040,12 @@ def send_intro_dialog_replies(pid: int) -> None:
 
 def auto_intro_dialog_driver(
     pid: int,
+    mode: str,
     timeout: float,
     state: dict[str, object],
     state_lock: threading.Lock,
     emit,
+    revisit_hedron: bool,
 ) -> None:
     # 10HEDRON new-game path: thank him, ask for the guard, add journal, then exit.
     actions = {
@@ -782,29 +1056,86 @@ def auto_intro_dialog_driver(
         2630: [VK_1, VK_RETURN],
         2631: [VK_1, VK_RETURN],
     }
+    revisit_actions = {
+        21332: [VK_5],
+        27216: [VK_1],
+    }
     handled_serial = 0
+    hedron_click_attempts = 0
+    last_hedron_click_at = 0.0
     deadline = time.time() + timeout
 
     while time.time() < deadline:
         with state_lock:
-            if bool(state.get("dialog_exit_seen")):
+            if not revisit_hedron and bool(state.get("dialog_exit_seen")):
+                return
+            if revisit_hedron and bool(state.get("second_dialog_exit_seen")):
                 return
             serial = int(state.get("dialog_entry_serial", 0) or 0)
             text = int(state.get("last_dialog_text", 0) or 0)
             reply_count = int(state.get("last_dialog_reply_count", 0) or 0)
+            first_dialog_done = bool(state.get("dialog_exit_seen"))
+            second_dialog_seen = bool(state.get("second_dialog_seen"))
+            post_first_done = (
+                bool(state.get("post_dialog_save_seen"))
+                and bool(state.get("post_dialog_paused_for_saving_seen"))
+                and bool(state.get("post_dialog_paused_seen"))
+                and bool(state.get("post_dialog_unpaused_seen"))
+            )
+            coming_out_dialog_value = state.get("world_coming_out_dialog", -1)
+            coming_out_dialog = int(coming_out_dialog_value) if coming_out_dialog_value is not None else -1
 
-        if serial > handled_serial and text in actions:
+        click_positions = HEDRON_REVISIT_CLICKS_ORIGINAL if mode == "original" else HEDRON_REVISIT_CLICKS_RE
+        if (
+            revisit_hedron
+            and first_dialog_done
+            and post_first_done
+            and coming_out_dialog == 0
+            and not second_dialog_seen
+            and hedron_click_attempts < len(click_positions)
+            and time.time() - last_hedron_click_at >= 1.25
+        ):
+            time.sleep(0.35 if hedron_click_attempts else 0.75)
+            emit_screenshot(pid, f"{mode}_hedron_revisit_before_click_{hedron_click_attempts + 1}", emit)
+            click_pos = click_positions[hedron_click_attempts]
+            emit({"tag": "Driver.python.click", "target": "hedron-revisit", "attempt": hedron_click_attempts + 1, "pos": click_pos, "window": window_metrics(pid)})
+            if not click_client(pid, *click_pos):
+                emit({"tag": "Driver.python.error", "stage": "hedron-revisit-click", "err": "window not found"})
+                return
+            hedron_click_attempts += 1
+            last_hedron_click_at = time.time()
+            with state_lock:
+                state["second_talk_clicked"] = True
+            time.sleep(0.75)
+            continue
+
+        if serial > handled_serial:
             handled_serial = serial
-            delay = 0.8 if text in {2630, 2631} else 0.45
+            clicked_hedron = hedron_click_attempts > 0
+            if text in actions and not clicked_hedron:
+                keys = actions[text]
+            elif clicked_hedron:
+                keys = revisit_actions.get(text, [VK_1] if reply_count > 0 else [VK_RETURN])
+            else:
+                keys = []
+
+            if not keys:
+                time.sleep(0.1)
+                continue
+
+            delay = 0.8 if text in {2630, 2631} or clicked_hedron else 0.45
             time.sleep(delay)
-            for vk in actions[text]:
-                emit({"tag": "Driver.python.key", "target": "intro-dialog", "entry": text, "replyCount": reply_count, "vk": vk, "window": window_metrics(pid)})
+            for vk in keys:
+                target = "hedron-revisit-dialog" if clicked_hedron else "intro-dialog"
+                emit({"tag": "Driver.python.key", "target": target, "entry": text, "replyCount": reply_count, "vk": vk, "window": window_metrics(pid)})
                 if not send_key_to_pid(pid, vk):
                     emit({"tag": "Driver.python.error", "stage": "intro-dialog-key", "entry": text, "vk": vk, "err": "window not found"})
                     return
                 time.sleep(0.25)
             with state_lock:
                 state["keys_sent"] = True
+                if clicked_hedron:
+                    state["second_keys_sent"] = True
         else:
             time.sleep(0.1)
 
@@ -815,7 +1146,7 @@ def keep_game_focused(pid: int, duration: float) -> None:
     while time.time() < deadline:
         hwnd = find_window_for_pid(pid)
         if hwnd != 0:
-            focus_window(hwnd, click=not logged)
+            focus_window(hwnd, click=False)
             if not logged:
                 print(f"focused hwnd=0x{hwnd:x}", flush=True)
                 logged = True
@@ -875,7 +1206,7 @@ def original_ui_driver(
     time.sleep(0.25)
     hwnd = find_window_for_pid(pid)
     if hwnd:
-        focus_window(hwnd, click=True)
+        focus_window(hwnd, click=False)
 
     new_game_seen = False
     new_game_deadline = time.time() + min(4.0, max(0.0, deadline - time.time()))
@@ -891,28 +1222,86 @@ def original_ui_driver(
             break
         time.sleep(0.1)
 
+    last_new_game_click = 0.0
+    last_begin_game_click = 0.0
+    if snapshot().get("original_newgame_clicked"):
+        last_new_game_click = time.time()
     if not new_game_seen:
         emit({"tag": "Driver.python.click", "target": "new-game", "pos": NEW_GAME_BUTTON, "window": window_metrics(pid)})
         if not click_client(pid, *NEW_GAME_BUTTON):
             emit({"tag": "Driver.python.warn", "stage": "new-game-click", "err": "window not found"})
             if not wait_for("new-game-after-missing-window", lambda s: s.get("new_game_seen"), max_seconds=20.0):
                 return
+        else:
+            with state_lock:
+                state["original_newgame_clicked"] = True
+        last_new_game_click = time.time()
+        time.sleep(0.35)
+        emit({"tag": "Driver.python.click", "target": "begin-game", "pos": BEGIN_GAME_BUTTON, "window": window_metrics(pid)})
+        if not click_client(pid, *BEGIN_GAME_BUTTON):
+            emit({"tag": "Driver.python.error", "stage": "begin-game-click", "err": "window not found"})
+            return
+        last_begin_game_click = time.time()
         time.sleep(1.0)
         first_click_state = snapshot()
-        if first_click_state.get("active_screen") != "singleplayer" and not first_click_state.get("new_game_seen"):
+        if (first_click_state.get("active_screen") == "connection"
+            and not first_click_state.get("new_game_seen")
+            and not first_click_state.get("original_newgame_clicked")):
             emit({"tag": "Driver.python.retry", "target": "new-game", "pos": NEW_GAME_BUTTON, "window": window_metrics(pid)})
             if not click_client(pid, *NEW_GAME_BUTTON):
                 emit({"tag": "Driver.python.error", "stage": "new-game-retry", "err": "window not found"})
                 return
+            with state_lock:
+                state["original_newgame_clicked"] = True
+            last_new_game_click = time.time()
+            time.sleep(0.35)
+            emit({"tag": "Driver.python.click", "target": "begin-game", "pos": BEGIN_GAME_BUTTON, "window": window_metrics(pid)})
+            if not click_client(pid, *BEGIN_GAME_BUTTON):
+                emit({"tag": "Driver.python.error", "stage": "begin-game-retry", "err": "window not found"})
+                return
+            last_begin_game_click = time.time()
 
-    if not wait_for(
-        "post-newgame",
-        lambda s: s.get("active_screen") in {"singleplayer", "chapter"}
-        or s.get("singleplayer_seen")
-        or s.get("chapter_seen")
-        or s.get("dialog_seen"),
-        max_seconds=30.0,
-    ):
+    post_newgame_deadline = min(deadline, time.time() + 90.0)
+    while time.time() < post_newgame_deadline:
+        post_newgame_state = snapshot()
+        if (
+            post_newgame_state.get("active_screen") in {"singleplayer", "chapter"}
+            or post_newgame_state.get("singleplayer_seen")
+            or post_newgame_state.get("chapter_seen")
+            or post_newgame_state.get("dialog_seen")
+        ):
+            break
+        if (
+            post_newgame_state.get("active_screen") == "connection"
+            and not post_newgame_state.get("new_game_seen")
+            and not post_newgame_state.get("original_party_done")
+            and time.time() - last_new_game_click >= 1.5
+        ):
+            emit({"tag": "Driver.python.retry", "target": "new-game", "pos": NEW_GAME_BUTTON, "window": window_metrics(pid)})
+            if not click_client(pid, *NEW_GAME_BUTTON):
+                emit({"tag": "Driver.python.error", "stage": "new-game-retry", "err": "window not found"})
+                return
+            last_new_game_click = time.time()
+            time.sleep(0.35)
+            emit({"tag": "Driver.python.click", "target": "begin-game", "pos": BEGIN_GAME_BUTTON, "window": window_metrics(pid)})
+            if not click_client(pid, *BEGIN_GAME_BUTTON):
+                emit({"tag": "Driver.python.error", "stage": "begin-game-retry", "err": "window not found"})
+                return
+            last_begin_game_click = time.time()
+        elif (
+            post_newgame_state.get("active_screen") == "connection"
+            and post_newgame_state.get("new_game_seen")
+            and not post_newgame_state.get("original_party_done")
+            and time.time() - last_begin_game_click >= 1.5
+        ):
+            emit({"tag": "Driver.python.retry", "target": "begin-game", "pos": BEGIN_GAME_BUTTON, "window": window_metrics(pid)})
+            if not click_client(pid, *BEGIN_GAME_BUTTON):
+                emit({"tag": "Driver.python.error", "stage": "begin-game-retry", "err": "window not found"})
+                return
+            last_begin_game_click = time.time()
+        time.sleep(0.1)
+    else:
+        emit({"tag": "Driver.python.timeout", "stage": "post-newgame"})
         return
 
     post_newgame_state = snapshot()
@@ -924,25 +1313,49 @@ def original_ui_driver(
             or post_newgame_state.get("singleplayer_seen")
         )
     ):
-        if not wait_for(
-            "party-selection",
-            lambda s: s.get("active_screen") == "chapter" or s.get("chapter_seen") or s.get("dialog_seen"),
-            max_seconds=8.0,
-        ):
+        def click_party_selection(stage_reason: str) -> bool:
             if party_index < 0 or party_index >= len(PARTY_ROWS):
                 emit({"tag": "Driver.python.error", "stage": "party-index", "party": party_index, "visible": len(PARTY_ROWS)})
-                return
+                return False
 
             time.sleep(0.35)
-            emit({"tag": "Driver.python.click", "target": "party-row", "party": party_index, "pos": PARTY_ROWS[party_index], "window": window_metrics(pid)})
+            emit_screenshot(pid, "original_party_before_click", emit)
+            emit({"tag": "Driver.python.click", "target": "party-row", "party": party_index, "reason": stage_reason, "pos": PARTY_ROWS[party_index], "window": window_metrics(pid)})
             if not click_client(pid, *PARTY_ROWS[party_index]):
                 emit({"tag": "Driver.python.error", "stage": "party-row-click", "err": "window not found"})
-                return
+                return False
 
             time.sleep(0.2)
-            emit({"tag": "Driver.python.click", "target": "party-done", "pos": PARTY_DONE_BUTTON, "window": window_metrics(pid)})
+            emit({"tag": "Driver.python.click", "target": "party-done", "reason": stage_reason, "pos": PARTY_DONE_BUTTON, "window": window_metrics(pid)})
             if not click_client(pid, *PARTY_DONE_BUTTON):
                 emit({"tag": "Driver.python.error", "stage": "party-done-click", "err": "window not found"})
+                return False
+            return True
+
+        party_ready = wait_for(
+            "party-selection",
+            lambda s: s.get("original_party_done")
+            or s.get("active_screen") == "chapter"
+            or s.get("chapter_seen")
+            or s.get("dialog_seen"),
+            max_seconds=1.5,
+        )
+        party_state = snapshot()
+        if (
+            party_state.get("original_party_done")
+            and not party_state.get("chapter_seen")
+            and not party_state.get("dialog_seen")
+        ):
+            if not wait_for(
+                "party-direct-transition",
+                lambda s: s.get("active_screen") == "chapter" or s.get("chapter_seen") or s.get("dialog_seen"),
+                max_seconds=3.0,
+            ):
+                emit({"tag": "Driver.python.fallback", "target": "party-selection", "reason": "frida-driver-no-transition"})
+                if not click_party_selection("frida-driver-no-transition"):
+                    return
+        elif not party_ready:
+            if not click_party_selection("frida-driver-not-ready"):
                 return
 
     if not auto_chapter:
@@ -950,8 +1363,8 @@ def original_ui_driver(
 
     if not wait_for(
         "chapter",
-        lambda s: s.get("active_screen") == "chapter" or s.get("chapter_seen"),
-        max_seconds=12.0,
+        lambda s: s.get("chapter_active_seen"),
+        max_seconds=90.0,
     ):
         return
 
@@ -964,6 +1377,14 @@ def original_ui_driver(
     emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
     if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
         emit({"tag": "Driver.python.error", "stage": "chapter-done-click", "err": "window not found"})
+        return
+    time.sleep(0.75)
+    with state_lock:
+        chapter_advanced = bool(state.get("chapter_done_seen")) or bool(state.get("dialog_seen"))
+    if not chapter_advanced:
+        emit({"tag": "Driver.python.key", "target": "chapter-done-retry", "vk": VK_RETURN, "window": window_metrics(pid)})
+        if not send_key_to_pid(pid, VK_RETURN):
+            emit({"tag": "Driver.python.error", "stage": "chapter-done-retry-enter", "err": "window not found"})
 
 
 def re_chapter_driver(
@@ -992,7 +1413,7 @@ def re_chapter_driver(
             with state_lock:
                 chapter_done_seen = bool(state.get("chapter_done_seen"))
             if not chapter_done_seen:
-                emit({"tag": "Driver.python.key", "target": "chapter-done", "vk": VK_RETURN, "window": window_metrics(pid)})
+                emit({"tag": "Driver.python.key", "target": "chapter-done-retry", "vk": VK_RETURN, "window": window_metrics(pid)})
                 if not send_key_to_pid(pid, VK_RETURN):
                     emit({"tag": "Driver.python.error", "stage": "re-chapter-done-enter", "err": "window not found"})
             return
@@ -1293,7 +1714,7 @@ function displayTextRefMessageInfo(msg) {{
 
 function networkInfo() {{
   try {{
-    const chitin = gChitinPtr.readPointer();
+    const chitin = gBaldurChitinPtr.readPointer();
     const net = chitin.add(0x952);
     return {{
       service: net.add(0x1c).readS32(),
@@ -1415,8 +1836,9 @@ function areaInfo(area) {{
 function chitinInfo() {{
   const out = {{}};
   try {{
-    const chitin = gChitinPtr.readPointer();
+    const chitin = gBaldurChitinPtr.readPointer();
     out.chitin = chitin.toString();
+    out.reInitializing = chitin.add(0x00e0).readU8();
     out.engineActive = chitin.add(0x0048).readS32();
     out.activeEngine = chitin.add(0x03c4).readPointer().toString();
     out.displayStale = chitin.add(0x193a).readS32();
@@ -1424,6 +1846,24 @@ function chitinInfo() {{
     return out;
   }} catch (e) {{
     out.err = '' + e;
+    return out;
+  }}
+}}
+
+function gameSaveScreenInfo(game) {{
+  const out = {{}};
+  try {{
+    out.game = game.toString();
+    out.saveScreen = game.add(0x366e).readS32();
+    out.field50d8 = game.add(0x50d8).readS32();
+    out.field50dc = game.add(0x50dc).readU8();
+    out.world = worldInfo();
+    out.chitin = chitinInfo();
+    out.net = networkInfo();
+    return out;
+  }} catch (e) {{
+    out.err = '' + e;
+    out.game = game.toString();
     return out;
   }}
 }}
@@ -1600,7 +2040,9 @@ let originalDriver = {{
   connReadyAt: 0,
   newGameClicked: false,
   spTicks: 0,
+  singlePlayerReadyAt: 0,
   partyDone: false,
+  partyWaitLogged: false,
   movieSkipLogged: false,
   chapterStarted: false,
   chapterDoneAt: 0,
@@ -1617,7 +2059,7 @@ function shouldTraceTrigger(info) {{
 }}
 
 function tryOriginalNewGame(conn, reason) {{
-  if (isRe || originalDriver.newGameClicked) return;
+  if (isRe) return;
 
   let allowInput = false;
   let enumCountdown = 0;
@@ -1634,32 +2076,40 @@ function tryOriginalNewGame(conn, reason) {{
   }}
 
   if (originalDriver.connReadyAt === 0) {{
-    send({{ tag: 'Driver.original.newgame-wait', reason, delayMs: 1000 }});
-    sleepMs(1000);
+    send({{ tag: 'Driver.original.newgame-ready', reason, allowInput, enumCountdown }});
     originalDriver.connReadyAt = Date.now();
   }}
+}}
 
+function tryOriginalPartyDone(sp, reason) {{
+  if (isRe || requestedParty < 0 || originalDriver.partyDone) return;
   try {{
-    conn.add(CONN_ORIG.protocol).writeS32(0);
-    writeBool32(conn, CONN_ORIG.bLoadGame, false);
-    writeBool32(conn, CONN_ORIG.showIntro, false);
-    writeBool32(conn, CONN_ORIG.allowInput, true);
-    conn.add(CONN_ORIG.selectedGameMode).writeS32(1);
-
-    originalDriver.newGameClicked = true;
-    send({{
-      tag: 'Driver.original.newgame-click',
-      reason,
-      this: conn.toString(),
-      allowInput,
-      enumCountdown,
-    }});
-    send({{ tag: 'Driver.original.newgame-call', target: 'CScreenConnection::OnNewGameButtonClick' }});
-    callThis('CScreenConnection::OnNewGameButtonClick', conn);
-    send({{ tag: 'Driver.original.newgame-call.ret', target: 'CScreenConnection::OnNewGameButtonClick' }});
+    const partyCount = sp.add(SP_ORIG.partyCount).readS32();
+    if (partyCount <= requestedParty || partyCount > 64) {{
+      if (!originalDriver.partyWaitLogged) {{
+        originalDriver.partyWaitLogged = true;
+        send({{ tag: 'Driver.original.party-wait', reason, this: sp.toString(), requestedParty, partyCount }});
+      }}
+      return;
+    }}
+    if (originalDriver.singlePlayerReadyAt === 0) {{
+      originalDriver.singlePlayerReadyAt = Date.now();
+      send({{ tag: 'Driver.original.party-ready', reason, this: sp.toString(), requestedParty, partyCount }});
+      return;
+    }}
+    if (Date.now() - originalDriver.singlePlayerReadyAt < 500) {{
+      return;
+    }}
+    sp.add(SP_ORIG.party).writeS32(requestedParty);
+    sp.add(SP_ORIG.selectedPopup).writeS32(10);
+    const selectedParty = sp.add(SP_ORIG.party).readS32();
+    const selectedPopup = sp.add(SP_ORIG.selectedPopup).readS32();
+    originalDriver.partyDone = true;
+    send({{ tag: 'Driver.original.party-done', reason, this: sp.toString(), requestedParty, partyCount, selectedParty, selectedPopup }});
+    callThis('CScreenSinglePlayer::OnDoneButtonClick', sp);
   }} catch (e) {{
-    originalDriver.newGameClicked = false;
-    send({{ tag: 'Driver.original.error', stage: 'newgame-click', err: '' + e }});
+    originalDriver.partyDone = false;
+    send({{ tag: 'Driver.original.error', stage: 'party-ready', err: '' + e }});
   }}
 }}
 
@@ -1719,6 +2169,8 @@ function tryOriginalDriverFromChitin(chitin, reason) {{
 
     if (screen === 'connection') {{
       tryOriginalNewGame(conn, reason);
+    }} else if (screen === 'singleplayer') {{
+      tryOriginalPartyDone(singlePlayer, reason);
     }}
   }} catch (e) {{
     send({{ tag: 'Driver.original.error', stage: 'chitin-driver', err: '' + e }});
@@ -1774,6 +2226,70 @@ hook('CBaldurEngine::SelectEngine', {{
   }},
   onLeave(rv) {{
     send({{ tag: 'CBaldurEngine::SelectEngine.ret', chitin: chitinInfo() }});
+  }}
+}});
+
+hook('CChitin::OnAltEnter', {{
+  onEnter(args) {{
+    this.before = chitinInfo();
+    send({{ tag: 'CChitin.OnAltEnter', this: this.context.ecx.toString(), save: args[0].toInt32(), before: this.before }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CChitin.OnAltEnter.ret', ret: rv.toInt32(), before: this.before, after: chitinInfo() }});
+  }}
+}});
+
+hook('CChitin::OnAltTab', {{
+  onEnter(args) {{
+    this.before = chitinInfo();
+    send({{ tag: 'CChitin.OnAltTab', this: this.context.ecx.toString(), hwnd: args[0].toString(), active: args[1].toInt32(), before: this.before }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CChitin.OnAltTab.ret', before: this.before, after: chitinInfo() }});
+  }}
+}});
+
+hook('CChitin::Resume', {{
+  onEnter(args) {{
+    this.before = chitinInfo();
+    send({{ tag: 'CChitin.Resume', this: this.context.ecx.toString(), before: this.before }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CChitin.Resume.ret', before: this.before, after: chitinInfo() }});
+  }}
+}});
+
+hook('CBaldurChitin::SetProgressBarActivateEngine', {{
+  onEnter(args) {{
+    this.before = chitinInfo();
+    send({{ tag: 'CBaldurChitin.SetProgressBarActivateEngine', this: this.context.ecx.toString(), value: args[0].toInt32(), before: this.before }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CBaldurChitin.SetProgressBarActivateEngine.ret', before: this.before, after: chitinInfo() }});
+  }}
+}});
+
+hook('CBaldurChitin::SetProgressBar', {{
+  onEnter(args) {{
+    this.info = {{
+      enabled: args[0].toInt32(),
+      caption: args[1].toInt32(),
+      bytesCopied: args[2].toInt32(),
+      totalBytes: args[3].toInt32(),
+      travel: args[4].toInt32(),
+      parchmentCaption: args[5].toInt32(),
+      waiting: args[6].toInt32(),
+      waitingReason: args[7].toInt32(),
+      displayMinibars: args[8].toInt32(),
+      timeoutCounter: args[9].toInt32(),
+      secondsToTimeout: args[10].toInt32(),
+      caller: this.returnAddress.toString(),
+      chitin: chitinInfo(),
+    }};
+    send({{ tag: 'CBaldurChitin.SetProgressBar', info: this.info }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CBaldurChitin.SetProgressBar.ret', info: this.info, chitin: chitinInfo() }});
   }}
 }});
 
@@ -1841,7 +2357,7 @@ hook('CGameSprite::ExecuteAction', {{
   onEnter(args) {{
     const thiz = this.context.ecx;
     this.info = spriteInfo(thiz);
-    if (interestingActions.has(this.info.aid) || cutsceneObjects.has(this.info.obj)) {{
+    if (interestingActions.has(this.info.aid)) {{
       send({{
         tag: 'Sprite.ExecuteAction',
         this: thiz.toString(),
@@ -1852,7 +2368,7 @@ hook('CGameSprite::ExecuteAction', {{
     }}
   }},
   onLeave(rv) {{
-    if (this.info && (interestingActions.has(this.info.aid) || cutsceneObjects.has(this.info.obj))) {{
+    if (this.info && interestingActions.has(this.info.aid)) {{
       send({{ tag: 'Sprite.ExecuteAction.ret', info: this.info, ret: s16(rv.toInt32()), world: worldInfo() }});
     }}
   }}
@@ -2276,6 +2792,10 @@ hook('CScreenSinglePlayer::EngineActivated', {{
   onEnter(args) {{
     this.thiz = this.context.ecx;
     send({{ tag: 'SinglePlayer.EngineActivated', this: this.thiz.toString() }});
+  }},
+  onLeave(rv) {{
+    if (isRe) return;
+    tryOriginalPartyDone(this.thiz, 'singleplayer-activated');
   }}
 }});
 
@@ -2286,6 +2806,7 @@ hook('CScreenSinglePlayer::TimerAsynchronousUpdate', {{
   onLeave(rv) {{
     if (isRe) return;
     originalDriver.spTicks++;
+    tryOriginalPartyDone(this.thiz, 'singleplayer-timer');
   }}
 }});
 
@@ -2688,6 +3209,37 @@ hook('CInfGame::SaveGame', {{
   }}
 }});
 
+hook('CInfGame::SynchronousUpdate', {{
+  onEnter(args) {{
+    knownObjectGame = this.context.ecx;
+    const info = gameSaveScreenInfo(knownObjectGame);
+    this.trace = !!(info.saveScreen || info.field50dc);
+    if (this.trace) {{
+      send({{ tag: 'CInfGame.SynchronousUpdate', info }});
+    }}
+  }},
+  onLeave(rv) {{
+    if (this.trace) {{
+      send({{ tag: 'CInfGame.SynchronousUpdate.ret', info: gameSaveScreenInfo(knownObjectGame) }});
+    }}
+  }}
+}});
+
+hook('CVidInf::PrintSurfaceToBmp', {{
+  onEnter(args) {{
+    this.surface = args[1].toInt32();
+    this.rect = rectInfo(args[2]);
+    this.sizePtr = args[3];
+    this.scale = args[4].toInt32();
+    send({{ tag: 'CVidInf.PrintSurfaceToBmp', surface: this.surface, rect: this.rect, scale: this.scale }});
+  }},
+  onLeave(rv) {{
+    let size = -1;
+    try {{ size = this.sizePtr.readS32(); }} catch (e) {{}}
+    send({{ tag: 'CVidInf.PrintSurfaceToBmp.ret', surface: this.surface, rect: this.rect, scale: this.scale, ret: rv.toInt32(), size }});
+  }}
+}});
+
 hook('CInfGame::AddPartyGold', {{
   onEnter(args) {{
     knownObjectGame = this.context.ecx;
@@ -2793,9 +3345,13 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--party", default="Lady's Lament")
     ap.add_argument("--auto-dialog", action="store_true")
+    ap.add_argument("--revisit-hedron", action="store_true")
     ap.add_argument("--no-auto-chapter", dest="auto_chapter", action="store_false")
     ap.set_defaults(auto_chapter=True)
     ns = ap.parse_args()
+    if ns.timeout > 90.0:
+        print(f"timeout clamped from {ns.timeout:g}s to 90s", flush=True)
+        ns.timeout = 90.0
 
     LOG.write_text("", encoding="utf-8")
     party_index = resolve_party(ns.party)
@@ -2822,22 +3378,33 @@ def main() -> int:
         "dialog_ready_seen": False,
         "dialog_exit_seen": False,
         "dialog_exit_time": 0.0,
+        "dialog_exit_count": 0,
         "dialog_entry_serial": 0,
         "last_dialog_text": 0,
         "last_dialog_reply_count": 0,
+        "second_talk_clicked": False,
+        "second_dialog_seen": False,
+        "second_dialog_exit_seen": False,
+        "second_keys_sent": False,
         "post_dialog_save_seen": False,
         "post_dialog_paused_for_saving_seen": False,
         "post_dialog_paused_seen": False,
         "post_dialog_unpaused_seen": False,
+        "autosave_artifacts_seen": False,
+        "world_coming_out_dialog": -1,
+        "world_cutscene": -1,
         "keys_sent": False,
         "new_game_seen": False,
         "original_newgame_clicked": False,
+        "original_party_done": False,
         "load_game_seen": False,
         "chapter_seen": False,
         "chapter_active_seen": False,
         "connection_seen": False,
         "singleplayer_seen": False,
         "chapter_done_seen": False,
+        "chapter_done_click_seen": False,
+        "start_cutscene_seen": False,
         "movie_seen": False,
         "intro_movie_seen": False,
         "active_screen": "",
@@ -2866,6 +3433,22 @@ def main() -> int:
             payload = {"tag": "ERROR"}
             line = "ERROR " + json.dumps(message, ensure_ascii=True)
         tag = payload.get("tag", "")
+        world = payload.get("world")
+        if not isinstance(world, dict):
+            info = payload.get("info", {})
+            if isinstance(info, dict):
+                world = info.get("world")
+        if not isinstance(world, dict):
+            after = payload.get("after", {})
+            if isinstance(after, dict):
+                nested_world = after.get("world")
+                world = nested_world if isinstance(nested_world, dict) else after
+        if isinstance(world, dict) and "comingOutDialog" in world:
+            with state_lock:
+                coming_out_dialog = world.get("comingOutDialog", -1)
+                cutscene = world.get("cutScene", -1)
+                state["world_coming_out_dialog"] = int(coming_out_dialog) if coming_out_dialog is not None else -1
+                state["world_cutscene"] = int(cutscene) if cutscene is not None else -1
         if "Dialog" in tag:
             set_state(dialog_seen=True)
         if tag in {"Dialog.Entry.Handle", "Dialog.EnterDialog.ret"}:
@@ -2875,8 +3458,18 @@ def main() -> int:
                 state["dialog_entry_serial"] = int(state.get("dialog_entry_serial", 0) or 0) + 1
                 state["last_dialog_text"] = int(payload.get("text", 0) or 0)
                 state["last_dialog_reply_count"] = int(payload.get("replyCount", 0) or 0)
+                if state.get("second_talk_clicked"):
+                    state["second_dialog_seen"] = True
         if tag in {"Message.ExitDialogMode.Run", "CScreenWorld.EndDialog.ret", "CGameDialogSprite.EndDialog"}:
-            set_state(dialog_exit_seen=True, dialog_exit_time=time.time())
+            now = time.time()
+            with state_lock:
+                last_exit = float(state.get("dialog_exit_time", 0.0) or 0.0)
+                if now - last_exit > 0.5:
+                    state["dialog_exit_count"] = int(state.get("dialog_exit_count", 0) or 0) + 1
+                state["dialog_exit_seen"] = True
+                state["dialog_exit_time"] = now
+                if state.get("second_dialog_seen"):
+                    state["second_dialog_exit_seen"] = True
         if state_value("dialog_exit_seen") and tag == "SaveGame.ret":
             set_state(post_dialog_save_seen=True)
         if state_value("dialog_exit_seen") and tag == "CScreenWorld.DisplayTextColored":
@@ -2892,6 +3485,8 @@ def main() -> int:
             set_state(active_screen=payload.get("screen", ""))
         if tag == "Driver.original.newgame-click":
             set_state(original_newgame_clicked=True)
+        if tag == "Driver.original.party-done":
+            set_state(original_party_done=True, singleplayer_seen=True)
         if tag == "Movie.PlayMovieInternal":
             resref = str(payload.get("resref", "")).upper()
             set_state(movie_seen=True, intro_movie_seen=state_value("intro_movie_seen") or resref == "INTRO")
@@ -2900,6 +3495,10 @@ def main() -> int:
         if tag == "SinglePlayer.EngineActivated":
             set_state(singleplayer_seen=True)
         if tag == "Chapter.OnDoneButtonClick":
+            set_state(chapter_done_click_seen=True)
+        if tag == "StartCutScene":
+            set_state(chapter_done_seen=True, start_cutscene_seen=True)
+        if tag == "CScreenWorld::StartDialog":
             set_state(chapter_done_seen=True)
         if tag == "NewGame":
             set_state(new_game_seen=True)
@@ -2924,6 +3523,8 @@ def main() -> int:
             or tag.startswith("CTimerWorld::")
             or tag.startswith("CScreenChapter::")
             or tag.startswith("CScreenConnection::")
+            or tag.startswith("CInfGame.")
+            or tag.startswith("CVidInf.")
             or tag.startswith("SoundMixer.")
             or tag in {
                 "SaveGame",
@@ -2990,14 +3591,16 @@ def main() -> int:
     if ns.auto_dialog:
         threading.Thread(
             target=auto_intro_dialog_driver,
-            args=(pid, ns.timeout, state, state_lock, emit_driver),
+            args=(pid, ns.mode, ns.timeout, state, state_lock, emit_driver, ns.revisit_hedron),
             daemon=True,
         ).start()
 
-    deadline = time.time() + ns.timeout
+    trace_started_at = time.time()
+    deadline = trace_started_at + ns.timeout
     status = 1
     loaded_reported = False
     loaded_ok = False
+    autosave_snapshot_done = False
     try:
         while time.time() < deadline:
             if proc is not None and proc.poll() is not None:
@@ -3011,14 +3614,30 @@ def main() -> int:
                     status = 1
                 loaded_reported = True
             if ns.auto_dialog:
-                if (
+                if autosave_artifacts_ready(trace_started_at):
+                    with state_lock:
+                        state["autosave_artifacts_seen"] = True
+                    if not autosave_snapshot_done:
+                        snapshot_valid, _ = snapshot_autosave(ns.mode, trace_started_at, emit_driver)
+                        if snapshot_valid:
+                            compare_autosave_snapshots(ns.mode, emit_driver)
+                        autosave_snapshot_done = True
+                first_dialog_complete = (
                     state_value("keys_sent")
                     and state_value("dialog_exit_seen")
                     and state_value("post_dialog_save_seen")
                     and state_value("post_dialog_paused_for_saving_seen")
                     and state_value("post_dialog_paused_seen")
                     and state_value("post_dialog_unpaused_seen")
-                ):
+                    and state_value("autosave_artifacts_seen")
+                )
+                revisit_complete = (
+                    state_value("second_talk_clicked")
+                    and state_value("second_dialog_seen")
+                    and state_value("second_dialog_exit_seen")
+                    and state_value("second_keys_sent")
+                )
+                if first_dialog_complete and (not ns.revisit_hedron or revisit_complete):
                     status = 0
             elif ns.mode == "re":
                 if loaded_ok:
@@ -3030,6 +3649,8 @@ def main() -> int:
                 break
             time.sleep(0.25)
     finally:
+        if status != 0:
+            emit_screenshot(pid, f"{ns.mode}_final_failure", emit_driver)
         if spawned:
             try:
                 frida.kill(pid)

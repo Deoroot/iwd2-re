@@ -1,0 +1,88 @@
+{
+  "description": "Original IWD2 New Game prologue autosave reference copied from runtime MPSave folders.",
+  "copiedAt": "2026-06-01T20:08:49.2068198+02:00",
+  "source": {
+    "save": "C:\\GOG Games\\Icewind Dale 2\\MPSave\\000000000-Autosave - Prologue",
+    "default": "C:\\GOG Games\\Icewind Dale 2\\MPSave\\default"
+  },
+  "files": [
+    {
+      "path": "save/ICEWIND2.BMP",
+      "length": 23462,
+      "sha256": "1453f105c33e5fcb664e4d79b23d93739c2352dc6dbad99783ec6f594a06f2e7",
+      "lastWriteTime": "2026-06-01T20:04:05.7608708+02:00"
+    },
+    {
+      "path": "save/ICEWIND2.GAM",
+      "length": 20628,
+      "sha256": "d4776d658800299aaa3af50a052c177512179a25ed8c3b51a2b4ab3f4b623f3c",
+      "lastWriteTime": "2026-06-01T20:04:05.7728541+02:00"
+    },
+    {
+      "path": "save/ICEWIND2.SAV",
+      "length": 10543,
+      "sha256": "6994b8c20eb2a57f72a63d2dc75cbac5a45a6e37a5d30bf1e3e469ade8b798e2",
+      "lastWriteTime": "2026-06-01T20:04:05.8201382+02:00"
+    },
+    {
+      "path": "save/PORTRT0.BMP",
+      "length": 1398,
+      "sha256": "a34294f505fa78df2327fe783929bd1d3a878c5aa2be81050bff1ed777d34144",
+      "lastWriteTime": "2026-06-01T20:04:05.7620532+02:00"
+    },
+    {
+      "path": "save/PORTRT1.BMP",
+      "length": 1398,
+      "sha256": "e52bd54527b3044a1197d4f44650754db9bd6d8221dbd1334df2b5b485e539fd",
+      "lastWriteTime": "2026-06-01T20:04:05.7639829+02:00"
+    },
+    {
+      "path": "save/PORTRT2.BMP",
+      "length": 1398,
+      "sha256": "5d54de94f25633d5d0c71e1e0a307c8558fe9ca92500711f98ea740bea9d543e",
+      "lastWriteTime": "2026-06-01T20:04:05.7649808+02:00"
+    },
+    {
+      "path": "save/PORTRT3.BMP",
+      "length": 1398,
+      "sha256": "1a42433e21c690790d6c51c66e5787d122dba7cf71394777e660e689f45d16c5",
+      "lastWriteTime": "2026-06-01T20:04:05.7670076+02:00"
+    },
+    {
+      "path": "save/PORTRT4.BMP",
+      "length": 1398,
+      "sha256": "f3909d8b7378b04b64b9a8902c72a4ff4b5af5f5cde39205a608f9ce86590043",
+      "lastWriteTime": "2026-06-01T20:04:05.7689768+02:00"
+    },
+    {
+      "path": "save/PORTRT5.BMP",
+      "length": 1398,
+      "sha256": "e13f13f6faad2d64ffb22ef42dff48ac1928ae6b1e9176a1a7f76061d2be3de6",
+      "lastWriteTime": "2026-06-01T20:04:05.7706263+02:00"
+    },
+    {
+      "path": "save/WORLDMAP.WMP",
+      "length": 17656,
+      "sha256": "f1ca2f4f763502899779248cf40e0252504c7b424a0a3cec1101f0749bb13db4",
+      "lastWriteTime": "2026-06-01T20:04:05.7768516+02:00"
+    },
+    {
+      "path": "default/ICEWIND2.GAM",
+      "length": 20256,
+      "sha256": "6110bc88bbbc3b145ef22a031e30fa9b0c42f064ab5c1875351c8d032f928caf",
+      "lastWriteTime": "2026-06-01T20:03:32.0656393+02:00"
+    },
+    {
+      "path": "default/ICEWIND2.SAV",
+      "length": 10474,
+      "sha256": "717fc76f36a2a74e2b1d0a103931402c63ec5200a7ecdc541014c55dde1a773c",
+      "lastWriteTime": "2026-06-01T20:03:32.1205915+02:00"
+    },
+    {
+      "path": "default/WORLDMAP.WMP",
+      "length": 17656,
+      "sha256": "f1ca2f4f763502899779248cf40e0252504c7b424a0a3cec1101f0749bb13db4",
+      "lastWriteTime": "2026-06-01T20:03:32.0953552+02:00"
+    }
+  ]
+}
