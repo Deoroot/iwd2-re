@@ -2207,7 +2207,7 @@ BOOL CVidInf::CreateSurfaces3d()
     m_dwGBitMask = 0xFF00;
     m_dwBBitMask = 0xFF0000;
 
-    field_24 = 0;
+    m_dwColorKey = 0;
 
     g_pChitin->m_nScreenWidth = GetSystemMetrics(SM_CXSCREEN);
     g_pChitin->m_nScreenHeight = GetSystemMetrics(SM_CYSCREEN);

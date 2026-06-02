@@ -172,7 +172,7 @@ public:
     /* 0018 */ DWORD m_dwRBitMask; // #guess
     /* 001C */ DWORD m_dwGBitMask; // #guess
     /* 0020 */ DWORD m_dwBBitMask; // #guess
-    /* 0024 */ int field_24;
+    /* 0024 */ DWORD m_dwColorKey; // FX transparent colour key (= m_dwGBitMask); CLEARFILL fill + src colour-key for transparent blits
     /* 0028 */ CCriticalSection m_csRenderPointer;
     /* 0048 */ BOOLEAN m_bFadeTo;
     /* 0049 */ BYTE m_nFade;

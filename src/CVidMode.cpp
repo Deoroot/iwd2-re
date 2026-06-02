@@ -58,7 +58,7 @@ CVidMode::CVidMode()
     m_dwRBitMask = 0;
     m_dwGBitMask = 0;
     m_dwBBitMask = 0;
-    field_24 = 0;
+    m_dwColorKey = 0;
     field_98 = 0;
     field_C2 = 0;
     field_C6 = 0;

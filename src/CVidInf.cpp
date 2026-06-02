@@ -280,9 +280,11 @@ BOOL CVidInf::CreateSurfaces(BOOLEAN bFullscreen)
 
     ParsePixelFormat(surfaceDesc.ddpfPixelFormat);
 
+    m_dwColorKey = m_dwGBitMask;
+
     DDCOLORKEY colorKey;
     colorKey.dwColorSpaceLowValue = m_dwGBitMask;
-    colorKey.dwColorSpaceLowValue = m_dwGBitMask;
+    colorKey.dwColorSpaceHighValue = m_dwGBitMask;
 
     surfaceDesc.dwFlags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH;
 
@@ -888,7 +890,7 @@ BOOL CVidInf::FXPrep(CRect& rFXRect, DWORD dwFlags, const CPoint& ptPos, const C
 
     DDBLTFX fx;
     fx.dwSize = sizeof(fx);
-    fx.dwFillColor = field_24;
+    fx.dwFillColor = m_dwColorKey;
 
     if (GetFXSurfacePtr(dwFlags) == NULL) {
         return FALSE;
@@ -1440,14 +1442,14 @@ BOOL CVidInf::FXUnlock(DWORD dwFlags, const CRect* pFxRect, const CPoint& ptRef)
                 cVidPoly.FillPoly(reinterpret_cast<WORD*>(CVideo3d::texImageData),
                     CVidTile::BYTES_PER_TEXEL * CVIDINF_FX_WIDTH,
                     pFxRect,
-                    field_24,
+                    m_dwColorKey,
                     dwPolyFlags,
                     ptRef);
             } else {
                 cVidPoly.FillPoly(reinterpret_cast<WORD*>(CVideo3d::texImageData),
                     CVidTile::BYTES_PER_TEXEL * m_rLockedRect.Width(),
                     pFxRect,
-                    field_24,
+                    m_dwColorKey,
                     dwPolyFlags,
                     ptRef);
             }
@@ -1476,7 +1478,7 @@ BOOL CVidInf::FXUnlock(DWORD dwFlags, const CRect* pFxRect, const CPoint& ptRef)
         cVidPoly.FillPoly(reinterpret_cast<WORD*>(m_SurfaceDesc.lpSurface),
             m_SurfaceDesc.lPitch,
             pFxRect,
-            field_24,
+            m_dwColorKey,
             dwPolyFlags | 0x2,
             ptRef);
     }

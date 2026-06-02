@@ -2289,7 +2289,7 @@ DWORD CInfinity::Render(CVidMode* pNewVidMode, INT nSurface, INT nScrollState, C
                                 y,
                                 tileCode,
                                 dwRenderFlag,
-                                pVidMode->field_24,
+                                pVidMode->m_dwColorKey,
                                 0,
                                 0);
                         } else {
