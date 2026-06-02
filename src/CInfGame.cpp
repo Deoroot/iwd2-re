@@ -5860,7 +5860,7 @@ void CInfGame::SynchronousUpdate()
         vbPortrait.GetImageDimensions(portraitSize, FALSE);
 
         CRect rPortrait(0, 0, portraitSize.cx, portraitSize.cy);
-        vbPortrait.RenderDirect(CVIDINF_SURFACE_2, 0, 0, rPortrait, 0, TRUE);
+        vbPortrait.RenderDirect(CVIDINF_SURFACE_2, 0, 0, rPortrait, 0, FALSE);
 
         LPBYTE pPortraitData = NULL;
         LONG nPortraitData = 0;
