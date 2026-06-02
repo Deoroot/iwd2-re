@@ -9,6 +9,7 @@
 #include "CTiledObject.h"
 #include "CUtil.h"
 #include "CVidInf.h"
+#include "CVidPoly.h"
 #include "CVideo3d.h"
 #include "CVisibility.h"
 
@@ -1716,9 +1717,149 @@ BOOL CInfinity::FXRender(CVidCell* pVidCell, INT nRefPointX, INT nRefPointY, DWO
 // 0x5CE350
 BOOL CInfinity::FXRenderClippingPolys(INT nPosX, INT nPosY, INT nPosZ, const CPoint& ptRef, const CRect& rGCBounds, BOOLEAN bDithered, DWORD dwBlitFlags)
 {
-    // TODO: Incomplete.
+    if (g_pChitin->GetCurrentVideoMode()->m_nFade == 0) {
+        return TRUE;
+    }
 
-    return FALSE;
+    CVidPoly poly;
+
+    if (pResWED == NULL) {
+        return FALSE;
+    }
+
+    DWORD dwFillFlags = (bDithered != 0) + 1;
+    if ((dwBlitFlags & MIRROR_FX) != 0) {
+        dwFillFlags |= 0x4;
+    }
+    if ((dwBlitFlags & MIRROR_FX_UPDOWN) != 0) {
+        dwFillFlags |= 0x8;
+    }
+
+    WORD* pScreenPolyData = pResWED->GetScreenPolyData();
+    if (pScreenPolyData == NULL) {
+        return FALSE;
+    }
+
+    INT nSectionsX = nAreaX / 640;
+    if (nAreaX % 640 != 0) {
+        nSectionsX++;
+    }
+    INT nSectionsY = nAreaY / 480;
+    if (nAreaY % 480 != 0) {
+        nSectionsY++;
+    }
+
+    // The cover polygons that occlude this sprite are filled into the locked FX
+    // surface with the transparent colour key, so FXBltToBack keys them out and
+    // the foreground geometry shows through. Up to five distinct polys tracked.
+    DWORD seenPolys[5] = { 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF };
+    INT nSeen = 0;
+    DWORD* pNextSeen = seenPolys;
+
+    BOOL bRendered = FALSE;
+
+    INT tileLeft = rGCBounds.left / 640;
+    INT tileRight = rGCBounds.right / 640;
+    INT tileBottom = rGCBounds.bottom / 480;
+
+    for (INT ty = rGCBounds.top / 480; ty <= tileBottom; ty++) {
+        if (ty >= nSectionsY) {
+            break;
+        }
+
+        for (INT tx = tileLeft; tx <= tileRight; tx++) {
+            if (tx >= nSectionsX) {
+                break;
+            }
+
+            INT nSection = ty * nSectionsX + tx;
+
+            for (INT nSlot = 0; nSlot < pResWED->m_pScreenSectionList[nSection].nNumPolys; nSlot++) {
+                DWORD nPoly = pScreenPolyData[pResWED->m_pScreenSectionList[nSection].nStartingPoly + nSlot];
+                WED_POLYLIST* pPoly = &pResWED->m_pPolyList[nPoly];
+
+                if ((pPoly->nType & 0x2) != 0) {
+                    continue;
+                }
+
+                CRect rPolyBounds(pPoly->nLeft, pPoly->nTop, pPoly->nRight, pPoly->nBottom);
+                CRect rIntersect;
+                if (!rIntersect.IntersectRect(rPolyBounds, rGCBounds)) {
+                    continue;
+                }
+
+                BOOL bDraw = FALSE;
+                if ((pPoly->nType & 0x1) == 0) {
+                    bDraw = TRUE;
+                } else if ((dwBlitFlags & CLIPPING_IGNORE_VERTICAL) == 0) {
+                    WED_POLYPOINT* pA = &pResWED->m_pPolyPoints[pPoly->nStartingPoint];
+                    WED_POLYPOINT* pB = pA + 1;
+                    if (pB->x < pA->x) {
+                        WED_POLYPOINT* pTmp = pA;
+                        pA = pB;
+                        pB = pTmp;
+                    }
+
+                    if (pA->y == pB->y) {
+                        if (nPosZ < pA->y) {
+                            bDraw = TRUE;
+                        }
+                    } else if (pA->x != pB->x
+                        && (nPosX - pA->x) * (pB->y - pA->y) + (nPosZ - pA->y) * (pA->x - pB->x) >= 0) {
+                        bDraw = TRUE;
+                    }
+                }
+
+                if (!bDraw) {
+                    continue;
+                }
+
+                BOOL bSeen = FALSE;
+                for (INT i = 0; i < nSeen; i++) {
+                    if (seenPolys[i] != 0xFFFFFFFF) {
+                        break;
+                    }
+                    if (nPoly == 0xFFFFFFFF) {
+                        bSeen = TRUE;
+                    }
+                }
+                if (bSeen) {
+                    continue;
+                }
+
+                if (nSeen < 5) {
+                    nSeen++;
+                    *pNextSeen = nPoly;
+                    pNextSeen++;
+                }
+
+                if ((pPoly->nType & 0x4) == 0) {
+                    poly.SetPoly(reinterpret_cast<WORD*>(&pResWED->m_pPolyPoints[pPoly->nStartingPoint]),
+                        static_cast<SHORT>(pPoly->nNumPoints));
+                } else {
+                    poly.SetPoly(reinterpret_cast<WORD*>(&pResWED->m_pPolyPoints[pPoly->nStartingPoint + 2]),
+                        static_cast<SHORT>(pPoly->nNumPoints) - 2);
+                }
+
+                CRect rClip(rGCBounds.left, rGCBounds.top + nPosZ, rGCBounds.right, rGCBounds.bottom + nPosZ);
+                CPoint ptFill(ptRef.x + nPosX, ptRef.y + nPosY);
+
+                DWORD dwColor = pVidMode->m_dwColorKey;
+                WORD* pSurface = reinterpret_cast<WORD*>(static_cast<CVidInf*>(pVidMode)->GetLockedSurface());
+                LONG lPitch = static_cast<CVidInf*>(pVidMode)->GetSurfacePitch();
+
+                if ((pPoly->nType & 0x8) == 0) {
+                    poly.FillPoly(pSurface, lPitch, rClip, dwColor, dwFillFlags, ptFill);
+                } else {
+                    poly.FillConvexPoly(pSurface, lPitch, rClip, dwColor, dwFillFlags, ptFill);
+                }
+
+                bRendered = TRUE;
+            }
+        }
+    }
+
+    return bRendered;
 }
 
 // 0x5CE930
