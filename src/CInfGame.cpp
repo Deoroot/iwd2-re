@@ -171,18 +171,17 @@ static const char* off_8AFC50[FIFTY_THREE] = {
     "Quick Formation Slot5",
 };
 
-static BOOL WriteRawBufferToFile(const CString& sFileName, const BYTE* pData, DWORD nData)
+static BOOL WriteBmpResource(const CString& sDirName, const CResRef& cResRef, const BYTE* pData, DWORD nData)
 {
-    CFile file;
-    if (!file.Open(sFileName,
-            CFile::OpenFlags::modeCreate | CFile::OpenFlags::modeWrite | CFile::OpenFlags::typeBinary,
-            NULL)) {
+    CVidBitmap bitmap;
+    bitmap.SetResRef(cResRef, TRUE, TRUE);
+
+    CRes* pRes = static_cast<CRes*>(bitmap.GetRes());
+    if (pRes == NULL) {
         return FALSE;
     }
 
-    file.Write(pData, nData);
-    file.Close();
-    return TRUE;
+    return pRes->Write(sDirName, const_cast<BYTE*>(pData), nData);
 }
 
 // 0x8AFD24
@@ -5771,10 +5770,14 @@ void CInfGame::SynchronousUpdate()
     }
 
     CVidMode* pVidMode = g_pChitin->GetCurrentVideoMode();
-    if (pVidMode == NULL || g_pBaldurChitin->m_pEngineWorld == NULL) {
+    CGameArea* pArea = GetVisibleArea();
+    if (pVidMode == NULL || g_pBaldurChitin->m_pEngineWorld == NULL || pArea == NULL) {
         DestroyDisposableItems();
         return;
     }
+
+    BeginListManipulation(pArea);
+    EnterCriticalSection(&pArea->field_1FC);
 
     Sleep(100);
 
@@ -5818,7 +5821,7 @@ void CInfGame::SynchronousUpdate()
             CInfinity::stru_8E79A8,
             nScreenData,
             5)) {
-        WriteRawBufferToFile(sWriteDir + "ICEWIND2.BMP", pScreenData, nScreenData);
+        WriteBmpResource(sWriteDir, CResRef("ICEWIND2"), pScreenData, nScreenData);
     }
 
     if (pScreenData != NULL) {
@@ -5869,11 +5872,9 @@ void CInfGame::SynchronousUpdate()
                 rPortrait,
                 nPortraitData,
                 2)) {
-            CString sPortraitFile;
-            sPortraitFile.Format("%sPORTRT%d.BMP",
-                static_cast<LPCSTR>(sWriteDir),
-                nPortraitFile);
-            WriteRawBufferToFile(sPortraitFile, pPortraitData, nPortraitData);
+            CString sPortraitResRef;
+            sPortraitResRef.Format("PORTRT%d", nPortraitFile);
+            WriteBmpResource(sWriteDir, CResRef(sPortraitResRef), pPortraitData, nPortraitData);
             nPortraitFile++;
         }
 
@@ -5889,9 +5890,9 @@ void CInfGame::SynchronousUpdate()
     m_cVRamPool.InvalidateAll();
     pVidMode->LoadFogOWarSurfaces(FOGOWAR_RESREF);
 
-    // TODO INCOMPLETE: 0x5BE900 also locks the visible area's object lists and
-    // mirrors the exact CRes request/cancel lifecycle around the generated BMP
-    // resources. The recovered path above preserves the observable save files.
+    LeaveCriticalSection(&pArea->field_1FC);
+    EndListManipulation(pArea);
+
     DestroyDisposableItems();
 }
 
