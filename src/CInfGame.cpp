@@ -5781,6 +5781,8 @@ void CInfGame::SynchronousUpdate()
 
     Sleep(100);
 
+    EnterCriticalSection(&g_pBaldurChitin->m_pEngineWorld->field_106);
+
     const BYTE nPrevBrightnessCorrection = pVidMode->m_nBrightnessCorrection;
     const BYTE nPrevGammaCorrection = pVidMode->m_nGammaCorrection;
     pVidMode->m_nBrightnessCorrection = 0;
@@ -5889,6 +5891,8 @@ void CInfGame::SynchronousUpdate()
     pVidMode->m_nGammaCorrection = nPrevGammaCorrection;
     m_cVRamPool.InvalidateAll();
     pVidMode->LoadFogOWarSurfaces(FOGOWAR_RESREF);
+
+    LeaveCriticalSection(&g_pBaldurChitin->m_pEngineWorld->field_106);
 
     LeaveCriticalSection(&pArea->field_1FC);
     EndListManipulation(pArea);
