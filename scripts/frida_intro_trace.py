@@ -4062,6 +4062,7 @@ def main() -> int:
                     and state_value("post_dialog_paused_seen")
                     and state_value("post_dialog_unpaused_seen")
                     and state_value("autosave_artifacts_seen")
+                    and state_value("world_coming_out_dialog") == 0
                 )
                 revisit_complete = (
                     state_value("second_talk_clicked")
@@ -4081,7 +4082,9 @@ def main() -> int:
                 break
             time.sleep(0.25)
     finally:
-        if status != 0:
+        if status == 0:
+            emit_screenshot(pid, f"{ns.mode}_final_success", emit_driver)
+        else:
             emit_screenshot(pid, f"{ns.mode}_final_failure", emit_driver)
         if spawned:
             try:
