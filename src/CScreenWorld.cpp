@@ -2150,7 +2150,7 @@ void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
         if (dx * dx + dy * dy > DIALOG_JUMP_CUT_OFF) {
             pInfinity->m_autoScrollSpeed = 0;
         } else {
-            pInfinity->m_autoScrollSpeed = static_cast<SHORT>(CChitin::TIMER_UPDATES_PER_SECOND * 5 / 24);
+            pInfinity->m_autoScrollSpeed = static_cast<SHORT>(CChitin::TIMER_UPDATES_PER_SECOND * 16 / 24);
         }
     }
 
