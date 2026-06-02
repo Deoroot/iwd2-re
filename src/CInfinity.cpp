@@ -3108,7 +3108,7 @@ void CInfinity::SetDawn(BYTE nIntensity, BOOLEAN bPlayDayNightMovie)
                 m_rgbTimeOfDayGlobalLighting = GetFadedColor(RGB_DAY_COLOR,
                     RGB_PRIMEDAWN_COLOR,
                     nNewIntensity);
-                m_rgbTimeOfDayGlobalLighting = GetFadedColor(RGB_DAY_RAINCOLOR,
+                m_rgbTimeOfDayRainColor = GetFadedColor(RGB_DAY_RAINCOLOR,
                     RGB_PRIMEDAWN_RAINCOLOR,
                     nNewIntensity);
             }
@@ -3142,7 +3142,7 @@ void CInfinity::SetDusk(BYTE nIntensity, BOOLEAN bPlayDayNightMovie)
                 m_rgbTimeOfDayGlobalLighting = GetFadedColor(RGB_DAY_COLOR,
                     RGB_PRIMEDUSK_COLOR,
                     nNewIntensity);
-                m_rgbTimeOfDayGlobalLighting = GetFadedColor(RGB_DAY_RAINCOLOR,
+                m_rgbTimeOfDayRainColor = GetFadedColor(RGB_DAY_RAINCOLOR,
                     RGB_PRIMEDUSK_RAINCOLOR,
                     nNewIntensity);
             }
