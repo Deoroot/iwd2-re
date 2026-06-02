@@ -2043,6 +2043,11 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
 
     Icewind586B70::Instance()->SaveSummonLinks();
 
+    CBaldurEngine* pActiveEngine = g_pBaldurChitin->GetActiveEngine();
+    pActiveEngine->CancelEngine();
+    pActiveEngine->GetManager()->InvalidateRect(NULL);
+    g_pBaldurChitin->m_cCachingStatus.InvalidateScreen();
+
     // TODO INCOMPLETE: 0x5AC430 also drives disk-space failure shutdown,
     // progress-bar target accounting, and area/store resource writes. The
     // recovered path below keeps the multiplayer hard-pause/signaling behavior
