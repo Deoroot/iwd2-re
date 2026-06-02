@@ -47,6 +47,8 @@ SW_SHOW = 5
 SWP_NOSIZE = 0x0001
 SWP_NOMOVE = 0x0002
 SWP_SHOWWINDOW = 0x0040
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
 WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
@@ -71,6 +73,13 @@ HEDRON_REVISIT_CLICKS_RE = [(524, 265), (512, 257), (520, 245)]
 HEDRON_REVISIT_CLICKS_ORIGINAL = [(500, 252), (500, 264), (490, 258), (512, 257), (480, 267)]
 CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS = 1.0
 CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS = 0.0
+CHAPTER_VISIBLE_CAPTURE_TIMEOUT_SECONDS = 6.0
+CHAPTER_VISIBLE_CONTENT_SCORE = 50_000
+CHAPTER_DONE_RETRY_SECONDS = 8.0
+DIALOG_REPLY_CLICK_X_RE = 150
+DIALOG_REPLY_FIRST_Y_RE = 504
+DIALOG_REPLY_LINE_HEIGHT_RE = 14
+DIALOG_CONTINUE_BUTTON_RE = (398, 583)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO = SCRIPT_DIR.parent if SCRIPT_DIR.name.lower() == "scripts" else SCRIPT_DIR
@@ -624,6 +633,17 @@ def physical_mouse_click(hwnd: int, screen_x: int, screen_y: int) -> None:
             user32.BlockInput(False)
 
 
+def activate_window_for_keyboard(hwnd: int) -> bool:
+    focus_window(hwnd, click=False)
+    if user32.GetForegroundWindow() == hwnd:
+        return True
+
+    origin_x, origin_y = game_surface_origin(hwnd)
+    physical_mouse_click(hwnd, origin_x + 20, origin_y + 20)
+    time.sleep(0.05)
+    return user32.GetForegroundWindow() == hwnd
+
+
 def focus_window(hwnd: int, click: bool = False) -> bool:
     if hwnd == 0:
         return False
@@ -679,15 +699,30 @@ def focus_window(hwnd: int, click: bool = False) -> bool:
             user32.AttachThreadInput(current_thread, target_thread, False)
 
 
-def send_key_to_pid(pid: int, vk: int) -> bool:
+def send_key_to_pid(pid: int, vk: int, activation_click: bool = False) -> bool:
     hwnd = find_window_for_pid(pid)
     if hwnd == 0:
         return False
-    focus_window(hwnd)
+    if activation_click:
+        activate_window_for_keyboard(hwnd)
+    else:
+        focus_window(hwnd)
     time.sleep(0.05)
     user32.keybd_event(vk, 0, 0, 0)
     time.sleep(0.05)
     user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+    return True
+
+
+def post_key_to_pid(pid: int, vk: int) -> bool:
+    hwnd = find_window_for_pid(pid)
+    if hwnd == 0:
+        return False
+    focus_window(hwnd, click=False)
+    time.sleep(0.03)
+    user32.PostMessageW(hwnd, WM_KEYDOWN, vk, 0)
+    time.sleep(0.05)
+    user32.PostMessageW(hwnd, WM_KEYUP, vk, 0)
     return True
 
 
@@ -701,6 +736,17 @@ def click_client(pid: int, x: int, y: int, activation_click: bool = True) -> boo
     screen_x = origin_x + x
     screen_y = origin_y + y
     physical_mouse_click(hwnd, screen_x, screen_y)
+    return True
+
+
+def post_click_client(pid: int, x: int, y: int, activation_click: bool = True) -> bool:
+    hwnd = find_window_for_pid(pid)
+    if hwnd == 0:
+        return False
+    focus_window(hwnd, click=False)
+    time.sleep(0.04 if activation_click else 0.02)
+    origin_x, origin_y = game_surface_origin(hwnd)
+    post_mouse_click(hwnd, origin_x + x, origin_y + y)
     return True
 
 
@@ -734,6 +780,21 @@ def capture_score(pixels: bytes) -> int:
         lum = r + g + b
         if lum > 24:
             score += lum
+    return score
+
+
+def capture_content_score(pixels: bytes, width: int = 800, height: int = 600) -> int:
+    score = 0
+    for y in range(80, min(520, height), 16):
+        row = y * width * 4
+        for x in range(60, min(740, width), 16):
+            i = row + x * 4
+            b = pixels[i]
+            g = pixels[i + 1]
+            r = pixels[i + 2]
+            lum = r + g + b
+            if lum > 48:
+                score += lum
     return score
 
 
@@ -836,7 +897,13 @@ def capture_game_surface(pid: int, label: str) -> tuple[Path, dict[str, object]]
         origin_name, origin_x, origin_y, raw, score = best
         write_bmp(path, width, height, raw)
 
-        return path, {"origin": origin_name, "x": origin_x, "y": origin_y, "score": score}
+        return path, {
+            "origin": origin_name,
+            "x": origin_x,
+            "y": origin_y,
+            "score": score,
+            "contentScore": capture_content_score(raw, width, height),
+        }
     finally:
         user32.ReleaseDC(0, screen_dc)
 
@@ -847,6 +914,31 @@ def emit_screenshot(pid: int, label: str, emit) -> None:
         emit({"tag": "Driver.python.screenshot", "label": label, "path": str(path), "capture": capture})
     except Exception as e:
         emit({"tag": "Driver.python.error", "stage": f"screenshot-{label}", "err": str(e)})
+
+
+def wait_for_visible_capture(pid: int, label: str, emit, timeout: float = CHAPTER_VISIBLE_CAPTURE_TIMEOUT_SECONDS) -> bool:
+    deadline = time.time() + timeout
+    attempts = 0
+    last: tuple[Path, dict[str, object]] | None = None
+    while time.time() < deadline:
+        attempts += 1
+        try:
+            last = capture_game_surface(pid, label)
+        except Exception as e:
+            emit({"tag": "Driver.python.error", "stage": f"screenshot-{label}", "err": str(e)})
+            time.sleep(0.25)
+            continue
+
+        path, capture = last
+        if int(capture.get("contentScore", 0)) >= CHAPTER_VISIBLE_CONTENT_SCORE:
+            emit({"tag": "Driver.python.screenshot", "label": label, "path": str(path), "capture": capture, "attempts": attempts})
+            return True
+        time.sleep(0.25)
+
+    if last is not None:
+        path, capture = last
+        emit({"tag": "Driver.python.screenshot", "label": label, "path": str(path), "capture": capture, "attempts": attempts, "visible": False})
+    return False
 
 
 def autosave_snapshot_dir(mode: str) -> Path:
@@ -1034,6 +1126,40 @@ def compare_autosave_snapshots(mode: str, emit) -> None:
     })
 
 
+def dialog_click_position_re(vk: int) -> tuple[int, int] | None:
+    if VK_1 <= vk <= 0x39:
+        digit = vk - VK_1 + 1
+        return (
+            DIALOG_REPLY_CLICK_X_RE,
+            DIALOG_REPLY_FIRST_Y_RE + (digit - 1) * DIALOG_REPLY_LINE_HEIGHT_RE,
+        )
+    if vk == VK_RETURN:
+        return DIALOG_CONTINUE_BUTTON_RE
+    return None
+
+
+def send_dialog_input(pid: int, mode: str, vk: int, attempt: int, frida_script=None, emit=None) -> bool:
+    if VK_1 <= vk <= 0x39 and frida_script is not None:
+        try:
+            result = frida_script.exports_sync.selectdialogdisplayid(vk - VK_1 + 1)
+            if emit is not None:
+                emit({"tag": "Driver.frida.dialog-select", "displayId": vk - VK_1 + 1, "attempt": attempt, "result": result})
+            if isinstance(result, dict) and result.get("ok"):
+                return True
+        except Exception as e:
+            if emit is not None:
+                emit({"tag": "Driver.frida.dialog-select", "displayId": vk - VK_1 + 1, "attempt": attempt, "err": str(e)})
+            pass
+
+    if mode == "re":
+        pos = dialog_click_position_re(vk)
+        if pos is not None:
+            if attempt == 1:
+                return post_click_client(pid, *pos, activation_click=False)
+            return click_client(pid, *pos, activation_click=False)
+    return send_key_to_pid(pid, vk, activation_click=True)
+
+
 def send_intro_dialog_replies(pid: int) -> None:
     # 10HEDRON path: 1 -> 4 -> 1 adds journal #739, then exits via 1 -> 1.
     for vk in [VK_1, VK_4, VK_1, VK_1, VK_1, VK_1]:
@@ -1049,6 +1175,7 @@ def auto_intro_dialog_driver(
     state_lock: threading.Lock,
     emit,
     revisit_hedron: bool,
+    frida_script=None,
 ) -> None:
     # 10HEDRON new-game path: thank him, ask for the guard, add journal, then exit.
     actions = {
@@ -1056,14 +1183,16 @@ def auto_intro_dialog_driver(
         2585: [VK_4],
         2625: [VK_1],
         2627: [VK_1],
-        2630: [VK_1, VK_RETURN],
-        2631: [VK_1, VK_RETURN],
+        2630: [VK_1],
+        2631: [VK_1],
     }
     revisit_actions = {
         21332: [VK_5],
         27216: [VK_1],
     }
     handled_serial = 0
+    serial_attempts: dict[int, int] = {}
+    last_dialog_action_at = 0.0
     hedron_click_attempts = 0
     last_hedron_click_at = 0.0
     deadline = time.time() + timeout
@@ -1112,8 +1241,21 @@ def auto_intro_dialog_driver(
             time.sleep(0.75)
             continue
 
-        if serial > handled_serial:
-            handled_serial = serial
+        attempts = serial_attempts.get(serial, 0)
+        should_send = serial > handled_serial or (
+            serial == handled_serial
+            and attempts < 3
+            and time.time() - last_dialog_action_at >= 1.25
+        )
+
+        if serial > 0 and should_send:
+            if serial > handled_serial:
+                handled_serial = serial
+                serial_attempts[serial] = 0
+                attempts = 0
+            attempt = attempts + 1
+            serial_attempts[serial] = attempt
+            last_dialog_action_at = time.time()
             clicked_hedron = hedron_click_attempts > 0
             if text in actions and not clicked_hedron:
                 keys = actions[text]
@@ -1130,11 +1272,28 @@ def auto_intro_dialog_driver(
             time.sleep(delay)
             for vk in keys:
                 target = "hedron-revisit-dialog" if clicked_hedron else "intro-dialog"
-                emit({"tag": "Driver.python.key", "target": target, "entry": text, "replyCount": reply_count, "vk": vk, "window": window_metrics(pid)})
-                if not send_key_to_pid(pid, vk):
+                click_pos = dialog_click_position_re(vk) if mode == "re" else None
+                input_tag = "Driver.python.dialog-click" if click_pos is not None else "Driver.python.key"
+                payload = {
+                    "tag": input_tag,
+                    "target": target,
+                    "entry": text,
+                    "replyCount": reply_count,
+                    "vk": vk,
+                    "attempt": attempt,
+                    "window": window_metrics(pid),
+                }
+                if click_pos is not None:
+                    payload["pos"] = click_pos
+                    if mode == "re" and VK_1 <= vk <= 0x39 and frida_script is not None:
+                        payload["method"] = "rpc-responseMarker"
+                    else:
+                        payload["method"] = "post-click" if attempt == 1 else "click"
+                emit(payload)
+                if not send_dialog_input(pid, mode, vk, attempt, frida_script, emit):
                     emit({"tag": "Driver.python.error", "stage": "intro-dialog-key", "entry": text, "vk": vk, "err": "window not found"})
                     return
-                time.sleep(0.25)
+                time.sleep(0.35)
             with state_lock:
                 state["keys_sent"] = True
                 if clicked_hedron:
@@ -1373,21 +1532,56 @@ def original_ui_driver(
 
     emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": int(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS * 1000)})
     time.sleep(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS)
-    emit_screenshot(pid, "original_chapter_before_done", emit)
+    wait_for_visible_capture(pid, "original_chapter_before_done", emit)
     if CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS > 0:
         emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
         time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
-    emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
-    if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
-        emit({"tag": "Driver.python.error", "stage": "chapter-done-click", "err": "window not found"})
-        return
-    time.sleep(0.75)
-    with state_lock:
-        chapter_advanced = bool(state.get("chapter_done_seen")) or bool(state.get("dialog_seen"))
-    if not chapter_advanced:
-        emit({"tag": "Driver.python.key", "target": "chapter-done-retry", "vk": VK_RETURN, "window": window_metrics(pid)})
-        if not send_key_to_pid(pid, VK_RETURN):
+    retry_deadline = time.time() + CHAPTER_DONE_RETRY_SECONDS
+    attempt = 0
+    while time.time() < retry_deadline:
+        with state_lock:
+            chapter_advanced = (
+                bool(state.get("chapter_done_click_seen"))
+                or bool(state.get("chapter_done_seen"))
+                or bool(state.get("start_cutscene_seen"))
+                or bool(state.get("dialog_seen"))
+            )
+        if chapter_advanced:
+            emit({"tag": "Driver.python.chapter-done-confirmed", "attempt": attempt})
+            return
+
+        attempt += 1
+        for phase in ("activate", "confirm"):
+            emit({
+                "tag": "Driver.python.click",
+                "target": "chapter-done",
+                "phase": phase,
+                "attempt": attempt,
+                "pos": CHAPTER_DONE_BUTTON,
+                "window": window_metrics(pid),
+            })
+            if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
+                emit({"tag": "Driver.python.error", "stage": "chapter-done-click", "phase": phase, "err": "window not found"})
+                return
+            time.sleep(0.45)
+            with state_lock:
+                chapter_advanced = (
+                    bool(state.get("chapter_done_click_seen"))
+                    or bool(state.get("chapter_done_seen"))
+                    or bool(state.get("start_cutscene_seen"))
+                    or bool(state.get("dialog_seen"))
+                )
+            if chapter_advanced:
+                emit({"tag": "Driver.python.chapter-done-confirmed", "attempt": attempt, "phase": phase})
+                return
+
+        emit({"tag": "Driver.python.key", "target": "chapter-done-retry", "attempt": attempt, "vk": VK_RETURN, "window": window_metrics(pid)})
+        if not send_key_to_pid(pid, VK_RETURN, activation_click=True):
             emit({"tag": "Driver.python.error", "stage": "chapter-done-retry-enter", "err": "window not found"})
+            return
+        time.sleep(0.45)
+
+    emit({"tag": "Driver.python.chapter-done-timeout", "attempts": attempt, "window": window_metrics(pid)})
 
 
 def re_chapter_driver(
@@ -1396,7 +1590,17 @@ def re_chapter_driver(
     state: dict[str, object],
     state_lock: threading.Lock,
     emit,
+    frida_script=None,
 ) -> None:
+    def chapter_advanced() -> bool:
+        with state_lock:
+            return (
+                bool(state.get("chapter_done_click_seen"))
+                or bool(state.get("chapter_done_seen"))
+                or bool(state.get("start_cutscene_seen"))
+                or bool(state.get("dialog_seen"))
+            )
+
     deadline = time.time() + timeout
     while time.time() < deadline:
         with state_lock:
@@ -1405,20 +1609,62 @@ def re_chapter_driver(
         if chapter_active_seen and not chapter_done_seen:
             emit({"tag": "Driver.python.chapter-visible-wait", "delayMs": int(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS * 1000)})
             time.sleep(CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS)
-            emit_screenshot(pid, "re_chapter_before_done", emit)
+            wait_for_visible_capture(pid, "re_chapter_before_done", emit)
             if CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS > 0:
                 emit({"tag": "Driver.python.chapter-audio-grace", "delayMs": int(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS * 1000)})
                 time.sleep(CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS)
-            emit({"tag": "Driver.python.click", "target": "chapter-done", "pos": CHAPTER_DONE_BUTTON, "window": window_metrics(pid)})
-            if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
-                emit({"tag": "Driver.python.error", "stage": "re-chapter-done-click", "err": "window not found"})
-            time.sleep(0.5)
-            with state_lock:
-                chapter_done_seen = bool(state.get("chapter_done_seen"))
-            if not chapter_done_seen:
-                emit({"tag": "Driver.python.key", "target": "chapter-done-retry", "vk": VK_RETURN, "window": window_metrics(pid)})
-                if not send_key_to_pid(pid, VK_RETURN):
+
+            retry_deadline = min(deadline, time.time() + CHAPTER_DONE_RETRY_SECONDS)
+            attempt = 0
+            while time.time() < retry_deadline:
+                if chapter_advanced():
+                    emit({"tag": "Driver.python.chapter-done-confirmed", "attempt": attempt})
+                    return
+
+                attempt += 1
+                emit({
+                    "tag": "Driver.python.post-click",
+                    "target": "chapter-done",
+                    "phase": "posted",
+                    "attempt": attempt,
+                    "pos": CHAPTER_DONE_BUTTON,
+                    "window": window_metrics(pid),
+                })
+                if not post_click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
+                    emit({"tag": "Driver.python.error", "stage": "re-chapter-done-post-click", "err": "window not found"})
+                    return
+                time.sleep(0.35)
+                if chapter_advanced():
+                    emit({"tag": "Driver.python.chapter-done-confirmed", "attempt": attempt, "phase": "posted"})
+                    return
+
+                for phase in ("activate", "confirm"):
+                    emit({
+                        "tag": "Driver.python.click",
+                        "target": "chapter-done",
+                        "phase": phase,
+                        "attempt": attempt,
+                        "pos": CHAPTER_DONE_BUTTON,
+                        "window": window_metrics(pid),
+                    })
+                    if not click_client(pid, *CHAPTER_DONE_BUTTON, activation_click=False):
+                        emit({"tag": "Driver.python.error", "stage": "re-chapter-done-click", "phase": phase, "err": "window not found"})
+                        return
+                    time.sleep(0.45)
+                    if chapter_advanced():
+                        emit({"tag": "Driver.python.chapter-done-confirmed", "attempt": attempt, "phase": phase})
+                        return
+
+                emit({"tag": "Driver.python.key", "target": "chapter-done-retry", "attempt": attempt, "vk": VK_RETURN, "window": window_metrics(pid)})
+                if not send_key_to_pid(pid, VK_RETURN, activation_click=True):
                     emit({"tag": "Driver.python.error", "stage": "re-chapter-done-enter", "err": "window not found"})
+                    return
+                time.sleep(0.45)
+                if chapter_advanced():
+                    emit({"tag": "Driver.python.chapter-done-confirmed", "attempt": attempt, "phase": "enter"})
+                    return
+
+            emit({"tag": "Driver.python.chapter-done-timeout", "attempts": attempt, "window": window_metrics(pid)})
             return
         time.sleep(0.1)
 
@@ -1535,6 +1781,24 @@ const CHAPTER_ORIG = {{
 const CHAPTER = isRe
   ? {{ textListCandidates: [0x0144, 0x0148, 0x014c, 0x0150, 0x0154], started: 0x01b8 }}
   : {{ textListCandidates: [0x0144], started: 0x01b4 }};
+const SCREEN_WORLD_RE = {{
+  internalLoadedDialog: 0x0eb8,
+}};
+const PTR_ARRAY = {{
+  data: 0x04,
+  size: 0x08,
+}};
+const DIALOG_SPRITE = {{
+  dialogEntries: 0x08,
+  currentEntryIndex: 0x38,
+  waitingForResponse: 0x3c,
+  responseMarker: 0x40,
+}};
+const DIALOG_REPLY = {{
+  replyText: 0x04,
+  journal: 0x08,
+  displayListId: 0x60,
+}};
 const AREA = isRe
   ? {{
       areaLoaded: 0x01ef,
@@ -1843,6 +2107,96 @@ function isKnown(p) {{
   return p !== undefined && !p.isNull();
 }}
 
+function ptrArrayCount(arrayPtr) {{
+  return arrayPtr.add(PTR_ARRAY.size).readS32();
+}}
+
+function ptrArrayAt(arrayPtr, index) {{
+  const data = arrayPtr.add(PTR_ARRAY.data).readPointer();
+  if (!isKnown(data)) {{
+    return ptr(0);
+  }}
+  return data.add(index * Process.pointerSize).readPointer();
+}}
+
+function readDialogReplies(entry) {{
+  const replies = [];
+  if (!isKnown(entry)) {{
+    return replies;
+  }}
+  const count = ptrArrayCount(entry);
+  for (let i = 0; i < count; i++) {{
+    const reply = ptrArrayAt(entry, i);
+    if (!isKnown(reply)) {{
+      continue;
+    }}
+    replies.push({{
+      index: i,
+      ptr: reply.toString(),
+      replyText: reply.add(DIALOG_REPLY.replyText).readU32(),
+      journal: reply.add(DIALOG_REPLY.journal).readU32(),
+      displayListId: reply.add(DIALOG_REPLY.displayListId).readU8(),
+    }});
+  }}
+  return replies;
+}}
+
+function currentDialogEntry() {{
+  const dialog = currentDialogSprite();
+  if (!isKnown(dialog)) {{
+    return ptr(0);
+  }}
+  const current = dialog.add(DIALOG_SPRITE.currentEntryIndex).readU32();
+  const entries = dialog.add(DIALOG_SPRITE.dialogEntries);
+  const count = ptrArrayCount(entries);
+  if (current >= count) {{
+    return ptr(0);
+  }}
+  return ptrArrayAt(entries, current);
+}}
+
+function currentDialogSprite() {{
+  if (isKnown(activeDialogSprite)) {{
+    return activeDialogSprite;
+  }}
+  if (isRe && isKnown(knownScreenWorld)) {{
+    return knownScreenWorld.add(SCREEN_WORLD_RE.internalLoadedDialog);
+  }}
+  return ptr(0);
+}}
+
+function selectDialogDisplayId(displayId) {{
+  const dialog = currentDialogSprite();
+  if (!isKnown(dialog)) {{
+    return {{ ok: false, err: 'missing-dialog' }};
+  }}
+  if (dialog.add(DIALOG_SPRITE.waitingForResponse).readS32() === 0) {{
+    return {{ ok: false, err: 'not-waiting' }};
+  }}
+  const entry = currentDialogEntry();
+  const replies = readDialogReplies(entry);
+  activeDialogEntry = entry;
+  activeDialogReplies = replies;
+  for (const reply of replies) {{
+    if (reply.displayListId === displayId) {{
+      dialog.add(DIALOG_SPRITE.responseMarker).writeS32(reply.index);
+      return {{ ok: true, marker: reply.index, displayListId: displayId, replies }};
+    }}
+  }}
+  const fallbackIndex = displayId - 1;
+  if (fallbackIndex >= 0 && fallbackIndex < replies.length) {{
+    dialog.add(DIALOG_SPRITE.responseMarker).writeS32(fallbackIndex);
+    return {{ ok: true, marker: fallbackIndex, displayListId: displayId, fallback: 'visible-index', replies }};
+  }}
+  return {{ ok: false, err: 'display-id-not-found', displayListId: displayId, replies }};
+}}
+
+rpc.exports = {{
+  selectdialogdisplayid(displayId) {{
+    return selectDialogDisplayId(displayId);
+  }},
+}};
+
 function worldInfo() {{
   const out = {{}};
   try {{
@@ -2107,6 +2461,9 @@ let chapterStopSeen = false;
 let activeDialogueThis = ptr(0);
 let activeDialogueTarget = ptr(0);
 let activeDialogAnimType = ptr(0);
+let activeDialogSprite = ptr(0);
+let activeDialogEntry = ptr(0);
+let activeDialogReplies = [];
 const calcFxHooks = {{}};
 let originalDriver = {{
   connTicks: 0,
@@ -2949,6 +3306,7 @@ hook('CScreenChapter::ResetMainPanel', {{
 hook('CScreenChapter::TimerAsynchronousUpdate', {{
   onEnter(args) {{
     this.thiz = this.context.ecx;
+    activeChapter = this.thiz;
   }}
 }});
 
@@ -3120,6 +3478,7 @@ hook('CGameDialogSprite::EndDialog', {{
 
 hook('CGameDialogSprite::EnterDialog', {{
   onEnter(args) {{
+    activeDialogSprite = this.context.ecx;
     this.index = args[0].toUInt32();
     send({{ tag: 'Dialog.EnterDialog', this: this.context.ecx.toString(), index: this.index, sprite: args[1].toString(), flag: args[2].toInt32() }});
   }},
@@ -3132,11 +3491,15 @@ hook('CGameDialogEntry::Handle', {{
   onEnter(args) {{
     const thiz = this.context.ecx;
     const sprite = args[0];
+    const replies = readDialogReplies(thiz);
+    activeDialogEntry = thiz;
+    activeDialogReplies = replies;
     send({{
       tag: 'Dialog.Entry.Handle',
       this: thiz.toString(),
       text: thiz.add(0x14).readU32(),
       replyCount: thiz.add(0x08).readS32(),
+      replies,
       sprite: sprite.toString(),
       spriteInfo: spriteSpeechInfo(sprite),
       calcFxHook: hookCalculateFxRectForDialogSprite(sprite),
@@ -3654,13 +4017,13 @@ def main() -> int:
         if ns.auto_chapter:
             threading.Thread(
                 target=re_chapter_driver,
-                args=(pid, ns.timeout, state, state_lock, emit_driver),
+                args=(pid, ns.timeout, state, state_lock, emit_driver, script),
                 daemon=True,
             ).start()
     if ns.auto_dialog:
         threading.Thread(
             target=auto_intro_dialog_driver,
-            args=(pid, ns.mode, ns.timeout, state, state_lock, emit_driver, ns.revisit_hedron),
+            args=(pid, ns.mode, ns.timeout, state, state_lock, emit_driver, ns.revisit_hedron, script),
             daemon=True,
         ).start()
 
