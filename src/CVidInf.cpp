@@ -1649,6 +1649,74 @@ BOOL CVidInf::BKRenderLine(int nXFrom, int nYFrom, int nXTo, int nYTo, const CRe
     return FALSE;
 }
 
+// 0x79D680
+BOOL CVidInf::RenderConvexPoly(const CRect& rClip, CVidPoly* pPoly, DWORD dwColor, DWORD dwFlags, const CPoint& ptRef, BOOL bConvex)
+{
+    if (g_pChitin->cVideo.Is3dAccelerated()) {
+        CVideo3d::glEnable(GL_TEXTURE_2D);
+        g_pChitin->GetCurrentVideoMode()->CheckResults3d(0);
+
+        g_pChitin->cVideo.field_13E = 2;
+        CVideo3d::glBindTexture(GL_TEXTURE_2D, 2);
+        g_pChitin->GetCurrentVideoMode()->CheckResults3d(0);
+
+        CVideo3d::glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        g_pChitin->GetCurrentVideoMode()->CheckResults3d(0);
+
+        CVideo3d::glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        g_pChitin->GetCurrentVideoMode()->CheckResults3d(0);
+
+        CVideo3d::glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        g_pChitin->GetCurrentVideoMode()->CheckResults3d(0);
+
+        CVideo3d::glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        g_pChitin->GetCurrentVideoMode()->CheckResults3d(0);
+
+        CVideo3d::glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+        g_pChitin->GetCurrentVideoMode()->CheckResults3d(0);
+
+        LONG lPitch = g_pChitin->cVideo.field_13A != 0
+            ? (CVidTile::BYTES_PER_TEXEL << 9)
+            : ((m_rLockedRect.right - m_rLockedRect.left) * CVidTile::BYTES_PER_TEXEL);
+
+        if (bConvex) {
+            return pPoly->FillConvexPoly(reinterpret_cast<WORD*>(CVideo3d::texImageData),
+                lPitch,
+                rClip,
+                dwColor,
+                dwFlags,
+                ptRef);
+        }
+
+        return pPoly->FillPoly(reinterpret_cast<WORD*>(CVideo3d::texImageData),
+            lPitch,
+            rClip,
+            dwColor,
+            dwFlags,
+            ptRef);
+    }
+
+    if (m_SurfaceDesc.lpSurface == NULL) {
+        return FALSE;
+    }
+
+    if (bConvex) {
+        return pPoly->FillConvexPoly(reinterpret_cast<WORD*>(m_SurfaceDesc.lpSurface),
+            m_SurfaceDesc.lPitch,
+            rClip,
+            dwColor,
+            dwFlags,
+            ptRef);
+    }
+
+    return pPoly->FillPoly(reinterpret_cast<WORD*>(m_SurfaceDesc.lpSurface),
+        m_SurfaceDesc.lPitch,
+        rClip,
+        dwColor,
+        dwFlags,
+        ptRef);
+}
+
 // 0x79E2D0
 BOOL CVidInf::BKRenderConvexPoly(CVidPoly* pPoly, const CRect& rClipRect, DWORD dwColor, DWORD dwFlags, const CPoint& ptRef)
 {

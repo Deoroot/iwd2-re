@@ -1284,6 +1284,20 @@ void CVidMode::SetWindowedMode(HWND hWnd)
         SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSIZE);
 }
 
+// 0x79ADF0
+DWORD CVidMode::GetColor(COLORREF rgbColor)
+{
+    if (g_pChitin->cVideo.m_nBpp > 16) {
+        return (GetRValue(rgbColor) << m_dwRBitShift)
+            | (GetGValue(rgbColor) << m_dwGBitShift)
+            | (GetBValue(rgbColor) << m_dwBBitShift);
+    }
+
+    return (((GetGValue(rgbColor) >> field_C6) << m_dwGBitShift)
+        | ((GetBValue(rgbColor) >> field_CA) << m_dwBBitShift)
+        | ((GetRValue(rgbColor) >> field_C2) << m_dwRBitShift)) & 0xFFFF;
+}
+
 // 0x7BC100
 BOOL CVidMode::ActivateVideoMode(CVidMode* pPrevVidMode, HWND hWnd, BOOLEAN bFullscreen)
 {

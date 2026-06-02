@@ -150,6 +150,8 @@ public:
     /* 0114 */ virtual int GetPointerNumber();
     /* 0118 */ virtual DWORD ReduceColor(COLORREF rgbColor);
     /* 011C */ virtual ~CVidMode();
+
+    DWORD GetColor(COLORREF rgbColor);
     /* 0120 */ virtual BOOL CreateSurfaces3d();
     /* 0124 */ virtual BOOL DestroySurfaces3d(CVidMode* pNextVidMode);
     /* 0128 */ virtual GLuint GetTextureId();

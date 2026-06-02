@@ -11,6 +11,8 @@
 #include "CResRef.h"
 #include "CScreenWorld.h"
 #include "CUtil.h"
+#include "CVidInf.h"
+#include "CVidMode.h"
 #include "CVidPoly.h"
 
 // 0x8D3988
@@ -519,6 +521,190 @@ BOOL CGameContainer::IsOver(const CPoint& pt)
     }
 
     return TRUE;
+}
+
+// 0x47F580
+void CGameContainer::Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    SHORT nState = pGame->m_nState;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameContainer.cpp
+    // __LINE__: 1267
+    UTIL_ASSERT(pVidMode != NULL);
+
+    // pGame +0x3896: container/loot highlight-on-hover flag (not yet broken out
+    // in the CInfGame layout; read by offset to match IWD2.exe).
+    const BYTE bHighlightOnHover = *(reinterpret_cast<const BYTE*>(pGame) + 0x3896);
+
+    BOOL bDrewFill = FALSE;
+
+    if (m_containerType == 4) {
+        if (m_nPileVidCell != 0
+            && m_pArea->m_visibility.IsTileExplored(
+                   m_pArea->m_visibility.PointToTile(CPoint(m_pos.x, m_pos.y)))) {
+            CInfinity* pInfinity = m_pArea->GetInfinity();
+            DWORD dwFlags = CInfinity::FXPREP_CLEARFILL | 0x30001;
+
+            // The pile draws every item ground icon at the same spot, so build the
+            // union FX rectangle and the maximum reference point across all cells.
+            CRect rFXRect(0, 0, 0, 0);
+            CPoint ptReference(0, 0);
+            for (BYTE i = m_nPileVidCell; i > 0; i--) {
+                CPoint ptCenter;
+                m_pileVidCell[i - 1].GetCurrentCenterPoint(ptCenter, FALSE);
+
+                CSize frameSize;
+                m_pileVidCell[i - 1].GetCurrentFrameSize(frameSize, FALSE);
+
+                CRect rBounds(0, 0, frameSize.cx, frameSize.cy);
+
+                if (ptReference.x < ptCenter.x) {
+                    rFXRect.right += ptCenter.x - ptReference.x;
+                    ptReference.x = ptCenter.x;
+                }
+                if (rFXRect.right < rBounds.right) {
+                    rFXRect.right = rBounds.right;
+                }
+                if (ptReference.y < ptCenter.y) {
+                    rFXRect.bottom += ptCenter.y - ptReference.y;
+                    ptReference.y = ptCenter.y;
+                }
+                if (rFXRect.bottom < rBounds.bottom) {
+                    rFXRect.bottom = rBounds.bottom;
+                }
+            }
+
+            CPoint ptPos(m_pos.x, m_pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y);
+
+            CRect rFrame;
+            rFrame.left = m_pos.x - ptReference.x;
+            rFrame.top = (m_posZ - ptReference.y) + ptPos.y;
+            rFrame.right = (rFXRect.right - rFXRect.left) + rFrame.left;
+            rFrame.bottom = (rFrame.top - rFXRect.top) + rFXRect.bottom;
+
+            CRect rClip;
+            rClip.left = pInfinity->nCurrentX;
+            rClip.top = pInfinity->nCurrentY;
+            rClip.right = rClip.left + pInfinity->rViewPort.Width();
+            rClip.bottom = rClip.top + pInfinity->rViewPort.Height();
+
+            CRect rDirty;
+            if (rDirty.IntersectRect(rFrame, rClip)) {
+                COLORREF rgbTint = m_pArea->GetTintColor(CPoint(m_pos.x, m_posZ + ptPos.y), m_listType);
+
+                BOOLEAN bPicked = m_id == m_pArea->m_iPicked;
+                BOOLEAN bStoreBackground = FALSE;
+
+                if (!m_pArea->m_visibility.IsTileVisible(
+                        m_pArea->m_visibility.PointToTile(CPoint(m_pos.x, m_pos.y)))) {
+                    if (g_pChitin->cVideo.Is3dAccelerated()) {
+                        // Dim the icons by halving each colour channel on tiles that
+                        // are explored but not currently visible.
+                        rgbTint = ((rgbTint >> 0x10 & 0xfe) << 8 | rgbTint >> 8 & 0xfe) << 7
+                            | (rgbTint & 0xff) >> 1;
+                    } else {
+                        bStoreBackground = TRUE;
+                    }
+                }
+
+                pInfinity->FXPrep(rFXRect, dwFlags, nSurface, ptPos, ptReference);
+
+                if (pInfinity->FXLock(rFXRect, dwFlags)) {
+                    BOOLEAN bSkipClippingPolys = FALSE;
+
+                    for (BYTE i = m_nPileVidCell; i > 0; i--) {
+                        if (bPicked && bHighlightOnHover != 0 && nState == 0) {
+                            m_pileVidCell[i - 1].m_bShadowOn = TRUE;
+                        } else {
+                            m_pileVidCell[i - 1].m_bShadowOn = FALSE;
+                        }
+
+                        if (g_pBaldurChitin->pActiveEngine == g_pBaldurChitin->m_pEngineWorld
+                            && g_pBaldurChitin->m_pEngineWorld->GetMenuKey() == TRUE) {
+                            m_pileVidCell[i - 1].m_bShadowOn = TRUE;
+                            bSkipClippingPolys = TRUE;
+                        }
+
+                        m_pileVidCell[i - 1].SetTintColor(rgbTint);
+                        pInfinity->FXRender(&m_pileVidCell[i - 1], ptReference.x, ptReference.y, dwFlags, 0);
+                    }
+
+                    CRect rGCBounds;
+                    rGCBounds.left = rFrame.left;
+                    rGCBounds.top = rFrame.top - m_posZ;
+                    rGCBounds.right = rFrame.right;
+                    rGCBounds.bottom = rFrame.bottom - m_posZ;
+
+                    if (!bSkipClippingPolys) {
+                        pInfinity->FXRenderClippingPolys(ptPos.x, ptPos.y - m_posZ, m_posZ,
+                            ptReference, rGCBounds, bPicked, dwFlags);
+                    }
+
+                    if (bStoreBackground) {
+                        pInfinity->FXUnlock(dwFlags, &rFXRect,
+                            CPoint(ptReference.x + m_pos.x, ptPos.y + ptReference.y));
+                    } else {
+                        pInfinity->FXUnlock(dwFlags, NULL, CPoint(0, 0));
+                    }
+
+                    pInfinity->FXBltFrom(nSurface, rFXRect, ptPos.x, ptPos.y,
+                        ptReference.x, ptReference.y, dwFlags);
+                }
+            }
+        }
+
+        return;
+    }
+
+    // Non-pile container (chest, etc.): hover / Tab-highlight / trap outlines plus
+    // a timed script-flash outline. RenderClippedPoly fills the polygon interior
+    // (software mode only); OutlinePoly draws the border.
+    CInfinity* pInfinity = m_pArea->GetInfinity();
+    BOOL bDrawTrapOutline = FALSE;
+
+    if (m_id == m_pArea->m_iPicked
+        && m_pArea->m_visibility.IsTileExplored(m_pArea->m_visibility.PointToTile(CPoint(m_pos.x, m_pos.y)))) {
+        if (bHighlightOnHover != 0 && nState == 0) {
+            if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
+                RenderClippedPoly(pArea, pVidMode, nSurface,
+                    g_pChitin->GetCurrentVideoMode()->GetColor(RGB(0x20, 0x40, 0xA0)));
+                bDrewFill = TRUE;
+            }
+            pInfinity->OutlinePoly(m_pPolygon, m_nPolygon, m_rBounding, RGB(0x20, 0x40, 0xA0));
+        }
+
+        if (nState == 2) {
+            if (pGame->m_iconIndex == '$') {
+                if ((m_trapActivated != 0 && m_trapDetected != 0) || (m_dwFlags & 0x1) != 0) {
+                    bDrawTrapOutline = TRUE;
+                }
+            } else if (pGame->m_iconIndex == '\f' && (m_dwFlags & 0x1) != 0) {
+                bDrawTrapOutline = TRUE;
+            }
+        }
+    } else if (m_pArea->m_visibility.IsTileExplored(m_pArea->m_visibility.PointToTile(CPoint(m_pos.x, m_pos.y)))
+        && g_pBaldurChitin->pActiveEngine == g_pBaldurChitin->m_pEngineWorld
+        && g_pBaldurChitin->m_pEngineWorld->GetMenuKey() == TRUE) {
+        bDrawTrapOutline = TRUE;
+    }
+
+    if (bDrawTrapOutline) {
+        if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
+            RenderClippedPoly(pArea, pVidMode, nSurface,
+                g_pChitin->GetCurrentVideoMode()->GetColor(RGB(0x00, 0xFA, 0x00)));
+            bDrewFill = TRUE;
+        }
+        pInfinity->OutlinePoly(m_pPolygon, m_nPolygon, m_rBounding, RGB(0x00, 0xFA, 0x00));
+    }
+
+    if (m_drawPoly > 0) {
+        if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated() && !bDrewFill) {
+            RenderClippedPoly(pArea, pVidMode, nSurface,
+                g_pChitin->GetCurrentVideoMode()->GetColor(RGB(0xFF, 0x00, 0x00)));
+        }
+        pInfinity->OutlinePoly(m_pPolygon, m_nPolygon, m_rBounding, RGB(0xFF, 0x00, 0x00));
+    }
 }
 
 // 0x47FE10
@@ -1104,6 +1290,57 @@ void CGameContainer::OpenContainer(const CAIObjectType& user)
                 m_id,
                 m_id);
             g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        }
+    }
+}
+
+// 0x481A10
+void CGameContainer::RenderClippedPoly(CGameArea* pArea, CVidMode* pVidMode, INT nSurface, COLORREF color)
+{
+    CInfinity* pInfinity = pArea->GetInfinity();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameContainer.cpp
+    // __LINE__: 2691
+    UTIL_ASSERT(pInfinity != NULL && pVidMode != NULL);
+
+    CRect rViewport;
+    rViewport.left = pInfinity->nCurrentX;
+    rViewport.top = pInfinity->nCurrentY;
+    rViewport.right = rViewport.left + pInfinity->rViewPort.Width();
+    rViewport.bottom = rViewport.top + pInfinity->rViewPort.Height();
+
+    CPoint ptReference(0, 0);
+
+    CVidPoly poly;
+    poly.SetPoly(reinterpret_cast<WORD*>(m_pPolygonPoints), m_nPolygon);
+
+    for (int i = 0; i < m_boundingGrid.GetSize(); i++) {
+        CRect* pGridRect = m_boundingGrid[i];
+        if (pGridRect == NULL) {
+            continue;
+        }
+
+        CRect rClip;
+        rClip.IntersectRect(&rViewport, pGridRect);
+
+        if (rClip.left == 0 && rClip.right == 0 && rClip.top == 0 && rClip.bottom == 0) {
+            continue;
+        }
+
+        CPoint ptPos(rClip.left, rClip.top);
+
+        CRect rFXRect(rClip);
+        rFXRect.OffsetRect(-rClip.left, -rClip.top);
+
+        if (pInfinity->FXPrep(rFXRect, CInfinity::FXPREP_COPYFROMBACK, nSurface, ptPos, ptReference)) {
+            if (pInfinity->FXLock(rFXRect, 0)) {
+                static_cast<CVidInf*>(pVidMode)->RenderConvexPoly(rClip, &poly, color, CInfinity::MIRROR_FX, ptPos, FALSE);
+
+                CPoint ptZero(0, 0);
+                if (pInfinity->FXUnlock(0, NULL, ptZero)) {
+                    pInfinity->FXBltFrom(nSurface, rFXRect, ptPos.x, ptPos.y, ptReference.x, ptReference.y, 0);
+                }
+            }
         }
     }
 }
