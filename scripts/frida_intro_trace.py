@@ -228,6 +228,12 @@ RE_HOOKS = {
     "CMessageSaveGame::Run": 0x23D7C0,
     "CMessagePartyGold::Run": 0x22D5F0,
     "CVidInf::PrintSurfaceToBmp": 0x3CAF70,
+    "CScreenWorld::SaveScreen": 0x35D140,
+    "CUIManager::Render": 0x3B40D0,
+    "CUIManager::InvalidateRect": 0x3B4200,
+    "CUIManager::InvalidateCursorRect": 0x3B42B0,
+    "CUIPanel::Render": 0x3B5870,
+    "CUIPanel::InvalidateRect": 0x3B6600,
     "CScreenConnection::EngineActivated": 0x296D30,
     "CScreenConnection::StartConnection": 0x2A0990,
     "CScreenConnection::OnNewGameButtonClick": 0x29A4D0,
@@ -327,6 +333,12 @@ RE_MAP_SYMBOLS = {
     "CMessageSaveGame::Run": "?Run@CMessageSaveGame@@UAEXXZ",
     "CMessagePartyGold::Run": "?Run@CMessagePartyGold@@UAEXXZ",
     "CVidInf::PrintSurfaceToBmp": "?PrintSurfaceToBmp@CVidInf@@UAEEAAPAEHABVCRect@@AAJF@Z",
+    "CScreenWorld::SaveScreen": "?SaveScreen@CScreenWorld@@QAEXXZ",
+    "CUIManager::Render": "?Render@CUIManager@@QAEXXZ",
+    "CUIManager::InvalidateRect": "?InvalidateRect@CUIManager@@QAEXPBVCRect@@@Z",
+    "CUIManager::InvalidateCursorRect": "?InvalidateCursorRect@CUIManager@@QAEXABVCRect@@@Z",
+    "CUIPanel::Render": "?Render@CUIPanel@@QAEXXZ",
+    "CUIPanel::InvalidateRect": "?InvalidateRect@CUIPanel@@QAEXPBVCRect@@@Z",
     "CScreenConnection::EngineActivated": "?EngineActivated@CScreenConnection@@UAEXXZ",
     "CScreenConnection::StartConnection": "?StartConnection@CScreenConnection@@QAEXE@Z",
     "CScreenConnection::OnNewGameButtonClick": "?OnNewGameButtonClick@CScreenConnection@@QAEXXZ",
@@ -440,6 +452,12 @@ ORIG_HOOKS = {
     "CInfGame::SynchronousUpdate": 0x5BE900,
     "CMessagePartyGold::Run": 0x503150,
     "CVidInf::PrintSurfaceToBmp": 0x79EC20,
+    "CScreenWorld::SaveScreen": 0x690640,
+    "CUIManager::Render": 0x4D4540,
+    "CUIManager::InvalidateRect": 0x4D45E0,
+    "CUIManager::InvalidateCursorRect": 0x4D4620,
+    "CUIPanel::Render": 0x4D3100,
+    "CUIPanel::InvalidateRect": 0x4D3810,
     "CScreenWorld::UpdatePartyGoldStatus": 0x694AE0,
 }
 
@@ -2340,6 +2358,58 @@ function rectInfo(p) {{
   }}
 }}
 
+const PANEL = {{
+  id: 0x20,
+  origin: 0x24,
+  size: 0x34,
+  renderCount: 0xf2,
+  active: 0xf4,
+  dirty: 0xf8,
+}};
+
+function rectOverlapsBand(r) {{
+  if (!r || r.err) return false;
+  return r.right > 144 && r.left < 656 && r.bottom > 433 && r.top < 450;
+}}
+
+function panelInfo(panel) {{
+  const out = {{ ptr: panel.toString() }};
+  try {{
+    const x = panel.add(PANEL.origin).readS32();
+    const y = panel.add(PANEL.origin + 4).readS32();
+    const w = panel.add(PANEL.size).readS32();
+    const h = panel.add(PANEL.size + 4).readS32();
+    out.id = panel.add(PANEL.id).readU32();
+    out.origin = {{ x, y }};
+    out.size = {{ cx: w, cy: h }};
+    out.screen = {{ left: x, top: y, right: x + w, bottom: y + h }};
+    out.renderCount = panel.add(PANEL.renderCount).readS16();
+    out.active = panel.add(PANEL.active).readS32();
+    out.dirty = rectInfo(panel.add(PANEL.dirty));
+    out.bandPanel = rectOverlapsBand(out.screen);
+    const d = out.dirty;
+    out.dirtyScreen = {{
+      left: x + d.left,
+      top: y + d.top,
+      right: x + d.right,
+      bottom: y + d.bottom,
+    }};
+    out.bandDirty = rectOverlapsBand(out.dirtyScreen);
+    return out;
+  }} catch (e) {{
+    out.err = '' + e;
+    return out;
+  }}
+}}
+
+function rectArgInfo(p) {{
+  if (p.isNull()) return null;
+  return rectInfo(p);
+}}
+
+let uiTraceArmed = 0;
+let saveScreenDepth = 0;
+
 function pointInfo(p) {{
   try {{
     return {{ x: p.add(0x00).readS32(), y: p.add(0x04).readS32() }};
@@ -3667,18 +3737,123 @@ hook('CInfGame::SynchronousUpdate', {{
   }}
 }});
 
+hook('CScreenWorld::SaveScreen', {{
+  onEnter(args) {{
+    saveScreenDepth++;
+    uiTraceArmed = Math.max(uiTraceArmed, 600);
+    send({{ tag: 'CScreenWorld.SaveScreen', world: worldInfo(), depth: saveScreenDepth }});
+  }},
+  onLeave(rv) {{
+    send({{ tag: 'CScreenWorld.SaveScreen.ret', world: worldInfo(), depth: saveScreenDepth }});
+    saveScreenDepth = Math.max(0, saveScreenDepth - 1);
+    uiTraceArmed = Math.max(uiTraceArmed, 600);
+  }}
+}});
+
 hook('CVidInf::PrintSurfaceToBmp', {{
   onEnter(args) {{
     this.surface = args[1].toInt32();
     this.rect = rectInfo(args[2]);
     this.sizePtr = args[3];
     this.scale = args[4].toInt32();
-    send({{ tag: 'CVidInf.PrintSurfaceToBmp', surface: this.surface, rect: this.rect, scale: this.scale }});
+    let rstate = null;
+    if (this.surface === 0) {{
+      rstate = {{}};
+      try {{
+        let game = knownObjectGame;
+        rstate.gameKnown0 = isKnown(game) ? 1 : 0;
+        if (!isKnown(game) && isKnown(gBaldurChitinPtr)) {{
+          game = gBaldurChitinPtr.readPointer().add(CHITIN_ORIG.objectGame).readPointer();
+        }}
+        rstate.game = isKnown(game) ? game.toString() : '0x0';
+        if (isKnown(game)) {{
+          const idx = game.add(0x37e0).readU8();
+          rstate.vis = idx;
+          const area = game.add(0x37e2 + idx * 4).readPointer();
+          rstate.area = area.toString();
+          if (!area.isNull()) {{
+            const inf = area.add(0x4cc);
+            rstate.scrollX = inf.add(0x90).readS32();
+            rstate.scrollY = inf.add(0x94).readS32();
+            rstate.destX = inf.add(0x18e).readS32();
+            rstate.destY = inf.add(0x192).readS32();
+            rstate.globalLight = '0x' + (inf.add(0x1b2).readU32() >>> 0).toString(16);
+            rstate.dayNight = inf.add(0x15a).readU8();
+            rstate.dayIntensity = inf.add(0x15c).readU8();
+            const vid = inf.add(0x1c).readPointer();
+            if (!vid.isNull()) {{
+              rstate.fadeTo = vid.add(0x48).readU8();
+              rstate.nFade = vid.add(0x49).readU8();
+              rstate.brightness = vid.add(0xa8).readU8();
+              rstate.gamma = vid.add(0xa9).readU8();
+            }}
+          }}
+        }}
+      }} catch (e) {{ rstate.err = '' + e; }}
+    }}
+    send({{ tag: 'CVidInf.PrintSurfaceToBmp', surface: this.surface, rect: this.rect, scale: this.scale, rstate }});
   }},
   onLeave(rv) {{
     let size = -1;
     try {{ size = this.sizePtr.readS32(); }} catch (e) {{}}
     send({{ tag: 'CVidInf.PrintSurfaceToBmp.ret', surface: this.surface, rect: this.rect, scale: this.scale, ret: rv.toInt32(), size }});
+    if (this.surface === 0 && rectOverlapsBand(this.rect)) {{
+      uiTraceArmed = Math.max(uiTraceArmed, 600);
+    }}
+  }}
+}});
+
+hook('CUIManager::InvalidateRect', {{
+  onEnter(args) {{
+    const rect = rectArgInfo(args[0]);
+    if (uiTraceArmed > 0 && (rect === null || rectOverlapsBand(rect))) {{
+      send({{ tag: 'UI.Manager.InvalidateRect', rect, world: worldInfo() }});
+    }}
+  }}
+}});
+
+hook('CUIManager::InvalidateCursorRect', {{
+  onEnter(args) {{
+    const rect = rectInfo(args[0]);
+    if (uiTraceArmed > 0 && rectOverlapsBand(rect)) {{
+      send({{ tag: 'UI.Manager.InvalidateCursorRect', rect, world: worldInfo() }});
+    }}
+  }}
+}});
+
+hook('CUIPanel::InvalidateRect', {{
+  onEnter(args) {{
+    this.panel = this.context.ecx;
+    this.before = panelInfo(this.panel);
+    this.rect = rectArgInfo(args[0]);
+    this.trace = uiTraceArmed > 0
+      && this.before.bandPanel
+      && (this.rect === null || rectOverlapsBand(this.rect) || this.before.bandDirty);
+    if (this.trace) {{
+      send({{ tag: 'UI.Panel.InvalidateRect', panel: this.before, rect: this.rect, world: worldInfo() }});
+    }}
+  }},
+  onLeave(rv) {{
+    if (this.trace) {{
+      send({{ tag: 'UI.Panel.InvalidateRect.ret', panel: panelInfo(this.panel), rect: this.rect, world: worldInfo() }});
+    }}
+  }}
+}});
+
+hook('CUIPanel::Render', {{
+  onEnter(args) {{
+    this.panel = this.context.ecx;
+    this.before = panelInfo(this.panel);
+    this.trace = uiTraceArmed > 0
+      && this.before.bandPanel
+      && this.before.renderCount !== 0;
+  }},
+  onLeave(rv) {{
+    if (this.trace) {{
+      const after = panelInfo(this.panel);
+      send({{ tag: 'UI.Panel.Render.band', before: this.before, after, world: worldInfo() }});
+      uiTraceArmed = Math.max(0, uiTraceArmed - 1);
+    }}
   }}
 }});
 
