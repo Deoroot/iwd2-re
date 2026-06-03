@@ -3852,10 +3852,55 @@ BOOL CScreenInventory::SwapWithSlot(INT nButtonId, BOOL bShowError, WORD wCount,
     case 0x6A:
     case 0x6B:
     case 0x6C:
-        // TODO: Incomplete. Equipment / quick-weapon slot swap: needs
-        // CInfGame::SwapItemPersonal (0x5B81C0) plus the quick-weapon
-        // ability-list copy and weapon-set bookkeeping.
+    {
+        INT nInventoryId = MapButtonIdToInventoryId(nButtonId);
+        if (!pGame->SwapItemPersonal(static_cast<SHORT>(m_nSelectedCharacter),
+                static_cast<SHORT>(nInventoryId),
+                m_pTempItem,
+                errorCode,
+                wCount,
+                FALSE)) {
+            break;
+        }
+
+        // Re-acquire the sprite to broadcast the equipment change and refresh
+        // the action bar when this is the on-screen character.
+        // TODO: Incomplete. The original additionally rebuilds the quick-weapon
+        // / quick-item action-bar button data from the equipped item's usage
+        // list (0x62F360 jumptable: GetItemUsages + per-button CButtonData copy
+        // into m_quickWeapons / m_quickItems + field_3D3A ammo association +
+        // SelectWeaponAbility). The equip itself -- effect apply, weapon-set
+        // switch and attack recompute -- is handled inside SwapItemPersonal.
+        LONG nCharacterId = pGame->GetCharacterId(static_cast<SHORT>(m_nSelectedCharacter));
+
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetDeny(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            CMessage* message = new CMessageSpriteEquipment(pSprite, pSprite->GetId(), pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
+                == pGame->GetCharacterPortraitNum(pSprite->GetId())) {
+                pGame->GetButtonArray()->UpdateState();
+            }
+
+            pGame->GetObjectArray()->ReleaseDeny(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            bResult = TRUE;
+            bEquipped = TRUE;
+        }
+
         break;
+    }
     case 0x44:
     case 0x45:
     case 0x46:
