@@ -5383,6 +5383,153 @@ LONG CInfGame::GetGroundPile(LONG iSprite)
     return iGroundPile;
 }
 
+// 0x5B7850
+BOOL CInfGame::SwapItemGround(LONG nContainerId, SHORT nSlotNum, CItem*& pItem, STRREF& errorCode, WORD wCount, BOOLEAN bFromServer)
+{
+    CGameContainer* pContainer;
+
+    if (m_cObjectArray.GetDeny(nContainerId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pContainer),
+            INFINITE) != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    // Not controlling this container in a multiplayer session: forward to the
+    // server and return its result.
+    if (!pContainer->InControl()
+        && g_pChitin->cNetwork.GetSessionOpen() == TRUE
+        && bFromServer == FALSE) {
+        BOOLEAN bForwarded = g_pBaldurChitin->GetBaldurMessage()->SwapItemRequest(
+            0x47, // 0x0084CF5B
+            nContainerId,
+            nSlotNum,
+            pItem,
+            errorCode,
+            wCount);
+
+        m_cObjectArray.ReleaseDeny(nContainerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return bForwarded;
+    }
+
+    CItem* pExisting = pContainer->GetItem(nSlotNum);
+
+    if (pExisting != NULL) {
+        if (pItem == NULL
+            && pExisting->GetMaxStackable() > 1
+            && wCount < pExisting->GetUsageCount(0)) {
+            // Take part of the container's stack into the hand.
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+            // __LINE__: 12276
+            UTIL_ASSERT(wCount != 0);
+
+            pExisting->SetUsageCount(0, pExisting->GetUsageCount(0) - wCount);
+
+            pItem = new CItem(pExisting->GetResRef(), 0, 0, 0, 0, 0);
+            pItem->SetUsageCount(0, wCount);
+            pItem->m_flags = ((pExisting->m_flags ^ pItem->m_flags) & 1) ^ pItem->m_flags;
+
+            goto done;
+        }
+
+        if (pItem != NULL) {
+            if (pExisting->GetMaxStackable() > 1
+                && pItem->GetResRef() == pExisting->GetResRef()
+                && ((pItem->m_flags ^ pExisting->m_flags) & 1) == 0) {
+                // Merge the held stack into the container's matching stack.
+                // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+                // __LINE__: 12286
+                UTIL_ASSERT(wCount != 0);
+
+                WORD nRoom = pExisting->GetMaxStackable() - pExisting->GetUsageCount(0);
+                WORD nTransfer = (pItem->GetUsageCount(0) < nRoom) ? pItem->GetUsageCount(0) : nRoom;
+                if (wCount < nTransfer) {
+                    nTransfer = wCount;
+                }
+
+                pExisting->SetUsageCount(0, pExisting->GetUsageCount(0) + nTransfer);
+
+                if (pItem->GetUsageCount(0) == nTransfer) {
+                    // NOTE: Uninline.
+                    AddDisposableItem(pItem);
+                    pItem = NULL;
+                } else {
+                    pItem->SetUsageCount(0, pItem->GetUsageCount(0) - nTransfer);
+                }
+
+                goto done;
+            }
+
+            // Swap the held item with the container's contents.
+            goto placeHeld;
+        }
+
+        // Take the whole stack.
+        goto clearSlot;
+    }
+
+placeHeld:
+    if (pItem == NULL) {
+        goto clearSlot;
+    }
+
+    // Dropping gold (MISC07) onto a slot that holds gold folds it into the
+    // party purse and empties the slot.
+    if (pExisting != NULL && pExisting->GetResRef() == "MISC07") {
+        AddPartyGold(pExisting->GetUsageCount(0));
+
+        // NOTE: Uninline.
+        AddDisposableItem(pExisting);
+
+        pContainer->SetItem(nSlotNum, NULL);
+
+        CMessage* message = new CMessageContainerAddItem(CItem(),
+            nSlotNum,
+            FALSE,
+            pContainer->m_id,
+            pContainer->m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+        goto done;
+    }
+
+    {
+        CMessage* message = new CMessageContainerAddItem(*pItem,
+            nSlotNum,
+            FALSE,
+            pContainer->m_id,
+            pContainer->m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    if (pItem != NULL) {
+        // NOTE: Uninline.
+        AddDisposableItem(pItem);
+    }
+
+    pItem = pExisting;
+    goto done;
+
+clearSlot:
+    pContainer->SetItem(nSlotNum, NULL);
+
+    {
+        CMessage* message = new CMessageContainerAddItem(CItem(),
+            nSlotNum,
+            FALSE,
+            pContainer->m_id,
+            pContainer->m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    pItem = pExisting;
+
+done:
+    m_cObjectArray.ReleaseDeny(nContainerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    errorCode = -1;
+    return TRUE;
+}
+
 // 0x5B7FF0
 SHORT CInfGame::GetNumGroundSlots(LONG nContainerId)
 {
