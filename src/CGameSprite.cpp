@@ -18267,6 +18267,9 @@ void DeleteButtonList(CGameButtonList* pButtons)
     delete pButtons;
 }
 
+} // namespace
+
+// Has external linkage: also called from CInfGame::SwapItemPersonal.
 void RefreshWeaponSetButtons(CGameSprite* pSprite)
 {
     for (BYTE nWeaponSet = 0; nWeaponSet < 4; nWeaponSet++) {
@@ -18344,8 +18347,6 @@ void RefreshWeaponSetButtons(CGameSprite* pSprite)
 
     CMessage* pMessage = new CMessageSpriteEquipment(pSprite, pSprite->m_id, pSprite->m_id);
     g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
-}
-
 }
 
 // 0x726810
