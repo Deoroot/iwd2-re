@@ -6452,18 +6452,19 @@ BOOL CInfGame::SwapItemPersonal(SHORT nPortraitNum, SHORT nSlotNum, CItem*& pIte
                     pExisting->Release();
                 }
             } else {
-                pExisting->Demand();
-                ITEM_ABILITY* pAbility = pExisting->GetAbility(pEquip->m_selectedWeaponAbility);
+                CItem* pSelectedWeapon = pEquip->m_items[pEquip->m_selectedWeapon];
+                pSelectedWeapon->Demand();
+                ITEM_ABILITY* pAbility = pSelectedWeapon->GetAbility(pEquip->m_selectedWeaponAbility);
                 SHORT nLauncherSlot;
                 CItem* pLauncher = (pAbility != NULL) ? pSprite->GetLauncher(pAbility, nLauncherSlot) : NULL;
                 if (pLauncher != NULL && pLauncher == pEquip->m_items[nSlotNum]) {
-                    pExisting->Unequip(pSprite, nSlotNum, TRUE, FALSE);
+                    pEquip->m_items[nSlotNum]->Unequip(pSprite, nSlotNum, TRUE, FALSE);
                     pEquip->m_items[nSlotNum] = NULL;
-                    pExisting->Unequip(pSprite, pEquip->m_selectedWeapon, TRUE, FALSE);
+                    pSelectedWeapon->Unequip(pSprite, pEquip->m_selectedWeapon, TRUE, FALSE);
                     pEquip->m_selectedWeapon = CGameSpriteEquipment::SLOT_FIST;
                     pEquip->m_selectedWeaponAbility = 0;
                 }
-                pExisting->Release();
+                pSelectedWeapon->Release();
             }
 
             if (bGenericEquip) {
