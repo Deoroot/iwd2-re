@@ -5363,7 +5363,7 @@ LONG CInfGame::GetGroundPile(LONG iSprite)
 
     CPoint ptSprite = pSprite->GetPos();
     LONG iGroundPile = pSprite->GetArea()->GetGroundPile(ptSprite);
-    if (iGroundPile != CGameObjectArray::INVALID_INDEX) {
+    if (iGroundPile == CGameObjectArray::INVALID_INDEX) {
         ptSprite.x += CPathSearch::GRID_SQUARE_SIZEX / 2
             - ptSprite.x % CPathSearch::GRID_SQUARE_SIZEX;
         ptSprite.y += CPathSearch::GRID_SQUARE_SIZEY / 2

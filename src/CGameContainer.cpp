@@ -1107,6 +1107,7 @@ void CGameContainer::MarshalMessage(BYTE** pData, DWORD* dwSize)
     }
 
     pItems = NULL;
+    nItems = 0;
     if (m_lstItems.GetCount() > 0) {
         nItems = 0;
         pos = m_lstItems.GetHeadPosition();
