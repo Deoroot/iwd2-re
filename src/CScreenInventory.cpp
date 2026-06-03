@@ -3861,10 +3861,59 @@ BOOL CScreenInventory::SwapWithSlot(INT nButtonId, BOOL bShowError, WORD wCount,
     case 0x46:
     case 0x47:
     case 0x48:
-    case 0x51:
-        // TODO: Incomplete. Ground / container slot swap: needs
-        // CInfGame::SwapItemGround (0x5B7850) plus the container item message.
+    case 0x51: {
+        // Ground / container slot.
+        LONG nContainerId = FetchGroundPile(static_cast<SHORT>(m_nSelectedCharacter), FALSE);
+        if (nContainerId != CGameObjectArray::INVALID_INDEX) {
+            CItem* pPad = NULL;
+            INT nTargetSlot = m_nTopGroundItem + (nButtonId - 0x44);
+            INT nNumSlots = pGame->GetNumGroundSlots(nContainerId);
+            while (static_cast<SHORT>(nNumSlots) < static_cast<SHORT>(nTargetSlot)) {
+                pGame->SwapItemGround(nContainerId, static_cast<SHORT>(nNumSlots), pPad, errorCode, 0xFFFF, FALSE);
+                nNumSlots++;
+            }
+
+            CUIPanel* pPanel = m_cUIManager.GetPanel(2);
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+            // __LINE__: 7708
+            UTIL_ASSERT(pPanel != NULL);
+
+            if (pGame->SwapItemGround(nContainerId, static_cast<SHORT>(nTargetSlot), m_pTempItem, errorCode, wCount, FALSE)) {
+                UpdateCursorShape();
+
+                CUIControlBase* pControl = pPanel->GetControl(nButtonId);
+
+                // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+                // __LINE__: 7713
+                UTIL_ASSERT(pControl != NULL);
+
+                pControl->InvalidateRect();
+                bResult = TRUE;
+            }
+
+            CMessage* message = new CMessageContainerAddItem(CItem(),
+                SHORT_MAX,
+                TRUE,
+                nContainerId,
+                nContainerId);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            CUIControlBase* pScrollBar = pPanel->GetControl(0x42);
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+            // __LINE__: 7724
+            UTIL_ASSERT(pScrollBar != NULL);
+
+            static_cast<CUIControlScrollBarInventoryGround*>(pScrollBar)->UpdateScrollBar();
+
+            for (INT nGroundButton = 0x44; nGroundButton < 0x52; nGroundButton++) {
+                pPanel->GetControl(nGroundButton)->InvalidateRect();
+            }
+        }
+
         break;
+    }
     default:
         // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
         // __LINE__: 8064
