@@ -6755,6 +6755,36 @@ releaseAndReturn:
     return bResult;
 }
 
+// 0x5BE840
+SHORT CInfGame::FindFirstFreeInventorySlot(SHORT nPortrait)
+{
+    // NOTE: Uninline.
+    LONG nCharacterId = GetCharacterId(nPortrait);
+
+    CGameSprite* pSprite;
+
+    BYTE rc;
+    do {
+        rc = m_cObjectArray.GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        for (SHORT nSlot = 0; nSlot < CScreenInventory::PERSONAL_INVENTORY_SIZE; nSlot++) {
+            if (pSprite->GetEquipment()->m_items[18 + nSlot] == NULL) {
+                m_cObjectArray.ReleaseShare(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                return nSlot + 18;
+            }
+        }
+
+        m_cObjectArray.ReleaseShare(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    return -1;
+}
+
 // 0x5C7B10
 WORD CInfGame::SwapItemBag(const CResRef& bagResRef, CItem* pItem, STRREF& errorCode)
 {

@@ -4015,9 +4015,110 @@ BOOL CScreenInventory::SwapWithSlot(INT nButtonId, BOOL bShowError, WORD wCount,
 // 0x6305B0
 BOOL CScreenInventory::SwapWithPortrait(INT nButtonId, BOOL bShowError)
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
-    return FALSE;
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 8166
+    UTIL_ASSERT(pGame != NULL);
+
+    SHORT nPortrait = static_cast<SHORT>(nButtonId);
+
+    BOOL bResult = FALSE;
+    STRREF errorCode = -1;
+
+    SHORT nSlot;
+    BOOL bAllowed;
+    INT nButton = 0;
+
+    if (nPortrait == field_510) {
+        // Dropping back onto the character the item was picked up from: place it
+        // in a specific free backpack slot so that slot's button can be redrawn.
+        nSlot = pGame->FindFirstFreeInventorySlot(nPortrait);
+        if (nSlot == -1) {
+            bAllowed = FALSE;
+            errorCode = 0x464F;
+        } else {
+            bAllowed = TRUE;
+            nButton = MapInventoryIdToButtonId(nSlot);
+
+            // NOTE: Uninline.
+            LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                bAllowed = FALSE;
+                errorCode = 0x4652;
+            } else {
+                DWORD nState = pSprite->m_derivedStats.m_generalState;
+
+                pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+
+                if ((nState & STATE_DEAD) != 0) {
+                    bAllowed = FALSE;
+                    errorCode = 0x4652;
+                }
+            }
+        }
+    } else {
+        // Giving the item to a different party member: drop into their first free
+        // slot (0x7FFF) provided they are in range.
+        bAllowed = IsCharacterInRange(nPortrait);
+        errorCode = 0x4652;
+        nSlot = 0x7FFF;
+    }
+
+    CItem* pOldItem = m_pTempItem;
+
+    if (bAllowed
+        && pGame->SwapItemPersonalInventory(nPortrait, m_pTempItem, nSlot, errorCode, 0xFFFF, FALSE, TRUE)) {
+        UpdateCursorShape();
+        bResult = TRUE;
+
+        if (nPortrait == field_510) {
+            CUIPanel* pPanel = m_cUIManager.GetPanel(2);
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+            // __LINE__: 8241
+            UTIL_ASSERT(pPanel != NULL);
+
+            pPanel->InvalidateRect(NULL);
+
+            CUIControlBase* pControl = pPanel->GetControl(nButton);
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+            // __LINE__: 8244
+            UTIL_ASSERT(pControl != NULL);
+
+            pControl->InvalidateRect();
+        }
+    }
+
+    if (bShowError) {
+        if (!bResult) {
+            SetErrorString(errorCode, 0xFFFFFF);
+            return FALSE;
+        }
+
+        SetErrorString(-1, 0xFFFFFF);
+        PlaySwapSound(pOldItem, m_pTempItem);
+    }
+
+    if (bResult) {
+        field_510 = -1;
+        field_514 = -1;
+    }
+
+    return bResult;
 }
 
 // 0x6312D0
