@@ -3853,6 +3853,38 @@ BOOL CScreenInventory::SwapWithSlot(INT nButtonId, BOOL bShowError, WORD wCount,
     case 0x6B:
     case 0x6C:
     {
+        CButtonData cButtonData;
+        CButtonData cDefaultButton;
+
+        // For a quiver button (0xF-0x11), remember which weapon-set button the
+        // ammo's launcher occupies *before* the swap, so it can be cleared if
+        // the launcher association changes.
+        SHORT nPreLauncherButton = -1;
+        if (nButtonId > 0xE && nButtonId < 0x12) {
+            INT nAmmoSlot = MapButtonIdToInventoryId(nButtonId);
+            LONG nAmmoCharId = pGame->GetCharacterId(static_cast<SHORT>(m_nSelectedCharacter));
+
+            CGameSprite* pAmmoSprite;
+            BYTE rcAmmo;
+            do {
+                rcAmmo = pGame->GetObjectArray()->GetShare(nAmmoCharId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pAmmoSprite),
+                    INFINITE);
+            } while (rcAmmo == CGameObjectArray::SHARED || rcAmmo == CGameObjectArray::DENIED);
+
+            if (rcAmmo == CGameObjectArray::SUCCESS) {
+                nPreLauncherButton = pAmmoSprite->GetLauncherSlot(static_cast<SHORT>(nAmmoSlot), 0);
+                if (nPreLauncherButton != -1) {
+                    nPreLauncherButton -= CGameSpriteEquipment::SLOT_WEAPON;
+                }
+
+                pGame->GetObjectArray()->ReleaseShare(nAmmoCharId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+
         INT nInventoryId = MapButtonIdToInventoryId(nButtonId);
         if (!pGame->SwapItemPersonal(static_cast<SHORT>(m_nSelectedCharacter),
                 static_cast<SHORT>(nInventoryId),
@@ -3863,14 +3895,22 @@ BOOL CScreenInventory::SwapWithSlot(INT nButtonId, BOOL bShowError, WORD wCount,
             break;
         }
 
-        // Re-acquire the sprite to broadcast the equipment change and refresh
-        // the action bar when this is the on-screen character.
-        // TODO: Incomplete. The original additionally rebuilds the quick-weapon
-        // / quick-item action-bar button data from the equipped item's usage
-        // list (0x62F360 jumptable: GetItemUsages + per-button CButtonData copy
-        // into m_quickWeapons / m_quickItems + field_3D3A ammo association +
-        // SelectWeaponAbility). The equip itself -- effect apply, weapon-set
-        // switch and attack recompute -- is handled inside SwapItemPersonal.
+        CItem* pSlotItem = NULL;
+        STRREF nSlotDesc;
+        CResRef cSlotIcon;
+        CResRef cSlotItem;
+        WORD nSlotCount;
+        pGame->InventoryInfoPersonal(static_cast<SHORT>(m_nSelectedCharacter),
+            static_cast<SHORT>(nInventoryId),
+            pSlotItem,
+            nSlotDesc,
+            cSlotIcon,
+            cSlotItem,
+            nSlotCount,
+            TRUE);
+        BOOL bNewSlotHasItem = (pSlotItem != NULL);
+        BOOL bHadItem = (pOldItem != NULL);
+
         LONG nCharacterId = pGame->GetCharacterId(static_cast<SHORT>(m_nSelectedCharacter));
 
         CGameSprite* pSprite;
@@ -3882,22 +3922,143 @@ BOOL CScreenInventory::SwapWithSlot(INT nButtonId, BOOL bShowError, WORD wCount,
                 INFINITE);
         } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
-        if (rc == CGameObjectArray::SUCCESS) {
-            CMessage* message = new CMessageSpriteEquipment(pSprite, pSprite->GetId(), pSprite->GetId());
-            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        if (rc != CGameObjectArray::SUCCESS) {
+            break;
+        }
+
+        // Rebuild the affected action-bar quick-slot button(s) from the newly
+        // equipped item's usage list. The button group decides which slot array
+        // is refreshed; ammo quiver buttons (0xB-0xE, 0x15-0x19) need none.
+        if (nButtonId >= 5 && nButtonId <= 7) {
+            // Quick-item button.
+            BYTE nButton = static_cast<BYTE>(nButtonId - 5);
+            if (bHadItem || bNewSlotHasItem) {
+                CGameButtonList* pList = pSprite->GetItemUsages(static_cast<SHORT>(nInventoryId), 3, 0);
+
+                // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+                // __LINE__: 8023
+                UTIL_ASSERT(pList->GetCount() <= 1);
+
+                if (!pList->IsEmpty()) {
+                    cButtonData = *pList->GetHead();
+                    pSprite->SetQuickItem(nButton, cButtonData);
+                }
+
+                POSITION pos = pList->GetHeadPosition();
+                while (pos != NULL) {
+                    delete pList->GetNext(pos);
+                }
+                pList->RemoveAll();
+                delete pList;
+            } else {
+                pSprite->SetQuickItem(nButton, cDefaultButton);
+            }
+        } else if (nButtonId >= 0xF && nButtonId <= 0x11) {
+            // Weapon button: associate the ammo with its launcher's weapon set.
+            SHORT nLauncherButton = pSprite->GetLauncherSlot(static_cast<SHORT>(nInventoryId), 0);
+            if (nLauncherButton != -1) {
+                nLauncherButton -= CGameSpriteEquipment::SLOT_WEAPON;
+            }
+
+            if (bHadItem || bNewSlotHasItem) {
+                CGameButtonList* pList = pSprite->GetItemUsages(static_cast<SHORT>(nInventoryId), 1, 0);
+
+                // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+                // __LINE__: 7877
+                UTIL_ASSERT(pList->GetCount() <= 1);
+
+                if (!pList->IsEmpty() && nLauncherButton != -1) {
+                    cButtonData = *pList->GetHead();
+                    pSprite->SetQuickWeapon(static_cast<BYTE>(nLauncherButton), cButtonData);
+                    pSprite->SetQuickWeapon(static_cast<BYTE>(nLauncherButton), static_cast<BYTE>(nInventoryId));
+                }
+
+                POSITION pos = pList->GetHeadPosition();
+                while (pos != NULL) {
+                    delete pList->GetNext(pos);
+                }
+                pList->RemoveAll();
+                delete pList;
+
+                if (nLauncherButton == -1 || pSprite->m_nWeaponSet != nLauncherButton / 2) {
+                    if (nPreLauncherButton != -1) {
+                        pSprite->SetQuickWeapon(static_cast<BYTE>(nPreLauncherButton), cDefaultButton);
+                        pSprite->SetQuickWeapon(static_cast<BYTE>(nPreLauncherButton), static_cast<BYTE>(0));
+                    }
+                } else {
+                    pSprite->SelectWeaponAbility(static_cast<BYTE>(nInventoryId), 0, TRUE, TRUE);
+                }
+
+                pSprite->SetWeaponSet(pSprite->m_nWeaponSet);
+            } else {
+                if (nLauncherButton != -1) {
+                    pSprite->SetQuickWeapon(static_cast<BYTE>(nLauncherButton), cDefaultButton);
+                    pSprite->SetQuickWeapon(static_cast<BYTE>(nLauncherButton), static_cast<BYTE>(0));
+                }
+                if (nPreLauncherButton != -1) {
+                    pSprite->SetQuickWeapon(static_cast<BYTE>(nPreLauncherButton), cDefaultButton);
+                    pSprite->SetQuickWeapon(static_cast<BYTE>(nPreLauncherButton), static_cast<BYTE>(0));
+                }
+                if (static_cast<SHORT>(nInventoryId) == pSprite->GetEquipment()->m_selectedWeapon
+                    || pSprite->GetEquipment()->m_selectedWeapon == CGameSpriteEquipment::SLOT_FIST) {
+                    pSprite->SetWeaponSet(pSprite->m_nWeaponSet);
+                }
+            }
 
             if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
                 == pGame->GetCharacterPortraitNum(pSprite->GetId())) {
                 pGame->GetButtonArray()->UpdateState();
             }
+        } else if (nButtonId >= 0x65 && nButtonId <= 0x6C) {
+            // Quick-weapon button.
+            BYTE nButton = static_cast<BYTE>(nButtonId - 0x65);
+            if (bHadItem || bNewSlotHasItem) {
+                CGameButtonList* pList = pSprite->GetItemUsages(static_cast<SHORT>(nInventoryId), 1, 0);
+                if (!pList->IsEmpty()) {
+                    cButtonData = *pList->GetHead();
+                    pSprite->SetQuickWeapon(nButton, cButtonData);
 
-            pGame->GetObjectArray()->ReleaseDeny(nCharacterId,
-                CGameObjectArray::THREAD_ASYNCH,
-                INFINITE);
+                    SHORT nAmmoType = cButtonData.m_abilityId.m_itemNum;
+                    if (nAmmoType < 0xB || nAmmoType > 0xE) {
+                        pSprite->SetQuickWeapon(nButton, static_cast<BYTE>(0));
+                    } else {
+                        pSprite->SetQuickWeapon(nButton, static_cast<BYTE>(nAmmoType));
+                    }
+                }
 
-            bResult = TRUE;
-            bEquipped = TRUE;
+                POSITION pos = pList->GetHeadPosition();
+                while (pos != NULL) {
+                    delete pList->GetNext(pos);
+                }
+                pList->RemoveAll();
+                delete pList;
+            } else {
+                pSprite->SetQuickWeapon(nButton, cDefaultButton);
+                pSprite->SetQuickWeapon(nButton, static_cast<BYTE>(0));
+            }
+
+            pSprite->SetWeaponSet(pSprite->m_nWeaponSet);
+
+            if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
+                == pGame->GetCharacterPortraitNum(pSprite->GetId())) {
+                pGame->GetButtonArray()->UpdateState();
+            }
         }
+
+        CMessage* message = new CMessageSpriteEquipment(pSprite, pSprite->GetId(), pSprite->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+        if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
+            == pGame->GetCharacterPortraitNum(pSprite->GetId())) {
+            pGame->GetButtonArray()->UpdateState();
+        }
+
+        pGame->GetObjectArray()->ReleaseDeny(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        bResult = TRUE;
+        bEquipped = TRUE;
 
         break;
     }
