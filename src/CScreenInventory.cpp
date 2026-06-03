@@ -3746,9 +3746,176 @@ void CScreenInventory::EndSwap()
 // 0x62F360
 BOOL CScreenInventory::SwapWithSlot(INT nButtonId, BOOL bShowError, WORD wCount, BOOL bAutoStacking)
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
-    return FALSE;
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 8646
+    UTIL_ASSERT(pGame != NULL);
+
+    if (nButtonId > 100
+        && nButtonId < 0x6D
+        && pGame->GetNumQuickWeaponSlots(static_cast<SHORT>(m_nSelectedCharacter)) <= nButtonId - 0x65) {
+        return FALSE;
+    }
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 7662
+    UTIL_ASSERT(pGame != NULL);
+
+    if (!IsCharacterInRange(m_nSelectedCharacter)) {
+        if (bShowError) {
+            SetErrorString(0x4652, 0xFFFFFF);
+        }
+
+        return FALSE;
+    }
+
+    CItem* pOldItem = m_pTempItem;
+    STRREF errorCode = -1;
+    BOOL bResult = FALSE;
+    BOOL bEquipped = FALSE;
+
+    switch (nButtonId) {
+    case 0x1E:
+    case 0x1F:
+    case 0x20:
+    case 0x21:
+    case 0x22:
+    case 0x23:
+    case 0x24:
+    case 0x25:
+    case 0x26:
+    case 0x27:
+    case 0x28:
+    case 0x29:
+    case 0x2A:
+    case 0x2B:
+    case 0x2C:
+    case 0x2D:
+    case 0x49:
+    case 0x4A:
+    case 0x4B:
+    case 0x4C:
+    case 0x4D:
+    case 0x4E:
+    case 0x4F:
+    case 0x50: {
+        // Backpack slot.
+        INT nInventoryId = MapButtonIdToInventoryId(nButtonId);
+        if (pGame->SwapItemPersonalInventory(static_cast<SHORT>(m_nSelectedCharacter),
+                m_pTempItem,
+                static_cast<SHORT>(nInventoryId),
+                errorCode,
+                wCount,
+                FALSE,
+                bAutoStacking)) {
+            UpdateCursorShape();
+
+            CUIPanel* pPanel = m_cUIManager.GetPanel(2);
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+            // __LINE__: 7759
+            UTIL_ASSERT(pPanel != NULL);
+
+            CUIControlBase* pControl = pPanel->GetControl(nButtonId);
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+            // __LINE__: 7761
+            UTIL_ASSERT(pControl != NULL);
+
+            pControl->InvalidateRect();
+            bResult = TRUE;
+        }
+
+        break;
+    }
+    case 5:
+    case 6:
+    case 7:
+    case 0xB:
+    case 0xC:
+    case 0xD:
+    case 0xE:
+    case 0xF:
+    case 0x10:
+    case 0x11:
+    case 0x15:
+    case 0x16:
+    case 0x17:
+    case 0x18:
+    case 0x19:
+    case 0x65:
+    case 0x66:
+    case 0x67:
+    case 0x68:
+    case 0x69:
+    case 0x6A:
+    case 0x6B:
+    case 0x6C:
+        // TODO: Incomplete. Equipment / quick-weapon slot swap: needs
+        // CInfGame::SwapItemPersonal (0x5B81C0) plus the quick-weapon
+        // ability-list copy and weapon-set bookkeeping.
+        break;
+    case 0x44:
+    case 0x45:
+    case 0x46:
+    case 0x47:
+    case 0x48:
+    case 0x51:
+        // TODO: Incomplete. Ground / container slot swap: needs
+        // CInfGame::SwapItemGround (0x5B7850) plus the container item message.
+        break;
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+        // __LINE__: 8064
+        UTIL_ASSERT(FALSE);
+        break;
+    }
+
+    UpdateMainPanel(FALSE);
+    UpdateCursorShape();
+
+    CUIPanel* pPanel = m_cUIManager.GetPanel(2);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 8072
+    UTIL_ASSERT(pPanel != NULL);
+
+    CUIControlBase* pControl = pPanel->GetControl(nButtonId);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 8074
+    UTIL_ASSERT(pControl != NULL);
+
+    pControl->InvalidateRect();
+
+    if (!bResult) {
+        if (bShowError) {
+            SetErrorString(errorCode, 0xFFFFFF);
+        }
+    } else if (bShowError) {
+        SetErrorString(bEquipped ? errorCode : -1, 0xFFFFFF);
+        PlaySwapSound(pOldItem, m_pTempItem);
+    }
+
+    // Dropping gold (MISC07) onto a slot folds it straight into the party purse.
+    if (m_pTempItem != NULL && m_pTempItem->GetResRef() == "MISC07") {
+        pGame->AddPartyGold(m_pTempItem->GetUsageCount(0));
+        pGame->AddDisposableItem(m_pTempItem);
+        m_pTempItem = NULL;
+    }
+
+    if (bResult) {
+        if (m_pTempItem == NULL) {
+            field_510 = -1;
+            field_514 = -1;
+        } else {
+            field_510 = m_nSelectedCharacter;
+            field_514 = nButtonId;
+        }
+    }
+
+    return bResult;
 }
 
 // 0x6305B0
