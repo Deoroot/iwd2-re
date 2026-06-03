@@ -5820,7 +5820,13 @@ releaseAndReturn:
 // 0x5C7B10
 WORD CInfGame::SwapItemBag(const CResRef& bagResRef, CItem* pItem, STRREF& errorCode)
 {
-    // TODO: Incomplete.
+    // TODO: Incomplete. Deposits `pItem` into a bag/container item's backing
+    // CStore and returns the quantity deposited. The host path loads the store
+    // from `bagResRef`, checks the type/capacity, clamps the stack, AddItemExt,
+    // then Marshal; a separate path keeps the server store in sync in MP.
+    // Blocked on CStore::sub_54CA80 (0x54CA80 - the item-permitted check, still
+    // a stub) and the CInfGame+0x4208 marshal-directory member. Returning 0
+    // makes bag deposits fail cleanly rather than behave incorrectly.
 
     return 0;
 }
