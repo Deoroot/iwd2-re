@@ -5820,15 +5820,48 @@ releaseAndReturn:
 // 0x5C7B10
 WORD CInfGame::SwapItemBag(const CResRef& bagResRef, CItem* pItem, STRREF& errorCode)
 {
-    // TODO: Incomplete. Deposits `pItem` into a bag/container item's backing
-    // CStore and returns the quantity deposited. The host path loads the store
-    // from `bagResRef`, checks the type/capacity, clamps the stack, AddItemExt,
-    // then Marshal; a separate path keeps the server store in sync in MP.
-    // Blocked on CStore::sub_54CA80 (0x54CA80 - the item-permitted check, still
-    // a stub) and the CInfGame+0x4208 marshal-directory member. Returning 0
-    // makes bag deposits fail cleanly rather than behave incorrectly.
+    errorCode = -1;
 
-    return 0;
+    if (g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
+        // TODO: Incomplete. Multiplayer store-sync deposit path: demands the
+        // server-side bag store, posts the CMessageStore* updates, then releases
+        // it. Needs those store message classes recovered. The host path below
+        // is complete.
+        return 0;
+    }
+
+    WORD nDeposited = 0;
+
+    CStore store(bagResRef);
+
+    // Store type 4 is a bag/container.
+    if (store.GetType() == 4 && store.IsValidSellType(pItem)) {
+        WORD nCapacity = static_cast<WORD>(store.m_header.field_94);
+
+        if (nCapacity == 0 || nCapacity == store.GetNumItems()) {
+            errorCode = 0x6139;
+        } else {
+            nDeposited = 1;
+            if (pItem->GetMaxStackable() > 1) {
+                nDeposited = pItem->GetUsageCount(0);
+            }
+
+            if (store.GetNumItems() + nDeposited > nCapacity) {
+                nDeposited = static_cast<WORD>(nCapacity - store.GetNumItems());
+            }
+
+            pItem->SetUsageCount(0, nDeposited);
+            store.AddItemExt(*pItem, 1);
+        }
+    } else {
+        errorCode = 0x66AD;
+    }
+
+    if (errorCode == -1) {
+        store.Marshal(m_sTempDir);
+    }
+
+    return nDeposited;
 }
 
 // 0x5BB600

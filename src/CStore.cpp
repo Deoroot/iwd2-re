@@ -447,9 +447,20 @@ void sub_54C770()
 }
 
 // 0x54CA80
-void sub_54CA80()
+BOOL CStore::IsValidSellType(CItem* pItem)
 {
-    // TODO: Incomplete.
+    // A bag/container cannot be stored inside another bag.
+    if (m_header.m_nStoreType == 4 && pItem->GetItemType() == 0x3A) {
+        return FALSE;
+    }
+
+    for (DWORD i = 0; i < m_nBuyTypes; i++) {
+        if (m_pBuyTypes[i] == static_cast<DWORD>(pItem->GetItemType())) {
+            return (~pItem->GetFlagsFile() >> 11) & 1;
+        }
+    }
+
+    return FALSE;
 }
 
 // 0x54CAF0
