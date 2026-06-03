@@ -2314,6 +2314,14 @@ BOOL CBaldurMessage::ObjectControl()
     return FALSE;
 }
 
+// 0x431560
+BOOLEAN CBaldurMessage::SwapItemRequest(BYTE nArea, LONG nObjectID, SHORT nSlotNum, CItem*& pNewItem, STRREF& errorCode, WORD wCount)
+{
+    // TODO: Incomplete.
+
+    return FALSE;
+}
+
 // 0x4319C0
 BOOLEAN CBaldurMessage::OnSwapItemRequest(INT nMsgFrom, BYTE* pMessage, DWORD dwSize)
 {

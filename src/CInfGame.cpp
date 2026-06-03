@@ -5600,9 +5600,229 @@ SHORT CInfGame::GetNumQuickWeaponSlots(SHORT nPortrait)
 // 0x5BAD70
 BOOL CInfGame::SwapItemPersonalInventory(SHORT nPortraitNum, CItem*& pNewItem, SHORT nSlotNum, STRREF& errorCode, WORD wCount, BOOLEAN bFromServer, BOOL bAutoStacking)
 {
+    // NOTE: Uninline.
+    LONG nCharacterId = GetCharacterId(nPortraitNum);
+
+    BOOL bResult = TRUE;
+
+    errorCode = -1;
+
+    if (((nSlotNum < 18) || (CScreenInventory::PERSONAL_INVENTORY_SIZE + 18 <= nSlotNum))
+        && nSlotNum != 0x7FFF) {
+        errorCode = 0x249E;
+        return FALSE;
+    }
+
+    CGameSprite* pSprite;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        errorCode = 0x249D;
+        return FALSE;
+    }
+
+    // Not controlling this sprite in a multiplayer session: forward the request
+    // to the server and return its result.
+    if (!pSprite->InControl()
+        && g_pChitin->cNetwork.GetSessionOpen() == TRUE
+        && bFromServer == FALSE) {
+        BOOLEAN bForwarded = g_pBaldurChitin->GetBaldurMessage()->SwapItemRequest(
+            0x67, // 0x0084CF5C
+            nCharacterId,
+            nSlotNum,
+            pNewItem,
+            errorCode,
+            wCount);
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        return bForwarded;
+    }
+
+    // Dropping an item onto a bag/container item already in the slot deposits it
+    // into that item's store.
+    if (nSlotNum != 0x7FFF) {
+        CItem* pSlotItem = pSprite->GetEquipment()->m_items[nSlotNum];
+        if (pNewItem != NULL
+            && pSlotItem != NULL
+            && pSlotItem->GetItemType() == 0x3A) {
+            WORD nDeposited = SwapItemBag(pSlotItem->GetResRef(), pNewItem, errorCode);
+            if (nDeposited != 0) {
+                if (pNewItem->GetMaxStackable() < 2 || pNewItem->GetUsageCount(0) == nDeposited) {
+                    if (pNewItem != NULL) {
+                        // NOTE: Uninline.
+                        AddDisposableItem(pNewItem);
+                    }
+
+                    pNewItem = NULL;
+                } else {
+                    pNewItem->SetUsageCount(0, pNewItem->GetUsageCount(0) - nDeposited);
+                }
+
+                g_pBaldurChitin->GetActiveEngine()->UpdatePersonalItemStatus(pSprite->GetId());
+
+                if (pSprite->InControl()
+                    && g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
+                    CMessage* message = new CMessageSpriteEquipment(pSprite,
+                        nCharacterId,
+                        nCharacterId);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                }
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+
+                return TRUE;
+            }
+
+            bResult = FALSE;
+            goto placeRemainder;
+        }
+    }
+
+    // Auto-stacking: top off existing matching stacks before placing the remainder.
+    if (bAutoStacking
+        && pNewItem != NULL
+        && pNewItem->GetMaxStackable() > 1) {
+        for (SHORT nSlot = 18; nSlot < CScreenInventory::PERSONAL_INVENTORY_SIZE + 18; nSlot++) {
+            CItem* pSlotItem = pSprite->GetEquipment()->m_items[nSlot];
+            if (pSlotItem != NULL
+                && pSlotItem->GetResRef() == pNewItem->GetResRef()
+                && ((pNewItem->m_flags ^ pSlotItem->m_flags) & 1) == 0
+                && pSlotItem->GetUsageCount(0) < pSlotItem->GetMaxStackable()) {
+                if (pSlotItem->GetUsageCount(0) + pNewItem->GetUsageCount(0) <= pSlotItem->GetMaxStackable()) {
+                    nSlotNum = nSlot;
+                    break;
+                }
+
+                pNewItem->SetUsageCount(0,
+                    pNewItem->GetUsageCount(0) - (pSlotItem->GetMaxStackable() - pSlotItem->GetUsageCount(0)));
+                pSlotItem->SetUsageCount(0, pSlotItem->GetMaxStackable());
+            }
+        }
+    }
+
+placeRemainder:
+    // Resolve an explicit empty slot when the caller asked for "first free" (0x7FFF).
+    if (nSlotNum == 0x7FFF) {
+        for (SHORT nSlot = 18; nSlot < CScreenInventory::PERSONAL_INVENTORY_SIZE + 18; nSlot++) {
+            if (pSprite->GetEquipment()->m_items[nSlot] == NULL) {
+                nSlotNum = nSlot;
+                break;
+            }
+        }
+
+        if (nSlotNum == 0x7FFF) {
+            errorCode = 0x464F;
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            return FALSE;
+        }
+    }
+
+    CItem* pExisting = pSprite->GetEquipment()->m_items[nSlotNum];
+
+    if (bResult == FALSE) {
+        goto releaseAndReturn;
+    }
+
+    if (pExisting != NULL) {
+        if ((pExisting->GetFlagsFile() & 4) == 0 || (pExisting->m_flags & 0x10) != 0) {
+            bResult = FALSE;
+            errorCode = 0x6461;
+            goto releaseAndReturn;
+        }
+
+        if (pNewItem == NULL
+            && pExisting->GetMaxStackable() > 1
+            && wCount < pExisting->GetUsageCount(0)) {
+            // Pick up part of an existing stack.
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+            // __LINE__: 14884
+            UTIL_ASSERT(wCount != 0);
+
+            pExisting->SetUsageCount(0, pExisting->GetUsageCount(0) - wCount);
+
+            pNewItem = new CItem(pExisting->GetResRef(), 0, 0, 0, 0, 0);
+            pNewItem->SetUsageCount(0, wCount);
+            pNewItem->m_flags = ((pExisting->m_flags ^ pNewItem->m_flags) & 1) ^ pNewItem->m_flags;
+
+            goto notifyChange;
+        }
+
+        if (pNewItem != NULL
+            && pExisting->GetMaxStackable() >= 2
+            && pNewItem->GetResRef() == pExisting->GetResRef()
+            && ((pNewItem->m_flags ^ pExisting->m_flags) & 1) == 0) {
+            // Merge the held stack into the matching one already in the slot.
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+            // __LINE__: 14894
+            UTIL_ASSERT(wCount != 0);
+
+            WORD nRoom = pExisting->GetMaxStackable() - pExisting->GetUsageCount(0);
+            WORD nTransfer = (pNewItem->GetUsageCount(0) < nRoom) ? pNewItem->GetUsageCount(0) : nRoom;
+            if (wCount < nTransfer) {
+                nTransfer = wCount;
+            }
+
+            pExisting->SetUsageCount(0, pExisting->GetUsageCount(0) + nTransfer);
+
+            if (pNewItem->GetUsageCount(0) == nTransfer) {
+                // NOTE: Uninline.
+                AddDisposableItem(pNewItem);
+                pNewItem = NULL;
+            } else {
+                pNewItem->SetUsageCount(0, pNewItem->GetUsageCount(0) - nTransfer);
+            }
+
+            goto notifyChange;
+        }
+    }
+
+    // Swap the held item with the slot's contents (the old item, possibly NULL,
+    // is returned through `pNewItem`).
+    pSprite->GetEquipment()->m_items[nSlotNum] = pNewItem;
+    pNewItem = pExisting;
+
+notifyChange:
+    g_pBaldurChitin->GetActiveEngine()->UpdatePersonalItemStatus(pSprite->GetId());
+
+    if (pSprite->InControl()
+        && g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
+        CMessage* message = new CMessageSpriteEquipment(pSprite,
+            nCharacterId,
+            nCharacterId);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+releaseAndReturn:
+    pSprite->field_562C = 1;
+    pSprite->ProcessEffectList();
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(nCharacterId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return bResult;
+}
+
+// 0x5C7B10
+WORD CInfGame::SwapItemBag(const CResRef& bagResRef, CItem* pItem, STRREF& errorCode)
+{
     // TODO: Incomplete.
 
-    return FALSE;
+    return 0;
 }
 
 // 0x5BB600

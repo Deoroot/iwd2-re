@@ -279,6 +279,7 @@ public:
     BOOL ObjectControlSuggestion(PLAYER_ID playerToSuggestID, LONG localObjectID);
     BOOL ObjectControlRequest(LONG localObjectID);
     BOOL ObjectControl();
+    BOOLEAN SwapItemRequest(BYTE nArea, LONG nObjectID, SHORT nSlotNum, CItem*& pNewItem, STRREF& errorCode, WORD wCount);
     BOOLEAN OnSwapItemRequest(INT nMsgFrom, BYTE* pMessage, DWORD dwSize);
     BOOLEAN SendChatMessage(CString& sChatMessage);
     BOOLEAN OnChatMessage(INT nMsgFrom, BYTE* pMessage, DWORD dwSize);
