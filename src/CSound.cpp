@@ -567,6 +567,8 @@ BOOL CSound::Play(BOOL bReplay)
         return FALSE;
     }
 
+    m_bPositionedSound = FALSE;
+
     m_pSoundMixer->Lock();
 
     if (m_nLooping != 0) {
@@ -663,6 +665,7 @@ BOOL CSound::Play(int nNewXCoordinate, int nNewYCoordinate, int nNewZCoordinate,
     }
 
     m_nXCoordinate = nNewXCoordinate;
+    m_bPositionedSound = TRUE;
     m_nYCoordinate = nNewYCoordinate;
     m_nZCoordinate = nNewZCoordinate;
 
