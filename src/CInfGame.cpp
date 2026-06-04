@@ -5384,6 +5384,50 @@ LONG CInfGame::GetGroundPile(LONG iSprite)
     return iGroundPile;
 }
 
+// 0x5B7730
+BOOL CInfGame::CanTakeContainerItem(LONG nContainerId, SHORT nSlotNum, CGameSprite* pLooter, SHORT nPortrait)
+{
+    CResRef cResIcon;
+    CResRef cResItem;
+
+    CGameContainer* pContainer;
+    if (m_cObjectArray.GetDeny(nContainerId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pContainer),
+            INFINITE) != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    CItem* pItem = pContainer->GetItem(nSlotNum);
+
+    m_cObjectArray.ReleaseDeny(nContainerId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    if (pItem == NULL) {
+        return FALSE;
+    }
+
+    // Gold (MISC07) merges into party gold, so it can always be taken.
+    if (pItem->GetResRef() == "MISC07") {
+        return TRUE;
+    }
+
+    // Otherwise the looter needs a free backpack slot (18 .. 18 + PERSONAL_INVENTORY_SIZE).
+    CItem* pScanItem;
+    STRREF description;
+    WORD wCount;
+    SHORT nSlot = 18;
+    do {
+        InventoryInfoPersonal(nPortrait, nSlot, pScanItem, description, cResIcon, cResItem, wCount, TRUE);
+        if (cResIcon != "") {
+            nSlot++;
+        }
+    } while (cResIcon != "" && nSlot < CScreenInventory::PERSONAL_INVENTORY_SIZE + 18);
+
+    return nSlot < CScreenInventory::PERSONAL_INVENTORY_SIZE + 18;
+}
+
 // 0x5B7850
 BOOL CInfGame::SwapItemGround(LONG nContainerId, SHORT nSlotNum, CItem*& pItem, STRREF& errorCode, WORD wCount, BOOLEAN bFromServer)
 {
