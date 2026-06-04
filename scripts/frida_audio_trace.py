@@ -43,6 +43,9 @@ SYMBOLS = {
     "Area.SetDusk": "?SetDusk@CGameArea@@QAEXEE@Z",
     "Area.GetSong": "?GetSong@CGameArea@@QAEDF@Z",
     "Area.PlaySong": "?PlaySong@CGameArea@@QAEXFK@Z",
+    "Sprite.InitializeWalkingSound": "?InitializeWalkingSound@CGameSprite@@QAEXXZ",
+    "Animation.GetSndWalk": "?GetSndWalk@CGameAnimation@@QAEPADF@Z",
+    "Animation.GetSndWalkFreq": "?GetSndWalkFreq@CGameAnimation@@QAEKXZ",
     "Mixer.SetListenPosition": "?SetListenPosition@CSoundMixer@@QAEXHHH@Z",
     "Mixer.SetChannelVolume": "?SetChannelVolume@CSoundMixer@@QAEXHH@Z",
     "Mixer.UpdateSoundList": "?UpdateSoundList@CSoundMixer@@QAEXXZ",
@@ -109,6 +112,8 @@ let setChannelCount = 0;
 let dimmCount = 0;
 let areaScanCount = 0;
 let setResRefWaveCount = 0;
+let sndWalkCount = 0;
+let sndWalkFreqCount = 0;
 
 function safe(fn, fallback) {{
   try {{ return fn(); }} catch (e) {{ return fallback; }}
@@ -267,6 +272,22 @@ attach('Area.GetSong', {{
 attach('Area.PlaySong', {{
   onEnter(args) {{ emit('Area.PlaySong', {{ area: areaInfo(this.context.ecx), slot: args[0].toInt32(), flags: args[1].toUInt32() }}); }},
 }});
+attach('Sprite.InitializeWalkingSound', {{
+  onEnter(args) {{ this.sprite = this.context.ecx; emit('Sprite.InitializeWalkingSound.in', {{ sprite: this.sprite.toString() }}); }},
+  onLeave(rv) {{ emit('Sprite.InitializeWalkingSound.out', {{ sprite: this.sprite.toString() }}); }},
+}});
+attach('Animation.GetSndWalk', {{
+  onEnter(args) {{ this.tableIndex = args[0].toInt32(); this.anim = this.context.ecx; }},
+  onLeave(rv) {{
+    if (sndWalkCount++ < 200) emit('Animation.GetSndWalk.ret', {{ anim: this.anim.toString(), tableIndex: this.tableIndex, ret: rv.toString(), sound: cstr(rv) }});
+  }},
+}});
+attach('Animation.GetSndWalkFreq', {{
+  onEnter(args) {{ this.anim = this.context.ecx; }},
+  onLeave(rv) {{
+    if (sndWalkFreqCount++ < 200) emit('Animation.GetSndWalkFreq.ret', {{ anim: this.anim.toString(), freq: rv.toUInt32() }});
+  }},
+}});
 attach('Mixer.SetListenPosition', {{
   onEnter(args) {{ emit('Mixer.SetListenPosition', {{ mixer: mixerInfo(this.context.ecx), pos: [args[0].toInt32(), args[1].toInt32(), args[2].toInt32()] }}); }},
 }});
@@ -329,7 +350,7 @@ attach('Sound.Play', {{
   onEnter(args) {{
     const info = soundInfo(this.context.ecx);
     const interesting = info.looping || (info.channel >= 16 && info.channel <= 20) || info.area !== '0x0';
-    if (interesting && playCount++ < 300) {{
+    if ((interesting || playCount < 80) && playCount++ < 300) {{
       this.trace = true;
       emit('Sound.Play.in', {{ sound: info, replay: args[0].toInt32() }});
     }}
@@ -339,8 +360,7 @@ attach('Sound.Play', {{
 attach('Sound.PlayPos', {{
   onEnter(args) {{
     const info = soundInfo(this.context.ecx);
-    const interesting = info.channel >= 16 && info.channel <= 20 || info.area !== '0x0';
-    if (interesting && playPosCount++ < 300) {{
+    if (playPosCount++ < 300) {{
       this.trace = true;
       emit('Sound.PlayPos.in', {{ sound: info, pos: [args[0].toInt32(), args[1].toInt32(), args[2].toInt32()], replay: args[3].toInt32() }});
     }}
@@ -455,7 +475,7 @@ def main() -> int:
                 emit({"tag": "Driver.key", "vk": VK_1, "window": window_metrics(pid)})
                 send_key_to_pid(pid, VK_1, activation_click=True)
                 time.sleep(0.25)
-                for pos in [(410, 305), (510, 350), (330, 360)]:
+                for pos in [(250, 250), (610, 260), (230, 335)]:
                     emit({"tag": "Driver.click", "pos": pos, "window": window_metrics(pid)})
                     click_client(pid, *pos, activation_click=False, hover_seconds=0.08)
                     time.sleep(2.0)
