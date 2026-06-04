@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -20,12 +21,14 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from frida_intro_trace import (
     GAME_DIR,
+    ORIG_EXE,
     REPO,
     RE_EXE,
     VK_1,
     capture_game_surface,
     click_client,
     send_key_to_pid,
+    skip_original_startup_movies,
     window_metrics,
 )
 
@@ -72,6 +75,40 @@ SYMBOLS = {
     "SoundBackend.soundDelete": "?soundDelete@@YAHPAUtag_sound@@@Z",
 }
 
+ORIG_HOOKS = {
+    "Area.OnActivation": 0x4750E0,
+    "Area.OnDeactivation": 0x475330,
+    "Area.SetTimeOfDay": 0x479110,
+    "Area.SetDay": 0x477EE0,
+    "Area.SetNight": 0x4781B0,
+    "Area.SetDawn": 0x478490,
+    "Area.SetDusk": 0x478AC0,
+    "Area.GetSong": 0x479DB0,
+    "Area.PlaySong": 0x479E80,
+    "Sprite.InitializeWalkingSound": 0x71DD20,
+    "Mixer.SetListenPosition": 0x7ABA90,
+    "Mixer.SetChannelVolume": 0x7AB990,
+    "Mixer.UpdateSoundList": 0x7ABBA0,
+    "Mixer.StartSong2": 0x7AC4F0,
+    "Mixer.StartSong4": 0x7AC510,
+    "Mixer.StopMusic": 0x7AC8E0,
+    "Mixer.GetChannelStatus": 0x7ACA30,
+    "Sound.SetChannel": 0x7AA4B0,
+    "Sound.Play": 0x7A9B10,
+    "Sound.PlayPos": 0x7A9DB0,
+    "Music.musicForceSection": 0x7D60E0,
+    "Music.forceSong": 0x7D5D00,
+    "Music.musicSetSong": 0x7D58B0,
+    "Music.musicFade": 0x7D5860,
+    "Music.musicStop": 0x7D5A30,
+    "Music.musicForceStop": 0x7D5BB0,
+    "Music.musicLoadSongList": 0x7D45E0,
+    "Music.musicSetPath": 0x7D5C80,
+    "SoundBackend.soundLoad": 0x7D1E30,
+    "SoundBackend.soundPlayFromPosition": 0x7D2370,
+    "SoundBackend.soundDelete": 0x7D2620,
+}
+
 
 def read_result(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
@@ -101,11 +138,12 @@ def map_offsets() -> dict[str, int]:
     return found
 
 
-def make_js(hooks: dict[str, int]) -> str:
+def make_js(hooks: dict[str, int], module_name: str, mode: str) -> str:
     return f"""
 'use strict';
 const hooks = {json.dumps(hooks)};
-const base = Process.getModuleByName('iwd2-re.exe').base;
+const isRe = {json.dumps(mode == "re")};
+const base = Process.getModuleByName({json.dumps(module_name)}).base;
 let playCount = 0;
 let playPosCount = 0;
 let setChannelCount = 0;
@@ -236,10 +274,18 @@ function emit(tag, data) {{
   send(data);
 }}
 
+function addr(name) {{
+  return isRe ? base.add(hooks[name]) : ptr(hooks[name]);
+}}
+
 function attach(name, callbacks) {{
+  if (!(name in hooks)) {{
+    emit('hook-skip', {{ name }});
+    return;
+  }}
   try {{
-    Interceptor.attach(base.add(hooks[name]), callbacks);
-    emit('hooked', {{ name, addr: base.add(hooks[name]).toString() }});
+    Interceptor.attach(addr(name), callbacks);
+    emit('hooked', {{ name, addr: addr(name).toString() }});
   }} catch (e) {{
     emit('hook-error', {{ name, error: String(e) }});
   }}
@@ -432,6 +478,8 @@ def emit(payload: dict[str, object]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", choices=["re", "original"], default="re")
+    ap.add_argument("--pid", type=int, help="attach to an existing process instead of spawning")
     ap.add_argument("--slot", type=int, default=1, help="visible load-screen slot to load")
     ap.add_argument("--save-name", help="exact MPSave directory name to load")
     ap.add_argument("--timeout", type=float, default=60.0)
@@ -441,26 +489,56 @@ def main() -> int:
 
     global OUT
     label = f"slot{ns.slot}" if not ns.save_name else re.sub(r"[^a-zA-Z0-9_.-]+", "_", ns.save_name).strip("_")
+    label = f"{ns.mode}_{label}"
     OUT = ns.output or (REPO / f"tmp_audio_trace_{label}.jsonl")
     OUT.write_text("", encoding="utf-8")
 
     result_path = Path(tempfile.gettempdir()) / f"iwd2-re-audio-{uuid.uuid4().hex}.txt"
-    env = os.environ.copy()
-    env["IWD2_RE_AUTO_RESULT"] = str(result_path)
-    env["IWD2_RE_AUTO_ACTION"] = "load"
-    if ns.save_name:
-        env["IWD2_RE_AUTO_SAVE_NAME"] = ns.save_name
-        target = {"saveName": ns.save_name}
+    spawned = False
+    target: dict[str, object]
+    if ns.pid:
+        pid = ns.pid
+        target = {"pid": pid}
+    elif ns.mode == "re":
+        env = os.environ.copy()
+        env["IWD2_RE_AUTO_RESULT"] = str(result_path)
+        env["IWD2_RE_AUTO_ACTION"] = "load"
+        if ns.save_name:
+            env["IWD2_RE_AUTO_SAVE_NAME"] = ns.save_name
+            target = {"saveName": ns.save_name}
+        else:
+            env["IWD2_RE_AUTO_SLOT"] = str(ns.slot)
+            target = {"slot": ns.slot}
+        pid = frida.spawn(str(RE_EXE), env=env, cwd=str(GAME_DIR))
+        spawned = True
     else:
-        env["IWD2_RE_AUTO_SLOT"] = str(ns.slot)
-        target = {"slot": ns.slot}
+        pid = frida.spawn(str(ORIG_EXE), cwd=str(GAME_DIR))
+        spawned = True
+        target = {"manualLoadSlot": ns.slot}
 
-    pid = frida.spawn(str(RE_EXE), env=env, cwd=str(GAME_DIR))
     session = frida.attach(pid)
-    script = session.create_script(make_js(map_offsets()))
-    script.on("message", lambda m, d: emit(m["payload"] if m["type"] == "send" else {"tag": "ERROR", "message": m}))
+    hooks = map_offsets() if ns.mode == "re" else ORIG_HOOKS
+    module_name = RE_EXE.name if ns.mode == "re" else ORIG_EXE.name
+    state = {"area_active_at": 0.0}
+
+    def on_message(message, data):
+        payload = message["payload"] if message["type"] == "send" else {"tag": "ERROR", "message": message}
+        if payload.get("tag") == "Area.OnActivation.out" and not state["area_active_at"]:
+            state["area_active_at"] = time.time()
+        emit(payload)
+
+    script = session.create_script(make_js(hooks, module_name, ns.mode))
+    script.on("message", on_message)
     script.load()
-    frida.resume(pid)
+    if spawned:
+        frida.resume(pid)
+    stop_movie_keys = threading.Event()
+    if spawned and ns.mode == "original":
+        threading.Thread(
+            target=skip_original_startup_movies,
+            args=(pid, stop_movie_keys),
+            daemon=True,
+        ).start()
     emit({"tag": "Driver.spawned", "pid": pid, "result": str(result_path), "target": target, "output": str(OUT)})
 
     loaded_at = 0.0
@@ -468,7 +546,7 @@ def main() -> int:
     deadline = time.time() + ns.timeout
     try:
         while time.time() < deadline:
-            if result_path.exists() and loaded_at == 0.0:
+            if ns.mode == "re" and result_path.exists() and loaded_at == 0.0:
                 result = read_result(result_path)
                 emit({"tag": "Driver.loaded-result", "result": result, "window": window_metrics(pid)})
                 if result.get("status") == "loaded":
@@ -481,6 +559,15 @@ def main() -> int:
                         emit({"tag": "Driver.screenshot-error", "err": str(e)})
                 else:
                     return 1
+            elif ns.mode == "original" and state["area_active_at"] and loaded_at == 0.0:
+                loaded_at = state["area_active_at"]
+                emit({"tag": "Driver.loaded-result", "result": {"status": "loaded", "detail": "Area.OnActivation"}, "window": window_metrics(pid)})
+                try:
+                    shot_label = f"audio_{label}_loaded"
+                    path, capture = capture_game_surface(pid, shot_label)
+                    emit({"tag": "Driver.screenshot", "label": shot_label, "path": str(path), "capture": capture})
+                except Exception as e:
+                    emit({"tag": "Driver.screenshot-error", "err": str(e)})
 
             if loaded_at and not moved and time.time() - loaded_at > 2.0:
                 emit({"tag": "Driver.key", "vk": VK_1, "window": window_metrics(pid)})
@@ -504,8 +591,10 @@ def main() -> int:
         emit({"tag": "Driver.timeout"})
         return 1
     finally:
+        stop_movie_keys.set()
         try:
-            frida.kill(pid)
+            if spawned:
+                frida.kill(pid)
         except Exception:
             pass
         try:
