@@ -74,6 +74,9 @@ Docs: `docs/frida-differential-tracing.md`. Template: `scripts/frida_formation_t
 - Hook function ENTRIES only. Mid-function hooks crash.
 - Runtime wins when `__thiscall` args disagree with decompiler.
 - Read PE constants with `pefile`, not memory endpoint.
+- Hedron revisit trace: kill old `iwd2-re/IWD2` first; 800x600 client click is `[500,250]` (world around `[2513,906]`, obj `524296`).
+- For mouse automation, hover first and prove `CGameSprite::IsOver` or `CGameArea::OnActionButtonDown picked=524296`; raw screenshots alone misled upward.
+- RE dialog replies are flaky with marker-only RPC; use `responseMarker` plus a real/post click on the visible reply line.
 
 ## Game assets (`data/near_infinity_export/`)
 

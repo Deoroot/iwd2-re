@@ -69,8 +69,27 @@ PARTY_ROWS = [
 ]
 PARTY_DONE_BUTTON = (537, 562)
 CHAPTER_DONE_BUTTON = (514, 549)
-HEDRON_REVISIT_CLICKS_RE = [(500, 286), (500, 300), (490, 292), (512, 292), (480, 304)]
-HEDRON_REVISIT_CLICKS_ORIGINAL = [(500, 286), (500, 300), (490, 292), (512, 292), (480, 304)]
+HEDRON_REVISIT_SCAN_RE = [
+    (500, 250),
+    (506, 252),
+    (494, 247),
+    (494, 255),
+    (502, 258),
+    (510, 260),
+    (486, 250),
+    (490, 260),
+    (500, 270),
+    (510, 270),
+    (520, 260),
+    (500, 240),
+    (510, 240),
+    (520, 245),
+]
+HEDRON_REVISIT_SCAN_ORIGINAL = HEDRON_REVISIT_SCAN_RE
+HEDRON_REVISIT_CLICKS_RE = [(500, 250), (506, 252), (494, 255), (502, 258), (510, 260), (494, 247)]
+HEDRON_REVISIT_CLICKS_ORIGINAL = HEDRON_REVISIT_CLICKS_RE
+HEDRON_REVISIT_SOURCE_OBJ = 65537
+HEDRON_REVISIT_TARGET_OBJ = 524296
 CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS = 1.0
 CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS = 0.0
 CHAPTER_VISIBLE_CAPTURE_TIMEOUT_SECONDS = 6.0
@@ -205,7 +224,11 @@ RE_HOOKS = {
     "CGameArea::Unmarshal": 0x130E20,
     "CGameArea::OnActivation": 0x131F30,
     "CGameArea::OnDeactivation": 0x132290,
+    "CGameArea::OnActionButtonDown": 0x134700,
+    "CGameArea::OnActionButtonUp": 0x135580,
     "CGameArea::Render": 0x136160,
+    "CGameSprite::IsOver": 0x19D570,
+    "CGameSprite::OnActionButton": 0x19D850,
     "CGameJournal::AddEntry2": 0x17FEE0,
     "CGameJournal::AddEntry4": 0x17FFA0,
     "CGameJournal::SetQuestDone": 0x180B90,
@@ -314,7 +337,11 @@ RE_MAP_SYMBOLS = {
     "CGameArea::Unmarshal": "?Unmarshal@CGameArea@@QAEXPAEJABV?$CStringT@DV?$StrTraitMFC_DLL@DV?$ChTraitsCRT@D@ATL@@@@@ATL@@E@Z",
     "CGameArea::OnActivation": "?OnActivation@CGameArea@@QAEXXZ",
     "CGameArea::OnDeactivation": "?OnDeactivation@CGameArea@@QAEXXZ",
+    "CGameArea::OnActionButtonDown": "?OnActionButtonDown@CGameArea@@QAEXABVCPoint@@@Z",
+    "CGameArea::OnActionButtonUp": "?OnActionButtonUp@CGameArea@@QAEXABVCPoint@@@Z",
     "CGameArea::Render": "?Render@CGameArea@@QAEXPAVCVidMode@@H@Z",
+    "CGameSprite::IsOver": "?IsOver@CGameSprite@@UAEHABVCPoint@@@Z",
+    "CGameSprite::OnActionButton": "?OnActionButton@CGameSprite@@UAEXABVCPoint@@@Z",
     "CGameJournal::AddEntry2": "?AddEntry@CGameJournal@@QAEHKG@Z",
     "CGameJournal::AddEntry4": "?AddEntry@CGameJournal@@QAEHKHJG@Z",
     "CGameJournal::SetQuestDone": "?SetQuestDone@CGameJournal@@QAEXK@Z",
@@ -642,7 +669,7 @@ def post_mouse_click(hwnd: int, screen_x: int, screen_y: int) -> None:
     user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, make_lparam(client_x, client_y))
 
 
-def physical_mouse_click(hwnd: int, screen_x: int, screen_y: int) -> None:
+def physical_mouse_click(hwnd: int, screen_x: int, screen_y: int, hover_seconds: float = 0.02) -> None:
     previous = ctypes.wintypes.POINT(0, 0)
     user32.GetCursorPos(ctypes.byref(previous))
     blocked = bool(user32.BlockInput(True))
@@ -650,7 +677,7 @@ def physical_mouse_click(hwnd: int, screen_x: int, screen_y: int) -> None:
         focus_window(hwnd, click=False)
         time.sleep(0.03)
         user32.SetCursorPos(screen_x, screen_y)
-        time.sleep(0.02)
+        time.sleep(max(hover_seconds, 0.02))
         user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         # IWD2 polls mouse state from the engine tick; short synthetic clicks can
         # be missed while Frida hooks slow the frame loop.
@@ -756,7 +783,7 @@ def post_key_to_pid(pid: int, vk: int) -> bool:
     return True
 
 
-def click_client(pid: int, x: int, y: int, activation_click: bool = True) -> bool:
+def click_client(pid: int, x: int, y: int, activation_click: bool = True, hover_seconds: float = 0.02) -> bool:
     hwnd = find_window_for_pid(pid)
     if hwnd == 0:
         return False
@@ -765,7 +792,19 @@ def click_client(pid: int, x: int, y: int, activation_click: bool = True) -> boo
     origin_x, origin_y = game_surface_origin(hwnd)
     screen_x = origin_x + x
     screen_y = origin_y + y
-    physical_mouse_click(hwnd, screen_x, screen_y)
+    physical_mouse_click(hwnd, screen_x, screen_y, hover_seconds=hover_seconds)
+    return True
+
+
+def hover_client(pid: int, x: int, y: int, hover_seconds: float = 0.25) -> bool:
+    hwnd = find_window_for_pid(pid)
+    if hwnd == 0:
+        return False
+    focus_window(hwnd, click=False)
+    time.sleep(0.02)
+    origin_x, origin_y = game_surface_origin(hwnd)
+    user32.SetCursorPos(origin_x + x, origin_y + y)
+    time.sleep(max(hover_seconds, 0.02))
     return True
 
 
@@ -1169,13 +1208,16 @@ def dialog_click_position_re(vk: int) -> tuple[int, int] | None:
 
 
 def send_dialog_input(pid: int, mode: str, vk: int, attempt: int, frida_script=None, emit=None) -> bool:
+    rpc_selected = False
     if VK_1 <= vk <= 0x39 and frida_script is not None:
         try:
             result = frida_script.exports_sync.selectdialogdisplayid(vk - VK_1 + 1)
             if emit is not None:
                 emit({"tag": "Driver.frida.dialog-select", "displayId": vk - VK_1 + 1, "attempt": attempt, "result": result})
             if isinstance(result, dict) and result.get("ok"):
-                return True
+                if mode != "re":
+                    return True
+                rpc_selected = True
         except Exception as e:
             if emit is not None:
                 emit({"tag": "Driver.frida.dialog-select", "displayId": vk - VK_1 + 1, "attempt": attempt, "err": str(e)})
@@ -1184,7 +1226,7 @@ def send_dialog_input(pid: int, mode: str, vk: int, attempt: int, frida_script=N
     if mode == "re":
         pos = dialog_click_position_re(vk)
         if pos is not None:
-            if attempt == 1:
+            if rpc_selected or attempt == 1:
                 return post_click_client(pid, *pos, activation_click=False)
             return click_client(pid, *pos, activation_click=False)
     return send_key_to_pid(pid, vk, activation_click=True)
@@ -1247,25 +1289,94 @@ def auto_intro_dialog_driver(
             coming_out_dialog_value = state.get("world_coming_out_dialog", -1)
             coming_out_dialog = int(coming_out_dialog_value) if coming_out_dialog_value is not None else -1
 
+        scan_positions = HEDRON_REVISIT_SCAN_ORIGINAL if mode == "original" else HEDRON_REVISIT_SCAN_RE
         click_positions = HEDRON_REVISIT_CLICKS_ORIGINAL if mode == "original" else HEDRON_REVISIT_CLICKS_RE
+        with state_lock:
+            hedron_hit_raw = state.get("hedron_hit_client")
+            hedron_hit_world = state.get("hedron_hit_world")
+            hedron_scan_done = bool(state.get("hedron_hover_scan_done"))
+        hedron_hit_client = (
+            (int(hedron_hit_raw[0]), int(hedron_hit_raw[1]))
+            if isinstance(hedron_hit_raw, (list, tuple)) and len(hedron_hit_raw) == 2
+            else None
+        )
         if (
             revisit_hedron
             and first_dialog_done
             and post_first_done
             and coming_out_dialog == 0
             and not second_dialog_seen
-            and hedron_click_attempts < len(click_positions)
+            and (not hedron_scan_done or hedron_hit_client is not None or hedron_click_attempts < len(click_positions))
             and time.time() - last_hedron_click_at >= 1.25
         ):
+            if hedron_hit_client is None and not hedron_scan_done:
+                time.sleep(0.75)
+                emit_screenshot(pid, f"{mode}_hedron_revisit_before_hover_scan", emit)
+                with state_lock:
+                    state.pop("hedron_hit_client", None)
+                    state.pop("hedron_hit_world", None)
+                    state["hedron_hover_scan_active"] = True
+                for scan_attempt, probe in enumerate(scan_positions, start=1):
+                    with state_lock:
+                        state["hedron_hover_probe"] = list(probe)
+                    emit({
+                        "tag": "Driver.python.hover",
+                        "target": "hedron-revisit-scan",
+                        "attempt": scan_attempt,
+                        "pos": probe,
+                        "hoverSeconds": 0.25,
+                        "window": window_metrics(pid),
+                    })
+                    if not hover_client(pid, *probe, hover_seconds=0.25):
+                        emit({"tag": "Driver.python.error", "stage": "hedron-revisit-hover", "err": "window not found"})
+                        return
+                    with state_lock:
+                        found = state.get("hedron_hit_client")
+                    if found is not None:
+                        break
+                with state_lock:
+                    state["hedron_hover_scan_active"] = False
+                    state["hedron_hover_scan_done"] = True
+                    hedron_hit_raw = state.get("hedron_hit_client")
+                    hedron_hit_world = state.get("hedron_hit_world")
+                emit_screenshot(pid, f"{mode}_hedron_revisit_after_hover_scan", emit)
+                emit({
+                    "tag": "Driver.python.hover-scan-done",
+                    "target": "hedron-revisit",
+                    "hitClient": hedron_hit_raw,
+                    "hitWorld": hedron_hit_world,
+                })
+                continue
+
             time.sleep(0.35 if hedron_click_attempts else 0.75)
             emit_screenshot(pid, f"{mode}_hedron_revisit_before_click_{hedron_click_attempts + 1}", emit)
-            click_pos = click_positions[hedron_click_attempts]
-            emit({"tag": "Driver.python.click", "target": "hedron-revisit", "attempt": hedron_click_attempts + 1, "pos": click_pos, "window": window_metrics(pid)})
-            if not click_client(pid, *click_pos):
+            if hedron_hit_client is not None:
+                click_pos = hedron_hit_client
+                click_source = "frida-isover-hit"
+            else:
+                click_pos = click_positions[hedron_click_attempts]
+                click_source = "fallback-grid"
+            hover_seconds = 0.35
+            emit({
+                "tag": "Driver.python.click",
+                "target": "hedron-revisit",
+                "attempt": hedron_click_attempts + 1,
+                "pos": click_pos,
+                "source": click_source,
+                "hitWorld": hedron_hit_world,
+                "hoverSeconds": hover_seconds,
+                "window": window_metrics(pid),
+            })
+            if not click_client(pid, *click_pos, hover_seconds=hover_seconds):
                 emit({"tag": "Driver.python.error", "stage": "hedron-revisit-click", "err": "window not found"})
                 return
+            if hedron_hit_client is not None:
+                with state_lock:
+                    state.pop("hedron_hit_client", None)
             hedron_click_attempts += 1
             last_hedron_click_at = time.time()
+            time.sleep(0.25)
+            emit_screenshot(pid, f"{mode}_hedron_revisit_after_click_{hedron_click_attempts}", emit)
             with state_lock:
                 state["second_talk_clicked"] = True
             time.sleep(0.75)
@@ -1286,10 +1397,10 @@ def auto_intro_dialog_driver(
             attempt = attempts + 1
             serial_attempts[serial] = attempt
             last_dialog_action_at = time.time()
-            clicked_hedron = hedron_click_attempts > 0
-            if text in actions and not clicked_hedron:
+            in_revisit_dialog = revisit_hedron and second_dialog_seen
+            if text in actions and not hedron_click_attempts:
                 keys = actions[text]
-            elif clicked_hedron:
+            elif in_revisit_dialog:
                 keys = revisit_actions.get(text, [VK_1] if reply_count > 0 else [VK_RETURN])
             else:
                 keys = []
@@ -1298,10 +1409,10 @@ def auto_intro_dialog_driver(
                 time.sleep(0.1)
                 continue
 
-            delay = 0.8 if text in {2630, 2631} or clicked_hedron else 0.45
+            delay = 0.8 if text in {2630, 2631} or in_revisit_dialog else 0.45
             time.sleep(delay)
             for vk in keys:
-                target = "hedron-revisit-dialog" if clicked_hedron else "intro-dialog"
+                target = "hedron-revisit-dialog" if in_revisit_dialog else "intro-dialog"
                 click_pos = dialog_click_position_re(vk) if mode == "re" else None
                 input_tag = "Driver.python.dialog-click" if click_pos is not None else "Driver.python.key"
                 payload = {
@@ -1316,7 +1427,7 @@ def auto_intro_dialog_driver(
                 if click_pos is not None:
                     payload["pos"] = click_pos
                     if mode == "re" and VK_1 <= vk <= 0x39 and frida_script is not None:
-                        payload["method"] = "rpc-responseMarker"
+                        payload["method"] = "rpc-responseMarker+post-click"
                     else:
                         payload["method"] = "post-click" if attempt == 1 else "click"
                 emit(payload)
@@ -1326,7 +1437,7 @@ def auto_intro_dialog_driver(
                 time.sleep(0.35)
             with state_lock:
                 state["keys_sent"] = True
-                if clicked_hedron:
+                if in_revisit_dialog:
                     state["second_keys_sent"] = True
         else:
             time.sleep(0.1)
@@ -1699,17 +1810,26 @@ def re_chapter_driver(
         time.sleep(0.1)
 
 
-def make_js(mode: str, party_index: int, auto_chapter: bool, hooks: dict[str, int], globals_: dict[str, int]) -> str:
+def make_js(
+    mode: str,
+    party_index: int,
+    auto_chapter: bool,
+    revisit_hedron: bool,
+    hooks: dict[str, int],
+    globals_: dict[str, int],
+) -> str:
     hooks_json = json.dumps(hooks)
     globals_json = json.dumps(globals_)
     is_re = "true" if mode == "re" else "false"
     auto_chapter_js = "true" if auto_chapter else "false"
+    auto_revisit_hedron_js = "true" if revisit_hedron else "false"
     return f"""
 'use strict';
 
 const hooks = {hooks_json};
 const globals = {globals_json};
 const isRe = {is_re};
+const autoRevisitHedron = {auto_revisit_hedron_js};
 const requestedParty = {party_index};
 const autoChapter = {auto_chapter_js};
 const base = isRe ? Process.getModuleByName('iwd2-re.exe').base : ptr(0);
@@ -1864,6 +1984,12 @@ const AREA = isRe
       firstRender: 0x03da,
       currentSong: 0x0ae8,
     }};
+const AREA_PICK_RE = {{
+  pickedOnDown: 0x0242,
+  picked: 0x0246,
+  pickedTarget: 0x024a,
+  pickedFlag: 0x024e,
+}};
 const PROJECTOR_ORIG = {{
   deactivate: 0x0112,
   field144: 0x0144,
@@ -2030,6 +2156,12 @@ function popupStackHasTail(p, off) {{
 }}
 
 const nativeCalls = {{}};
+let pendingPlayerDialog = null;
+const HEDRON_REVISIT_SOURCE_OBJ = {HEDRON_REVISIT_SOURCE_OBJ};
+const HEDRON_REVISIT_TARGET_OBJ = {HEDRON_REVISIT_TARGET_OBJ};
+let hedronFirstDialogExitedAt = 0;
+let hedronAutoRevisitQueued = false;
+let hedronDialogueActionTemplate = ptr(0);
 function callThis(name, thiz) {{
   if (!(name in hooks)) {{
     throw new Error('missing hook address for ' + name);
@@ -2038,6 +2170,131 @@ function callThis(name, thiz) {{
     nativeCalls[name] = new NativeFunction(addr(name), 'void', ['pointer'], 'thiscall');
   }}
   nativeCalls[name](thiz);
+}}
+
+function runDialogueActionByMessage(source, target, stage) {{
+  if (hedronDialogueActionTemplate.isNull()) {{
+    throw new Error('missing Hedron dialogue action template');
+  }}
+  if (!('CMessageAddAction::CMessageAddAction' in nativeCalls)) {{
+    nativeCalls['CMessageAddAction::CMessageAddAction'] = new NativeFunction(
+      addr('CMessageAddAction::CMessageAddAction'),
+      'pointer',
+      ['pointer', 'pointer', 'int', 'int'],
+      'thiscall');
+  }}
+  if (!('CMessageAddAction::Run' in nativeCalls)) {{
+    nativeCalls['CMessageAddAction::Run'] = new NativeFunction(
+      addr('CMessageAddAction::Run'),
+      'void',
+      ['pointer'],
+      'thiscall');
+  }}
+  const action = Memory.alloc(ACTION.size);
+  const msg = Memory.alloc(0x200);
+  Memory.copy(action, hedronDialogueActionTemplate, ACTION.size);
+  nativeCalls['CMessageAddAction::CMessageAddAction'](
+    msg,
+    action,
+    HEDRON_REVISIT_TARGET_OBJ,
+    HEDRON_REVISIT_TARGET_OBJ);
+  nativeCalls['CMessageAddAction::Run'](msg);
+  return {{
+    action: actionInfoAt(msg.add(0x0c)),
+    sourceInfo: spriteInfo(source),
+    targetInfo: spriteInfo(target),
+    stage,
+  }};
+}}
+
+function runPendingPlayerDialog(stage) {{
+  if (pendingPlayerDialog === null) {{
+    return;
+  }}
+  const request = pendingPlayerDialog;
+  pendingPlayerDialog = null;
+  const source = knownSpritesByObj.get(request.sourceObj | 0);
+  const target = knownSpritesByObj.get(request.targetObj | 0);
+  if (!isKnown(source) || !isKnown(target)) {{
+    send({{
+      tag: 'Driver.frida.dialogue-by-obj.error',
+      stage,
+      err: 'missing-sprite',
+      sourceObj: request.sourceObj,
+      targetObj: request.targetObj,
+      known: Array.from(knownSpritesByObj.keys()),
+    }});
+    return;
+  }}
+  try {{
+    const result = runDialogueActionByMessage(source, target, stage);
+    send({{
+      tag: 'Driver.frida.dialogue-by-obj',
+      stage,
+      source: source.toString(),
+      target: target.toString(),
+      action: result.action,
+      sourceInfo: result.sourceInfo,
+      targetInfo: result.targetInfo,
+      world: worldInfo(),
+    }});
+  }} catch (e) {{
+    send({{
+      tag: 'Driver.frida.dialogue-by-obj.error',
+      stage,
+      err: '' + e,
+      source: source.toString(),
+      target: target.toString(),
+      sourceInfo: spriteInfo(source),
+      targetInfo: spriteInfo(target),
+      world: worldInfo(),
+    }});
+  }}
+}}
+
+function markHedronDialogExit(targetObj, sourceObj, stage) {{
+  if (!autoRevisitHedron || hedronFirstDialogExitedAt !== 0) {{
+    return;
+  }}
+  if ((targetObj | 0) !== HEDRON_REVISIT_TARGET_OBJ && (sourceObj | 0) !== HEDRON_REVISIT_TARGET_OBJ) {{
+    return;
+  }}
+  hedronFirstDialogExitedAt = Date.now();
+  send({{
+    tag: 'Driver.frida.hedron-dialog-exit',
+    stage,
+    targetObj,
+    sourceObj,
+    world: worldInfo(),
+  }});
+}}
+
+function maybeQueueHedronAutoRevisit(stage) {{
+  if (!autoRevisitHedron || hedronAutoRevisitQueued || hedronFirstDialogExitedAt === 0) {{
+    return;
+  }}
+  if (Date.now() - hedronFirstDialogExitedAt < 2500) {{
+    return;
+  }}
+  const world = worldInfo();
+  if (world.comingOutDialog !== 0) {{
+    return;
+  }}
+  const source = knownSpritesByObj.get(HEDRON_REVISIT_SOURCE_OBJ);
+  const target = knownSpritesByObj.get(HEDRON_REVISIT_TARGET_OBJ);
+  if (!isKnown(source) || !isKnown(target)) {{
+    return;
+  }}
+  hedronAutoRevisitQueued = true;
+  send({{
+    tag: 'Driver.frida.hedron-auto-revisit-ready',
+    stage,
+    source: source.toString(),
+    target: target.toString(),
+    sourceInfo: spriteInfo(source),
+    targetInfo: spriteInfo(target),
+    world,
+  }});
 }}
 
 function actionId(thiz) {{
@@ -2300,6 +2557,29 @@ rpc.exports = {{
   selectdialogdisplayid(displayId) {{
     return selectDialogDisplayId(displayId);
   }},
+  playerdialogbyobj(sourceObj, targetObj) {{
+    const source = knownSpritesByObj.get(sourceObj | 0);
+    const target = knownSpritesByObj.get(targetObj | 0);
+    if (!isKnown(source) || !isKnown(target)) {{
+      return {{
+        ok: false,
+        err: 'missing-sprite',
+        sourceObj,
+        targetObj,
+        known: Array.from(knownSpritesByObj.keys()),
+      }};
+    }}
+    pendingPlayerDialog = {{ sourceObj, targetObj }};
+    return {{
+      ok: true,
+      queued: true,
+      source: source.toString(),
+      target: target.toString(),
+      sourceInfo: spriteInfo(source),
+      targetInfo: spriteInfo(target),
+      world: worldInfo(),
+    }};
+  }},
 }};
 
 function worldInfo() {{
@@ -2402,10 +2682,15 @@ function gameSaveScreenInfo(game) {{
 
 function spriteInfo(thiz) {{
   try {{
+    const obj = objectId(thiz);
+    if (obj !== 0) {{
+      knownSpritesByObj.set(obj, thiz);
+    }}
     return {{
-      obj: objectId(thiz),
+      obj,
       aid: actionId(thiz),
       cut: thiz.add(O.inCutScene).readU8(),
+      pos: [thiz.add(O.pos).readS32(), thiz.add(O.pos + 4).readS32()],
       lastActionReturn: thiz.add(O.lastActionReturn).readS16(),
     }};
   }} catch (e) {{
@@ -2503,6 +2788,43 @@ function pointInfo(p) {{
   }} catch (e) {{
     return {{ err: '' + e }};
   }}
+}}
+
+function readS32Or(p, off, fallbackValue) {{
+  try {{
+    return p.add(off).readS32();
+  }} catch (e) {{
+    return fallbackValue;
+  }}
+}}
+
+function revisitTraceActive() {{
+  return autoRevisitHedron && hedronAutoRevisitQueued;
+}}
+
+function nearHedronWorldPoint(point) {{
+  if (!point || point.err) return false;
+  return Math.abs(point.x - 2503) <= 96 && Math.abs(point.y - 900) <= 128;
+}}
+
+function areaPickInfo(area) {{
+  if (!isRe) {{
+    return {{ area: area.toString(), skipped: 'original-layout' }};
+  }}
+  return {{
+    area: area.toString(),
+    pickedOnDown: readS32Or(area, AREA_PICK_RE.pickedOnDown, -999999),
+    picked: readS32Or(area, AREA_PICK_RE.picked, -999999),
+    pickedTarget: readS32Or(area, AREA_PICK_RE.pickedTarget, -999999),
+    pickedFlag: readS32Or(area, AREA_PICK_RE.pickedFlag, -999999),
+  }};
+}}
+
+function shouldTraceRevisitSpriteHit(info, point, ret) {{
+  if (!revisitTraceActive() || revisitHitTraceCount >= 160 || !nearHedronWorldPoint(point)) {{
+    return false;
+  }}
+  return info.obj === HEDRON_REVISIT_TARGET_OBJ || ret !== 0;
 }}
 
 function hookCalculateFxRectForDialogSprite(sprite) {{
@@ -2605,6 +2927,8 @@ let pauseTraceCount = 0;
 let soundTraceCount = 0;
 let songTraceCount = 0;
 let areaTraceCount = 0;
+let revisitHitTraceCount = 0;
+let revisitPickTraceCount = 0;
 let waitForEngineTraceCount = 0;
 let progressPollTraceCount = 0;
 let getGameSaveTraceCount = 0;
@@ -2613,6 +2937,7 @@ let knownObjectGame = ptr(0);
 let knownGameSave = ptr(0);
 let knownWorldTimer = ptr(0);
 let knownScreenWorld = ptr(0);
+const knownSpritesByObj = new Map();
 let activeChapter = ptr(0);
 let chapterStopSeen = false;
 let activeDialogueThis = ptr(0);
@@ -2622,6 +2947,7 @@ let dialogAddActionTraceCount = 0;
 const dialogAddActionMessages = new Set();
 let activeDialogAnimType = ptr(0);
 let activeDialogSprite = ptr(0);
+let activeDialogTalker = ptr(0);
 let activeDialogEntry = ptr(0);
 let activeDialogReplies = [];
 const calcFxHooks = {{}};
@@ -2776,6 +3102,77 @@ function hook(name, callbacks) {{
     send({{ tag: 'hook-error', name, err: '' + e }});
   }}
 }}
+
+for (const name of ['CGameArea::OnActionButtonDown', 'CGameArea::OnActionButtonUp']) {{
+  hook(name, {{
+    onEnter(args) {{
+      this.trace = revisitTraceActive() && revisitPickTraceCount < 120;
+      if (!this.trace) return;
+      revisitPickTraceCount++;
+      this.area = this.context.ecx;
+      this.point = pointInfo(args[0]);
+      this.before = areaPickInfo(this.area);
+      send({{
+        tag: name + '.revisit',
+        this: this.area.toString(),
+        point: this.point,
+        pick: this.before,
+        world: worldInfo(),
+      }});
+    }},
+    onLeave(rv) {{
+      if (!this.trace) return;
+      send({{
+        tag: name + '.revisit.ret',
+        this: this.area.toString(),
+        point: this.point,
+        before: this.before,
+        after: areaPickInfo(this.area),
+        world: worldInfo(),
+      }});
+    }}
+  }});
+}}
+
+hook('CGameSprite::IsOver', {{
+  onEnter(args) {{
+    this.traceCandidate = false;
+    if (!revisitTraceActive() || revisitHitTraceCount >= 160) return;
+    this.thiz = this.context.ecx;
+    this.point = pointInfo(args[0]);
+    this.traceCandidate = nearHedronWorldPoint(this.point);
+  }},
+  onLeave(rv) {{
+    if (!this.traceCandidate) return;
+    const ret = rv.toInt32();
+    const info = spriteInfo(this.thiz);
+    if (!shouldTraceRevisitSpriteHit(info, this.point, ret)) return;
+    revisitHitTraceCount++;
+    send({{
+      tag: 'Sprite.IsOver.revisit',
+      this: this.thiz.toString(),
+      point: this.point,
+      ret,
+      info,
+      world: worldInfo(),
+    }});
+  }}
+}});
+
+hook('CGameSprite::OnActionButton', {{
+  onEnter(args) {{
+    if (!revisitTraceActive() || revisitPickTraceCount >= 160) return;
+    revisitPickTraceCount++;
+    const thiz = this.context.ecx;
+    send({{
+      tag: 'Sprite.OnActionButton.revisit',
+      this: thiz.toString(),
+      point: pointInfo(args[0]),
+      info: spriteInfo(thiz),
+      world: worldInfo(),
+    }});
+  }}
+}});
 
 for (const name of [
   'CBaldurChitin::CBaldurChitin',
@@ -2947,11 +3344,29 @@ hook('CGameSprite::ExecuteAction', {{
   onEnter(args) {{
     const thiz = this.context.ecx;
     this.info = spriteInfo(thiz);
+    this.action = thiz.add(O.curAction);
+    if (
+      autoRevisitHedron
+      && this.info.obj === HEDRON_REVISIT_TARGET_OBJ
+      && this.info.aid === 8
+      && hedronDialogueActionTemplate.isNull()
+    ) {{
+      hedronDialogueActionTemplate = Memory.alloc(ACTION.size);
+      Memory.copy(hedronDialogueActionTemplate, this.action, ACTION.size);
+      send({{
+        tag: 'Driver.frida.hedron-dialogue-action-template',
+        this: thiz.toString(),
+        info: this.info,
+        action: actionInfoAt(hedronDialogueActionTemplate),
+        world: worldInfo(),
+      }});
+    }}
     if (interestingActions.has(this.info.aid)) {{
       send({{
         tag: 'Sprite.ExecuteAction',
         this: thiz.toString(),
         info: this.info,
+        action: actionInfoAt(this.action),
         s1: actionString1(thiz),
         world: worldInfo(),
       }});
@@ -3042,6 +3457,7 @@ hook('CGameArea::Unmarshal', {{
 
 hook('CGameArea::AIUpdate', {{
   onEnter(args) {{
+    maybeQueueHedronAutoRevisit('CGameArea::AIUpdate');
     const area = this.context.ecx;
     this.area = area;
     const info = areaInfo(area);
@@ -3052,6 +3468,7 @@ hook('CGameArea::AIUpdate', {{
     }}
   }},
   onLeave(rv) {{
+    runPendingPlayerDialog('CGameArea::AIUpdate.ret');
     if (!this.traced) return;
     send({{ tag: 'CGameArea.AIUpdate.ret', info: areaInfo(this.area) }});
   }}
@@ -3059,6 +3476,7 @@ hook('CGameArea::AIUpdate', {{
 
 hook('CGameArea::Render', {{
   onEnter(args) {{
+    maybeQueueHedronAutoRevisit('CGameArea::Render');
     const area = this.context.ecx;
     this.area = area;
     const info = areaInfo(area);
@@ -3074,6 +3492,12 @@ hook('CGameArea::Render', {{
   }}
 }});
 
+hook('CUIManager::Render', {{
+  onEnter(args) {{
+    maybeQueueHedronAutoRevisit('CUIManager::Render');
+  }}
+}});
+
 for (const name of ['CTimerWorld::StartTime', 'CTimerWorld::StopTime']) {{
   hook(name, {{
     onEnter(args) {{
@@ -3083,6 +3507,8 @@ for (const name of ['CTimerWorld::StartTime', 'CTimerWorld::StopTime']) {{
     }},
     onLeave(rv) {{
       send({{ tag: name + '.ret', after: worldInfo() }});
+      maybeQueueHedronAutoRevisit(name + '.ret');
+      runPendingPlayerDialog(name + '.ret');
     }}
   }});
 }}
@@ -3682,14 +4108,17 @@ hook('CMessageEnterDialog::Run', {{
 hook('CMessageExitDialogMode::Run', {{
   onEnter(args) {{
     const msg = this.context.ecx;
+    const targetObj = msg.add(0x04).readS32();
+    const sourceObj = msg.add(0x08).readS32();
     send({{
       tag: 'Message.ExitDialogMode.Run',
       this: msg.toString(),
-      target: msg.add(0x04).readS32(),
-      source: msg.add(0x08).readS32(),
+      target: targetObj,
+      source: sourceObj,
       buttonPushed: msg.add(0x0c).readU8(),
       world: worldInfo(),
     }});
+    markHedronDialogExit(targetObj, sourceObj, 'CMessageExitDialogMode::Run');
   }}
 }});
 
@@ -3712,7 +4141,9 @@ hook('CScreenWorld::EndDialog', {{
 
 hook('CGameDialogSprite::EndDialog', {{
   onEnter(args) {{
-    send({{ tag: 'CGameDialogSprite.EndDialog', this: this.context.ecx.toString(), world: worldInfo() }});
+    const talkerInfo = spriteInfo(activeDialogTalker);
+    send({{ tag: 'CGameDialogSprite.EndDialog', this: this.context.ecx.toString(), talker: activeDialogTalker.toString(), talkerInfo, world: worldInfo() }});
+    markHedronDialogExit(talkerInfo.obj | 0, 0, 'CGameDialogSprite::EndDialog');
   }}
 }});
 
@@ -3734,6 +4165,7 @@ hook('CGameDialogEntry::Handle', {{
     const replies = readDialogReplies(thiz);
     activeDialogEntry = thiz;
     activeDialogReplies = replies;
+    activeDialogTalker = sprite;
     send({{
       tag: 'Dialog.Entry.Handle',
       this: thiz.toString(),
@@ -4236,6 +4668,17 @@ def main() -> int:
                 cutscene = world.get("cutScene", -1)
                 state["world_coming_out_dialog"] = int(coming_out_dialog) if coming_out_dialog is not None else -1
                 state["world_cutscene"] = int(cutscene) if cutscene is not None else -1
+        if tag == "Sprite.IsOver.revisit":
+            info = payload.get("info", {})
+            point = payload.get("point", {})
+            ret = int(payload.get("ret", 0) or 0)
+            if isinstance(info, dict) and isinstance(point, dict) and int(info.get("obj", 0) or 0) == HEDRON_REVISIT_TARGET_OBJ and ret != 0:
+                with state_lock:
+                    if state.get("hedron_hover_scan_active"):
+                        probe = state.get("hedron_hover_probe")
+                        if isinstance(probe, (list, tuple)) and len(probe) == 2:
+                            state["hedron_hit_client"] = [int(probe[0]), int(probe[1])]
+                            state["hedron_hit_world"] = [int(point.get("x", 0) or 0), int(point.get("y", 0) or 0)]
         if "Dialog" in tag:
             set_state(dialog_seen=True)
         if tag in {"Dialog.Entry.Handle", "Dialog.EnterDialog.ret"}:
@@ -4342,7 +4785,7 @@ def main() -> int:
 
     if ns.mode == "re":
         print(f"resolved_re_hooks={len(hooks)} map={MAP_FILE}", flush=True)
-    script = session.create_script(make_js(ns.mode, party_index, ns.auto_chapter, hooks, globals_))
+    script = session.create_script(make_js(ns.mode, party_index, ns.auto_chapter, ns.revisit_hedron, hooks, globals_))
     script.on("message", on_message)
     script.load()
     if spawned:
