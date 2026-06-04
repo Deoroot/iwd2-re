@@ -65,6 +65,10 @@ SYMBOLS = {
     "Mixer.GetChannelStatus": "?GetChannelStatus@CSoundMixer@@QAEHXZ",
     "Sound.SetResRefWave": "?SetResRef@?$CResHelper@VCResWave@@$03@@QAEXABVCResRef@@HH@Z",
     "Sound.SetChannel": "?SetChannel@CSound@@QAEHHK@Z",
+    "Sound.CopyData": "?CopyData@CSound@@QAEHXZ",
+    "Sound.Create2DBuffer": "?Create2DBuffer@CSound@@QAEHPAUtWAVEFORMATEX@@@Z",
+    "Sound.Create3DBuffer": "?Create3DBuffer@CSound@@QAEHPAUtWAVEFORMATEX@@M@Z",
+    "Sound.ExclusivePlay": "?ExclusivePlay@CSound@@QAEHH@Z",
     "Sound.Play": "?Play@CSound@@QAEHH@Z",
     "Sound.PlayPos": "?Play@CSound@@QAEHHHHH@Z",
     "Dimm.GetMemoryAmount": "?GetMemoryAmount@CDimm@@QAEHXZ",
@@ -101,6 +105,10 @@ ORIG_HOOKS = {
     "Mixer.StopMusic": 0x7AC8E0,
     "Mixer.GetChannelStatus": 0x7ACA30,
     "Sound.SetChannel": 0x7AA4B0,
+    "Sound.CopyData": 0x7A9020,
+    "Sound.Create2DBuffer": 0x7A90D0,
+    "Sound.Create3DBuffer": 0x7A9260,
+    "Sound.ExclusivePlay": 0x7A94F0,
     "Sound.Play": 0x7A9B10,
     "Sound.PlayPos": 0x7A9DB0,
     "Music.musicForceSection": 0x7D60E0,
@@ -205,6 +213,8 @@ function bytes(p, n) {{
 function soundInfo(p) {{
   return {{
     ptr: p.toString(),
+    loading: s32(p.add(0x04)),
+    pRes: '0x' + u32(p.add(0x08)).toString(16),
     resref: resref(p.add(0x0c)),
     range: s32(p.add(0x20)),
     rangeVolume: s32(p.add(0x24)),
@@ -226,12 +236,12 @@ function areaInfo(p) {{
     dayMusic: u32(h),
     nightMusicByte: u8(h.add(0x04)),
     nightMusic: u32(h.add(0x04)),
-    dayAmbient: resref(h.add(0x24)),
-    dayAmbientExt: resref(h.add(0x2c)),
-    dayAmbientVolume: u32(h.add(0x34)),
-    nightAmbient: resref(h.add(0x38)),
-    nightAmbientExt: resref(h.add(0x40)),
-    nightAmbientVolume: u32(h.add(0x48)),
+    dayAmbient: resref(h.add(0x28)),
+    dayAmbientExt: resref(h.add(0x30)),
+    dayAmbientVolume: u32(h.add(0x38)),
+    nightAmbient: resref(h.add(0x3c)),
+    nightAmbientExt: resref(h.add(0x44)),
+    nightAmbientVolume: u32(h.add(0x4c)),
     ambientVolume: s32(p.add(0x984)),
     ambientDayVolume: s32(p.add(0x986)),
     ambientNightVolume: s32(p.add(0x988)),
@@ -312,7 +322,7 @@ for (const name of ['Area.SetDay', 'Area.SetNight']) {{
   attach(name, {{
     onEnter(args) {{
       this.area = this.context.ecx;
-      emit(name + '.in', {{ area: areaInfo(this.area), ambient: areaAmbientInfo(this.area) }});
+      emit(name + '.in', {{ area: areaInfo(this.area), ambient: areaAmbientInfo(this.area), headerBytes: bytes(this.area.add(0x5c), 0x58) }});
     }},
     onLeave(rv) {{ emit(name + '.out', {{ area: areaInfo(this.area), ambient: areaAmbientInfo(this.area) }}); }},
   }});
@@ -420,6 +430,16 @@ attach('Sound.Play', {{
   }},
   onLeave(rv) {{ if (this.trace) emit('Sound.Play.out', {{ ret: rv.toInt32(), sound: soundInfo(this.sound) }}); }},
 }});
+for (const name of ['Sound.CopyData', 'Sound.Create2DBuffer', 'Sound.Create3DBuffer', 'Sound.ExclusivePlay']) {{
+  attach(name, {{
+    onEnter(args) {{
+      this.sound = this.context.ecx;
+      this.replay = name === 'Sound.ExclusivePlay' ? args[0].toInt32() : undefined;
+      emit(name + '.in', {{ sound: soundInfo(this.sound), replay: this.replay }});
+    }},
+    onLeave(rv) {{ emit(name + '.out', {{ ret: rv.toInt32(), sound: soundInfo(this.sound), replay: this.replay }}); }},
+  }});
+}}
 attach('Sound.PlayPos', {{
   onEnter(args) {{
     const info = soundInfo(this.context.ecx);
