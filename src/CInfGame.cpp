@@ -5620,7 +5620,7 @@ void CInfGame::CompressContainer(LONG nContainerId)
         CGameObjectArray::THREAD_ASYNCH,
         reinterpret_cast<CGameObject**>(&pContainer),
         INFINITE);
-    if (rc = CGameObjectArray::SUCCESS) {
+    if (rc == CGameObjectArray::SUCCESS) {
         pContainer->CompressContainer();
 
         m_cObjectArray.ReleaseDeny(nContainerId,
