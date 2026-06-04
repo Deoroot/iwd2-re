@@ -50,6 +50,7 @@ SYMBOLS = {
     "Mixer.StartSong4": "?StartSong@CSoundMixer@@QAEXHHHK@Z",
     "Mixer.StopMusic": "?StopMusic@CSoundMixer@@QAEXH@Z",
     "Mixer.GetChannelStatus": "?GetChannelStatus@CSoundMixer@@QAEHXZ",
+    "Sound.SetResRefWave": "?SetResRef@?$CResHelper@VCResWave@@$03@@QAEXABVCResRef@@HH@Z",
     "Sound.SetChannel": "?SetChannel@CSound@@QAEHHK@Z",
     "Sound.Play": "?Play@CSound@@QAEHH@Z",
     "Sound.PlayPos": "?Play@CSound@@QAEHHHHH@Z",
@@ -106,6 +107,8 @@ let playCount = 0;
 let playPosCount = 0;
 let setChannelCount = 0;
 let dimmCount = 0;
+let areaScanCount = 0;
+let setResRefWaveCount = 0;
 
 function safe(fn, fallback) {{
   try {{ return fn(); }} catch (e) {{ return fallback; }}
@@ -113,6 +116,7 @@ function safe(fn, fallback) {{
 
 function s32(p) {{ return safe(() => Memory.readS32(p), 0); }}
 function u32(p) {{ return safe(() => Memory.readU32(p), 0); }}
+function u8(p) {{ return safe(() => Memory.readU8(p), 0); }}
 
 function resref(p) {{
   return safe(() => {{
@@ -124,6 +128,14 @@ function resref(p) {{
     }}
     return s;
   }}, '');
+}}
+
+function rangeInfo(p) {{
+  return safe(() => {{
+    const r = Process.findRangeByAddress(p);
+    if (r === null) return null;
+    return {{ base: r.base.toString(), size: r.size, protection: r.protection }};
+  }}, null);
 }}
 
 function cstr(p) {{
@@ -151,7 +163,9 @@ function areaInfo(p) {{
   return {{
     ptr: p.toString(),
     resref: resref(p.add(0x1f0)),
+    dayMusicByte: u8(h),
     dayMusic: u32(h),
+    nightMusicByte: u8(h.add(0x04)),
     nightMusic: u32(h.add(0x04)),
     dayAmbient: resref(h.add(0x24)),
     dayAmbientExt: resref(h.add(0x2c)),
@@ -159,8 +173,36 @@ function areaInfo(p) {{
     nightAmbient: resref(h.add(0x38)),
     nightAmbientExt: resref(h.add(0x40)),
     nightAmbientVolume: u32(h.add(0x48)),
-    currentSlot: s32(p.add(0x1626)),
+    ambientVolume: s32(p.add(0x984)),
+    ambientDayVolume: s32(p.add(0x986)),
+    ambientNightVolume: s32(p.add(0x988)),
+    currentSlot: s32(p.add(0xae8)),
   }};
+}}
+
+function areaAmbientInfo(p) {{
+  return {{
+    day: soundInfo(p.add(0x8bc)),
+    night: soundInfo(p.add(0x920)),
+  }};
+}}
+
+function areaScan(p) {{
+  const smallWords = [];
+  for (let off = 0; off < 0x1000; off += 4) {{
+    const v = u32(p.add(off));
+    if (v > 0 && v <= 40) smallWords.push(['0x' + off.toString(16), v]);
+    if (smallWords.length >= 80) break;
+  }}
+  const resrefs = [];
+  for (let off = 0; off < 0x1000; off++) {{
+    const s = resref(p.add(off));
+    if (/^[A-Z0-9_][A-Z0-9_][A-Z0-9_]*$/.test(s) && s.length <= 8) {{
+      resrefs.push(['0x' + off.toString(16), s]);
+    }}
+    if (resrefs.length >= 80) break;
+  }}
+  return {{ smallWords, resrefs }};
 }}
 
 function mixerInfo(p) {{
@@ -201,8 +243,11 @@ attach('Area.SetTimeOfDay', {{
 }});
 for (const name of ['Area.SetDay', 'Area.SetNight']) {{
   attach(name, {{
-    onEnter(args) {{ this.area = this.context.ecx; emit(name + '.in', {{ area: areaInfo(this.area) }}); }},
-    onLeave(rv) {{ emit(name + '.out', {{ area: areaInfo(this.area) }}); }},
+    onEnter(args) {{
+      this.area = this.context.ecx;
+      emit(name + '.in', {{ area: areaInfo(this.area), ambient: areaAmbientInfo(this.area) }});
+    }},
+    onLeave(rv) {{ emit(name + '.out', {{ area: areaInfo(this.area), ambient: areaAmbientInfo(this.area) }}); }},
   }});
 }}
 for (const name of ['Area.SetDawn', 'Area.SetDusk']) {{
@@ -216,6 +261,7 @@ attach('Area.GetSong', {{
   onLeave(rv) {{
     const rawSong = rv.toInt32() & 0xff;
     emit('Area.GetSong.ret', {{ area: areaInfo(this.area), slot: this.slot, song: rawSong >= 0x80 ? rawSong - 0x100 : rawSong, rawSong: rawSong }});
+    if (this.slot === 0 && areaScanCount++ < 2) emit('Area.scan', {{ area: this.area.toString(), range: rangeInfo(this.area), scan: areaScan(this.area) }});
   }},
 }});
 attach('Area.PlaySong', {{
@@ -256,8 +302,27 @@ attach('Sound.SetChannel', {{
     const area = args[1].toUInt32();
     if ((ch >= 16 && ch <= 20) || area !== 0) {{
       setChannelCount++;
-      if (setChannelCount <= 300) emit('Sound.SetChannel', {{ sound: soundInfo(this.context.ecx), newChannel: ch, newArea: '0x' + area.toString(16) }});
+      this.trace = setChannelCount <= 300;
+      this.sound = this.context.ecx;
+      if (this.trace) emit('Sound.SetChannel.in', {{ sound: soundInfo(this.sound), newChannel: ch, newArea: '0x' + area.toString(16) }});
     }}
+  }},
+  onLeave(rv) {{ if (this.trace) emit('Sound.SetChannel.out', {{ sound: soundInfo(this.sound), ret: rv.toInt32() }}); }},
+}});
+attach('Sound.SetResRefWave', {{
+  onEnter(args) {{
+    const helper = this.context.ecx;
+    const sound = helper.sub(4);
+    const rr = resref(args[0]);
+    if (rr === '' && setResRefWaveCount++ >= 40) return;
+    emit('Sound.SetResRefWave', {{
+      helper: helper.toString(),
+      sound: soundInfo(sound),
+      resref: rr,
+      bSetAutoRequest: args[1].toInt32(),
+      bWarningIfMissing: args[2].toInt32(),
+      caller: this.returnAddress.toString(),
+    }});
   }},
 }});
 attach('Sound.Play', {{
