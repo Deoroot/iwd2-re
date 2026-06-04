@@ -14152,7 +14152,92 @@ SHORT CGameSprite::ExecuteAction()
         return Face();
     }
 
+    // 0x72A19E (ExecuteAction jumptable case 0x3A). UseContainer(O:Object*): the
+    // leader, having walked to the pile via the queued MoveToPoint, opens it.
+    if (m_curAction.m_actionID == CAIAction::USECONTAINER) {
+        return UseContainer();
+    }
+
     return CGameAIBase::ExecuteAction();
+}
+
+// 0x7555F0
+SHORT CGameSprite::UseContainer()
+{
+    SHORT actionReturn = ACTION_INTERRUPTABLE;
+
+    if (m_actionCount >= 1) {
+        return actionReturn;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    BOOL bEligible = pGame->GetCharacterPortraitNum(m_id) != -1;
+    if (!bEligible) {
+        actionReturn = ACTION_DONE;
+        bEligible = pGame->IsFamiliar(m_id);
+    }
+    if (!bEligible || !Orderable(FALSE) || !m_bSelected) {
+        return actionReturn;
+    }
+
+    actionReturn = ACTION_ERROR;
+
+    // The container is the current action's actee (set when the click queued the
+    // UseContainer action). Share it by id directly -- ResolveActionTarget() runs
+    // type/immunity matching that is not valid for a container and faults.
+    LONG nContainerId = m_curAction.m_acteeID.GetInstance();
+    CGameObjectArray* pArray = pGame->GetObjectArray();
+
+    CGameObject* pContainer;
+    if (pArray->GetShare(nContainerId, CGameObjectArray::THREAD_ASYNCH, &pContainer, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        return actionReturn;
+    }
+
+    // NOTE: the original broadcasts two MP-sync messages here (the container-touch
+    // trigger + a marker message); SP-inert, deferred.
+
+    CPoint posContainer = pContainer->GetPos();
+    CPoint posSelf = GetPos();
+    INT dx = posContainer.x - posSelf.x;
+    INT dy = posContainer.y - posSelf.y;
+    INT nRange = CPathSearch::GRID_SQUARE_SIZEX * CPathSearch::GRID_SQUARE_SIZEX * 16;
+
+    if (nRange < (dy * dy * 16) / 9 + dx * dx) {
+        // Not adjacent yet -- the queued MoveToPoint is walking us in.
+        pArray->ReleaseShare(nContainerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return ACTION_DONE;
+    }
+
+    // NOTE: the original drops the actor's invisibility (CGameEffect opcode 0x88)
+    // here before opening; deferred.
+
+    if (pContainer->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+        CGameContainer* pCont = static_cast<CGameContainer*>(pContainer);
+        if ((pCont->m_dwFlags & 0x1) != 0
+            && (pCont->m_keyType == "" || !PartyHasItem(pCont->m_keyType))) {
+            // Locked, and the party is not carrying its key.
+            DisplayTextRef(-1, 0x4D96, 0, RGB(0xD7, 0xD7, 0xBE));
+            pArray->ReleaseShare(nContainerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return ACTION_DONE;
+        }
+        pCont->OpenContainer(m_typeAI);
+    }
+
+    pArray->ReleaseShare(nContainerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    if (pGame->GetCharacterPortraitNum(m_id) == -1) {
+        DisplayTextRef(-1, 0x1D7A, 0xFF, 0xFF);
+    } else {
+        pGame->m_iContainer = nContainerId;
+        pGame->m_iContainerSprite = m_id;
+        g_pBaldurChitin->GetScreenWorld()->ConfigureContainer();
+    }
+
+    ClearActions(FALSE);
+
+    return ACTION_INTERRUPTABLE;
 }
 
 static void SetDialogueTalkedTo(CGameSprite* pSource, CGameSprite* pTarget)
