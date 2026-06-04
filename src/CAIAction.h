@@ -19,6 +19,7 @@ public:
     static const SHORT DIALOGUE;
     static const SHORT MOVETOPOINT;
     static const SHORT PROTECTPOINT;
+    static const SHORT REMOVETRAPS;
     static const SHORT PICKPOCKETS;
     static const SHORT SPELL;
     static const SHORT USEITEM;
@@ -54,11 +55,14 @@ public:
     static const SHORT ATTACKONEROUND;
     static const SHORT SHOUT;
     static const SHORT LEAVEAREALUA;
+    static const SHORT USECONTAINER;
     static const SHORT FORCESPELL;
     static const SHORT FORCESPELLPOINT;
     static const SHORT TAKEPARTYGOLD;
     static const SHORT STARTDIALOG;
     static const SHORT PLAYERDIALOG;
+    static const SHORT PICKLOCK;
+    static const SHORT BASHDOOR;
     static const SHORT APPLYSPELL;
     static const SHORT GIVEGOLDFORCE;
     static const SHORT MOVETOOBJECTFOLLOW;

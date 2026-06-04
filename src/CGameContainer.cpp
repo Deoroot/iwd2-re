@@ -1,5 +1,8 @@
 #include "CGameContainer.h"
 
+#include "CAIAction.h"
+#include "CAIGroup.h"
+#include "CAIObjectType.h"
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
@@ -521,6 +524,120 @@ BOOL CGameContainer::IsOver(const CPoint& pt)
     }
 
     return TRUE;
+}
+
+// 0x47E970
+void CGameContainer::OnActionButton(const CPoint& pt)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // NOTE: when multiplayer (g_pBaldurChitin + 0x96E != NULL) the original also
+    // broadcasts CMessageContainerAddItem(CItem(), 0x7FFF, FALSE, m_id, m_id) here
+    // to replicate the interaction to the server. SP-inert; the network-session
+    // field is not yet mapped, so that broadcast is left unrecovered.
+
+    // An empty ground pile behaves like plain ground: just walk there.
+    if (m_containerType == 4 && m_lstItems.GetCount() == 0) {
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+        CGameObject::OnActionButton(pt);
+        return;
+    }
+
+    CAIGroup* pGroup = pGame->GetGroup();
+
+    switch (pGame->GetState()) {
+    case 0:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+
+        if (pGroup->GetCount() != 0) {
+            CAIObjectType containerType(0, 0, 0, 0, 0, 0, 0, 0, GetId(), 0, 0);
+
+            // Only the group leader walks to the pile and opens it; the rest of
+            // the group is given NULL_ACTION.
+            CAIAction useContainer(CAIAction::USECONTAINER, containerType, 0, 0, 0);
+            pGroup->GroupAction(CAIAction(), TRUE, &useContainer);
+
+            CAIAction moveToPile(CAIAction::MOVETOPOINT, m_ptWalkToUse, 0, -1);
+            pGroup->GroupAction(CAIAction(), FALSE, &moveToPile);
+        }
+        break;
+
+    case 2:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+
+        switch (pGame->GetIconIndex()) {
+        case 0x0C: {
+            // Bash the container open.
+            if ((m_dwFlags & 0x1) == 0) {
+                CGameObject::OnActionButton(pt);
+                return;
+            }
+            CAIObjectType containerType(0, 0, 0, 0, 0, 0, 0, 0, GetId(), 0, 0);
+            CAIAction bash(CAIAction::BASHDOOR, containerType, 0, 0, 0);
+            pGroup->GroupAction(CAIAction::NULL_ACTION, TRUE, &bash);
+            break;
+        }
+
+        case 0x12:
+        case 0x28:
+        case 0xFF:
+            CGameObject::OnActionButton(pt);
+            return;
+
+        case 0x14:
+            // Cast the pending spell on the container.
+            pGame->UseMagicOnObject(GetId());
+            break;
+
+        case 0x24: {
+            // Thief skills: disarm a known active trap, otherwise pick the lock.
+            if (m_trapActivated == 0 || m_trapDetected == 0) {
+                if ((m_dwFlags & 0x1) == 0) {
+                    CGameObject::OnActionButton(pt);
+                    return;
+                }
+                // NOTE: the original first aborts if the selected leader lacks the
+                // pick-locks skill (GetScreenWorld()->GetSelectedCharacter() then a
+                // capability byte on that sprite); that gate reads an unmapped
+                // CGameSprite field and is left unrecovered.
+                CAIObjectType containerType(0, 0, 0, 0, 0, 0, 0, 0, GetId(), 0, 0);
+                CAIAction pickLock(CAIAction::PICKLOCK, containerType, 0, 0, 0);
+                pGroup->GroupAction(CAIAction::NULL_ACTION, TRUE, &pickLock);
+            } else {
+                // NOTE: the original first aborts if the leader lacks the
+                // remove-traps skill (unmapped CGameSprite field); not recovered.
+                CAIObjectType containerType(0, 0, 0, 0, 0, 0, 0, 0, GetId(), 0, 0);
+                CAIAction removeTraps(CAIAction::REMOVETRAPS, containerType, 0, 0, 0);
+                pGroup->GroupAction(CAIAction::NULL_ACTION, TRUE, &removeTraps);
+            }
+            break;
+        }
+
+        default:
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameContainer.cpp
+            // __LINE__: 1215
+            UTIL_ASSERT(FALSE);
+        }
+
+        pGame->SetState(0);
+        pGame->GetButtonArray()->SetSelectedButton(100);
+        pGame->GetButtonArray()->UpdateState();
+        break;
+
+    case 3:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+        CGameObject::OnActionButton(pt);
+        break;
+
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameContainer.cpp
+        // __LINE__: 1226
+        UTIL_ASSERT(FALSE);
+    }
 }
 
 // 0x47F580
