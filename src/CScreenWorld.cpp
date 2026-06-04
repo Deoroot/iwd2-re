@@ -2390,30 +2390,29 @@ void CScreenWorld::ConfigureContainer()
 
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
-    // Open sound by container type.
+    // Open sound + container graphic (control 0x32) by container type.
+    CResRef cContainerBam;
     switch (pGame->GetContainerType(pGame->m_iContainer)) {
-    case 1:  PlayGUISound(CResRef("GAM_12A")); break;
-    case 2:  PlayGUISound(CResRef("AMB_D05A")); break;
-    case 3:  PlayGUISound(CResRef("AMB_D05A")); break;
-    case 4:  PlayGUISound(CResRef("AMB_D18")); break;
-    case 5:  PlayGUISound(CResRef("AMB_D08")); break;
-    case 6:  PlayGUISound(CResRef("AMB_D07")); break;
-    case 7:  PlayGUISound(CResRef("AMB_D07")); break;
-    case 8:  PlayGUISound(CResRef("AMB_D18")); break;
-    case 9:  PlayGUISound(CResRef("GAM_06")); break;
-    case 10: PlayGUISound(CResRef("AMB_D08G")); break;
-    case 11: PlayGUISound(CResRef("AMB_D12")); break;
-    case 12: PlayGUISound(CResRef("AMB_D05A")); break;
+    case 1:  PlayGUISound(CResRef("GAM_12A"));  cContainerBam = CResRef("CONTSACK"); break;
+    case 2:  PlayGUISound(CResRef("AMB_D05A")); cContainerBam = CResRef("CONTCHST"); break;
+    case 3:  PlayGUISound(CResRef("AMB_D05A")); cContainerBam = CResRef("CONTDRWR"); break;
+    case 4:  PlayGUISound(CResRef("AMB_D18"));  cContainerBam = CResRef("CONTGRND"); break;
+    case 5:  PlayGUISound(CResRef("AMB_D08"));  cContainerBam = CResRef("CONTTABL"); break;
+    case 6:  PlayGUISound(CResRef("AMB_D07"));  cContainerBam = CResRef("CONTSHLF"); break;
+    case 7:  PlayGUISound(CResRef("AMB_D07"));  cContainerBam = CResRef("CONTALTR"); break;
+    case 8:  PlayGUISound(CResRef("AMB_D18"));  cContainerBam = CResRef(""); break;
+    case 9:  PlayGUISound(CResRef("GAM_06"));   cContainerBam = CResRef("CONTBOOK"); break;
+    case 10: PlayGUISound(CResRef("AMB_D08G")); cContainerBam = CResRef("CONTBODY"); break;
+    case 11: PlayGUISound(CResRef("AMB_D12"));  cContainerBam = CResRef("CONTBARL"); break;
+    case 12: PlayGUISound(CResRef("AMB_D05A")); cContainerBam = CResRef("CONTCRAT"); break;
+    default: cContainerBam = CResRef("CONTBODY"); break;
     }
+
+    static_cast<CUIControlButtonWorldContainerIcon*>(pPanel->GetControl(0x32))->m_resRef = cContainerBam;
 
     // Looting character's encumbrance/volume (control 0x36) and party gold
     // (control 0x10000036).
     UpdateContainerEncumbrance();
-
-    // NOTE: the original also paints the container's BAM image onto control 0x32
-    // (by type: CONTSACK/CONTCHST/CONTDRWR/CONTGRND/CONTTABL/CONTSHLF/CONTALTR/
-    // CONTBOOK/CONTBODY/CONTBARL/CONTCRAT). That graphic is deferred; the loot
-    // item grid itself renders from m_iContainer through the recovered path.
 }
 
 // 0x691090
