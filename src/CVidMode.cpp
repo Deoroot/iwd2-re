@@ -1607,10 +1607,10 @@ void CVidMode::DrawRecticle32(const CVIDMODE_RECTICLE_DESCRIPTION& recticleDesc,
 
     if (rClip != NULL) {
         rLineClip.SetRect(rClip->left, rClip->top, rClip->right - 1, rClip->bottom - 1);
-        bLineClipped = TRUE;
+        bLineClipped = FALSE;
     } else {
         rLineClip.SetRect(0, 0, 0, 0);
-        bLineClipped = FALSE;
+        bLineClipped = TRUE;
     }
 
     LONG nArcLength = GetEllipseArcPixelList(recticleDesc.xAxis,
