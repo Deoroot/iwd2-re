@@ -5384,6 +5384,63 @@ LONG CInfGame::GetGroundPile(LONG iSprite)
     return iGroundPile;
 }
 
+// 0x5C7440
+//
+// An item that could not be placed where the loot/give code intended must not
+// leak.  Droppable items go on the disposable list; an undroppable (flag 0x1)
+// item is force-fit into a free personal slot on the looter -- bumping a
+// droppable occupant if necessary -- so quest items can never be lost.
+void CInfGame::PutBackItem(CItem* pItem, LONG nLooterId)
+{
+    if ((pItem->GetFlagsFile() & 0x1) == 0) {
+        AddDisposableItem(pItem);
+        return;
+    }
+
+    CGameSprite* pLooter;
+    BYTE rc;
+    do {
+        rc = m_cObjectArray.GetShare(nLooterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pLooter),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    INT nEmptySlot = -1;
+    INT nBumpSlot = -1;
+    for (INT nSlot = 18; nSlot < 34; nSlot++) {
+        CItem* pSlotItem = pLooter->GetEquipment()->m_items[nSlot];
+        if (pSlotItem == NULL) {
+            nEmptySlot = nSlot;
+        } else if ((pSlotItem->GetFlagsFile() & 0x1) == 0) {
+            nBumpSlot = nSlot;
+        }
+    }
+
+    if (nEmptySlot < 0) {
+        if (nBumpSlot < 0) {
+            AddDisposableItem(pItem);
+            m_cObjectArray.ReleaseShare(nLooterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return;
+        }
+        CItem* pBumped = pLooter->GetEquipment()->m_items[nBumpSlot];
+        if (pBumped != NULL) {
+            AddDisposableItem(pBumped);
+        }
+        pLooter->GetEquipment()->m_items[nBumpSlot] = pItem;
+    } else {
+        pLooter->GetEquipment()->m_items[nEmptySlot] = pItem;
+    }
+
+    CMessage* message = new CMessageSpriteEquipment(pLooter, nLooterId, nLooterId);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+    m_cObjectArray.ReleaseShare(nLooterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+}
+
 // 0x5B7730
 BOOL CInfGame::CanTakeContainerItem(LONG nContainerId, SHORT nSlotNum, CGameSprite* pLooter, SHORT nPortrait)
 {
