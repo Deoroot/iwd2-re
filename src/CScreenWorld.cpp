@@ -6,6 +6,7 @@
 #include "CDeathSound.h"
 #include "CGameArea.h"
 #include "CGameSprite.h"
+#include "CIcon.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CScreenChapter.h"
@@ -3817,9 +3818,98 @@ void CUIControlButtonWorldContainerSlot::OnLButtonClick(CPoint pt)
 // 0x696140
 BOOL CUIControlButtonWorldContainerSlot::Render(BOOL bForce)
 {
-    // TODO: Incomplete.
+    CResRef cResIcon;
+    CResRef cResItem;
 
-    return FALSE;
+    if (!m_bActive && !m_bInactiveRender) {
+        return FALSE;
+    }
+
+    if (m_nRenderCount == 0 && !bForce) {
+        return FALSE;
+    }
+
+    if (!CUIControlButton::Render(bForce)) {
+        return FALSE;
+    }
+
+    CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+    // __LINE__: 10646
+    UTIL_ASSERT(pWorld != NULL);
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+    // __LINE__: 10648
+    UTIL_ASSERT(pGame != NULL);
+
+    SHORT nPortrait = static_cast<SHORT>(pGame->GetCharacterPortraitNum(pGame->m_iContainerSprite));
+
+    CItem* pItem = NULL;
+    STRREF description = -1;
+    WORD wCount = 0;
+    BOOL bHasIcon = FALSE;
+
+    switch (m_nID) {
+    case 0: case 1: case 2: case 3: case 4:
+    case 5: case 6: case 7: case 8: case 9: {
+        LONG nContainer = pGame->m_iContainer;
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+        // __LINE__: 10673
+        UTIL_ASSERT(nContainer != CGameObjectArray::INVALID_INDEX);
+
+        // 5 = ground container columns per row.
+        SHORT nSlot = static_cast<SHORT>(pWorld->m_nTopContainerRow * 5 + m_nID);
+        pGame->InventoryInfoGround(nContainer, nSlot, pItem, description, cResIcon, cResItem, wCount);
+        bHasIcon = (cResIcon != "");
+        break;
+    }
+    case 10: case 11: case 12: case 13: {
+        // 2 = personal columns per row; +8 maps button ids 10-13 onto backpack
+        // slot 18 (the looter's equipment occupies personal slots 0-17).
+        SHORT nSlot = static_cast<SHORT>(pWorld->m_nTopGroupRow * 2 + m_nID + 8);
+        pGame->InventoryInfoPersonal(nPortrait, nSlot, pItem, description, cResIcon, cResItem, wCount, TRUE);
+        bHasIcon = (cResIcon != "");
+        break;
+    }
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+        // __LINE__: 10709
+        UTIL_ASSERT(FALSE);
+        break;
+    }
+
+    if (bHasIcon) {
+        CRect rControlFrame(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
+        CRect rClip;
+        rClip.IntersectRect(rControlFrame, m_rDirty);
+
+        CIcon::RenderIcon(0,
+            rControlFrame.TopLeft(),
+            m_size,
+            rClip,
+            cResIcon,
+            m_pPanel->m_pManager->m_bDoubleSize,
+            0,
+            wCount,
+            FALSE,
+            0,
+            FALSE,
+            0);
+
+        // NOTE: original paints STORTIN2/STORTINT/STORTIN4/STORTIN3 tint
+        // overlays (CVidCell BAM blits, CVidCell::Render mode 2 trans 0xC0)
+        // over the icon when pItem != NULL, keyed on CItem::m_flags bits 0x1
+        // (stolen) / 0x8 and the looter's usability (FUN_005b9c60 +
+        // CheckItemUsable).  Deferred: those tints only decorate stolen /
+        // unusable loot and need the looter-share predicate recovered first.
+    }
+
+    SetToolTipStrRef(description, -1, -1);
+    return TRUE;
 }
 
 // -----------------------------------------------------------------------------
