@@ -80,6 +80,7 @@ public:
     void AddGold(DWORD dwGold);
     void StopContainer();
     void ConfigureContainer();
+    void UpdateContainerEncumbrance();
     void CancelPopup();
     void StartCommand();
     void StopCommand();

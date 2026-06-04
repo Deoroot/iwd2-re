@@ -10,6 +10,7 @@
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CItem.h"
+#include "CRuleTables.h"
 #include "CScreenChapter.h"
 #include "CScreenConnection.h"
 #include "CScreenInventory.h"
@@ -17,6 +18,8 @@
 #include "CScreenMap.h"
 #include "CScreenMultiPlayer.h"
 #include "CScreenWorldMap.h"
+#include "CUIControlFactory.h"
+#include "CUIControlLabel.h"
 #include "CUIControlTextDisplay.h"
 #include "CMessage.h"
 #include "CUIPanel.h"
@@ -2303,6 +2306,52 @@ void CScreenWorld::StopContainer()
     m_nPopupState = -1;
 }
 
+// NOTE: Uninline.
+//
+// Refresh the container panel's encumbrance widget (control 0x36) and the
+// party-gold label (control 0x10000036) from the looting character.  The
+// original inlines this both on open (ConfigureContainer) and after every
+// loot transfer (CUIControlButtonWorldContainerSlot::OnLButtonClick).
+void CScreenWorld::UpdateContainerEncumbrance()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    LONG nLooterId = pGame->m_iContainerSprite;
+
+    CGameSprite* pLooter;
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nLooterId, CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pLooter), INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    CUIPanel* pPanel = m_cUIManager.GetPanel(8);
+    CUIControlEncumbrance* pEncumbrance = static_cast<CUIControlEncumbrance*>(pPanel->GetControl(0x36));
+
+    INT nWeight = static_cast<INT>(pLooter->GetCarriedWeight());
+    SHORT nStr = pLooter->GetActiveStats()->m_nSTR;
+
+    // Max carry weight: the STRENGTH_MODIFIERS table's max-load column (3) for
+    // this STR, scaled by the character's encumbrance modifier (percent).
+    INT nMaxWeight = static_cast<INT>(static_cast<float>(pGame->GetRuleTables().GetEncumbranceMod(pLooter)) / 100.0f
+        * static_cast<float>(atol(pGame->GetRuleTables().m_tStrengthMod.GetAt(CPoint(3, nStr)))));
+
+    INT nUsedSlots;
+    INT nTotalSlots;
+    pLooter->GetNumInventoryPersonalSlots(nUsedSlots, nTotalSlots);
+
+    pEncumbrance->SetVolume(nUsedSlots, nTotalSlots);
+    pEncumbrance->SetEncumbrance(nWeight, nMaxWeight);
+
+    pGame->GetObjectArray()->ReleaseShare(nLooterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    CString sGold;
+    sGold.Format("%d", pGame->GetGameSave()->m_nPartyGold);
+    static_cast<CUIControlLabel*>(pPanel->GetControl(0x10000036))->SetText(sGold);
+}
+
 // 0x690820
 void CScreenWorld::ConfigureContainer()
 {
@@ -2357,12 +2406,14 @@ void CScreenWorld::ConfigureContainer()
     case 12: PlayGUISound(CResRef("AMB_D05A")); break;
     }
 
-    // NOTE: the original then paints the container's BAM image onto control 0x32
+    // Looting character's encumbrance/volume (control 0x36) and party gold
+    // (control 0x10000036).
+    UpdateContainerEncumbrance();
+
+    // NOTE: the original also paints the container's BAM image onto control 0x32
     // (by type: CONTSACK/CONTCHST/CONTDRWR/CONTGRND/CONTTABL/CONTSHLF/CONTALTR/
-    // CONTBOOK/CONTBODY/CONTBARL/CONTCRAT) and the looting character's encumbrance/
-    // volume onto control 0x36 (GetCarriedWeight + GetNumInventoryPersonalSlots +
-    // UpdateLabel 0x10000036). Those panel decorations are deferred; the loot item
-    // grid itself renders from m_iContainer through the recovered display path.
+    // CONTBOOK/CONTBODY/CONTBARL/CONTCRAT). That graphic is deferred; the loot
+    // item grid itself renders from m_iContainer through the recovered path.
 }
 
 // 0x691090
@@ -3997,11 +4048,8 @@ void CUIControlButtonWorldContainerSlot::OnLButtonClick(CPoint pt)
         break;
     }
 
-    // NOTE: the original then re-shares the looter and refreshes the container
-    // panel's encumbrance control (0x36: GetCarriedWeight + the STR max-load
-    // table + CRuleTables::GetEncumbranceMod -> SetEncumbrance/SetVolume) plus
-    // the carried-weight label (0x10000036). That weight readout is deferred --
-    // it is shared with ConfigureContainer and recovered together with it.
+    // Refresh the looter's encumbrance/volume and the party-gold readout.
+    pWorld->UpdateContainerEncumbrance();
 }
 
 // 0x696140
