@@ -212,7 +212,7 @@ public:
     void SetSoundEnvironment();
     void SortLists();
     BOOL SetSong(SHORT slot, BYTE song);
-    BYTE GetSong(SHORT slot);
+    char GetSong(SHORT slot);
     void PlaySong(SHORT slot, DWORD flags);
     void LoadLocalVariables();
     int ExitSpawn();

@@ -4694,7 +4694,7 @@ void CGameArea::SetDawn(BYTE nIntensity, BOOLEAN bPlayDayNightMovie)
     }
 
     if (nIntensity == CInfinity::TRUE_DAWNDUSK_INTENSITY) {
-        BYTE nSong = GetSong(0);
+        char nSong = GetSong(0);
         g_pBaldurChitin->RemoveMusicPosition(m_resRef, nSong);
         PlaySong(0, 0x4 | 0x2);
     }
@@ -5158,7 +5158,7 @@ BOOL CGameArea::SetSong(SHORT slot, BYTE song)
 }
 
 // 0x479DB0
-BYTE CGameArea::GetSong(SHORT slot)
+char CGameArea::GetSong(SHORT slot)
 {
     if (slot > 256) {
         return -1;
@@ -5166,47 +5166,47 @@ BYTE CGameArea::GetSong(SHORT slot)
 
     // TODO: Check casts.
 
-    BYTE song;
+    char song;
     if (slot != 256) {
         switch (slot) {
         case 0:
-            song = static_cast<BYTE>(m_headerSound.m_dayMusic);
+            song = static_cast<char>(m_headerSound.m_dayMusic);
             break;
         case 1:
-            song = static_cast<BYTE>(m_headerSound.m_nightMusic);
+            song = static_cast<char>(m_headerSound.m_nightMusic);
             break;
         case 2:
-            song = static_cast<BYTE>(m_headerSound.m_battleWinningMusic);
+            song = static_cast<char>(m_headerSound.m_battleWinningMusic);
             break;
         case 3:
-            song = static_cast<BYTE>(m_headerSound.m_battleStandOffMusic);
+            song = static_cast<char>(m_headerSound.m_battleStandOffMusic);
             break;
         case 4:
-            song = static_cast<BYTE>(m_headerSound.m_battleLosingMusic);
+            song = static_cast<char>(m_headerSound.m_battleLosingMusic);
             break;
         case 5:
-            song = static_cast<BYTE>(m_headerSound.m_alt1Music0);
+            song = static_cast<char>(m_headerSound.m_alt1Music0);
             break;
         case 6:
-            song = static_cast<BYTE>(m_headerSound.m_alt1Music1);
+            song = static_cast<char>(m_headerSound.m_alt1Music1);
             break;
         case 7:
-            song = static_cast<BYTE>(m_headerSound.m_alt1Music2);
+            song = static_cast<char>(m_headerSound.m_alt1Music2);
             break;
         case 8:
-            song = static_cast<BYTE>(m_headerSound.m_alt1Music3);
+            song = static_cast<char>(m_headerSound.m_alt1Music3);
             break;
         case 9:
-            song = static_cast<BYTE>(m_headerSound.m_alt1Music4);
+            song = static_cast<char>(m_headerSound.m_alt1Music4);
             break;
         default:
             return -1;
         }
     } else {
         if (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsDay() || g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsDusk()) {
-            song = static_cast<BYTE>(m_headerSound.m_dayMusic);
+            song = static_cast<char>(m_headerSound.m_dayMusic);
         } else {
-            song = static_cast<BYTE>(m_headerSound.m_nightMusic);
+            song = static_cast<char>(m_headerSound.m_nightMusic);
         }
     }
 

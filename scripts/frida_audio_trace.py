@@ -41,7 +41,7 @@ SYMBOLS = {
     "Area.SetNight": "?SetNight@CGameArea@@QAEXXZ",
     "Area.SetDawn": "?SetDawn@CGameArea@@QAEXEE@Z",
     "Area.SetDusk": "?SetDusk@CGameArea@@QAEXEE@Z",
-    "Area.GetSong": "?GetSong@CGameArea@@QAEEF@Z",
+    "Area.GetSong": "?GetSong@CGameArea@@QAEDF@Z",
     "Area.PlaySong": "?PlaySong@CGameArea@@QAEXFK@Z",
     "Mixer.SetListenPosition": "?SetListenPosition@CSoundMixer@@QAEXHHH@Z",
     "Mixer.SetChannelVolume": "?SetChannelVolume@CSoundMixer@@QAEXHH@Z",
@@ -213,7 +213,10 @@ for (const name of ['Area.SetDawn', 'Area.SetDusk']) {{
 }}
 attach('Area.GetSong', {{
   onEnter(args) {{ this.area = this.context.ecx; this.slot = args[0].toInt32(); }},
-  onLeave(rv) {{ emit('Area.GetSong.ret', {{ area: areaInfo(this.area), slot: this.slot, song: rv.toInt32() & 0xff }}); }},
+  onLeave(rv) {{
+    const rawSong = rv.toInt32() & 0xff;
+    emit('Area.GetSong.ret', {{ area: areaInfo(this.area), slot: this.slot, song: rawSong >= 0x80 ? rawSong - 0x100 : rawSong, rawSong: rawSong }});
+  }},
 }});
 attach('Area.PlaySong', {{
   onEnter(args) {{ emit('Area.PlaySong', {{ area: areaInfo(this.context.ecx), slot: args[0].toInt32(), flags: args[1].toUInt32() }}); }},
