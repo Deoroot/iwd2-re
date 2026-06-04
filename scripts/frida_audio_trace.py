@@ -54,6 +54,18 @@ SYMBOLS = {
     "Sound.Play": "?Play@CSound@@QAEHH@Z",
     "Sound.PlayPos": "?Play@CSound@@QAEHHHHH@Z",
     "Dimm.GetMemoryAmount": "?GetMemoryAmount@CDimm@@QAEHXZ",
+    "Music.musicForceSection": "?musicForceSection@@YAHHHH@Z",
+    "Music.forceSong": "?forceSong@@YAHHHH@Z",
+    "Music.internalMusicPlay": "?internalMusicPlay@@YAHHHH@Z",
+    "Music.musicSetSong": "?musicSetSong@@YAHHHH@Z",
+    "Music.musicFade": "?musicFade@@YAXHHHH@Z",
+    "Music.musicStop": "?musicStop@@YAHXZ",
+    "Music.musicForceStop": "?musicForceStop@@YAHXZ",
+    "Music.musicLoadSongList": "?musicLoadSongList@@YAHPAPADH@Z",
+    "Music.musicSetPath": "?musicSetPath@@YAHPBD0@Z",
+    "SoundBackend.soundLoad": "?soundLoad@@YAHPAUtag_sound@@PAD@Z",
+    "SoundBackend.soundPlayFromPosition": "?soundPlayFromPosition@@YAHPAUtag_sound@@H@Z",
+    "SoundBackend.soundDelete": "?soundDelete@@YAHPAUtag_sound@@@Z",
 }
 
 
@@ -112,6 +124,11 @@ function resref(p) {{
     }}
     return s;
   }}, '');
+}}
+
+function cstr(p) {{
+  if (p.isNull()) return '';
+  return safe(() => Memory.readCString(p), '');
 }}
 
 function soundInfo(p) {{
@@ -264,6 +281,45 @@ attach('Sound.PlayPos', {{
 }});
 attach('Dimm.GetMemoryAmount', {{
   onLeave(rv) {{ if (dimmCount++ < 40) emit('Dimm.GetMemoryAmount.ret', {{ ret: rv.toInt32() }}); }},
+}});
+attach('Music.musicLoadSongList', {{
+  onEnter(args) {{ this.num = args[1].toInt32(); emit('Music.musicLoadSongList.in', {{ num: this.num }}); }},
+  onLeave(rv) {{ emit('Music.musicLoadSongList.out', {{ ret: rv.toInt32(), num: this.num }}); }},
+}});
+attach('Music.musicSetPath', {{
+  onEnter(args) {{ emit('Music.musicSetPath.in', {{ path: cstr(args[0]), ext: cstr(args[1]) }}); }},
+  onLeave(rv) {{ emit('Music.musicSetPath.out', {{ ret: rv.toInt32() }}); }},
+}});
+for (const name of ['Music.musicForceSection', 'Music.forceSong', 'Music.internalMusicPlay', 'Music.musicSetSong']) {{
+  attach(name, {{
+    onEnter(args) {{
+      this.args = [args[0].toInt32(), args[1].toInt32(), args[2].toInt32()];
+      emit(name + '.in', {{ song: this.args[0], section: this.args[1], position: this.args[2], caller: this.returnAddress.toString() }});
+    }},
+    onLeave(rv) {{ emit(name + '.out', {{ ret: rv.toInt32(), song: this.args[0], section: this.args[1], position: this.args[2] }}); }},
+  }});
+}}
+attach('Music.musicFade', {{
+  onEnter(args) {{
+    emit('Music.musicFade.in', {{ song: args[0].toInt32(), section: args[1].toInt32(), position: args[2].toInt32(), fadeTime: args[3].toInt32(), caller: this.returnAddress.toString() }});
+  }},
+}});
+for (const name of ['Music.musicStop', 'Music.musicForceStop']) {{
+  attach(name, {{
+    onEnter(args) {{ emit(name + '.in', {{ caller: this.returnAddress.toString() }}); }},
+    onLeave(rv) {{ emit(name + '.out', {{ ret: rv.toInt32() }}); }},
+  }});
+}}
+attach('SoundBackend.soundLoad', {{
+  onEnter(args) {{ this.sound = args[0]; this.name = cstr(args[1]); emit('SoundBackend.soundLoad.in', {{ sound: this.sound.toString(), name: this.name }}); }},
+  onLeave(rv) {{ emit('SoundBackend.soundLoad.out', {{ ret: rv.toInt32(), sound: this.sound.toString(), name: this.name }}); }},
+}});
+attach('SoundBackend.soundPlayFromPosition', {{
+  onEnter(args) {{ this.sound = args[0]; this.position = args[1].toInt32(); emit('SoundBackend.soundPlayFromPosition.in', {{ sound: this.sound.toString(), position: this.position }}); }},
+  onLeave(rv) {{ emit('SoundBackend.soundPlayFromPosition.out', {{ ret: rv.toInt32(), sound: this.sound.toString(), position: this.position }}); }},
+}});
+attach('SoundBackend.soundDelete', {{
+  onEnter(args) {{ emit('SoundBackend.soundDelete', {{ sound: args[0].toString(), caller: this.returnAddress.toString() }}); }},
 }});
 """
 
