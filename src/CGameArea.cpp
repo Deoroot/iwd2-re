@@ -1783,12 +1783,14 @@ void CGameArea::AIUpdate()
                         }
                     }
 
-                    if (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsDay()) {
+                    if (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsDay()
+                        && m_nCurrentSong == 1) {
                         PlaySong(-1, 0x4 | 0x2);
                         m_nCurrentSong = 0;
                         m_startedMusic = FALSE;
                         m_startedMusicCounter = 600;
-                    } else if (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsNight()) {
+                    } else if (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsNight()
+                        && m_nCurrentSong == 0) {
                         PlaySong(-1, 0x4 | 0x2);
                         m_nCurrentSong = 1;
                         m_startedMusic = FALSE;
