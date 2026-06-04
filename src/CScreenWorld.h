@@ -79,6 +79,7 @@ public:
     void SetCurrentXP(DWORD dwCurrentXP);
     void AddGold(DWORD dwGold);
     void StopContainer();
+    void ConfigureContainer();
     void CancelPopup();
     void StartCommand();
     void StopCommand();
