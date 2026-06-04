@@ -14278,6 +14278,35 @@ static void QueueDialogueAddAction(CGameSprite* pSource, CGameSprite* pTarget, c
     g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
 }
 
+static void QueueDialogueBreakEffect(CGameSprite* pSprite, WORD effectID)
+{
+    ITEM_EFFECT effect;
+    CGameEffect::ClearItemEffect(&effect, effectID);
+    effect.durationType = 1;
+
+    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+        pSprite->GetPos(),
+        pSprite->GetId(),
+        CPoint(-1, -1));
+
+    CMessage* pMessage = new CMessageAddEffect(
+        pEffect,
+        pSprite->GetId(),
+        pSprite->GetId());
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+}
+
+static void QueuePlayerDialogBreakEffects(CGameSprite* pSource)
+{
+    if (!pSource->CheckInvisibility(FALSE)) {
+        QueueDialogueBreakEffect(pSource, CGAMEEFFECT_FORCEVISIBLE);
+    }
+
+    if (pSource->m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]) {
+        QueueDialogueBreakEffect(pSource, CGAMEEFFECT_DISPELSANCTUARY);
+    }
+}
+
 static void QueueDialogueStartedMessages(CGameSprite* pSource, CGameSprite* pTarget)
 {
     QueueClearDialogActions(pTarget);
@@ -14433,9 +14462,7 @@ SHORT CGameSprite::PlayerDialog(CGameSprite* pTarget)
     BOOL hasLOS = m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE));
 
     if (inRange && hasLOS) {
-        // DEFERRED (binary 0x753A60..0x753B40): break the caller's invisibility
-        // (item effect 0x88) and sanctuary (0xA0, m_spellStates) before talking,
-        // pending those effect classes.
+        QueuePlayerDialogBreakEffects(this);
         SetDialogueTalkedTo(this, pTarget);
         BOOL started = g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0);
         if (!started) {
@@ -14452,10 +14479,10 @@ SHORT CGameSprite::PlayerDialog(CGameSprite* pTarget)
     }
     if (result == ACTION_ERROR
         && m_pArea->CheckLOS(targetPos, selfPos, GetVisibleTerrainTable(), Orderable(FALSE))) {
+        QueuePlayerDialogBreakEffects(this);
         SetDialogueTalkedTo(this, pTarget);
         BOOL started = g_pBaldurChitin->m_pEngineWorld->StartDialog(this, pTarget, 1, 0);
         if (started) {
-            // DEFERRED: same invisibility/sanctuary break.
             QueueDialogueStartedMessages(this, pTarget);
             result = ACTION_DONE;
         } else {
