@@ -148,6 +148,15 @@ function cstr(p) {{
   return safe(() => Memory.readCString(p), '');
 }}
 
+function bytes(p, n) {{
+  if (p.isNull()) return [];
+  return safe(() => {{
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(Memory.readU8(p.add(i)));
+    return out;
+  }}, []);
+}}
+
 function soundInfo(p) {{
   return {{
     ptr: p.toString(),
@@ -279,7 +288,7 @@ attach('Sprite.InitializeWalkingSound', {{
 attach('Animation.GetSndWalk', {{
   onEnter(args) {{ this.tableIndex = args[0].toInt32(); this.anim = this.context.ecx; }},
   onLeave(rv) {{
-    if (sndWalkCount++ < 200) emit('Animation.GetSndWalk.ret', {{ anim: this.anim.toString(), tableIndex: this.tableIndex, ret: rv.toString(), sound: cstr(rv) }});
+    if (sndWalkCount++ < 200) emit('Animation.GetSndWalk.ret', {{ anim: this.anim.toString(), tableIndex: this.tableIndex, ret: rv.toString(), sound: cstr(rv), resref: resref(rv), bytes: bytes(rv, 9) }});
   }},
 }});
 attach('Animation.GetSndWalkFreq', {{
@@ -352,20 +361,22 @@ attach('Sound.Play', {{
     const interesting = info.looping || (info.channel >= 16 && info.channel <= 20) || info.area !== '0x0';
     if ((interesting || playCount < 80) && playCount++ < 300) {{
       this.trace = true;
+      this.sound = this.context.ecx;
       emit('Sound.Play.in', {{ sound: info, replay: args[0].toInt32() }});
     }}
   }},
-  onLeave(rv) {{ if (this.trace) emit('Sound.Play.out', {{ ret: rv.toInt32(), sound: soundInfo(this.context.ecx) }}); }},
+  onLeave(rv) {{ if (this.trace) emit('Sound.Play.out', {{ ret: rv.toInt32(), sound: soundInfo(this.sound) }}); }},
 }});
 attach('Sound.PlayPos', {{
   onEnter(args) {{
     const info = soundInfo(this.context.ecx);
     if (playPosCount++ < 300) {{
       this.trace = true;
+      this.sound = this.context.ecx;
       emit('Sound.PlayPos.in', {{ sound: info, pos: [args[0].toInt32(), args[1].toInt32(), args[2].toInt32()], replay: args[3].toInt32() }});
     }}
   }},
-  onLeave(rv) {{ if (this.trace) emit('Sound.PlayPos.out', {{ ret: rv.toInt32(), sound: soundInfo(this.context.ecx) }}); }},
+  onLeave(rv) {{ if (this.trace) emit('Sound.PlayPos.out', {{ ret: rv.toInt32(), sound: soundInfo(this.sound) }}); }},
 }});
 attach('Dimm.GetMemoryAmount', {{
   onLeave(rv) {{ if (dimmCount++ < 40) emit('Dimm.GetMemoryAmount.ret', {{ ret: rv.toInt32() }}); }},
