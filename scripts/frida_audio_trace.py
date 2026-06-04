@@ -25,6 +25,8 @@ from frida_intro_trace import (
     REPO,
     RE_EXE,
     VK_1,
+    VK_ESCAPE,
+    VK_SPACE,
     capture_game_surface,
     click_client,
     send_key_to_pid,
@@ -35,6 +37,11 @@ from frida_intro_trace import (
 MAP_FILE = REPO / "build" / "Debug" / "iwd2-re.map"
 LINK_IMAGE_BASE = 0x400000
 OUT = REPO / "tmp_audio_trace.jsonl"
+ORIGINAL_LOAD_GAME_BUTTON = (645, 295)
+ORIGINAL_LOAD_SLOT_BUTTON_X = 686
+ORIGINAL_LOAD_SLOT_FIRST_Y = 102
+ORIGINAL_LOAD_SLOT_ROW_HEIGHT = 102
+ORIGINAL_STARTUP_SKIP_SECONDS = 16.0
 
 SYMBOLS = {
     "Area.OnActivation": "?OnActivation@CGameArea@@QAEXXZ",
@@ -476,6 +483,37 @@ def emit(payload: dict[str, object]) -> None:
         f.write(line + "\n")
 
 
+def original_load_driver(pid: int, slot: int, emit_fn) -> None:
+    time.sleep(1.5)
+    click_client(pid, 20, 20, activation_click=True)
+    deadline = time.time() + ORIGINAL_STARTUP_SKIP_SECONDS
+    keys = [VK_ESCAPE, VK_SPACE]
+    index = 0
+    while time.time() < deadline:
+        send_key_to_pid(pid, keys[index % len(keys)], activation_click=True)
+        index += 1
+        time.sleep(0.35)
+
+    emit_fn({"tag": "Driver.original.click", "target": "load-game", "pos": ORIGINAL_LOAD_GAME_BUTTON, "window": window_metrics(pid)})
+    if not click_client(pid, *ORIGINAL_LOAD_GAME_BUTTON, activation_click=False, hover_seconds=0.05):
+        emit_fn({"tag": "Driver.original.error", "stage": "load-game-click", "err": "window not found"})
+        return
+
+    time.sleep(1.0)
+    try:
+        path, capture = capture_game_surface(pid, "audio_original_load_screen")
+        emit_fn({"tag": "Driver.screenshot", "label": "audio_original_load_screen", "path": str(path), "capture": capture})
+    except Exception as e:
+        emit_fn({"tag": "Driver.screenshot-error", "err": str(e)})
+
+    visible_index = max(0, slot - 1)
+    y = ORIGINAL_LOAD_SLOT_FIRST_Y + visible_index * ORIGINAL_LOAD_SLOT_ROW_HEIGHT
+    pos = (ORIGINAL_LOAD_SLOT_BUTTON_X, y)
+    emit_fn({"tag": "Driver.original.click", "target": "load-slot", "slot": slot, "pos": pos, "window": window_metrics(pid)})
+    if not click_client(pid, *pos, activation_click=False, hover_seconds=0.05):
+        emit_fn({"tag": "Driver.original.error", "stage": "load-slot-click", "err": "window not found"})
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["re", "original"], default="re")
@@ -485,6 +523,8 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=60.0)
     ap.add_argument("--post-load-seconds", type=float, default=18.0)
     ap.add_argument("--output", type=Path, help="jsonl output path; defaults to tmp_audio_trace_<save>.jsonl")
+    ap.add_argument("--no-auto-load", dest="auto_load", action="store_false", help="original mode: wait for manual load instead of clicking slot")
+    ap.set_defaults(auto_load=True)
     ns = ap.parse_args()
 
     global OUT
@@ -514,7 +554,7 @@ def main() -> int:
     else:
         pid = frida.spawn(str(ORIG_EXE), cwd=str(GAME_DIR))
         spawned = True
-        target = {"manualLoadSlot": ns.slot}
+        target = {"autoLoadSlot": ns.slot, "autoLoad": ns.auto_load}
 
     session = frida.attach(pid)
     hooks = map_offsets() if ns.mode == "re" else ORIG_HOOKS
@@ -539,6 +579,12 @@ def main() -> int:
             args=(pid, stop_movie_keys),
             daemon=True,
         ).start()
+        if ns.auto_load:
+            threading.Thread(
+                target=original_load_driver,
+                args=(pid, ns.slot, emit),
+                daemon=True,
+            ).start()
     emit({"tag": "Driver.spawned", "pid": pid, "result": str(result_path), "target": target, "output": str(OUT)})
 
     loaded_at = 0.0
