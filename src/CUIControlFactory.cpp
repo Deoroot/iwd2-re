@@ -4851,9 +4851,90 @@ void CUIControlEncumbrance::SetVolume(int a1, int a2)
 // 0x77C670
 BOOL CUIControlEncumbrance::Render(BOOL bForce)
 {
-    // TODO: Incomplete.
+    if ((!m_bActive && !m_bInactiveRender) || (m_nRenderCount == 0 && !bForce)) {
+        return FALSE;
+    }
 
-    return FALSE;
+    if (m_nRenderCount > 0) {
+        CSingleLock renderLock(&m_pPanel->m_pManager->m_critSect, FALSE);
+        renderLock.Lock(INFINITE);
+        m_nRenderCount--;
+        renderLock.Unlock();
+    }
+
+    BOOL bDoubleSize = m_pPanel->m_pManager->m_bDoubleSize;
+    INT nScale = bDoubleSize ? 2 : 1;
+
+    CRect rControlFrame(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
+    CRect rClip;
+    rClip.IntersectRect(rControlFrame, m_rDirty);
+
+    LONG ctrlX = rControlFrame.left;
+    LONG ctrlY = rControlFrame.top;
+
+    // Center the state icon; frame 1 once the inventory is full, else frame 0.
+    SHORT nIconFrame = (field_B72 != 0 && field_B6E >= field_B72) ? 1 : 0;
+    m_cVidCell.FrameSet(nIconFrame);
+    CSize iconSize;
+    m_cVidCell.GetCurrentFrameSize(iconSize, FALSE);
+    LONG iconX = ctrlX;
+    LONG iconY = ctrlY;
+    if (iconSize.cx < m_size.cx) {
+        iconX += (m_size.cx - iconSize.cx) / 2;
+    }
+    if (iconSize.cy < m_size.cy) {
+        iconY += (m_size.cy - iconSize.cy) / 2;
+    }
+    m_cVidCell.Render(0, iconX, iconY, rClip, NULL, 0, 0, -1);
+
+    // Current weight, tinted by load ratio: green within 80%, yellow up to the
+    // limit, red once over capacity.
+    CResRef cWeightFont;
+    if (field_B6A == 0 || field_B66 <= field_B6A * 80 / 100) {
+        cWeightFont = CResRef("NUMBER");
+    } else if (field_B66 > field_B6A) {
+        cWeightFont = CResRef("NUMBER3");
+    } else {
+        cWeightFont = CResRef("NUMBER2");
+    }
+    field_666.SetResRef(cWeightFont, bDoubleSize, TRUE);
+
+    CString sWeight;
+    sWeight.Format("%d", field_B66);
+    INT nWeightLen = sWeight.GetLength();
+    INT x = ctrlX + nScale * 2 + (nWeightLen - 1) * nScale * 5;
+    INT y = ctrlY + nScale * 2;
+    INT nValue = field_B66;
+    BOOL bFirst = TRUE;
+    do {
+        INT nDigit = nValue % 10;
+        nValue /= 10;
+        if (nDigit > 0 || nValue > 0 || bFirst) {
+            field_666.FrameSet(static_cast<SHORT>(nDigit));
+            field_666.Render(0, x, y, rClip, NULL, 0, 0, -1);
+        }
+        x -= nScale * 5;
+        bFirst = FALSE;
+    } while (nValue > 0);
+
+    // Maximum weight, white, right-aligned at the bottom-right.
+    field_666.SetResRef(CResRef("NUMBER"), bDoubleSize, TRUE);
+    x = ctrlX + m_size.cx - nScale * 2;
+    y = ctrlY + m_size.cy - nScale * 7;
+    nValue = field_B6A;
+    bFirst = TRUE;
+    do {
+        INT nDigit = nValue % 10;
+        nValue /= 10;
+        if (nDigit > 0 || nValue > 0 || bFirst) {
+            field_666.FrameSet(static_cast<SHORT>(nDigit));
+            field_666.Render(0, x, y, rClip, NULL, 0, 0, -1);
+        }
+        x -= nScale * 5;
+        bFirst = FALSE;
+    } while (nValue > 0);
+
+    return TRUE;
 }
 
 // -----------------------------------------------------------------------------
