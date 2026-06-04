@@ -9,6 +9,7 @@
 #include "CIcon.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
+#include "CItem.h"
 #include "CScreenChapter.h"
 #include "CScreenConnection.h"
 #include "CScreenInventory.h"
@@ -3812,7 +3813,195 @@ CUIControlButtonWorldContainerSlot::~CUIControlButtonWorldContainerSlot()
 // 0x6957E0
 void CUIControlButtonWorldContainerSlot::OnLButtonClick(CPoint pt)
 {
-    // TODO: Incomplete.
+    CScreenInventory* pInventory = g_pBaldurChitin->m_pEngineInventory;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+    // __LINE__: 10270
+    UTIL_ASSERT(pInventory != NULL);
+
+    CResRef cResIcon;
+    CResRef cResItem;
+
+    CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+    // __LINE__: 10299
+    UTIL_ASSERT(pWorld != NULL);
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+    // __LINE__: 10301
+    UTIL_ASSERT(pGame != NULL);
+
+    LONG nContainer = pGame->m_iContainer;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+    // __LINE__: 10304
+    UTIL_ASSERT(nContainer != CGameObjectArray::INVALID_INDEX);
+
+    LONG nLooterId = pGame->m_iContainerSprite;
+    SHORT nPortrait = static_cast<SHORT>(pGame->GetCharacterPortraitNum(nLooterId));
+
+    // Only the controlling player may loot with this character (MP gate; always
+    // true in single-player, where the session is not hosting).
+    CGameSprite* pLooter;
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nLooterId, CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pLooter), INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+    BOOL bInControl = pLooter->InControl();
+    pGame->GetObjectArray()->ReleaseShare(nLooterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    if (!bInControl) {
+        return;
+    }
+
+    switch (m_nID) {
+    case 0: case 1: case 2: case 3: case 4:
+    case 5: case 6: case 7: case 8: case 9: {
+        SHORT nGroundSlot = static_cast<SHORT>(pWorld->m_nTopContainerRow * 5 + m_nID);
+
+        // Re-share to confirm the looter still has room for this item.
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nLooterId, CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pLooter), INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+        BOOL bCanTake = pGame->CanTakeContainerItem(nContainer, nGroundSlot, pLooter, nPortrait);
+        pGame->GetObjectArray()->ReleaseShare(nLooterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        if (!bCanTake) {
+            return;
+        }
+
+        CItem* pItem = NULL;
+        STRREF errorCode;
+        if (pGame->SwapItemGround(nContainer, nGroundSlot, pItem, errorCode, 0xFFFF, FALSE) && pItem != NULL) {
+            pInventory->PlaySwapSound(NULL, pItem);
+
+            if (pItem->GetResRef() != "MISC07") {
+                // Find the first free backpack slot (18 .. 18 + PERSONAL_INVENTORY_SIZE).
+                CItem* pScan;
+                STRREF description;
+                WORD wCount;
+                SHORT nDestSlot = 18;
+                do {
+                    pGame->InventoryInfoPersonal(nPortrait, nDestSlot, pScan, description, cResIcon, cResItem, wCount, TRUE);
+                    if (cResIcon != "") {
+                        nDestSlot++;
+                    }
+                } while (cResIcon != "" && nDestSlot < CScreenInventory::PERSONAL_INVENTORY_SIZE + 18);
+
+                if (nDestSlot >= CScreenInventory::PERSONAL_INVENTORY_SIZE + 18) {
+                    // No room after all -- return the item to the container.
+                    if ((!pGame->SwapItemGround(nContainer, nGroundSlot, pItem, errorCode, 0xFFFF, FALSE) || pItem != NULL)
+                        && !pGame->SwapItemGround(nContainer, SHORT_MAX, pItem, errorCode, 0xFFFF, FALSE)) {
+                        pGame->PutBackItem(pItem, nLooterId);
+                    }
+                    m_pPanel->InvalidateRect(NULL);
+                    break;
+                }
+
+                // Scroll the personal view so the destination slot is visible.
+                INT nGroupBase = pWorld->m_nTopGroupRow * 2;
+                INT nRel = nDestSlot - 18;
+                if (nRel < nGroupBase || nGroupBase + 3 < nRel) {
+                    INT nNewTop = nRel / 2;
+                    INT nMaxTop = (CScreenInventory::PERSONAL_INVENTORY_SIZE + 1) / 2 - 2;
+                    if (nMaxTop <= nNewTop) {
+                        nNewTop = nMaxTop;
+                    }
+                    if (nNewTop != pWorld->m_nTopGroupRow) {
+                        pWorld->m_nTopGroupRow = nNewTop;
+                        static_cast<CUIControlScrollBarWorldContainer*>(m_pPanel->GetControl(0x35))->UpdateScrollBar();
+                    }
+                }
+
+                if (!pGame->SwapItemPersonalInventory(nPortrait, pItem, nDestSlot, errorCode, 0xFFFF, FALSE, TRUE)) {
+                    // Placement failed -- return the item to the container.
+                    if ((!pGame->SwapItemGround(nContainer, nGroundSlot, pItem, errorCode, 0xFFFF, FALSE) || pItem != NULL)
+                        && !pGame->SwapItemGround(nContainer, SHORT_MAX, pItem, errorCode, 0xFFFF, FALSE)) {
+                        pGame->PutBackItem(pItem, nLooterId);
+                    }
+                    m_pPanel->InvalidateRect(NULL);
+                    break;
+                }
+            } else {
+                // Gold merges into the party total; the item object is discarded.
+                pGame->AddPartyGold(pItem->GetUsageCount(0));
+                pGame->AddDisposableItem(pItem);
+                pItem = NULL;
+            }
+
+            // Resync / compress the container (MP echo; an empty item makes the
+            // receiver's Run() compress only, which is the correct SP cleanup).
+            CMessage* message = new CMessageContainerAddItem(CItem(), SHORT_MAX, TRUE, nContainer, nContainer);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            m_pPanel->InvalidateRect(NULL);
+        }
+        break;
+    }
+    case 10: case 11: case 12: case 13: {
+        CItem* pItem = NULL;
+        STRREF errorCode;
+        SHORT nPersonalSlot = static_cast<SHORT>(pWorld->m_nTopGroupRow * 2 + m_nID + 8);
+
+        if (pGame->SwapItemPersonalInventory(nPortrait, pItem, nPersonalSlot, errorCode, 0xFFFF, FALSE, TRUE) && pItem != NULL) {
+            CItem* pSwapSoundItem = pItem;
+
+            // Find the first free container slot.
+            CItem* pScan;
+            STRREF description;
+            WORD wCount;
+            SHORT nDestSlot = 0;
+            do {
+                pGame->InventoryInfoGround(nContainer, nDestSlot, pScan, description, cResIcon, cResItem, wCount);
+                if (cResIcon != "") {
+                    nDestSlot++;
+                }
+            } while (cResIcon != "");
+
+            // Scroll the container view so the destination slot is visible.
+            INT nContainerBase = 5 * pWorld->m_nTopContainerRow;
+            if (nDestSlot < nContainerBase || nContainerBase + 9 < nDestSlot) {
+                pWorld->m_nTopContainerRow = nDestSlot / 5;
+                static_cast<CUIControlScrollBarWorldContainer*>(m_pPanel->GetControl(0x34))->UpdateScrollBar();
+            }
+
+            if (!pGame->SwapItemGround(nContainer, nDestSlot, pItem, errorCode, 0xFFFF, FALSE) || pItem != NULL) {
+                // Chosen slot failed/bounced -- try any slot, then back to the looter.
+                if (!pGame->SwapItemGround(nContainer, SHORT_MAX, pItem, errorCode, 0xFFFF, FALSE)
+                    && !pGame->SwapItemPersonalInventory(nPortrait, pItem, nPersonalSlot, errorCode, 0xFFFF, FALSE, TRUE)) {
+                    pGame->PutBackItem(pItem, nLooterId);
+                    m_pPanel->InvalidateRect(NULL);
+                } else {
+                    pInventory->PlaySwapSound(pSwapSoundItem, NULL);
+                    m_pPanel->InvalidateRect(NULL);
+                }
+            } else {
+                pInventory->PlaySwapSound(pSwapSoundItem, NULL);
+                m_pPanel->InvalidateRect(NULL);
+            }
+        }
+        break;
+    }
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+        // __LINE__: 10534
+        UTIL_ASSERT(FALSE);
+        break;
+    }
+
+    // NOTE: the original then re-shares the looter and refreshes the container
+    // panel's encumbrance control (0x36: GetCarriedWeight + the STR max-load
+    // table + CRuleTables::GetEncumbranceMod -> SetEncumbrance/SetVolume) plus
+    // the carried-weight label (0x10000036). That weight readout is deferred --
+    // it is shared with ConfigureContainer and recovered together with it.
 }
 
 // 0x696140
