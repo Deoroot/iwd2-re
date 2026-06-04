@@ -14266,14 +14266,25 @@ static void QueueClearDialogActions(CGameSprite* pTarget)
     g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
 }
 
+static void QueueDialogueAddAction(CGameSprite* pSource, CGameSprite* pTarget, const CAIObjectType& actee)
+{
+    static const SHORT DIALOGUE_ADD_ACTION_ID = 7;
+
+    CAIAction action(DIALOGUE_ADD_ACTION_ID, actee, 0, 0, 0);
+    CMessage* pMessage = new CMessageAddAction(
+        action,
+        pSource->GetId(),
+        pTarget->GetId());
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+}
+
 static void QueueDialogueStartedMessages(CGameSprite* pSource, CGameSprite* pTarget)
 {
     QueueClearDialogActions(pTarget);
     QueueSetNumTimesTalkedTo(pSource, pSource);
     QueueSetNumTimesTalkedTo(pSource, pTarget);
-    // TODO INCOMPLETE: original 0x752DD0/0x7537A0 also queues two
-    // CMessageAddAction payloads here; the exact CAIAction fields still need
-    // to be recovered before wiring them.
+    QueueDialogueAddAction(pSource, pSource, pTarget->GetAIType());
+    QueueDialogueAddAction(pSource, pTarget, pSource->GetAIType());
 }
 
 // 0x752DD0

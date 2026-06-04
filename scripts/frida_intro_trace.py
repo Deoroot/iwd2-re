@@ -69,8 +69,8 @@ PARTY_ROWS = [
 ]
 PARTY_DONE_BUTTON = (537, 562)
 CHAPTER_DONE_BUTTON = (514, 549)
-HEDRON_REVISIT_CLICKS_RE = [(524, 265), (512, 257), (520, 245)]
-HEDRON_REVISIT_CLICKS_ORIGINAL = [(500, 252), (500, 264), (490, 258), (512, 257), (480, 267)]
+HEDRON_REVISIT_CLICKS_RE = [(500, 286), (500, 300), (490, 292), (512, 292), (480, 304)]
+HEDRON_REVISIT_CLICKS_ORIGINAL = [(500, 286), (500, 300), (490, 292), (512, 292), (480, 304)]
 CHAPTER_VISIBLE_BEFORE_CAPTURE_SECONDS = 1.0
 CHAPTER_AUDIO_GRACE_AFTER_CAPTURE_SECONDS = 0.0
 CHAPTER_VISIBLE_CAPTURE_TIMEOUT_SECONDS = 6.0
@@ -163,6 +163,7 @@ RE_HOOKS = {
     "CGameAIBase::InsertResponse": 0x0C1E90,
     "CGameAIBase::GetNextAction": 0x0C1B00,
     "CGameAIBase::StartCutScene": 0x0BBF00,
+    "CMessageHandler::AddMessage": 0x238D90,
     "CMessageCutSceneModeStatus::Run": 0x228E60,
     "CMessageInsertResponse::Run": 0x241BE0,
     "CMessageSetInCutScene::Run": 0x2492A0,
@@ -172,7 +173,10 @@ RE_HOOKS = {
     "CGameDialogEntry::Handle": 0x143B60,
     "CGameDialogReply::Apply": 0x144880,
     "CGameSprite::Dialogue": 0x1BCC50,
+    "CGameSprite::PlayerDialog": 0x1CB940,
     "CGameSprite::MoveToObject": 0x1BE770,
+    "CMessageAddAction::CMessageAddAction": 0x239060,
+    "CMessageAddAction::Run": 0x239160,
     "CMessageEnterDialog::Run": 0x23E2E0,
     "CMessageExitDialogMode::Run": 0x22BAD0,
     "CScreenWorld::StartDialog": 0x34A3D0,
@@ -268,6 +272,7 @@ RE_MAP_SYMBOLS = {
     "CGameAIBase::InsertResponse": "?InsertResponse@CGameAIBase@@QAEXAAVCAIResponse@@HH@Z",
     "CGameAIBase::GetNextAction": "?GetNextAction@CGameAIBase@@QAEAAVCAIAction@@AAV2@@Z",
     "CGameAIBase::StartCutScene": "?StartCutScene@CGameAIBase@@QAEFXZ",
+    "CMessageHandler::AddMessage": "?AddMessage@CMessageHandler@@QAEFPAVCMessage@@H@Z",
     "CMessageCutSceneModeStatus::Run": "?Run@CMessageCutSceneModeStatus@@UAEXXZ",
     "CMessageInsertResponse::Run": "?Run@CMessageInsertResponse@@UAEXXZ",
     "CMessageSetInCutScene::Run": "?Run@CMessageSetInCutScene@@UAEXXZ",
@@ -277,7 +282,10 @@ RE_MAP_SYMBOLS = {
     "CGameDialogEntry::Handle": "?Handle@CGameDialogEntry@@QAEXPAVCGameSprite@@KH@Z",
     "CGameDialogReply::Apply": "?Apply@CGameDialogReply@@QAEPAUCGameDialogContinuation@@PAVCGameSprite@@@Z",
     "CGameSprite::Dialogue": "?Dialogue@CGameSprite@@QAEFPAV1@@Z",
+    "CGameSprite::PlayerDialog": "?PlayerDialog@CGameSprite@@QAEFPAV1@@Z",
     "CGameSprite::MoveToObject": "?MoveToObject@CGameSprite@@QAEFPAVCGameObject@@@Z",
+    "CMessageAddAction::CMessageAddAction": "??0CMessageAddAction@@QAE@ABVCAIAction@@JJ@Z",
+    "CMessageAddAction::Run": "?Run@CMessageAddAction@@UAEXXZ",
     "CMessageEnterDialog::Run": "?Run@CMessageEnterDialog@@UAEXXZ",
     "CMessageExitDialogMode::Run": "?Run@CMessageExitDialogMode@@UAEXXZ",
     "CScreenWorld::StartDialog": "?StartDialog@CScreenWorld@@QAEHPAVCGameSprite@@0EE@Z",
@@ -377,6 +385,7 @@ ORIG_HOOKS = {
     "CGameAIBase::InsertResponse": 0x45C300,
     "CGameAIBase::GetNextAction": 0x45B970,
     "CGameAIBase::StartCutScene": 0x462F90,
+    "CMessageHandler::AddMessage": 0x4F7500,
     "CMessageCutSceneModeStatus::Run": 0x4FBFD0,
     "CMessageInsertResponse::Run": 0x502570,
     "CMessageSetInCutScene::Run": 0x506FB0,
@@ -388,7 +397,10 @@ ORIG_HOOKS = {
     "CGameDialogEntry::Handle": 0x484900,
     "CGameDialogReply::Apply": 0x485750,
     "CGameSprite::Dialogue": 0x752DD0,
+    "CGameSprite::PlayerDialog": 0x7537A0,
     "CGameSprite::MoveToObject": 0x73EDD0,
+    "CMessageAddAction::CMessageAddAction": 0x4F4F90,
+    "CMessageAddAction::Run": 0x4F83C0,
     "CMessageEnterDialog::Run": 0x4FE2E0,
     "CMessageExitDialogMode::Run": 0x4FFB70,
     "CScreenConnection::EngineActivated": 0x5FA9B0,
@@ -1747,6 +1759,30 @@ const O = isRe
       triggerString1: 0x4e,
       triggerString2: 0x52,
     }};
+const ACTION = isRe
+  ? {{
+      size: 0xec,
+      actionID: 0x00,
+      specific: O.actionString1 - 12,
+      specific2: O.actionString1 - 8,
+      specific3: O.actionString1 - 4,
+      string1: O.actionString1,
+      string2: O.actionString1 + 8,
+      dest: O.actionString1 + 16,
+      flags: O.actionString1 + 24,
+    }}
+  : {{
+      size: 0x56,
+      actionID: 0x00,
+      specific: 0x42,
+      specific2: 0x46,
+      specific3: 0x4a,
+      string1: 0x4e,
+      string2: 0x52,
+      dest: -1,
+      flags: -1,
+    }};
+const ADD_ACTION_VTABLE = isRe ? base.add(0x6218e0) : ptr(0x847bb8);
 const W = isRe
   ? {{
       timer: 0x1b60,
@@ -2030,6 +2066,57 @@ function messageInfo(msg) {{
     }};
   }} catch (e) {{
     return {{ err: '' + e }};
+  }}
+}}
+
+function isAddActionMessage(msg) {{
+  try {{
+    return !msg.isNull() && msg.readPointer().equals(ADD_ACTION_VTABLE);
+  }} catch (e) {{
+    return false;
+  }}
+}}
+
+function hexBytes(p, count) {{
+  try {{
+    const bytes = p.readByteArray(count);
+    const view = new Uint8Array(bytes);
+    let out = '';
+    for (let i = 0; i < view.length; i++) {{
+      out += ('0' + view[i].toString(16)).slice(-2);
+    }}
+    return out;
+  }} catch (e) {{
+    return '<bad-bytes:' + e + '>';
+  }}
+}}
+
+function actionInfoAt(p) {{
+  try {{
+    const out = {{
+      ptr: p.toString(),
+      actionID: s16(p.add(ACTION.actionID).readS16()),
+      specific: p.add(ACTION.specific).readS32(),
+      specific2: p.add(ACTION.specific2).readS32(),
+      specific3: p.add(ACTION.specific3).readS32(),
+      string1: shortText(safeCString(p.add(ACTION.string1))),
+      string2: shortText(safeCString(p.add(ACTION.string2))),
+      raw: hexBytes(p, ACTION.size),
+    }};
+    if (ACTION.dest >= 0) {{
+      out.dest = pointInfo(p.add(ACTION.dest));
+    }}
+    if (ACTION.flags >= 0) {{
+      out.flags = p.add(ACTION.flags).readU32();
+    }}
+    return out;
+  }} catch (e) {{
+    return {{
+      ptr: p.toString(),
+      actionID: actionIdAt(p),
+      raw: hexBytes(p, ACTION.size),
+      err: '' + e,
+    }};
   }}
 }}
 
@@ -2530,6 +2617,9 @@ let activeChapter = ptr(0);
 let chapterStopSeen = false;
 let activeDialogueThis = ptr(0);
 let activeDialogueTarget = ptr(0);
+let activeDialogueKind = '';
+let dialogAddActionTraceCount = 0;
+const dialogAddActionMessages = new Set();
 let activeDialogAnimType = ptr(0);
 let activeDialogSprite = ptr(0);
 let activeDialogEntry = ptr(0);
@@ -3238,6 +3328,30 @@ hook('CMessageSetInCutScene::Run', {{
   }}
 }});
 
+hook('CMessageHandler::AddMessage', {{
+  onEnter(args) {{
+    const msg = args[0];
+    if (!isAddActionMessage(msg)) return;
+    const duringDialogue = !activeDialogueThis.isNull();
+    const action = actionInfoAt(msg.add(0x0c));
+    if (!duringDialogue && !dialogAddActionMessages.has(msg.toString()) && action.actionID !== 7) return;
+    if (dialogAddActionTraceCount >= 140) return;
+    dialogAddActionMessages.add(msg.toString());
+    dialogAddActionTraceCount++;
+    send({{
+      tag: 'Message.AddAction.AddMessage',
+      dialogue: activeDialogueKind,
+      this: msg.toString(),
+      force: args[1].toInt32(),
+      info: messageInfo(msg),
+      action,
+      sourceInfo: duringDialogue ? spriteInfo(activeDialogueThis) : null,
+      targetInfo: duringDialogue ? spriteInfo(activeDialogueTarget) : null,
+      world: worldInfo(),
+    }});
+  }}
+}});
+
 hook('CGameAIBase::GetNextAction', {{
   onEnter(args) {{
     this.thiz = this.context.ecx;
@@ -3423,16 +3537,17 @@ hook('CGameAIBase::StartCutScene', {{
   }}
 }});
 
-for (const name of ['CGameDialogSprite::StartDialog', 'CGameSprite::Dialogue', 'CScreenWorld::StartDialog']) {{
+for (const name of ['CGameDialogSprite::StartDialog', 'CGameSprite::Dialogue', 'CGameSprite::PlayerDialog', 'CScreenWorld::StartDialog']) {{
   hook(name, {{
     onEnter(args) {{
       this.name = name;
       if (name === 'CScreenWorld::StartDialog') {{
         knownScreenWorld = this.context.ecx;
       }}
-      if (name === 'CGameSprite::Dialogue') {{
+      if (name === 'CGameSprite::Dialogue' || name === 'CGameSprite::PlayerDialog') {{
         activeDialogueThis = this.context.ecx;
         activeDialogueTarget = args[0];
+        activeDialogueKind = name;
         send({{
           tag: name,
           this: this.context.ecx.toString(),
@@ -3447,13 +3562,68 @@ for (const name of ['CGameDialogSprite::StartDialog', 'CGameSprite::Dialogue', '
     }},
     onLeave(rv) {{
       send({{ tag: this.name + '.ret', ret: s16(rv.toInt32()), world: worldInfo() }});
-      if (this.name === 'CGameSprite::Dialogue') {{
+      if (this.name === 'CGameSprite::Dialogue' || this.name === 'CGameSprite::PlayerDialog') {{
         activeDialogueThis = ptr(0);
         activeDialogueTarget = ptr(0);
+        activeDialogueKind = '';
       }}
     }}
   }});
 }}
+
+hook('CMessageAddAction::CMessageAddAction', {{
+  onEnter(args) {{
+    this.msg = this.context.ecx;
+    this.action = args[0];
+    this.caller = args[1].toInt32();
+    this.target = args[2].toInt32();
+    this.trace = !activeDialogueThis.isNull();
+    if (!this.trace || dialogAddActionTraceCount >= 80) return;
+    dialogAddActionMessages.add(this.msg.toString());
+    dialogAddActionTraceCount++;
+    send({{
+      tag: 'Message.AddAction.ctor.in',
+      dialogue: activeDialogueKind,
+      this: this.msg.toString(),
+      caller: this.caller,
+      target: this.target,
+      action: actionInfoAt(this.action),
+      sourceInfo: spriteInfo(activeDialogueThis),
+      targetInfo: spriteInfo(activeDialogueTarget),
+      world: worldInfo(),
+    }});
+  }},
+  onLeave(rv) {{
+    if (!this.trace || dialogAddActionTraceCount >= 120) return;
+    dialogAddActionTraceCount++;
+    send({{
+      tag: 'Message.AddAction.ctor.out',
+      dialogue: activeDialogueKind,
+      this: this.msg.toString(),
+      caller: this.caller,
+      target: this.target,
+      action: actionInfoAt(this.msg.add(0x0c)),
+      world: worldInfo(),
+    }});
+  }}
+}});
+
+hook('CMessageAddAction::Run', {{
+  onEnter(args) {{
+    const msg = this.context.ecx;
+    const action = actionInfoAt(msg.add(0x0c));
+    if (!dialogAddActionMessages.has(msg.toString()) && action.actionID !== 7) return;
+    if (dialogAddActionTraceCount >= 180) return;
+    dialogAddActionTraceCount++;
+    send({{
+      tag: 'Message.AddAction.Run',
+      this: msg.toString(),
+      info: messageInfo(msg),
+      action,
+      world: worldInfo(),
+    }});
+  }}
+}});
 
 hook('CScreenWorld::StartScroll', {{
   onEnter(args) {{
@@ -4133,6 +4303,7 @@ def main() -> int:
             or tag.startswith("Chapter.")
             or tag.startswith("AI.")
             or tag.startswith("Message.")
+            or tag.startswith("CMessageAddAction.")
             or tag.startswith("Sprite.")
             or tag.startswith("World.")
             or tag.startswith("CScreenWorld.")
