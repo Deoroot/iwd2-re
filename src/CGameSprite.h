@@ -590,7 +590,6 @@ public:
     SHORT GetProficiencyTHAC0Bonus(CItem* curWeapon);
     SHORT MoveToPoint();
     SHORT MoveToObject(CGameObject* pTarget);
-    SHORT UseContainer();
     SHORT Dialogue(CGameSprite* pTarget);
     SHORT PlayerDialog(CGameSprite* pTarget);
     SHORT OneSwing();

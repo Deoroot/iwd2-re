@@ -2301,68 +2301,6 @@ void CScreenWorld::StopContainer()
     m_nPopupState = -1;
 }
 
-// 0x690820
-void CScreenWorld::ConfigureContainer()
-{
-    // Close whatever popup sub-panel is already up before showing the container.
-    if (m_nPopupState == 6) {
-        StopCommand();
-        m_nPopupState = -1;
-    } else if (m_nPopupState == 8) {
-        StopContainer();
-        m_nPopupState = -1;
-    }
-
-    m_nPopupState = 8;
-    m_cUIManager.ClearTooltip();
-
-    // NOTE: the original also nudges the auto-hide-interface counter (via a
-    // CBaldurEngine getter, vtable+0xCC) and swaps the right-side info panel
-    // (id 7 / 0x15) here; that interface-layout bookkeeping is deferred.
-
-    SetActionPanelActive(FALSE, FALSE);
-
-    CUIPanel* pPanel = m_cUIManager.GetPanel(8);
-
-    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
-    // __LINE__: 5174
-    UTIL_ASSERT(pPanel != NULL);
-
-    pPanel->SetActive(TRUE);
-    pPanel->InvalidateRect(NULL);
-
-    // Shrink the world viewport to make room for the container panel.
-    SetNewViewSize(CInfinity::stru_8E79F8, TRUE);
-
-    static_cast<CUIControlScrollBarWorldContainer*>(pPanel->GetControl(0x34))->UpdateScrollBar();
-    static_cast<CUIControlScrollBarWorldContainer*>(pPanel->GetControl(0x35))->UpdateScrollBar();
-
-    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-
-    // Open sound by container type.
-    switch (pGame->GetContainerType(pGame->m_iContainer)) {
-    case 1:  PlayGUISound(CResRef("GAM_12A")); break;
-    case 2:  PlayGUISound(CResRef("AMB_D05A")); break;
-    case 3:  PlayGUISound(CResRef("AMB_D05A")); break;
-    case 4:  PlayGUISound(CResRef("AMB_D18")); break;
-    case 5:  PlayGUISound(CResRef("AMB_D08")); break;
-    case 6:  PlayGUISound(CResRef("AMB_D07")); break;
-    case 7:  PlayGUISound(CResRef("AMB_D07")); break;
-    case 8:  PlayGUISound(CResRef("AMB_D18")); break;
-    case 9:  PlayGUISound(CResRef("GAM_06")); break;
-    case 10: PlayGUISound(CResRef("AMB_D08G")); break;
-    case 11: PlayGUISound(CResRef("AMB_D12")); break;
-    case 12: PlayGUISound(CResRef("AMB_D05A")); break;
-    }
-
-    // NOTE: the original then paints the container's BAM image onto control 0x32
-    // (by type: CONTSACK/CONTCHST/CONTDRWR/CONTGRND/CONTTABL/CONTSHLF/CONTALTR/
-    // CONTBOOK/CONTBODY/CONTBARL/CONTCRAT) and the looting character's encumbrance/
-    // volume onto control 0x36 (GetCarriedWeight + GetNumInventoryPersonalSlots +
-    // UpdateLabel 0x10000036). Those panel decorations are deferred; the loot item
-    // grid itself renders from m_iContainer through the recovered display path.
-}
-
 // 0x691090
 void CScreenWorld::CancelPopup()
 {
