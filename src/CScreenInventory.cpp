@@ -4920,7 +4920,6 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
     }
 
     CScreenInventory* pInventory = g_pBaldurChitin->m_pEngineInventory;
-    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
     // __LINE__: 6826
@@ -5020,46 +5019,10 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
         FALSE,
         0);
 
-    // Active-weapon-set border.  Buttons 101-108 are the Quick Weapons
-    // panel (4 sets × main + off-hand).  When this slot belongs to the
-    // sprite's currently-selected weapon set, paint STONSLOT frame 22
-    // (green-bordered stone) over the slot — matches the bright outline
-    // the original draws around the active pair.
-    if (m_nID >= 101 && m_nID <= 108) {
-        INT nSlotSet = (m_nID - 101) / 2;
-        INT nCharacterId = pGame->GetCharacterId(pInventory->GetSelectedCharacter());
-        CGameSprite* pSprite = NULL;
-        BYTE rc;
-        do {
-            rc = pGame->GetObjectArray()->GetShare(nCharacterId,
-                CGameObjectArray::THREAD_1,
-                reinterpret_cast<CGameObject**>(&pSprite),
-                INFINITE);
-        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-        BOOL bActive = FALSE;
-        if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-            bActive = (nSlotSet == pSprite->m_nWeaponSet);
-            pGame->GetObjectArray()->ReleaseShare(nCharacterId,
-                CGameObjectArray::THREAD_1,
-                INFINITE);
-        }
-        if (bActive) {
-            // Active weapon-set ring.  Same HIGHLGHT BAM the action bar uses
-            // (CInfButtonArray::RenderButton at 0x5950F0 lines 69-80 loads
-            // HIGHLGHT inline when settings.m_bActiveWeaponSet != 0).  The
-            // BAM is a 32x32 transparent green outline that sits inside the
-            // 36x36 slot bezel.
-            CVidCell cHighlight;
-            cHighlight.SetResRef(CResRef("HIGHLGHT"),
-                m_pPanel->m_pManager->m_bDoubleSize, TRUE, FALSE);
-            if (cHighlight.pRes != NULL) {
-                cHighlight.SequenceSet(0);
-                cHighlight.FrameSet(0);
-                INT nScale = m_pPanel->m_pManager->m_bDoubleSize ? 2 : 1;
-                cHighlight.Render(0, pos.x + 2 * nScale, pos.y + 2 * nScale, rClip, NULL, 0, 0, -1);
-            }
-        }
-    }
+    // NOTE: The active-weapon-set border (STONSLOT frame 3) and the drag
+    // drop-target frames are painted by the slot's m_cVidCell frame, which
+    // CUIControlButtonInventorySlot::TimerAsynchronousUpdate (0x62D4B0) sets
+    // and CUIControlButton::Render draws -- not here.
 
     InvalidateRect();
     return TRUE;
