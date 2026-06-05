@@ -11711,6 +11711,52 @@ BOOL GetCastingVisualEffect(WORD animationType, WORD& effectID, LONG& effectAmou
 
 }
 
+// 0x742840
+//
+// Sprite-side executor for the SpellPoint (95) and SpellPointNoDec (192)
+// actions.  Dispatched each AI tick by the sprite sequence dispatcher
+// (FUN_00728F80 -- CGameSprite vtable +0x84 -- case 0x2c), NOT by
+// CGameAIBase::ExecuteAction (95/192 fall through ExecuteAction's default).
+// Unlike the "force" variant CGameAIBase::ForceSpellPointAction (0x461B80),
+// this executor first turns the caster to face the cast point and only proceeds
+// once it is facing -- that orient is the caster turn the original performs for
+// a normal ground cast (e.g. a Summon Monster click).
+//
+// Sprite-executor return protocol consumed by FUN_00728F80:
+//   -1 done (DAT_008485C4)        1 interruptable (DAT_008485C6)
+//    0 in-progress (DAT_008485C8)  -2 abort (DAT_008485CA)
+//
+// INCOMPLETE: only the orient and the spell-readiness gate are recovered here.
+// Deferred to a following pass: the prologue abort guard (+0x25) and first-tick
+// projectile-release + FeedBack(0x29) block (m_curProjectile / +0x278), and the
+// whole cast lifecycle below the gate -- Spell-Focus feat (HasFeat 0x44),
+// specialization / obsolete-school gating, caster-level ability select,
+// cast-time SEQ_CONJURE/SEQ_CAST sequencing, concentration d20,
+// ApplyCastingEffect / ApplyCastingEffectPost, ability-effect target dispatch
+// and the projectile-effect variants.  Not yet wired into AIUpdate (Stage 2).
+SHORT CGameSprite::SpellPointSequence()
+{
+    CPoint castPoint = m_curAction.m_dest;
+
+    // 0x742886: face the cast point.  While not facing, post a
+    // CMessageSetDirection (gradual turn via m_nNewDirection) and stay
+    // in-progress so the cast waits for the turn to finish.
+    if (m_nDirection != GetDirection(castPoint)) {
+        CMessage* pFaceCast = new CMessageSetDirection(castPoint, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pFaceCast, FALSE);
+        return 0;
+    }
+
+    // 0x743CF7: nothing loaded to cast yet -- wait for m_curSpell.
+    if (m_curSpell == NULL) {
+        return 0;
+    }
+
+    // INCOMPLETE: cast lifecycle deferred (see header).  Keep the action
+    // in-progress rather than firing through a half-recovered path.
+    return 0;
+}
+
 void CGameSprite::ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st* pAbility)
 {
     if (pSpell == NULL || pAbility == NULL) {
