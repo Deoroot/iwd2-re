@@ -8995,6 +8995,314 @@ INT CGameSprite::CanUseItem(CItem* pItem, STRREF& errorCode)
     return nResult;
 }
 
+// 0x5BA2E0
+INT CGameSprite::CanEquipItemInSlot(INT nSlotNum, CItem*& pItem, STRREF& errorCode)
+{
+    BOOL bQuickItemSlot = FALSE;
+
+    WORD nNewItemType = static_cast<WORD>(nSlotNum);
+    if (pItem != NULL) {
+        nNewItemType = pItem->GetItemType();
+    }
+
+    errorCode = -1;
+
+    if (CGameSpriteEquipment::NUM_SLOT <= nSlotNum) {
+        errorCode = 0x249E;
+        return 0;
+    }
+
+    INT nResult = CanUseItem(pItem, errorCode);
+    if (nResult == 0) {
+        return 0;
+    }
+
+    CGameSpriteEquipment* pEquip = GetEquipment();
+
+    switch (nSlotNum) {
+    case 0: // amulet
+        if (pItem != NULL && nNewItemType != 1 && nNewItemType != 0x46) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 1: // armor
+        if (pItem != NULL
+            && nNewItemType != 0x3C && nNewItemType != 0x3D && nNewItemType != 0x42
+            && nNewItemType != 0x3E && nNewItemType != 0x3F && nNewItemType != 0x40
+            && nNewItemType != 0x41 && nNewItemType != 0x43 && nNewItemType != 0x44) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 2: // belt
+        if (pItem != NULL && nNewItemType != 3) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 3: // boots
+        if (pItem != NULL && nNewItemType != 4) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 4: // cloak
+        if (pItem != NULL && nNewItemType != 0x20) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 5: // gauntlets
+        if (pItem != NULL && nNewItemType != 6 && nNewItemType != 0x49) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 6: // helmet
+        if (pItem != NULL && nNewItemType != 7 && nNewItemType != 0x48) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 7: // ring
+        if (pItem != NULL && nNewItemType != 10) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 8: // ring
+        if (pItem != NULL && nNewItemType != 10) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 10: // fist (cannot hold an item)
+        errorCode = 0x249F;
+        return 0;
+    case 0xB: // ammo quiver
+    case 0xC:
+    case 0xD:
+    case 0xE:
+        if (pItem != NULL && nNewItemType != 5 && nNewItemType != 0x1F && nNewItemType != 0xE) {
+            errorCode = 0x249F;
+            return 0;
+        }
+        break;
+    case 0xF: // quick item slots
+    case 0x10:
+    case 0x11:
+        bQuickItemSlot = TRUE;
+        if (pItem != NULL) {
+            if (nNewItemType != 0 && nNewItemType != 8 && nNewItemType != 0x23
+                && nNewItemType != 9 && nNewItemType != 0xB && nNewItemType != 0xD
+                && nNewItemType != 0x47) {
+                errorCode = 0x249F;
+                return 0;
+            }
+            if (pItem->GetResRef() == "SCRL75") {
+                errorCode = 0x249F;
+                return 0;
+            }
+            if (pItem->GetResRef() == "MISC3P") {
+                errorCode = 0x249F;
+                return 0;
+            }
+            if (pItem->GetResRef() == "MISC86") {
+                errorCode = 0x249F;
+                return 0;
+            }
+            if (pItem->GetAbilityCount() == 0) {
+                errorCode = 0x249F;
+                return 0;
+            }
+            if (g_pBaldurChitin->GetObjectGame()->CheckItemUsable(this, pItem) == 0) {
+                errorCode = 0x24A6;
+                return 0;
+            }
+        }
+        break;
+    case 0x2B: // main-hand weapon, sets 0-3
+    case 0x2D:
+    case 0x2F:
+    case 0x31:
+        if (pItem != NULL) {
+            if (nNewItemType != 0xF) {
+                if (nNewItemType != 0x10 && nNewItemType != 0x11 && nNewItemType != 0x12
+                    && nNewItemType != 0x13 && nNewItemType != 0x14 && nNewItemType != 0x45
+                    && nNewItemType != 0x39 && nNewItemType != 0x15 && nNewItemType != 0x16
+                    && nNewItemType != 0x17 && nNewItemType != 0x18 && nNewItemType != 0x19
+                    && nNewItemType != 0x1A && nNewItemType != 0x1B && nNewItemType != 0x1D
+                    && nNewItemType != 0x1E && nNewItemType != 0x2C) {
+                    errorCode = 0x249F;
+                    nResult = 0;
+                }
+                goto weaponMainOffhand;
+            }
+            // Two-handed weapon (type 0xF).
+            if (pEquip->m_items[nSlotNum + 1] != NULL) {
+                SHORT nOffhandType = pEquip->m_items[nSlotNum + 1]->GetItemType();
+                if (nOffhandType != 0x2F && nOffhandType != 0x35
+                    && nOffhandType != 0x31 && nOffhandType != 0x29) {
+                    errorCode = 0x521;
+                    nResult = 0;
+                }
+            }
+            goto weaponMainCursed;
+        }
+    weaponMainOffhand:
+        if (nNewItemType == 0xF || nNewItemType == 0x1B || nNewItemType == 0x12) {
+            if (pItem != NULL && pEquip->m_items[nSlotNum + 1] != NULL) {
+                SHORT nOffhandType = pEquip->m_items[nSlotNum + 1]->GetItemType();
+                if (nOffhandType != 0x2F && nOffhandType != 0x35
+                    && nOffhandType != 0x31 && nOffhandType != 0x29) {
+                    errorCode = 0x521;
+                    nResult = 0;
+                }
+            }
+        } else if (pItem != NULL && pEquip->m_items[nSlotNum + 1] != NULL) {
+            SHORT nOffhandType = pEquip->m_items[nSlotNum + 1]->GetItemType();
+            if (nOffhandType != 0x2F && nOffhandType != 0x35
+                && nOffhandType != 0x31 && nOffhandType != 0x29) {
+                pItem->Demand();
+                INT nAbilities = pItem->GetAbilityCount();
+                for (INT nAbility = 0; nAbility < nAbilities && nResult != 0; nAbility++) {
+                    ITEM_ABILITY* pAbility = pItem->GetAbility(nAbility);
+                    if (pAbility != NULL) {
+                        if ((pAbility->type & 0xFF) == 2) {
+                            errorCode = 0x520;
+                            nResult = 0;
+                        } else if ((pAbility->type & 0xFF) == 4) {
+                            errorCode = 0x521;
+                            nResult = 0;
+                        }
+                    }
+                    nAbilities = pItem->GetAbilityCount();
+                }
+                pItem->Release();
+                if (nResult == 0) {
+                    return 0;
+                }
+            }
+        }
+    weaponMainCursed:
+        if (pItem != NULL && (pItem->GetFlagsFile() & 2) != 0 && pEquip->m_items[nSlotNum + 1] != NULL) {
+            SHORT nOffhandType = pEquip->m_items[nSlotNum + 1]->GetItemType();
+            if (nOffhandType != 0x2F && nOffhandType != 0x35
+                && nOffhandType != 0x31 && nOffhandType != 0x29) {
+                errorCode = 0x7056;
+                return 0;
+            }
+            errorCode = 0x24A4;
+            return 0;
+        }
+        break;
+    case 0x2C: // off-hand / shield, sets 0-3
+    case 0x2E:
+    case 0x30:
+    case 0x32:
+        if (pItem != NULL) {
+            if (nNewItemType == 0x10 || nNewItemType == 0x11 || nNewItemType == 0x2C
+                || nNewItemType == 0x12 || nNewItemType == 0x13 || nNewItemType == 0x14
+                || nNewItemType == 0x45 || nNewItemType == 0x39 || nNewItemType == 0x15
+                || nNewItemType == 0x16 || nNewItemType == 0x17 || nNewItemType == 0x18
+                || nNewItemType == 0x19 || nNewItemType == 0x1A || nNewItemType == 0x1B
+                || nNewItemType == 0x1D || nNewItemType == 0x1E) {
+                if ((pItem->GetFlagsFile() & 2) != 0) {
+                    errorCode = 0x66E6;
+                    return 0;
+                }
+                pItem->Demand();
+                INT nAbilities = pItem->GetAbilityCount();
+                for (INT nAbility = 0; nAbility < nAbilities && nResult != 0; nAbility++) {
+                    ITEM_ABILITY* pAbility = pItem->GetAbility(nAbility);
+                    if (pAbility != NULL
+                        && ((pAbility->type & 0xFF) == 2 || (pAbility->type & 0xFF) == 4)) {
+                        errorCode = 0x522;
+                        nResult = 0;
+                    }
+                    nAbilities = pItem->GetAbilityCount();
+                }
+                pItem->Release();
+            } else if (nNewItemType != 0x2F && nNewItemType != 0x35
+                       && nNewItemType != 0x31 && nNewItemType != 0x29) {
+                errorCode = 0x249F;
+                return 0;
+            }
+        }
+        if (pEquip->m_items[nSlotNum - 1] != NULL && pItem != NULL) {
+            CItem* pMainhand = pEquip->m_items[nSlotNum - 1];
+            if ((pItem->GetFlagsFile() & 2) != 0 && pMainhand != pEquip->m_items[10]) {
+                errorCode = 0x24A5;
+                return 0;
+            }
+            SHORT nMainType = pMainhand->GetItemType();
+            if (nMainType != 0x2F && nMainType != 0x35 && nMainType != 0x31 && nMainType != 0x29) {
+                pMainhand->Demand();
+                INT nAbilities = pMainhand->GetAbilityCount();
+                for (INT nAbility = 0; nAbility < nAbilities && nResult != 0; nAbility++) {
+                    ITEM_ABILITY* pAbility = pMainhand->GetAbility(nAbility);
+                    if (pAbility != NULL) {
+                        if ((pAbility->type & 0xFF) == 2) {
+                            errorCode = 0x51E;
+                            nResult = 0;
+                        } else if ((pAbility->type & 0xFF) == 4) {
+                            errorCode = 0x51F;
+                            nResult = 0;
+                        }
+                    }
+                    nAbilities = pMainhand->GetAbilityCount();
+                }
+                pMainhand->Release();
+            }
+        }
+        break;
+    }
+
+    if (nResult != 0) {
+        STRREF nImmunityError;
+        CGameEffect* pImmunityEffect;
+        if (pItem == NULL
+            || m_derivedStats.m_cImmunitiesItemEquip.OnList(pItem->GetResRef(), nImmunityError, pImmunityEffect) == 0) {
+            if (pItem != NULL
+                && m_derivedStats.m_cImmunitiesItemTypeEquip.OnList(pItem->GetItemType(), nImmunityError, pImmunityEffect)) {
+                errorCode = nImmunityError;
+                if (pImmunityEffect != NULL) {
+                    delete pImmunityEffect;
+                }
+                return 0;
+            }
+            if (bQuickItemSlot) {
+                pItem->Demand();
+                if (pItem->GetAbility(0) == NULL) {
+                    errorCode = 0x43A5;
+                    pItem->Release();
+                    return 0;
+                }
+                if ((pItem->m_flags & 1) == 0 && (pItem->GetFlagsFile() & 0x100) != 0) {
+                    errorCode = 0x43A4;
+                    pItem->Release();
+                    return 0;
+                }
+                if ((pItem->m_flags & 1) != 0 && (pItem->GetFlagsFile() & 0x200) != 0) {
+                    errorCode = 0x43A4;
+                    nResult = 0;
+                }
+                pItem->Release();
+            }
+        } else {
+            errorCode = nImmunityError;
+            nResult = 0;
+            if (pImmunityEffect != NULL) {
+                delete pImmunityEffect;
+                return 0;
+            }
+        }
+    }
+
+    return nResult;
+}
+
 // 0x718B30
 BOOL CGameSprite::ReadyCursor()
 {
