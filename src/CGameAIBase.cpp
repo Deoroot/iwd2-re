@@ -601,7 +601,16 @@ SHORT CGameAIBase::ExecuteAction()
         Iwd2DebugLog("DO_ACTION_FORCE_SPELL_POINT spriteId=%ld actionId=0x%x specificId=%ld actionCount=%d interrupt=%d dest=%d,%d",
             m_id, m_curAction.m_actionID, m_curAction.m_specificID, (int)m_actionCount, (int)m_interrupt,
             m_curAction.m_dest.x, m_curAction.m_dest.y);
-        actionReturn = ForceSpellPointAction();
+        // 0x5F/0xC0 are normal casts: the original drives them through the
+        // sprite cast executor (FUN_00742840 -> CGameSprite::SpellPointSequence),
+        // which turns the caster to face the cast point before casting.  0x72
+        // ForceSpellPoint is the "force" variant and is not oriented.
+        if (m_curAction.m_actionID != CAIAction::FORCESPELLPOINT
+            && (GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+            actionReturn = static_cast<CGameSprite*>(this)->SpellPointSequence();
+        } else {
+            actionReturn = ForceSpellPointAction();
+        }
     } else if (m_curAction.m_actionID == 0x10) {
         // 0x10 = GiveOrder (ACTION.IDS).
         CGameObject* pObj = ResolveActionTarget();
