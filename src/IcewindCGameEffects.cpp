@@ -1,7 +1,12 @@
 #include "IcewindCGameEffects.h"
 
+#include "CCreatureFile.h"
 #include "CBaldurChitin.h"
+#include "CGameArea.h"
+#include "CGameObjectArray.h"
 #include "CGameSprite.h"
+#include "CMessage.h"
+#include "CPathSearch.h"
 #include "CProjectile.h"
 #include "CInfGame.h"
 #include "CTimerWorld.h"
@@ -32,6 +37,56 @@ const char RESREF_EYE_OF_FORTITUDE[] = "SpIn131";
 
 // 0x8AEBE4
 const char RESREF_EYE_OF_STONE[] = "SpIn132";
+
+static const DWORD CREATURE_FLAG_SUMMONED = 0x10000000;
+static const DWORD SUMMON_VISIBLE_TIME = 0x7FFFFFFF;
+static const WORD SUMMON_CREATURE_TYPE_GOOD = 2;
+static const WORD SUMMON_CREATURE_TYPE_EVIL = 0;
+static const char SUMMON_GROUP_VFX_SOUND[] = "EFF_M13";
+
+// TODO INCOMPLETE: this recovers only the summon-group projectile cases from
+// the 0x51EAF0 projectile factory. Recover the broader factory on demand.
+static CProjectileSummonVFX* CreateSummonGroupProjectile(int vfxId)
+{
+    CResRef visualResRef;
+    BOOL arrivalSound = FALSE;
+
+    switch (vfxId) {
+    case 0x120:
+        visualResRef = "MSumm1X";
+        arrivalSound = TRUE;
+        break;
+    case 0x121:
+        visualResRef = "ASumm1X";
+        arrivalSound = TRUE;
+        break;
+    case 0x122:
+        visualResRef = "CEElemX";
+        arrivalSound = TRUE;
+        break;
+    case 0x123:
+        visualResRef = "CFElemX";
+        arrivalSound = TRUE;
+        break;
+    case 0x124:
+        visualResRef = "CWElemX";
+        arrivalSound = TRUE;
+        break;
+    case 0x168:
+        visualResRef = "GateX";
+        break;
+    default:
+        return NULL;
+    }
+
+    CProjectileSummonVFX* pProjectile = new CProjectileSummonVFX(visualResRef, IcewindCVisualEffect());
+    pProjectile->m_projectileType = static_cast<WORD>(vfxId);
+    if (arrivalSound) {
+        pProjectile->SetArrivalSound(CResRef(SUMMON_GROUP_VFX_SOUND));
+        pProjectile->SetOffsetAboveTarget(TRUE);
+    }
+    return pProjectile;
+}
 
 // 0x49DB70
 IcewindCGameEffectBeltynsBurningBlood::IcewindCGameEffectBeltynsBurningBlood(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target)
@@ -694,6 +749,18 @@ BOOL IcewindCGameEffectSummon::ApplyEffect(CGameSprite* pSprite)
         m_pSprite = pSprite;
     }
 
+    Iwd2DebugLog("SUMMON_APPLY casterId=%ld target=%d,%d res=%s amount=%ld dice=%lu/%lu field190=%d durationType=%lu duration=%lu",
+        m_pSprite != NULL ? m_pSprite->m_id : -1,
+        m_target.x,
+        m_target.y,
+        static_cast<LPCSTR>(m_res.GetResRefStr()),
+        m_effectAmount,
+        m_numDice,
+        m_diceSize,
+        field_190,
+        m_durationType,
+        m_duration);
+
     int total = static_cast<int>(m_effectAmount);
     for (DWORD i = 0; i < m_numDice; ++i) {
         int roll = (m_diceSize == 0) ? 0 : (rand() % static_cast<int>(m_diceSize));
@@ -703,12 +770,17 @@ BOOL IcewindCGameEffectSummon::ApplyEffect(CGameSprite* pSprite)
     CGameSprite* pCaster = m_pSprite;
     for (int i = 0; i < total; ++i) {
         if (!Icewind586B70::Instance()->CanJoinParty(pCaster)) {
+            Iwd2DebugLog("SUMMON_BLOCKED_LIMIT casterId=%ld", pCaster != NULL ? pCaster->m_id : -1);
             pCaster->FeedBack(50, 0, 0, 0, -1, 0, 0);
             break;
         }
 
-        const char* resRef = m_res.GetResRefStr();
+        CString resRef = m_res.GetResRefStr();
         CGameSprite* pSpawned = SpawnFromResRef(resRef, &m_target);
+        Iwd2DebugLog("SUMMON_SPAWN_RESULT casterId=%ld res=%s spawnedId=%ld",
+            pCaster != NULL ? pCaster->m_id : -1,
+            static_cast<LPCSTR>(resRef),
+            pSpawned != NULL ? pSpawned->m_id : -1);
 
         if ((m_durationType == 0 || m_durationType == 0x1000 || m_durationType == 3)
             && pSpawned != NULL && m_durationType != 1) {
@@ -738,45 +810,191 @@ BOOL IcewindCGameEffectSummon::ApplyEffect(CGameSprite* pSprite)
     }
     PlayGroupVFX(vfxId);
 
-    // TODO(0x55F710): binary writes DWORD 1 to (this + 0x110) here as a
-    // completion flag. Offset lives in unmapped padding in CGameEffectBase --
-    // skip until the layout is reconciled.
+    m_done = TRUE;
     return TRUE;
 }
 
 // 0x55FAD0
-// TODO: 120-line spawn helper. Walks CDimm + CCreatureFile to instantiate the
-// CRE template at the target tile, sets EA via IsGoodByEA, wires the new
-// sprite into the area via FUN_006EF990 (CGameArea creature-insert; 1000+
-// decomp lines, not yet recovered). Stub returns NULL so the summon path
-// builds and runs end-to-end without crashing -- no creature actually spawns
-// until this helper is implemented.
-CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const char* resRef, const CPoint* pTarget)
+CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const CString& resRef, const CPoint* pTarget)
 {
-    (void)resRef;
-    (void)pTarget;
-    return NULL;
+    CGameArea* pArea;
+    CCreatureFile creature;
+    CGameSprite* pSpawned;
+    BYTE* pCreatureData;
+    DWORD creatureSize;
+    POINT spawnGrid;
+    CPoint spawnPos;
+    BYTE rc;
+
+    if (resRef.IsEmpty() || m_pSprite == NULL || pTarget == NULL) {
+        Iwd2DebugLog("SUMMON_SPAWN_ABORT bad_args res=%s sprite=%p target=%p",
+            static_cast<LPCSTR>(resRef),
+            m_pSprite,
+            pTarget);
+        return NULL;
+    }
+
+    pArea = m_pSprite->GetArea();
+    if (pArea == NULL) {
+        Iwd2DebugLog("SUMMON_SPAWN_ABORT no_area casterId=%ld", m_pSprite->m_id);
+        return NULL;
+    }
+
+    spawnGrid.x = pTarget->x / CPathSearch::GRID_SQUARE_SIZEX;
+    spawnGrid.y = pTarget->y / CPathSearch::GRID_SQUARE_SIZEY;
+
+    pArea->m_search.FindNearbyPassablePoint(&spawnGrid,
+        spawnGrid.x,
+        spawnGrid.y,
+        m_pSprite->GetTerrainTable(),
+        m_pSprite->GetAnimation()->GetPersonalSpace(),
+        -1);
+
+    spawnPos.x = spawnGrid.x * CPathSearch::GRID_SQUARE_SIZEX;
+    spawnPos.y = spawnGrid.y * CPathSearch::GRID_SQUARE_SIZEY;
+
+    creature.SetResRef(CResRef(resRef), TRUE, TRUE);
+    creatureSize = creature.GetDataSize();
+    pCreatureData = creature.GetData();
+    if (pCreatureData == NULL || creatureSize == 0) {
+        Iwd2DebugLog("SUMMON_SPAWN_ABORT cre_load res=%s size=%lu data=%p",
+            static_cast<LPCSTR>(resRef),
+            creatureSize,
+            pCreatureData);
+        creature.ReleaseData();
+        return NULL;
+    }
+
+    WORD creatureType = IcewindMisc::IsGoodByEA(m_pSprite) ? SUMMON_CREATURE_TYPE_GOOD : SUMMON_CREATURE_TYPE_EVIL;
+    pSpawned = new CGameSprite(pCreatureData,
+        creatureSize,
+        creatureType,
+        static_cast<WORD>(-1),
+        0,
+        0,
+        0,
+        SUMMON_VISIBLE_TIME,
+        spawnPos,
+        static_cast<WORD>(-1));
+
+    pSpawned->SetResRef(CResRef(resRef));
+    creature.ReleaseData();
+
+    pSpawned->m_baseStats.m_flags |= CREATURE_FLAG_SUMMONED;
+
+    if (field_190 != 0) {
+        CAIObjectType type(pSpawned->GetAIType());
+        BOOL ally = FALSE;
+
+        if (field_190 == 1) {
+            ally = IcewindMisc::IsGoodByEA(m_pSprite);
+        } else if (field_190 == 2) {
+            ally = !IcewindMisc::IsGoodByEA(m_pSprite);
+        }
+
+        if (ally) {
+            g_pBaldurChitin->GetObjectGame()->AddCharacterToAllies(pSpawned->m_id);
+            type.SetEnemyAlly(CAIOBJECTTYPE_EA_ALLY);
+        } else {
+            type.SetEnemyAlly(CAIOBJECTTYPE_EA_ENEMY);
+        }
+        pSpawned->SetAIType(type, TRUE, TRUE);
+    }
+
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(pSpawned->m_id,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSpawned),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        Iwd2DebugLog("SUMMON_SPAWN_ABORT deny res=%s id=%ld rc=%u",
+            static_cast<LPCSTR>(resRef),
+            pSpawned->m_id,
+            rc);
+        return NULL;
+    }
+
+    pSpawned->AddToArea(pArea,
+        spawnPos,
+        0,
+        pSpawned->GetAnimation()->GetListType());
+    pSpawned->SetFacing(pSpawned->GetDirection(m_pSprite->GetPos()));
+    pSpawned->m_posStart = pSpawned->m_pos;
+
+    Icewind586B70::Instance()->AddSummoned(m_pSprite, pSpawned);
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(pSpawned->m_id,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    Iwd2DebugLog("SUMMON_SPAWN_DONE res=%s id=%ld pos=%d,%d grid=%ld,%ld",
+        static_cast<LPCSTR>(resRef),
+        pSpawned->m_id,
+        spawnPos.x,
+        spawnPos.y,
+        spawnGrid.x,
+        spawnGrid.y);
+
+    return pSpawned;
 }
 
 // 0x55FA10
-// TODO: reads a cached caller-object ID at (this + 0x10C) -- lives in
-// unmapped padding in CGameEffectBase -- resolves it via
-// CGameObjectArray::GetShare, then attaches a VisualSpellHit effect to the
-// newly spawned sprite. Stub is a no-op until the field is named.
 void IcewindCGameEffectSummon::AddSummonVisualHit(CGameSprite* pSpawned, int mode)
 {
-    (void)pSpawned;
-    (void)mode;
+    CGameObject* pSource;
+    BYTE rc;
+
+    if (mode == 0 || pSpawned == NULL) {
+        return;
+    }
+
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pSource,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        CGameEffect* pEffect = IcewindMisc::CreateEffectVisualSpellHit(pSource, mode, 0, 0);
+        pEffect->m_flags = m_flags;
+        pSpawned->AddEffect(pEffect, 1, TRUE, TRUE);
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
 }
 
 // 0x55F930
-// TODO: spawn a CProjectile-driven group VFX via FUN_0051EAF0 (5400-line
-// projectile factory, not yet recovered) and queue a CMessageFireProjectile.
-// Stub is a no-op so the summon path builds; the per-summon visual still
-// fires via AddSummonVisualHit, only the group-level swirl is missing.
 void IcewindCGameEffectSummon::PlayGroupVFX(int vfxId)
 {
-    (void)vfxId;
+    if (vfxId == 0 || m_pSprite == NULL || m_pSprite->GetArea() == NULL) {
+        return;
+    }
+
+    CProjectileSummonVFX* pProjectile = CreateSummonGroupProjectile(vfxId);
+    if (pProjectile == NULL) {
+        return;
+    }
+
+    CMessageFireProjectile* pMessage = new CMessageFireProjectile(pProjectile->m_projectileType,
+        CGameObjectArray::INVALID_INDEX,
+        m_source,
+        0,
+        m_pSprite->m_id,
+        m_pSprite->m_id,
+        0);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+
+    pProjectile->Fire(m_pSprite->GetArea(),
+        m_pSprite->m_id,
+        m_pSprite->m_id,
+        m_source,
+        0,
+        0);
 }
 
 // -----------------------------------------------------------------------------

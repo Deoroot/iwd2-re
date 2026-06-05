@@ -428,3 +428,141 @@ void CProjectileBAM::Fire(CGameArea* pArea, LONG source, LONG target, CPoint tar
         delete this;
     }
 }
+
+// -----------------------------------------------------------------------------
+
+// 0x57E490
+CProjectileSummonVFX::CProjectileSummonVFX(const CResRef& visualResRef, const IcewindCVisualEffect& visualEffect)
+    : m_visualEffect(visualEffect)
+{
+    m_projectileType = 0;
+    m_sourceId = CGameObjectArray::INVALID_INDEX;
+    m_targetId = CGameObjectArray::INVALID_INDEX;
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_pArea = NULL;
+    m_arrivalSoundRef = "";
+    m_loopArrivalSound = FALSE;
+    m_bHasHeight = FALSE;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+    m_offsetAboveTarget = FALSE;
+
+    m_vidCell.SetResRef(visualResRef, FALSE, TRUE, TRUE);
+    m_vidCell.SequenceSet(0);
+    m_vidCell.FrameSet(0);
+}
+
+// 0x57E580 (virtual)
+void CProjectileSummonVFX::AIUpdate()
+{
+    if (m_vidCell.IsEndOfSequence(FALSE)) {
+        OnArrival();
+        return;
+    }
+
+    m_vidCell.FrameAdvance();
+    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+}
+
+// 0x578480 (virtual)
+void CProjectileSummonVFX::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    CRect rFX;
+    CSize frameSize;
+    CRect rGCBounds;
+    CPoint newPos;
+    CPoint ptReference;
+    CInfinity* pInfinity;
+
+    (void)pVidMode;
+
+    if (pArea == NULL) {
+        return;
+    }
+
+    pInfinity = pArea->GetInfinity();
+
+    m_vidCell.GetCurrentCenterPoint(ptReference, FALSE);
+    m_vidCell.GetCurrentFrameSize(frameSize, FALSE);
+
+    rFX.SetRect(0, 0, frameSize.cx, frameSize.cy);
+
+    newPos.x = m_pos.x;
+    newPos.y = pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y - m_posZ;
+
+    DWORD dwPrepFlags;
+    if (m_visualEffect.m_dwFlags != 0) {
+        dwPrepFlags = CInfinity::FXPREP_COPYFROMBACK;
+    } else {
+        dwPrepFlags = CInfinity::FXPREP_CLEARFILL;
+    }
+
+    rGCBounds.left = newPos.x - ptReference.x;
+    rGCBounds.top = newPos.y - ptReference.y;
+    rGCBounds.right = rGCBounds.left + rFX.Width();
+    rGCBounds.bottom = rGCBounds.top + rFX.Height();
+
+    pInfinity->FXPrep(rFX,
+        dwPrepFlags,
+        nSurface,
+        newPos,
+        ptReference);
+
+    if (pInfinity->FXLock(rFX, dwPrepFlags)) {
+        pInfinity->FXRender(&m_vidCell,
+            ptReference.x,
+            ptReference.y,
+            m_visualEffect.m_dwFlags,
+            m_visualEffect.m_nTransValue);
+
+        pInfinity->FXRenderClippingPolys(newPos.x,
+            newPos.y,
+            0,
+            ptReference,
+            rGCBounds,
+            FALSE,
+            dwPrepFlags);
+
+        pInfinity->FXUnlock(dwPrepFlags, NULL, CPoint(0, 0));
+        pInfinity->FXBltFrom(nSurface,
+            rFX,
+            newPos.x,
+            newPos.y,
+            ptReference.x,
+            ptReference.y,
+            m_visualEffect.m_dwFlags | 0x1);
+    }
+}
+
+// 0x57E710 (virtual)
+void CProjectileSummonVFX::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    BYTE rc;
+
+    (void)nHeight;
+    (void)nType;
+
+    m_sourceId = source;
+    m_targetId = target;
+    m_pArea = pArea;
+    m_pos.x = targetPos.x;
+    m_pos.y = m_offsetAboveTarget ? targetPos.y - 100 : targetPos.y + 1;
+    m_posZ = 0;
+
+    rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
+    if (rc == CGameObjectArray::SUCCESS) {
+        CGameObject::AddToArea(pArea, m_pos, 0, CGAMEOBJECT_LIST_FRONT);
+        DeliverEffects();
+    } else {
+        delete this;
+    }
+}
+
+void CProjectileSummonVFX::SetArrivalSound(const CResRef& arrivalSoundRef)
+{
+    m_arrivalSoundRef = arrivalSoundRef;
+}
+
+void CProjectileSummonVFX::SetOffsetAboveTarget(BOOL offsetAboveTarget)
+{
+    m_offsetAboveTarget = offsetAboveTarget;
+}

@@ -174,7 +174,7 @@ CGameEffect* CSpell::BuildAbilityEffect(LONG nAbility, LONG nEffectIdx, CGameObj
     *reinterpret_cast<DWORD*>(pEffectBytes + 0x48) = pRes->m_pHeader->school;
     *reinterpret_cast<DWORD*>(pEffectBytes + 0x8C) = 1;
     *reinterpret_cast<DWORD*>(pEffectBytes + 0x4C) = pRes->m_pHeader->secondaryType;
-    pEffect->m_res = GetResRef();
+    pEffect->m_sourceRes = GetResRef();
     *reinterpret_cast<DWORD*>(pEffectBytes + 0x98) = pRes->m_pHeader->itemFlags;
 
     if (pCaster != NULL && pCaster->GetObjectType() == CGameObject::TYPE_SPRITE) {

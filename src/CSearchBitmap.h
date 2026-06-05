@@ -23,6 +23,7 @@ public:
     BYTE GetLOSCost(const CPoint& point, const BYTE* terrainTable, SHORT& nTableIndex, BOOLEAN bVisbilityOutDoor);
     BYTE GetCost(const CPoint& point, const BYTE* terrainTable, BYTE personalSpace, SHORT& nTableIndex, BOOL bCheckBump);
     BYTE GetMobileCost(const CPoint& point, const BYTE* terrainTable, BYTE personalSpace, BOOL bCheckBump);
+    POINT* FindNearbyPassablePoint(POINT* result, int x, int y, const BYTE* terrainTable, BYTE personalSpace, SHORT direction);
     SHORT GetStructureHeight(SHORT nTableIndex);
     void Init(CGameArea* pArea, CString szResRef);
     void Uninit();

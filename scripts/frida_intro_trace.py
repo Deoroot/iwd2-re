@@ -674,7 +674,8 @@ def physical_mouse_click(hwnd: int, screen_x: int, screen_y: int, hover_seconds:
     user32.GetCursorPos(ctypes.byref(previous))
     blocked = bool(user32.BlockInput(True))
     try:
-        focus_window(hwnd, click=False)
+        if user32.GetForegroundWindow() != hwnd:
+            focus_window(hwnd, click=False)
         time.sleep(0.03)
         user32.SetCursorPos(screen_x, screen_y)
         time.sleep(max(hover_seconds, 0.02))
@@ -683,7 +684,7 @@ def physical_mouse_click(hwnd: int, screen_x: int, screen_y: int, hover_seconds:
         # be missed while Frida hooks slow the frame loop.
         time.sleep(0.12)
         user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-        time.sleep(0.02)
+        time.sleep(0.14)
     finally:
         user32.SetCursorPos(previous.x, previous.y)
         if blocked:
@@ -787,7 +788,8 @@ def click_client(pid: int, x: int, y: int, activation_click: bool = True, hover_
     hwnd = find_window_for_pid(pid)
     if hwnd == 0:
         return False
-    focus_window(hwnd, click=False)
+    if user32.GetForegroundWindow() != hwnd:
+        focus_window(hwnd, click=False)
     time.sleep(0.04 if activation_click else 0.02)
     origin_x, origin_y = game_surface_origin(hwnd)
     screen_x = origin_x + x
@@ -800,7 +802,8 @@ def hover_client(pid: int, x: int, y: int, hover_seconds: float = 0.25) -> bool:
     hwnd = find_window_for_pid(pid)
     if hwnd == 0:
         return False
-    focus_window(hwnd, click=False)
+    if user32.GetForegroundWindow() != hwnd:
+        focus_window(hwnd, click=False)
     time.sleep(0.02)
     origin_x, origin_y = game_surface_origin(hwnd)
     user32.SetCursorPos(origin_x + x, origin_y + y)
@@ -812,7 +815,8 @@ def post_click_client(pid: int, x: int, y: int, activation_click: bool = True) -
     hwnd = find_window_for_pid(pid)
     if hwnd == 0:
         return False
-    focus_window(hwnd, click=False)
+    if user32.GetForegroundWindow() != hwnd:
+        focus_window(hwnd, click=False)
     time.sleep(0.04 if activation_click else 0.02)
     origin_x, origin_y = game_surface_origin(hwnd)
     post_mouse_click(hwnd, origin_x + x, origin_y + y)
@@ -900,7 +904,8 @@ def capture_game_surface(pid: int, label: str) -> tuple[Path, dict[str, object]]
     if hwnd == 0:
         raise RuntimeError("window not found")
 
-    focus_window(hwnd, click=False)
+    if user32.GetForegroundWindow() != hwnd:
+        focus_window(hwnd, click=False)
     time.sleep(0.05)
 
     width = 800

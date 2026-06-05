@@ -221,6 +221,64 @@ BYTE CSearchBitmap::GetMobileCost(const CPoint& point, const BYTE* terrainTable,
     return 0;
 }
 
+// 0x548B80
+POINT* CSearchBitmap::FindNearbyPassablePoint(POINT* result, int x, int y, const BYTE* terrainTable, BYTE personalSpace, SHORT direction)
+{
+    SHORT nTableIndex;
+
+    UTIL_ASSERT(result != NULL);
+    UTIL_ASSERT(terrainTable != NULL);
+
+    result->x = x;
+    result->y = y;
+
+    if (x < 0 || y < 0 || x >= m_GridSquareDimensions.cx || y >= m_GridSquareDimensions.cy) {
+        return result;
+    }
+
+    CPoint point(x, y);
+    if (GetCost(point, terrainTable, personalSpace, nTableIndex, TRUE) != CPathSearch::COST_IMPASSABLE) {
+        return result;
+    }
+
+    const int maxRadius = max(m_GridSquareDimensions.cx, m_GridSquareDimensions.cy);
+    for (int radius = 1; radius < maxRadius; radius++) {
+        int minX = max(x - radius, 0);
+        int maxX = min(x + radius, m_GridSquareDimensions.cx - 1);
+        int minY = max(y - radius, 0);
+        int maxY = min(y + radius, m_GridSquareDimensions.cy - 1);
+
+        for (int testY = minY; testY <= maxY; testY++) {
+            for (int testX = minX; testX <= maxX; testX++) {
+                if (testX != minX && testX != maxX && testY != minY && testY != maxY) {
+                    continue;
+                }
+
+                if (direction != -1) {
+                    SHORT foundDirection = CGameSprite::GetDirection(CPoint(x, y), CPoint(testX, testY));
+                    if (foundDirection != direction) {
+                        continue;
+                    }
+                }
+
+                point.x = testX;
+                point.y = testY;
+                if (GetCost(point, terrainTable, personalSpace, nTableIndex, TRUE) != CPathSearch::COST_IMPASSABLE) {
+                    result->x = testX;
+                    result->y = testY;
+                    return result;
+                }
+            }
+        }
+    }
+
+    if (direction != -1) {
+        return FindNearbyPassablePoint(result, x, y, terrainTable, personalSpace, -1);
+    }
+
+    return result;
+}
+
 // 0x5488C0
 void CSearchBitmap::SnapshotRemoveObject(CPoint point, BYTE personalSpaceRange, BOOL bBumpable)
 {

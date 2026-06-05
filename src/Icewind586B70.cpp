@@ -79,6 +79,7 @@ void Icewind586B70::AddSummoned(CGameSprite* sprite1, CGameSprite* sprite2)
                 mEntries[index].field_0 = sprite2->GetId();
                 mEntries[index].field_4 = sprite1->GetId();
                 mEntries[index].field_8 = false;
+                return;
             }
         }
     }
@@ -98,6 +99,7 @@ void Icewind586B70::AddDismissedSummoned(CGameSprite* sprite1, CGameSprite* spri
                 mEntries[index].field_0 = sprite2->GetId();
                 mEntries[index].field_4 = sprite1->GetId();
                 mEntries[index].field_8 = true;
+                return;
             }
         }
     }

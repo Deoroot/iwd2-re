@@ -213,7 +213,7 @@ public:
 
     void SetSummonDelay(int a1);
 
-    CGameSprite* SpawnFromResRef(const char* resRef, const CPoint* pTarget);
+    CGameSprite* SpawnFromResRef(const CString& resRef, const CPoint* pTarget);
     void AddSummonVisualHit(CGameSprite* pSpawned, int mode);
     void PlayGroupVFX(int vfxId);
 

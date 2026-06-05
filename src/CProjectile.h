@@ -52,4 +52,21 @@ private:
     /* 032D */ BYTE m_initialDelay;
 };
 
+class CProjectileSummonVFX : public CProjectile {
+public:
+    CProjectileSummonVFX(const CResRef& visualResRef, const IcewindCVisualEffect& visualEffect);
+
+    void AIUpdate() override;
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;
+
+    void SetArrivalSound(const CResRef& arrivalSoundRef);
+    void SetOffsetAboveTarget(BOOL offsetAboveTarget);
+
+private:
+    /* 0192 */ CVidCell m_vidCell;
+    /* 026C */ IcewindCVisualEffect m_visualEffect;
+    /* 032C */ BOOL m_offsetAboveTarget;
+};
+
 #endif /* CPROJECTILE_H_ */

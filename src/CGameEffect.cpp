@@ -1152,11 +1152,20 @@ BOOL CGameEffect::ApplyEffect(CGameSprite* pSprite)
 // 0x4A3030
 BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
 {
-    // TODO: Incomplete.  Original also handles probability, saves, target
-    // modes, dispel/resistance, duration bookkeeping, and feedback.
+    // TODO INCOMPLETE: Original also handles saves, target modes,
+    // dispel/resistance, duration bookkeeping, and feedback.
     if (m_durationType != 0 && CheckExpiration()) {
         m_done = TRUE;
         return TRUE;
+    }
+
+    if (m_probabilityLower != 0 || m_probabilityUpper != 100) {
+        int roll = (field_118 >= 1 && field_118 <= 100) ? field_118 : rand() % 100 + 1;
+        field_118 = 0;
+        if (roll < m_probabilityLower || roll > m_probabilityUpper) {
+            m_done = TRUE;
+            return FALSE;
+        }
     }
 
     BOOL bResult = ApplyEffect(pSprite);
