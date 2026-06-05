@@ -8868,6 +8868,133 @@ BOOL CGameSprite::CheckLauncherType(const ITEM_ABILITY* ability, CItem* pLaunche
     return FALSE;
 }
 
+// 0x5B9BA0
+static BOOL IsItemUsableByClass(DWORD nClassMask, DWORD nKitMask, CItem* pItem)
+{
+    SHORT nItemType = pItem->GetItemType();
+    if (nItemType != 0x23 && nItemType != 0xB) {
+        DWORD nNotUsableBy = pItem->GetNotUsableBy();
+        DWORD nNotUsableBy2 = pItem->GetNotUsableBy2();
+
+        if ((nNotUsableBy & nClassMask) == nClassMask) {
+            return (nNotUsableBy2 & nKitMask) != nKitMask;
+        }
+
+        DWORD nKitHits = nNotUsableBy2 & nKitMask;
+        if (nKitHits != 0
+            && (~(nNotUsableBy & nClassMask) & nClassMask & 0x39B) == 0
+            && ((nNotUsableBy & 4) != 0 || (nClassMask & 4) == 0 || (nKitHits & 0xFF8000) != 0)
+            && ((nNotUsableBy & 0x20) != 0 || (nClassMask & 0x20) == 0 || (nKitHits & 0x38) != 0)
+            && ((nNotUsableBy & 0x40) != 0 || (nClassMask & 0x40) == 0 || (nKitHits & 7) != 0)
+            && ((nNotUsableBy & 0x400) != 0 || (nClassMask & 0x400) == 0 || (nKitHits & 0x7FC0) != 0)) {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+// 0x5B9D20
+INT CGameSprite::CanUseItem(CItem* pItem, STRREF& errorCode)
+{
+    if (pItem != NULL) {
+        pItem->GetItemType();
+    }
+
+    errorCode = -1;
+
+    if (pItem == NULL) {
+        return 1;
+    }
+
+    DWORD nNotUsableBy = pItem->GetNotUsableBy();
+
+    CAIObjectType cType;
+    cType.Set(GetAIType());
+
+    BOOL bUsable = g_pBaldurChitin->GetObjectGame()->GetRuleTables().IsUsableByAlignment(nNotUsableBy, cType.m_nAlignment);
+    if (!bUsable) {
+        errorCode = 0x24A6;
+    }
+
+    if ((nNotUsableBy & 0x800000) != 0 && cType.m_nRace == CAIOBJECTTYPE_R_ELF) {
+        bUsable = FALSE;
+        errorCode = 0x24A6;
+    }
+    if ((nNotUsableBy & 0x1000000) != 0 && cType.m_nRace == CAIOBJECTTYPE_R_DWARF) {
+        bUsable = FALSE;
+        errorCode = 0x24A6;
+    }
+    if ((nNotUsableBy & 0x2000000) != 0 && cType.m_nRace == CAIOBJECTTYPE_R_HALF_ELF) {
+        bUsable = FALSE;
+        errorCode = 0x24A6;
+    }
+    if ((nNotUsableBy & 0x4000000) != 0 && cType.m_nRace == CAIOBJECTTYPE_R_HALFLING) {
+        bUsable = FALSE;
+        errorCode = 0x24A6;
+    }
+    if ((nNotUsableBy & 0x8000000) != 0 && cType.m_nRace == CAIOBJECTTYPE_R_HUMAN) {
+        bUsable = FALSE;
+        errorCode = 0x24A6;
+    }
+    if ((nNotUsableBy & 0x10000000) != 0 && cType.m_nRace == CAIOBJECTTYPE_R_GNOME) {
+        bUsable = FALSE;
+        errorCode = 0x24A6;
+    }
+    if ((nNotUsableBy & 0x20000000) != 0 && cType.m_nRace == CAIOBJECTTYPE_R_HALF_ORC) {
+        bUsable = FALSE;
+        errorCode = 0x24A6;
+    }
+
+    if (!bUsable) {
+        return 0;
+    }
+
+    if (g_pBaldurChitin->GetObjectGame()->GetRuleTables().ShouldCheckItemRequirements(pItem)) {
+        CDerivedStats* pStats = GetActiveStats();
+        if (pStats->m_nLevel < pItem->GetMinLevelRequired()) {
+            bUsable = FALSE;
+            errorCode = 0x24A6;
+        }
+        if (pStats->m_nSTR < static_cast<SHORT>(pItem->GetMinSTRRequired())) {
+            bUsable = FALSE;
+            errorCode = 0x24A6;
+        }
+        if (pStats->m_nINT < static_cast<SHORT>(pItem->GetMinINTRequired())) {
+            bUsable = FALSE;
+            errorCode = 0x24A6;
+        }
+        if (pStats->m_nDEX < static_cast<SHORT>(pItem->GetMinDEXRequired())) {
+            bUsable = FALSE;
+            errorCode = 0x24A6;
+        }
+        if (pStats->m_nWIS < static_cast<SHORT>(pItem->GetMinWISRequired())) {
+            bUsable = FALSE;
+            errorCode = 0x24A6;
+        }
+        if (pStats->m_nCON < static_cast<SHORT>(pItem->GetMinCONRequired())) {
+            bUsable = FALSE;
+            errorCode = 0x24A6;
+        }
+        if (static_cast<SHORT>(pItem->GetMinCHRRequired()) > pStats->m_nCHR) {
+            errorCode = 0x24A6;
+            return 0;
+        }
+    }
+
+    if (!bUsable) {
+        return 0;
+    }
+
+    CDerivedStats* pStats = GetActiveStats();
+    INT nResult = IsItemUsableByClass(pStats->m_classMask, GetActiveStats()->m_nSpecialization, pItem);
+    if (nResult != 0) {
+        return nResult;
+    }
+
+    errorCode = 0x24A6;
+    return nResult;
+}
+
 // 0x718B30
 BOOL CGameSprite::ReadyCursor()
 {
