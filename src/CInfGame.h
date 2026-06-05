@@ -185,6 +185,7 @@ public:
     LONG GetGroundPile(LONG iSprite);
     BOOL CanTakeContainerItem(LONG nContainerId, SHORT nSlotNum, CGameSprite* pLooter, SHORT nPortrait);
     void PutBackItem(CItem* pItem, LONG nLooterId);
+    INT CanDragItemToSlot(SHORT nPortraitNum, INT nSlotNum, CItem*& pItem, STRREF& errorCode);
     BOOL SwapItemGround(LONG nContainerId, SHORT nSlotNum, CItem*& pItem, STRREF& errorCode, WORD wCount, BOOLEAN bFromServer);
     SHORT GetNumGroundSlots(LONG nContainerId);
     void InventoryInfoGround(LONG nContainerId, SHORT nSlotNum, CItem*& pItem, STRREF& description, CResRef& cResIcon, CResRef& cResItem, WORD& wCount);

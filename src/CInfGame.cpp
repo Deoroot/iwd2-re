@@ -5485,6 +5485,36 @@ BOOL CInfGame::CanTakeContainerItem(LONG nContainerId, SHORT nSlotNum, CGameSpri
     return nSlot < CScreenInventory::PERSONAL_INVENTORY_SIZE + 18;
 }
 
+// 0x5BA230
+INT CInfGame::CanDragItemToSlot(SHORT nPortraitNum, INT nSlotNum, CItem*& pItem, STRREF& errorCode)
+{
+    // NOTE: Uninline.
+    LONG nCharacterId = GetCharacterId(nPortraitNum);
+
+    CGameSprite* pSprite;
+
+    BYTE rc;
+    do {
+        rc = m_cObjectArray.GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        errorCode = 0x249D;
+        return 0;
+    }
+
+    INT nResult = pSprite->CanEquipItemInSlot(nSlotNum, pItem, errorCode);
+
+    m_cObjectArray.ReleaseShare(nCharacterId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return nResult;
+}
+
 // 0x5B7850
 BOOL CInfGame::SwapItemGround(LONG nContainerId, SHORT nSlotNum, CItem*& pItem, STRREF& errorCode, WORD wCount, BOOLEAN bFromServer)
 {

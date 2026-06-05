@@ -4470,15 +4470,16 @@ void CUIControlButtonInventorySlot::TimerAsynchronousUpdate(BOOLEAN bInside)
     case 5: case 6: case 7:
     case 11: case 12: case 13: case 14:
     case 21: case 22: case 23: case 24: case 25:
-        // NOTE: Equipment / quick-item slots dispatch to the per-slot
-        // item-type validity highlight (0x62D0B0).  Recovered separately.
+        // Equipment / quick-item slots: highlight gated by per-slot item-type
+        // validity.
+        UpdateDragHighlight(x, y);
         return;
     case 15: case 16: case 17:
     case 101: case 102: case 103: case 104:
     case 105: case 106: case 107: case 108:
-        // NOTE: Weapon / ammo slots dispatch to the weapon-set highlight
-        // (0x62D1F0): green active-set border plus the drag-validity red
-        // frames.  Recovered separately.
+        // Weapon / ammo slots: green active-weapon-set border plus the
+        // drag-validity red frames.
+        UpdateWeaponDragHighlight(x, y);
         return;
     case 30: case 31: case 32: case 33: case 34: case 35: case 36: case 37:
     case 38: case 39: case 40: case 41: case 42: case 43: case 44: case 45:
@@ -4540,6 +4541,154 @@ void CUIControlButtonInventorySlot::TimerAsynchronousUpdate(BOOLEAN bInside)
         m_cVidCell.FrameSet(2);
         InvalidateRect();
     }
+}
+
+// 0x62D0B0
+void CUIControlButtonInventorySlot::UpdateDragHighlight(INT x, INT y)
+{
+    CScreenInventory* pInventory = g_pBaldurChitin->m_pEngineInventory;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 6051
+    UTIL_ASSERT(pInventory != NULL);
+
+    CItem* pTempItem = pInventory->m_pTempItem;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 6056
+    UTIL_ASSERT(g_pBaldurChitin->GetObjectGame() != NULL);
+
+    if (pTempItem != NULL) {
+        INT nInventoryId = pInventory->MapButtonIdToInventoryId(m_nID);
+        SHORT nPortrait = pInventory->GetSelectedCharacter();
+        STRREF errorCode;
+        INT nFrame = 0;
+        if (g_pBaldurChitin->GetObjectGame()->CanDragItemToSlot(nPortrait, nInventoryId, pTempItem, errorCode) == 0) {
+            if (m_cVidCell.m_nCurrentFrame == 0) {
+                return;
+            }
+            nFrame = 0;
+        } else {
+            if (x < m_ptOrigin.x || y < m_ptOrigin.y
+                || m_ptOrigin.x + m_size.cx < x || m_ptOrigin.y + m_size.cy < y) {
+                if (m_cVidCell.m_nCurrentFrame == 1) {
+                    return;
+                }
+                m_cVidCell.FrameSet(1);
+                InvalidateRect();
+                return;
+            }
+            if (m_cVidCell.m_nCurrentFrame == 2) {
+                return;
+            }
+            nFrame = 2;
+        }
+        m_cVidCell.FrameSet(nFrame);
+        InvalidateRect();
+        return;
+    }
+
+    if (m_cVidCell.m_nCurrentFrame != 0) {
+        m_cVidCell.FrameSet(0);
+        InvalidateRect();
+    }
+}
+
+// 0x62D1F0
+void CUIControlButtonInventorySlot::UpdateWeaponDragHighlight(INT x, INT y)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 6204
+    UTIL_ASSERT(pGame != NULL);
+
+    CScreenInventory* pInventory = g_pBaldurChitin->m_pEngineInventory;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 6208
+    UTIL_ASSERT(pInventory != NULL);
+
+    CItem* pTempItem = pInventory->m_pTempItem;
+    SHORT nPortrait = pInventory->GetSelectedCharacter();
+    LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        UpdateDragHighlight(x, y);
+        return;
+    }
+
+    INT nInventoryId = pInventory->MapButtonIdToInventoryId(m_nID);
+    CGameSpriteEquipment* pEquip = pSprite->GetEquipment();
+    BYTE nSelectedWeapon = pEquip->m_selectedWeapon;
+
+    LONG nLauncherSlotId = -1;
+    if (pEquip->m_items[nSelectedWeapon] != NULL) {
+        CItem* pWeapon = pEquip->m_items[nSelectedWeapon];
+        pWeapon->Demand();
+        ITEM_ABILITY* pAbility = pWeapon->GetAbility(pEquip->m_selectedWeaponAbility);
+        SHORT nLauncherSlot;
+        CItem* pLauncher = pSprite->GetLauncher(pAbility, nLauncherSlot);
+        pWeapon->Release();
+        if (pLauncher != NULL) {
+            nLauncherSlotId = 0x2B + pSprite->m_nWeaponSet * 2;
+        }
+    }
+
+    if ((pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+        BOOL bFistAmmoSlot = FALSE;
+        if ((nInventoryId == 0x2B || nInventoryId == 0x2D || nInventoryId == 0x2F || nInventoryId == 0x31)
+            && nSelectedWeapon == 10) {
+            bFistAmmoSlot = TRUE;
+        }
+
+        if (nInventoryId != nSelectedWeapon && nInventoryId != nLauncherSlotId
+            && ((nInventoryId - 0x2B) / 2 != pSprite->m_nWeaponSet
+                || (pEquip->m_items[nInventoryId] == NULL && !bFistAmmoSlot))) {
+            // Not part of the active weapon set: fall back to the generic
+            // equipment highlight.
+            UpdateDragHighlight(x, y);
+        } else if (pTempItem == NULL) {
+            // Active weapon-set slot, nothing on the cursor: paint the green
+            // active-set border (frame 3).
+            if (m_cVidCell.m_nCurrentFrame != 3) {
+                m_cVidCell.FrameSet(3);
+                InvalidateRect();
+            }
+        } else {
+            STRREF errorCode;
+            if (pGame->CanDragItemToSlot(nPortrait, nInventoryId, pTempItem, errorCode) == 0) {
+                // The dragged item can't go here: keep the green active-set
+                // border.
+                if (m_cVidCell.m_nCurrentFrame != 3) {
+                    m_cVidCell.FrameSet(3);
+                    InvalidateRect();
+                }
+            } else if (x < m_ptOrigin.x || y < m_ptOrigin.y
+                       || m_ptOrigin.x + m_size.cx < x || m_ptOrigin.y + m_size.cy < y) {
+                if (m_cVidCell.m_nCurrentFrame != 1) {
+                    m_cVidCell.FrameSet(1);
+                    InvalidateRect();
+                }
+            } else if (m_cVidCell.m_nCurrentFrame != 2) {
+                m_cVidCell.FrameSet(2);
+                InvalidateRect();
+            }
+        }
+    }
+
+    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
 // 0x62D7B0
