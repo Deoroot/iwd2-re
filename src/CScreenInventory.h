@@ -170,6 +170,7 @@ public:
     BOOL OnLButtonDown(CPoint pt) override;
     void OnLButtonUp(CPoint pt) override;
     BOOL OnLButtonDblClk(CPoint pt) override;
+    void TimerAsynchronousUpdate(BOOLEAN bInside) override;
     BOOL Render(BOOL bForce) override;
     void OnRButtonClick(CPoint pt) override;
 

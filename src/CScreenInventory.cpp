@@ -4438,6 +4438,110 @@ void CUIControlButtonInventorySlot::OnMouseMove(CPoint pt)
     }
 }
 
+// 0x62D4B0
+void CUIControlButtonInventorySlot::TimerAsynchronousUpdate(BOOLEAN bInside)
+{
+    CUIControlBase::TimerAsynchronousUpdate(bInside);
+
+    if (!m_bActive && !m_bInactiveRender) {
+        return;
+    }
+
+    if (!m_pPanel->m_bActive && m_cVidCell.m_nCurrentFrame != 3) {
+        // Panel inactive and this slot is not painting the green active-weapon
+        // border: clear any drag highlight back to the empty frame.
+        if (m_cVidCell.m_nCurrentFrame != 0) {
+            m_cVidCell.FrameSet(0);
+            InvalidateRect();
+        }
+        return;
+    }
+
+    CScreenInventory* pInventory = g_pBaldurChitin->m_pEngineInventory;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 6364
+    UTIL_ASSERT(pInventory != NULL);
+
+    INT x = pInventory->m_cLastMousePosition.x - m_pPanel->m_ptOrigin.x;
+    INT y = pInventory->m_cLastMousePosition.y - m_pPanel->m_ptOrigin.y;
+
+    switch (m_nID) {
+    case 5: case 6: case 7:
+    case 11: case 12: case 13: case 14:
+    case 21: case 22: case 23: case 24: case 25:
+        // NOTE: Equipment / quick-item slots dispatch to the per-slot
+        // item-type validity highlight (0x62D0B0).  Recovered separately.
+        return;
+    case 15: case 16: case 17:
+    case 101: case 102: case 103: case 104:
+    case 105: case 106: case 107: case 108:
+        // NOTE: Weapon / ammo slots dispatch to the weapon-set highlight
+        // (0x62D1F0): green active-set border plus the drag-validity red
+        // frames.  Recovered separately.
+        return;
+    case 30: case 31: case 32: case 33: case 34: case 35: case 36: case 37:
+    case 38: case 39: case 40: case 41: case 42: case 43: case 44: case 45:
+    case 73: case 74: case 75: case 76: case 77: case 78: case 79: case 80:
+        // Backpack grid.  Every cell accepts the dragged item, so the one
+        // under the cursor gets the bright-red frame (2) and the rest reset.
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+        // __LINE__: 6110
+        UTIL_ASSERT(pInventory != NULL);
+        if (pInventory->m_pTempItem == NULL
+            || x < m_ptOrigin.x
+            || y < m_ptOrigin.y
+            || m_ptOrigin.x + m_size.cx < x
+            || m_ptOrigin.y + m_size.cy < y) {
+            if (m_cVidCell.m_nCurrentFrame == 0) {
+                return;
+            }
+            m_cVidCell.FrameSet(0);
+            InvalidateRect();
+            return;
+        }
+        break;
+    case 68: case 69: case 70: case 71: case 72:
+    case 81:
+        // Ground / container slots.  While dragging, every slot is a valid
+        // drop target: dark-red frame (1) when not hovered, bright-red (2)
+        // when hovered.
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+        // __LINE__: 6150
+        UTIL_ASSERT(pInventory != NULL);
+        if (pInventory->m_pTempItem == NULL) {
+            if (m_cVidCell.m_nCurrentFrame == 0) {
+                return;
+            }
+            m_cVidCell.FrameSet(0);
+            InvalidateRect();
+            return;
+        }
+        if (x < m_ptOrigin.x
+            || y < m_ptOrigin.y
+            || m_ptOrigin.x + m_size.cx < x
+            || m_ptOrigin.y + m_size.cy < y) {
+            if (m_cVidCell.m_nCurrentFrame == 1) {
+                return;
+            }
+            m_cVidCell.FrameSet(1);
+            InvalidateRect();
+            return;
+        }
+        break;
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+        // __LINE__: 6440
+        UTIL_ASSERT(FALSE);
+        return;
+    }
+
+    if (m_cVidCell.m_nCurrentFrame != 2) {
+        m_cVidCell.FrameSet(2);
+        InvalidateRect();
+    }
+}
+
 // 0x62D7B0
 BOOL CUIControlButtonInventorySlot::OnLButtonDown(CPoint pt)
 {
