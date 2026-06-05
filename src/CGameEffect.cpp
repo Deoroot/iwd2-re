@@ -4916,6 +4916,24 @@ CGameEffect* CGameEffectSkillUnsummon::Copy()
     return copy;
 }
 
+// 0x4B4BD0
+BOOL CGameEffectSkillUnsummon::ApplyEffect(CGameSprite* pSprite)
+{
+    // Party members (portrait != -1) are never unsummoned; only summoned
+    // creatures are.
+    if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId()) == -1) {
+        // The binary also dismisses the creature through Icewind586B70 (0x586DC0:
+        // clears the summon-registry entry and fires the poof VFX) and posts a
+        // removal message (vtable 0x84C3A8); neither helper is recovered yet.
+        // m_removeFromArea is what unlinks the sprite from the area on the next
+        // update (cf. CGameEffectDestroySelf at 0x4BDDE0).
+        pSprite->m_removeFromArea = TRUE;
+    }
+
+    m_done = TRUE;
+    return TRUE;
+}
+
 // 0x4B4BB0
 void CGameEffectSkillUnsummon::DisplayString(CGameSprite* pSprite)
 {
