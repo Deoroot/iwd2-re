@@ -11,6 +11,7 @@ public:
     /* 0000 */ ~CGameSound() override;
     /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
+    /* 0050 */ BOOLEAN DoAIUpdate(BOOLEAN active, LONG counter) override;
     /* 0048 */ void RemoveFromArea() override;
 
     void SetActive(BOOL bActive);

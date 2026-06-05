@@ -74,6 +74,7 @@ SYMBOLS = {
     "Sound.Play": "?Play@CSound@@QAEHH@Z",
     "Sound.PlayPos": "?Play@CSound@@QAEHHHHH@Z",
     "Dimm.GetMemoryAmount": "?GetMemoryAmount@CDimm@@QAEHXZ",
+    "Dimm.GetResObject": "?GetResObject@CDimm@@QAEPAVCRes@@ABVCResRef@@GH@Z",
     "Music.musicForceSection": "?musicForceSection@@YAHHHH@Z",
     "Music.forceSong": "?forceSong@@YAHHHH@Z",
     "Music.internalMusicPlay": "?internalMusicPlay@@YAHHHH@Z",
@@ -113,6 +114,7 @@ ORIG_HOOKS = {
     "Sound.ExclusivePlay": 0x7A94F0,
     "Sound.Play": 0x7A9B10,
     "Sound.PlayPos": 0x7A9DB0,
+    "Dimm.GetResObject": 0x786DF0,
     "Music.musicForceSection": 0x7D60E0,
     "Music.forceSong": 0x7D5D00,
     "Music.musicSetSong": 0x7D58B0,
@@ -171,26 +173,37 @@ let areaScanCount = 0;
 let setResRefWaveCount = 0;
 let sndWalkCount = 0;
 let sndWalkFreqCount = 0;
+let getResObjectCount = 0;
 const soundNames = {{}};
+const resObjectNames = {{}};
 
 function safe(fn, fallback) {{
   try {{ return fn(); }} catch (e) {{ return fallback; }}
 }}
 
-function s32(p) {{ return safe(() => Memory.readS32(p), 0); }}
-function u32(p) {{ return safe(() => Memory.readU32(p), 0); }}
-function u8(p) {{ return safe(() => Memory.readU8(p), 0); }}
+function s32(p) {{ return safe(() => p.readS32(), 0); }}
+function u32(p) {{ return safe(() => p.readU32(), 0); }}
+function u8(p) {{ return safe(() => p.readU8(), 0); }}
 
 function resref(p) {{
   return safe(() => {{
     let s = '';
     for (let i = 0; i < 8; i++) {{
-      const c = Memory.readU8(p.add(i));
+      const c = p.add(i).readU8();
       if (c === 0) break;
       s += String.fromCharCode(c);
     }}
     return s;
   }}, '');
+}}
+
+function resrefCandidates(p) {{
+  return {{
+    at0: resref(p),
+    at4: resref(p.add(4)),
+    ptrAt0: resref(ptr(u32(p))),
+    raw: bytes(p, 16),
+  }};
 }}
 
 function rangeInfo(p) {{
@@ -203,23 +216,26 @@ function rangeInfo(p) {{
 
 function cstr(p) {{
   if (p.isNull()) return '';
-  return safe(() => Memory.readCString(p), '');
+  return safe(() => p.readCString(), '');
 }}
 
 function bytes(p, n) {{
   if (p.isNull()) return [];
   return safe(() => {{
     const out = [];
-    for (let i = 0; i < n; i++) out.push(Memory.readU8(p.add(i)));
+    for (let i = 0; i < n; i++) out.push(p.add(i).readU8());
     return out;
   }}, []);
 }}
 
 function soundInfo(p) {{
+  const pResValue = u32(p.add(0x08));
+  const pRes = '0x' + pResValue.toString(16);
   return {{
     ptr: p.toString(),
     loading: s32(p.add(0x04)),
-    pRes: '0x' + u32(p.add(0x08)).toString(16),
+    pRes,
+    pResRef: resObjectNames[pRes] || '',
     resref: resref(p.add(0x0c)),
     range: s32(p.add(0x20)),
     rangeVolume: s32(p.add(0x24)),
@@ -462,6 +478,47 @@ attach('Sound.PlayPos', {{
 attach('Dimm.GetMemoryAmount', {{
   onLeave(rv) {{ if (dimmCount++ < 40) emit('Dimm.GetMemoryAmount.ret', {{ ret: rv.toInt32() }}); }},
 }});
+attach('Dimm.GetResObject', {{
+  onEnter(args) {{
+    const esp = this.context.esp;
+    this.arg0 = args[0];
+    this.arg1 = args[1];
+    this.arg2 = args[2];
+    this.stackArg0 = ptr(u32(esp.add(4)));
+    this.stackArg1 = ptr(u32(esp.add(8)));
+    this.stackArg2 = ptr(u32(esp.add(12)));
+    this.resref = resref(args[0]);
+    this.type = args[1].toInt32();
+    this.demand = args[2].toInt32();
+    this.shouldLog = this.type === 4 || this.resref.indexOf('AM') === 0 || getResObjectCount < 24;
+    getResObjectCount++;
+    if (this.shouldLog) {{
+      emit('Dimm.GetResObject.in', {{
+        dimm: this.context.ecx.toString(),
+        args: [this.arg0.toString(), this.arg1.toString(), this.arg2.toString()],
+        stackArgs: [this.stackArg0.toString(), this.stackArg1.toString(), this.stackArg2.toString()],
+        resref: this.resref,
+        resrefArgs: resrefCandidates(this.arg0),
+        resrefStack: resrefCandidates(this.stackArg0),
+        type: this.type,
+        demand: this.demand,
+        caller: this.returnAddress.toString(),
+      }});
+    }}
+  }},
+  onLeave(rv) {{
+    const res = rv.toString();
+    if (!rv.isNull()) resObjectNames[res] = this.resref;
+    if (this.shouldLog) {{
+      emit('Dimm.GetResObject.out', {{
+        ret: res,
+        resref: this.resref,
+        type: this.type,
+        demand: this.demand,
+      }});
+    }}
+  }},
+}});
 attach('Music.musicLoadSongList', {{
   onEnter(args) {{ this.num = args[1].toInt32(); emit('Music.musicLoadSongList.in', {{ num: this.num }}); }},
   onLeave(rv) {{ emit('Music.musicLoadSongList.out', {{ ret: rv.toInt32(), num: this.num }}); }},
@@ -608,10 +665,21 @@ def original_load_driver(pid: int, slot: int, startup_skip_seconds: float, emit_
 
     visible_index = max(0, slot)
     y = ORIGINAL_LOAD_SLOT_FIRST_Y + visible_index * ORIGINAL_LOAD_SLOT_ROW_HEIGHT
-    pos = (ORIGINAL_LOAD_SLOT_BUTTON_X, y)
-    emit_fn({"tag": "Driver.original.click", "target": "load-slot", "slot": slot, "pos": pos, "window": window_metrics(pid)})
-    if not click_client(pid, *pos, activation_click=False, hover_seconds=0.05):
-        emit_fn({"tag": "Driver.original.error", "stage": "load-slot-click", "err": "window not found"})
+    retry_offsets = [(0, 0), (0, 2), (-2, 0), (2, 0)]
+    for attempt, (dx, dy) in enumerate(retry_offsets, start=1):
+        pos = (ORIGINAL_LOAD_SLOT_BUTTON_X + dx, y + dy)
+        emit_fn({"tag": "Driver.original.click", "target": "load-slot", "slot": slot, "attempt": attempt, "pos": pos, "window": window_metrics(pid)})
+        if not click_client(pid, *pos, activation_click=False, hover_seconds=0.12):
+            emit_fn({"tag": "Driver.original.error", "stage": "load-slot-click", "err": "window not found"})
+            return
+        time.sleep(0.65)
+        try:
+            path, capture = capture_game_surface(pid, f"audio_original_load_slot_{attempt}")
+            emit_fn({"tag": "Driver.screenshot", "label": f"audio_original_load_slot_{attempt}", "path": str(path), "capture": capture})
+            if not looks_like_original_load_screen(path, capture):
+                break
+        except Exception as e:
+            emit_fn({"tag": "Driver.screenshot-error", "label": f"audio_original_load_slot_{attempt}", "err": str(e)})
 
 
 def main() -> int:
