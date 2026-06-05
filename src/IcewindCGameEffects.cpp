@@ -982,7 +982,7 @@ void IcewindCGameEffectSummon::PlayGroupVFX(int vfxId)
 
     CMessageFireProjectile* pMessage = new CMessageFireProjectile(pProjectile->m_projectileType,
         CGameObjectArray::INVALID_INDEX,
-        m_source,
+        m_target,
         0,
         m_pSprite->m_id,
         m_pSprite->m_id,
@@ -992,7 +992,7 @@ void IcewindCGameEffectSummon::PlayGroupVFX(int vfxId)
     pProjectile->Fire(m_pSprite->GetArea(),
         m_pSprite->m_id,
         m_pSprite->m_id,
-        m_source,
+        m_target,
         0,
         0);
 }
