@@ -26,6 +26,7 @@ from frida_intro_trace import (
     RE_EXE,
     VK_1,
     VK_ESCAPE,
+    VK_RETURN,
     VK_SPACE,
     capture_game_surface,
     click_client,
@@ -41,7 +42,8 @@ ORIGINAL_LOAD_GAME_BUTTON = (645, 295)
 ORIGINAL_LOAD_SLOT_BUTTON_X = 686
 ORIGINAL_LOAD_SLOT_FIRST_Y = 102
 ORIGINAL_LOAD_SLOT_ROW_HEIGHT = 102
-ORIGINAL_STARTUP_SKIP_SECONDS = 16.0
+ORIGINAL_STARTUP_SKIP_SECONDS = 45.0
+ORIGINAL_SKIP_CLICK_POS = (400, 300)
 
 SYMBOLS = {
     "Area.OnActivation": "?OnActivation@CGameArea@@QAEXXZ",
@@ -159,6 +161,8 @@ def make_js(hooks: dict[str, int], module_name: str, mode: str) -> str:
 const hooks = {json.dumps(hooks)};
 const isRe = {json.dumps(mode == "re")};
 const base = Process.getModuleByName({json.dumps(module_name)}).base;
+const traceStartMs = Date.now();
+let activationMs = null;
 let playCount = 0;
 let playPosCount = 0;
 let setChannelCount = 0;
@@ -167,6 +171,7 @@ let areaScanCount = 0;
 let setResRefWaveCount = 0;
 let sndWalkCount = 0;
 let sndWalkFreqCount = 0;
+const soundNames = {{}};
 
 function safe(fn, fallback) {{
   try {{ return fn(); }} catch (e) {{ return fallback; }}
@@ -287,6 +292,9 @@ function mixerInfo(p) {{
 }}
 
 function emit(tag, data) {{
+  const now = Date.now();
+  data.tMs = now - traceStartMs;
+  if (activationMs !== null) data.afterActivationMs = now - activationMs;
   data.tag = tag;
   send(data);
 }}
@@ -310,7 +318,7 @@ function attach(name, callbacks) {{
 
 attach('Area.OnActivation', {{
   onEnter(args) {{ this.area = this.context.ecx; emit('Area.OnActivation.in', {{ area: areaInfo(this.area) }}); }},
-  onLeave(rv) {{ emit('Area.OnActivation.out', {{ area: areaInfo(this.area) }}); }},
+  onLeave(rv) {{ if (activationMs === null) activationMs = Date.now(); emit('Area.OnActivation.out', {{ area: areaInfo(this.area) }}); }},
 }});
 attach('Area.OnDeactivation', {{
   onEnter(args) {{ emit('Area.OnDeactivation', {{ area: areaInfo(this.context.ecx) }}); }},
@@ -483,15 +491,15 @@ for (const name of ['Music.musicStop', 'Music.musicForceStop']) {{
   }});
 }}
 attach('SoundBackend.soundLoad', {{
-  onEnter(args) {{ this.sound = args[0]; this.name = cstr(args[1]); emit('SoundBackend.soundLoad.in', {{ sound: this.sound.toString(), name: this.name }}); }},
-  onLeave(rv) {{ emit('SoundBackend.soundLoad.out', {{ ret: rv.toInt32(), sound: this.sound.toString(), name: this.name }}); }},
+  onEnter(args) {{ this.sound = args[0]; this.name = cstr(args[1]); soundNames[this.sound.toString()] = this.name; emit('SoundBackend.soundLoad.in', {{ sound: this.sound.toString(), name: this.name }}); }},
+  onLeave(rv) {{ soundNames[this.sound.toString()] = this.name; emit('SoundBackend.soundLoad.out', {{ ret: rv.toInt32(), sound: this.sound.toString(), name: this.name }}); }},
 }});
 attach('SoundBackend.soundPlayFromPosition', {{
-  onEnter(args) {{ this.sound = args[0]; this.position = args[1].toInt32(); emit('SoundBackend.soundPlayFromPosition.in', {{ sound: this.sound.toString(), position: this.position }}); }},
-  onLeave(rv) {{ emit('SoundBackend.soundPlayFromPosition.out', {{ ret: rv.toInt32(), sound: this.sound.toString(), position: this.position }}); }},
+  onEnter(args) {{ this.sound = args[0]; this.position = args[1].toInt32(); this.name = soundNames[this.sound.toString()] || ''; emit('SoundBackend.soundPlayFromPosition.in', {{ sound: this.sound.toString(), name: this.name, position: this.position }}); }},
+  onLeave(rv) {{ emit('SoundBackend.soundPlayFromPosition.out', {{ ret: rv.toInt32(), sound: this.sound.toString(), name: this.name, position: this.position }}); }},
 }});
 attach('SoundBackend.soundDelete', {{
-  onEnter(args) {{ emit('SoundBackend.soundDelete', {{ sound: args[0].toString(), caller: this.returnAddress.toString() }}); }},
+  onEnter(args) {{ const sound = args[0].toString(); emit('SoundBackend.soundDelete', {{ sound, name: soundNames[sound] || '', caller: this.returnAddress.toString() }}); }},
 }});
 """
 
@@ -503,30 +511,102 @@ def emit(payload: dict[str, object]) -> None:
         f.write(line + "\n")
 
 
-def original_load_driver(pid: int, slot: int, emit_fn) -> None:
+def bmp_region_average(path: Path, box: tuple[int, int, int, int], step: int = 8) -> tuple[int, int, int]:
+    data = path.read_bytes()
+    offset = int.from_bytes(data[10:14], "little")
+    width = int.from_bytes(data[18:22], "little", signed=True)
+    height_raw = int.from_bytes(data[22:26], "little", signed=True)
+    height = abs(height_raw)
+    top_down = height_raw < 0
+    x1, y1, x2, y2 = box
+    red = green = blue = count = 0
+    for y in range(y1, y2, step):
+        row = y if top_down else height - 1 - y
+        for x in range(x1, x2, step):
+            i = offset + (row * width + x) * 4
+            b, g, r = data[i:i + 3]
+            red += r
+            green += g
+            blue += b
+            count += 1
+    if count == 0:
+        return 0, 0, 0
+    return red // count, green // count, blue // count
+
+
+def looks_like_original_load_screen(path: Path, capture: dict[str, object]) -> bool:
+    score = int(capture.get("score") or 0)
+    content_score = int(capture.get("contentScore") or 0)
+    if score < 2_500_000 or content_score < 90_000:
+        return False
+
+    corner_red, corner_green, corner_blue = bmp_region_average(path, (0, 0, 80, 55))
+    left_red, left_green, left_blue = bmp_region_average(path, (0, 70, 20, 590))
+    title_red, title_green, title_blue = bmp_region_average(path, (330, 20, 470, 55))
+    corner_lum = (corner_red + corner_green + corner_blue) // 3
+    left_lum = (left_red + left_green + left_blue) // 3
+    return (
+        corner_lum > 30
+        and left_lum > 30
+        and title_blue < 70
+        and title_red >= title_blue
+        and title_green >= title_blue
+    )
+
+
+def original_load_driver(pid: int, slot: int, startup_skip_seconds: float, emit_fn) -> None:
     time.sleep(1.5)
-    click_client(pid, 20, 20, activation_click=True)
-    deadline = time.time() + ORIGINAL_STARTUP_SKIP_SECONDS
-    keys = [VK_ESCAPE, VK_SPACE]
+    emit_fn({"tag": "Driver.original.startup-skip.start", "seconds": startup_skip_seconds, "window": window_metrics(pid)})
+    deadline = time.time() + startup_skip_seconds
+    keys = [VK_ESCAPE, VK_SPACE, VK_RETURN]
     index = 0
+    load_screen_seen = False
+    load_screen_capture: dict[str, object] | None = None
     while time.time() < deadline:
-        send_key_to_pid(pid, keys[index % len(keys)], activation_click=True)
+        key = keys[index % len(keys)]
+        send_key_to_pid(pid, key, activation_click=True)
+        if index % 3 == 2:
+            click_client(pid, *ORIGINAL_SKIP_CLICK_POS, activation_click=True, hover_seconds=0.01)
         index += 1
+        if index % 6 != 0:
+            time.sleep(0.25)
+            continue
+
+        emit_fn({"tag": "Driver.original.click", "target": "load-game-probe", "attempt": index // 6, "pos": ORIGINAL_LOAD_GAME_BUTTON, "window": window_metrics(pid)})
+        if not click_client(pid, *ORIGINAL_LOAD_GAME_BUTTON, activation_click=True, hover_seconds=0.05):
+            emit_fn({"tag": "Driver.original.error", "stage": "load-game-probe", "err": "window not found"})
+            return
+        time.sleep(0.85)
+        try:
+            path, capture = capture_game_surface(pid, f"audio_original_load_screen_probe_{index // 6}")
+            emit_fn({"tag": "Driver.screenshot", "label": "audio_original_load_screen_probe", "path": str(path), "capture": capture})
+            load_screen_capture = capture
+            if looks_like_original_load_screen(path, capture):
+                load_screen_seen = True
+                break
+        except Exception as e:
+            emit_fn({"tag": "Driver.screenshot-error", "label": "audio_original_load_screen_probe", "err": str(e)})
         time.sleep(0.35)
 
-    emit_fn({"tag": "Driver.original.click", "target": "load-game", "pos": ORIGINAL_LOAD_GAME_BUTTON, "window": window_metrics(pid)})
-    if not click_client(pid, *ORIGINAL_LOAD_GAME_BUTTON, activation_click=False, hover_seconds=0.05):
-        emit_fn({"tag": "Driver.original.error", "stage": "load-game-click", "err": "window not found"})
+    emit_fn({
+        "tag": "Driver.original.startup-skip.done",
+        "attempts": index,
+        "loadScreenSeen": load_screen_seen,
+        "lastCapture": load_screen_capture,
+        "window": window_metrics(pid),
+    })
+    if not load_screen_seen:
+        emit_fn({"tag": "Driver.original.error", "stage": "startup-skip", "err": "load screen not detected"})
         return
 
-    time.sleep(1.0)
+    emit_fn({"tag": "Driver.original.ready", "target": "load-screen", "window": window_metrics(pid)})
     try:
         path, capture = capture_game_surface(pid, "audio_original_load_screen")
         emit_fn({"tag": "Driver.screenshot", "label": "audio_original_load_screen", "path": str(path), "capture": capture})
     except Exception as e:
         emit_fn({"tag": "Driver.screenshot-error", "err": str(e)})
 
-    visible_index = max(0, slot - 1)
+    visible_index = max(0, slot)
     y = ORIGINAL_LOAD_SLOT_FIRST_Y + visible_index * ORIGINAL_LOAD_SLOT_ROW_HEIGHT
     pos = (ORIGINAL_LOAD_SLOT_BUTTON_X, y)
     emit_fn({"tag": "Driver.original.click", "target": "load-slot", "slot": slot, "pos": pos, "window": window_metrics(pid)})
@@ -538,12 +618,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["re", "original"], default="re")
     ap.add_argument("--pid", type=int, help="attach to an existing process instead of spawning")
-    ap.add_argument("--slot", type=int, default=1, help="visible load-screen slot to load")
+    ap.add_argument("--slot", type=int, default=0, help="zero-based visible load-screen slot to load")
     ap.add_argument("--save-name", help="exact MPSave directory name to load")
     ap.add_argument("--timeout", type=float, default=60.0)
     ap.add_argument("--post-load-seconds", type=float, default=18.0)
     ap.add_argument("--output", type=Path, help="jsonl output path; defaults to tmp_audio_trace_<save>.jsonl")
     ap.add_argument("--no-auto-load", dest="auto_load", action="store_false", help="original mode: wait for manual load instead of clicking slot")
+    ap.add_argument("--original-startup-skip-seconds", type=float, default=ORIGINAL_STARTUP_SKIP_SECONDS)
     ap.set_defaults(auto_load=True)
     ns = ap.parse_args()
 
@@ -602,7 +683,7 @@ def main() -> int:
         if ns.auto_load:
             threading.Thread(
                 target=original_load_driver,
-                args=(pid, ns.slot, emit),
+                args=(pid, ns.slot, ns.original_startup_skip_seconds, emit),
                 daemon=True,
             ).start()
     emit({"tag": "Driver.spawned", "pid": pid, "result": str(result_path), "target": target, "output": str(OUT)})
