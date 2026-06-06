@@ -1504,13 +1504,14 @@ void CProjectileTravelling::AIUpdate()
 //     object's CGameAnimation at +0x50F0, GetHeight virtual; 0x20 for a
 //     non-creature source) -- the animation-height stub shared with AIUpdate;
 //     passed as 0 (ground) here.
-//   * the attached-object create (CGameObjectArray::Add 0x59A0F0 +
-//     CMessageHandler::AddMessage 0x4F7500 + CMessage 0x554D20 -> m_nTargetId);
-//     not exercised by Magic Missile (m_nTargetId stays INVALID).
+//   * the attached-object create (CMessageHandler::AddMessage 0x4F7500 +
+//     CMessage 0x554D20 -> m_nTargetId); not exercised by Magic Missile
+//     (m_nTargetId stays INVALID).
 //   * the fire-sound setup (CSound at +0xEE, fields +0xF2/+0xF6,
 //     CDimm::GetResObject / CSound::SetChannel).
-// AddToArea registers the projectile with the area's object lists, so once a leaf
-// is wired into the factory the engine will drive its AIUpdate/Render.
+// The projectile registers itself in the global object array (CGameObjectArray::
+// Add) to obtain an m_id before AddToArea, which adds that m_id to the area's
+// object lists so the engine drives its AIUpdate/Render.
 void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
                                  CPoint targetPos, LONG nHeight, SHORT nType)
 {
@@ -1567,6 +1568,8 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
     // membership and registers with the area's object lists. pArea and the
     // launch position (ptSource) are Frida-confirmed; posZ (the launch height)
     // is the documented animation-height stub, passed as 0.
+    // Register in the global object array (assigns m_id), then add to the area.
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
     AddToArea(pArea, ptSource, 0, 0);
 
     // Subpixel launch position (1/1024 fixed point), seeded from the launch
@@ -2028,16 +2031,19 @@ void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSu
     rGCBounds.right = rGCBounds.left + rFX.Width();
     rGCBounds.bottom = rGCBounds.top + rFX.Height();
 
-    // Clip to the area viewport (CGameArea +0x514..0x560 -- unmodelled fields,
-    // accessed by raw offset).
-    const BYTE* pAreaBytes = reinterpret_cast<const BYTE*>(pArea);
+    // Clip to the area viewport. The original reads these as raw CGameArea
+    // offsets (+0x514..0x560), but they live in the embedded CInfinity
+    // (m_cInfinity at +0x4CC): the scroll origin (nCurrentX/Y) plus the screen
+    // rect (rViewPort). Accessed by name so the layout drift does not misread
+    // them (a raw +0x514 read gave an inverted viewport -> everything clipped).
+    CInfinity* pInfViewport = pArea->GetInfinity();
     CRect rViewport;
-    rViewport.left = *reinterpret_cast<const int*>(pAreaBytes + 0x55C);
-    rViewport.top = *reinterpret_cast<const int*>(pAreaBytes + 0x560);
-    rViewport.right = (*reinterpret_cast<const int*>(pAreaBytes + 0x51C)
-                       - *reinterpret_cast<const int*>(pAreaBytes + 0x514)) + rViewport.left;
-    rViewport.bottom = (*reinterpret_cast<const int*>(pAreaBytes + 0x520)
-                        - *reinterpret_cast<const int*>(pAreaBytes + 0x518)) + rViewport.top;
+    rViewport.left = pInfViewport->nCurrentX;
+    rViewport.top = pInfViewport->nCurrentY;
+    rViewport.right = (pInfViewport->rViewPort.right - pInfViewport->rViewPort.left)
+                      + pInfViewport->nCurrentX;
+    rViewport.bottom = (pInfViewport->rViewPort.bottom - pInfViewport->rViewPort.top)
+                       + pInfViewport->nCurrentY;
     if (!IntersectRect(&rViewport, &rGCBounds, &rViewport)) {
         return;
     }
