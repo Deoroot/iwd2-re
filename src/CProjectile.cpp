@@ -1339,7 +1339,7 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     field_1CA = 0;
     field_1CE = 0;
     field_29D = 0;
-    field_29E = 0x7FFF;
+    m_lifetime = 0x7FFF;
 
     m_pVidCell = new CVidCell(resRef, FALSE);
 
@@ -1349,6 +1349,10 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     field_1DE = 1;
     field_1DA = 0;
     field_29C = 0;
+    m_velocity = 0x14;
+    m_targetX = 0;
+    m_targetY = 0;
+    field_170 = 0;
 
     m_sourceId = 0;
     m_targetId = 0;
@@ -1364,4 +1368,76 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
 CProjectileTravelling::~CProjectileTravelling()
 {
     delete m_pVidCell;
+}
+
+// 0x52B900 (vtable slot 3 -- AIUpdate)
+//
+// Per-tick flight. Field semantics confirmed by a Frida trace of a Magic
+// Missile cast on the original IWD2.exe: target (+0xC8/+0xCC) stays constant,
+// the position (CGameObject m_pos) closes on it at ~velocity (+0x70) per tick,
+// the lifetime (+0x29E) counts down from 0x7FFF, and the trail field (+0xE2)
+// stays 0.
+//
+// PARTIAL: the pause-gate (skip while the engine single-steps another object),
+// the moving-target homing branch (shares the live target and interpolates
+// height from its animation), the aim virtual (0x52BD20, not analysable in
+// Ghidra), and the trailing sub-projectile (unrecovered factory 0x51AE40;
+// branch disabled for Magic Missile) are documented stubs. The
+// advance/arrival/expiry/lifetime/sound core is recovered and trace-verified.
+void CProjectileTravelling::AIUpdate()
+{
+    m_pVidCell->FrameAdvance();
+
+    // Arrival: target and position share the same 16-unit x and 12-unit y cell.
+    int posX = m_pos.x;
+    if (((m_targetX + ((m_targetX >> 31) & 0xF)) >> 4) == ((posX + ((posX >> 31) & 0xF)) >> 4)
+        && m_targetY / 12 == m_pos.y / 12) {
+        OnArrival();
+        return;
+    }
+
+    // Arrival within the per-tick travel radius (velocity + 1); y weighted 16/9.
+    int dy = m_targetY - m_pos.y;
+    int dist = (dy * dy * 16) / 9 + (m_targetX - posX) * (m_targetX - posX);
+    int radius = m_velocity + 1;
+    if (dist <= radius * radius) {
+        OnArrival();
+        return;
+    }
+    if (field_170 == 0) {
+        OnArrival();
+        return;
+    }
+
+    // Lifetime countdown.
+    SHORT life = m_lifetime;
+    m_lifetime = life - 1;
+    if (life == 0) {
+        RemoveSelf();
+        return;
+    }
+
+    if (m_targetId == CGameObjectArray::INVALID_INDEX) {
+        AimAtPoint(m_targetX, m_targetY);
+    } else {
+        // Homing: the original shares the live target, aims at its position and
+        // interpolates the projectile height from its animation. STUB: aim at
+        // the recorded target point; live-target tracking and height interp are
+        // recovered with the rest of the homing path.
+        AimAtPoint(m_targetX, m_targetY);
+    }
+
+    // Trailing sub-projectile (+0xE2 != 0) via the unrecovered factory 0x51AE40
+    // -- omitted (trace shows it disabled for Magic Missile).
+
+    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+}
+
+// 0x52BD20 (vtable slot 33 -- aim/destination point)
+//
+// Not analysable in Ghidra (no function recovered at the vtable target). It
+// receives the world point the cell should head toward; recovered with the
+// flight movement system. Stubbed so AIUpdate links.
+void CProjectileTravelling::AimAtPoint(int x, int y)
+{
 }

@@ -93,12 +93,18 @@ class CProjectileTravelling : public CProjectile {
 public:
     CProjectileTravelling(const CResRef& resRef);
     ~CProjectileTravelling() override;
+    void AIUpdate() override;                  // vtable slot 3 (0x52B900)
+    virtual void AimAtPoint(int x, int y);     // vtable slot 33 (0x52BD20)
 
 protected:
     CVidCell* m_pVidCell;
     CVidPalette m_palette;
     CVidBitmap m_bitmap;
     DWORD field_196;
+    SHORT m_velocity;   // +0x70 in the binary -- Frida-confirmed (arrival radius = velocity+1)
+    int m_targetX;      // +0xC8 -- Frida-confirmed (constant target point)
+    int m_targetY;      // +0xCC -- Frida-confirmed
+    int field_170;      // +0x170 -- nonzero during flight; 0 => arrived
     DWORD field_1C6;
     DWORD field_1CA;
     DWORD field_1CE;
@@ -107,7 +113,7 @@ protected:
     DWORD field_1DE;
     BYTE field_29C;
     BYTE field_29D;
-    SHORT field_29E;
+    SHORT m_lifetime;   // +0x29E -- Frida-confirmed (decrements 1/tick from 0x7FFF)
 };
 
 #endif /* CPROJECTILE_H_ */
