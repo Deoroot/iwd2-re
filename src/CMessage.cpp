@@ -3,6 +3,7 @@
 #include "CBaldurChitin.h"
 #include "CGameAIBase.h"
 #include "CGameArea.h"
+#include "CProjectile.h"
 #include "CGameContainer.h"
 #include "CGameDoor.h"
 #include "CGameEffect.h"
@@ -15499,6 +15500,55 @@ BYTE CMessageFireProjectile::GetMsgType()
 BYTE CMessageFireProjectile::GetMsgSubType()
 {
     return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FIRE_PROJECTILE;
+}
+
+// 0x5007F0
+//
+// The deferred projectile launch. The cast queues this message with caller ==
+// target == the caster id, so m_targetId resolves the caster. After an MP-
+// ownership / world-state gate it builds the projectile from the factory and
+// fires it: Fire(caster area, caster id, projectile target id, target point,
+// height, 0).
+//
+// The original calls Fire unconditionally; our factory still returns NULL for
+// the projectile types whose leaves are unrecovered, so the launch is guarded (a
+// NULL here would call through a null vtable). The projType 0x130 seed
+// (projectile +0x356) is not modelled and is skipped.
+void CMessageFireProjectile::Run()
+{
+    CGameObject* pCaster;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pCaster, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    // MP-ownership / world gate: skip unless the world is live and this machine
+    // owns the caster (CChitin +0x96E / +0x104C, unmodelled -- raw offsets).
+    const BYTE* pChitin = reinterpret_cast<const BYTE*>(g_pChitin);
+    BOOL skip = (*reinterpret_cast<const int*>(pChitin + 0x96E) == 0)
+        || (*reinterpret_cast<const int*>(pChitin + 0x104C)
+            == static_cast<int>(pCaster->m_remotePlayerID));
+    if (skip || pCaster->m_pArea == NULL) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return;
+    }
+
+    CGameAIBase* pProjCaster = (pCaster->GetObjectType() & 1)
+        ? static_cast<CGameAIBase*>(pCaster) : NULL;
+    CProjectile* pProjectile = CProjectile::DecodeProjectile(
+        m_projectileType, pProjCaster, field_1E);
+    if (pProjectile != NULL) {
+        pProjectile->Fire(pCaster->m_pArea, pCaster->m_id, m_projectileTargetId,
+            m_projectileTarget, m_height, 0);
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
 
 // -----------------------------------------------------------------------------

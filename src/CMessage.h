@@ -1622,6 +1622,7 @@ public:
     SHORT GetCommType() override;
     BYTE GetMsgType() override;
     BYTE GetMsgSubType() override;
+    void Run() override;
 
     /* 000C */ WORD m_projectileType;
     /* 000E */ LONG m_projectileTargetId;
