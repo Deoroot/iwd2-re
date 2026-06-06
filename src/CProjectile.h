@@ -94,6 +94,7 @@ public:
     CProjectileTravelling(const CResRef& resRef);
     ~CProjectileTravelling() override;
     void AIUpdate() override;                  // vtable slot 3 (0x52B900)
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;  // slot 27 (0x52C050)
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;  // slot 19 (0x52B190)
     virtual void AimAtPoint(int x, int y);     // vtable slot 33 (0x52BD20)
     virtual DWORD GetRenderFlags();            // vtable slot 32 (0x5297D0)

@@ -1435,6 +1435,72 @@ void CProjectileTravelling::AIUpdate()
     m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
 }
 
+// 0x52C050 (vtable slot 27 -- Fire; the launch)
+//
+// Ghidra recovers no function at the vtable target; transcribed from capstone
+// disassembly (0x85E bytes) with the field semantics Frida-confirmed. Records
+// the source/target/area, resolves the launch origin and the target point, and
+// computes the flight distance and lifetime.
+//
+// PARTIAL: the verified trajectory setup (distance^2 + lifetime + target point)
+// is recovered. The launch ACTIONS in the original's tail -- AddToArea
+// (0x4C7BE0), the fire CMessage (0x554D20), the fire-sound setup (+0xF2/+0xF6),
+// the +0x9C/+0xA0 render-position scaling, and the moving-target animation-
+// height tracking -- are documented stubs. field_170 is the same y-weighted
+// distance^2 AIUpdate tests for arrival, so the recovered core makes the flight
+// behave; wiring the projectile into the area is the remaining work.
+void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
+                                 CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)nHeight;
+    (void)nType;
+
+    m_sourceId = source;
+    m_targetId = target;
+    m_pArea = pArea;
+
+    CPoint ptTarget;
+    if (m_targetId != CGameObjectArray::INVALID_INDEX) {
+        // Homing: aim at the live target object's current position.
+        CGameObject* pTargetObj;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+                CGameObjectArray::THREAD_ASYNCH, &pTargetObj, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+        ptTarget = pTargetObj->GetPos();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    } else {
+        ptTarget = targetPos;
+    }
+
+    // Launch origin from the source (facing-adjusted).
+    CPoint ptSource;
+    if (!GetProjectileSourcePosition(m_sourceId, ptSource)) {
+        return;
+    }
+
+    // Flight distance^2 (y weighted 16/9) -- the metric AIUpdate tests for
+    // arrival; drives the lifetime.
+    int dx = ptTarget.x - ptSource.x;
+    int dy = ptTarget.y - ptSource.y;
+    field_170 = dx * dx + (dy * dy * 16) / 9;
+
+    // Distance-based lifetime (only when field_29D is set; Magic Missile leaves
+    // it 0, keeping the 0x7FFF default).
+    if (field_29D != 0) {
+        m_lifetime = static_cast<SHORT>(
+            static_cast<int>(sqrt(static_cast<double>(field_170))) / m_velocity + 1);
+    }
+
+    m_targetX = ptTarget.x;
+    m_targetY = ptTarget.y;
+}
+
 // 0x52BD20 (vtable slot 33 -- aim/destination point)
 //
 // Not analysable in Ghidra (no function recovered at the vtable target). It
