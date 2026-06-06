@@ -1319,3 +1319,49 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     return p;
 }
+
+// 0x52AD60
+//
+// CProjectileTravelling -- shared base ctor for the travelling weapon/spell
+// projectiles. Builds the heap CVidCell animation cell from the visual resref,
+// a range palette and a bitmap, then seeds the travelling state. The leaf
+// classes (CProjectileArrow etc.) prepare the resref and call this, then set
+// their own vtable and per-projectile configuration.
+//
+// STEP 1: the CProjectile base sub-object is constructed by its (implicit)
+// member ctor; this body only initializes the travelling additions. The
+// original also pokes several base-CProjectile fields in the +0x9C..0xDC
+// "drift gap" (see the projectile-factory layout note) -- 0/flag defaults that
+// CProjectile.h does not model -- which are intentionally omitted.
+CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
+    : m_palette(CVidPalette::TYPE_RANGE)
+{
+    field_1CA = 0;
+    field_1CE = 0;
+    field_29D = 0;
+    field_29E = 0x7FFF;
+
+    m_pVidCell = new CVidCell(resRef, FALSE);
+
+    field_196 = 0;
+    field_1D4 = 0;
+    field_1C6 = 0;
+    field_1DE = 1;
+    field_1DA = 0;
+    field_29C = 0;
+
+    m_sourceId = 0;
+    m_targetId = 0;
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x52B010 (vtable slot 0, partial)
+//
+// Frees the heap CVidCell; the embedded palette and bitmap destruct
+// automatically. The full original destructor (which also releases the cell's
+// requested resources) is recovered with the rest of the virtual interface.
+CProjectileTravelling::~CProjectileTravelling()
+{
+    delete m_pVidCell;
+}

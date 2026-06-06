@@ -4,6 +4,8 @@
 #include "CGameEffectList.h"
 #include "CGameObject.h"
 #include "CVidCell.h"
+#include "CVidPalette.h"
+#include "CVidBitmap.h"
 #include "CSound.h"
 #include "IcewindCVisualEffect.h"
 
@@ -73,6 +75,39 @@ private:
     /* 0192 */ CVidCell m_vidCell;
     /* 026C */ IcewindCVisualEffect m_visualEffect;
     /* 032C */ BOOL m_offsetAboveTarget;
+};
+
+// Intermediate base for the travelling weapon/spell projectiles (arrows, bolts,
+// darts, axes, spears, magic missiles, fireballs). Adds a heap CVidCell
+// animation cell plus a range palette and bitmap on top of CProjectile. 17 leaf
+// classes derive from it (~63 DecodeProjectile cases). vtable 0x84D9C4.
+//
+// STEP 1 of the family recovery: layout + ctor/dtor only. The 12 virtual
+// overrides (vtable 0x84D9C4 -- the flight/render/collision behaviour at
+// 0x52B900/0x52B190/Fire 0x52C050 and the new slots 32-39) are NOT yet
+// recovered; the class inherits CProjectile's minimal virtuals for now, so an
+// instance constructs correctly but does not yet fly or draw. Only the field
+// subset the constructor initializes is modelled so far (field_XXX names carry
+// the binary offset); more is added as the virtuals and leaves are recovered.
+class CProjectileTravelling : public CProjectile {
+public:
+    CProjectileTravelling(const CResRef& resRef);
+    ~CProjectileTravelling() override;
+
+protected:
+    CVidCell* m_pVidCell;
+    CVidPalette m_palette;
+    CVidBitmap m_bitmap;
+    DWORD field_196;
+    DWORD field_1C6;
+    DWORD field_1CA;
+    DWORD field_1CE;
+    DWORD field_1D4;
+    SHORT field_1DA;
+    DWORD field_1DE;
+    BYTE field_29C;
+    BYTE field_29D;
+    SHORT field_29E;
 };
 
 #endif /* CPROJECTILE_H_ */
