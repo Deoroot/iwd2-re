@@ -1,6 +1,7 @@
 #include "CProjectile.h"
 
 #include <math.h>
+#include <stdlib.h>
 
 #include "CBaldurChitin.h"
 #include "CGameEffect.h"
@@ -1382,10 +1383,10 @@ CProjectileTravelling::~CProjectileTravelling()
 //
 // PARTIAL: the pause-gate (skip while the engine single-steps another object),
 // the moving-target homing branch (shares the live target and interpolates
-// height from its animation), the aim virtual (0x52BD20, not analysable in
-// Ghidra), and the trailing sub-projectile (unrecovered factory 0x51AE40;
-// branch disabled for Magic Missile) are documented stubs. The
-// advance/arrival/expiry/lifetime/sound core is recovered and trace-verified.
+// height from its animation), and the trailing sub-projectile (unrecovered
+// factory 0x51AE40; branch disabled for Magic Missile) are documented stubs.
+// The advance/arrival/expiry/lifetime/sound core is recovered and trace-verified
+// (the per-tick aim step itself, 0x52BD20, is recovered -- see AimAtPoint).
 void CProjectileTravelling::AIUpdate()
 {
     m_pVidCell->FrameAdvance();
@@ -1501,13 +1502,97 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
     m_targetY = ptTarget.y;
 }
 
-// 0x52BD20 (vtable slot 33 -- aim/destination point)
+// 0x52BD20 (vtable slot 33 -- the per-tick motion integrator; AIUpdate's "aim")
 //
-// Not analysable in Ghidra (no function recovered at the vtable target). It
-// receives the world point the cell should head toward; recovered with the
-// flight movement system. Stubbed so AIUpdate links.
+// Ghidra recovers no function at the vtable target; transcribed from capstone
+// disassembly (0x323 bytes, ret 8 -> __thiscall(this, int x, int y)). Steps the
+// projectile one tick toward world point (x, y): computes the 16-direction
+// facing, a velocity-scaled unit step in 1/1024 fixed point, accumulates it into
+// the subpixel position, decodes that back to m_pos, and syncs an attached
+// object's height.
+//
+// All work fields live in the CProjectile gap region in the binary
+// (+0x9C..0xE0, +0x1DC) and are modelled by-name on CProjectileTravelling per
+// the layout-drift note. The y axis is pre-scaled 4/3 to undo the isometric
+// squash before the facing/distance maths (CGameSprite::GetDirection then
+// applies its own iso ratios). The rand() term (_rand 0x7E8160) spreads the
+// step within the [field_B4, field_BC) band when set -- 0 for Magic Missile, so
+// the path stays straight. Depends on Fire seeding the subpixel position
+// (m_posAccumX/Y), which is currently stubbed.
 void CProjectileTravelling::AimAtPoint(int x, int y)
 {
+    // Facing toward the target; both points y-scaled 4/3 (undo the iso squash).
+    CPoint ptStart;
+    ptStart.x = m_pos.x;
+    ptStart.y = (m_pos.y * 4) / 3;
+    CPoint ptTarget;
+    ptTarget.x = x;
+    ptTarget.y = (y * 4) / 3;
+    m_facing = static_cast<SHORT>(CGameSprite::GetDirection(ptStart, ptTarget));
+
+    // Velocity-scaled unit step (1/1024 fixed point).
+    int dx = x - m_pos.x;
+    int dyScaled = ptTarget.y - ptStart.y;
+    int dist = static_cast<int>(
+        sqrt(static_cast<double>(dx * dx + dyScaled * dyScaled)) + 0.5);
+    if (dist == 0) {
+        m_stepX = 1;
+        m_stepY = 1;
+    } else {
+        m_stepX = ((dx << 10) * m_velocity) / dist;
+        m_stepY = ((dyScaled << 10) * m_velocity) / dist;
+        m_targetX = x;
+        m_targetY = y;
+
+        // Fold in the per-tick carry, then a random spread within the band.
+        m_stepX += field_AC;
+        m_stepY += field_B0;
+        int spreadX = field_BC - field_B4;
+        if (spreadX > 0) {
+            m_stepX += field_B4 + rand() % spreadX;
+        }
+        int spreadY = field_C0 - field_B8;
+        if (spreadY > 0) {
+            m_stepY += field_B8 + rand() % spreadY;
+        }
+    }
+
+    // Advance the subpixel position by the step.
+    m_posAccumX += m_stepX;
+    m_posAccumY += m_stepY;
+
+    // Bleed each carry down by one modulus per tick (zero once exhausted).
+    if (field_AC < 0) {
+        field_AC = (field_AC <= -field_E0) ? field_AC + field_E0 : 0;
+    } else if (field_AC > 0) {
+        field_AC = (field_AC >= field_E0) ? field_AC - field_E0 : 0;
+    }
+    if (field_B0 < 0) {
+        field_B0 = (field_B0 <= -field_E0) ? field_B0 + field_E0 : 0;
+    } else if (field_B0 > 0) {
+        field_B0 = (field_B0 >= field_E0) ? field_B0 - field_E0 : 0;
+    }
+
+    // Decode the subpixel position back to the cell position (undo the 1/1024
+    // fixed point and, for y, the 4/3 iso scale).
+    m_pos.x = m_posAccumX >> 10;
+    m_pos.y = ((m_posAccumY * 3) / 4) >> 10;
+
+    // Keep the attached object (m_nTargetId) at the projectile's height.
+    if (m_nTargetId != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pObj;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_nTargetId,
+                CGameObjectArray::THREAD_ASYNCH, &pObj, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+        pObj->m_posZ = m_posZ;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_nTargetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
 }
 
 // 0x5297D0 (vtable slot 32 -- base blit flags)

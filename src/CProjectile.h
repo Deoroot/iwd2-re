@@ -107,6 +107,17 @@ protected:
     CVidBitmap m_bitmap;
     CVidCell* m_pShadowCell;    // +0x196 secondary "shadow" cell (drawn when m_hasShadowCell)
     SHORT m_velocity;           // +0x70 -- Frida-confirmed (arrival radius = velocity+1)
+    int m_posAccumX;            // +0x9C -- subpixel position accumulator (1/1024 fixed point)
+    int m_posAccumY;            // +0xA0 -- subpixel position (4/3 y-scaled, 1/1024)
+    int m_stepX;                // +0xA4 -- per-tick velocity step x
+    int m_stepY;                // +0xA8 -- per-tick velocity step y
+    int field_AC;               // +0xAC -- per-tick carry x (bled off by field_E0 modulus)
+    int field_B0;               // +0xB0 -- per-tick carry y
+    int field_B4;               // +0xB4 -- random step-spread band low (x)
+    int field_B8;               // +0xB8 -- random step-spread band low (y)
+    int field_BC;               // +0xBC -- random step-spread band high (x)
+    int field_C0;               // +0xC0 -- random step-spread band high (y)
+    USHORT field_E0;            // +0xE0 -- carry wrap modulus
     int m_targetX;              // +0xC8 -- Frida-confirmed (target point)
     int m_targetY;              // +0xCC -- Frida-confirmed
     int field_170;              // +0x170 -- nonzero during flight; 0 => arrived
@@ -117,6 +128,7 @@ protected:
     int field_1CE;              // +0x1CE -- mirror ref offset y
     int m_hasShadowCell;        // +0x1D4 (param[0x75]) -- Frida-confirmed
     SHORT m_direction;          // +0x1DA -- Frida-confirmed (facing; drives mirror thresholds)
+    SHORT m_facing;             // +0x1DC -- movement facing (0..15, CGameSprite::GetDirection)
     int m_visible;              // +0x1DE -- Frida-confirmed (render gate)
     BYTE m_paletteSwap;         // +0x29C (param[0xa7]) -- Frida-confirmed
     BYTE field_29D;
