@@ -68,6 +68,8 @@ print(pe.get_data(0x8ABCA4 - ib, 16))
 
 ## Frida tracing
 
+Don't hesitate to write a throwaway Frida trace to confirm/investigate field semantics live in-game before a recover — ground truth beats guessing.
+
 Hook original `IWD2.exe` at runtime, diff against `Iwd2DebugLog`.
 Docs: `docs/frida-differential-tracing.md`. Template: `scripts/frida_formation_trace.py`.
 - `ptr(0xADDR)` absolute (no ASLR, ImageBase `0x400000`). `__thiscall`: `this` = `this.context.ecx`, stack args = `args[0..]`.
