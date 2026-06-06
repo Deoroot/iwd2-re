@@ -9,6 +9,7 @@
 #include "CGameSprite.h"
 #include "CInfinity.h"
 #include "CInfGame.h"
+#include "IcewindMisc.h"
 
 static LONG GetProjectileSourceDiagonalOffset(const CRect& rEllipse)
 {
@@ -629,15 +630,16 @@ void CProjectileSummonVFX::SetOffsetAboveTarget(BOOL offsetAboveTarget)
 // DecodeProjectile path for projectileType > 0x1000 (typeIndex =
 // projectileType - 0x1001, bPositive selects the good/evil sound variant).
 // 107 of the 112 cases build a CProjectileSummonVFX overlay (resref "<spell>H"
-// or "<x>X") with per-case copy-from-back / tint-from-flags / fire sound /
-// offset-above-target. Not yet recovered (faithfully omitted, documented per
-// case): the optional caster color-glow flash (needs the effect-apply virtual
-// 0x733050), the aura-attach config on a few overlays, and 4 exotic projectile
-// classes (CallLightning x3 at 0x5348C0, Sunray at 0x57E860).
+// or "<x>X") with per-case copy-from-back / tint-from-flags / caster color-glow
+// flash / fire sound / offset-above-target.
+//
+// Not yet recovered (faithfully omitted, documented per case): the aura-attach
+// config on a few overlays, and 4 exotic projectile classes (CallLightning x3
+// at 0x5348C0, Sunray at 0x57E860). The color-glow is applied via the caster's
+// AddEffect (vtbl+0x78) exactly as the original; AddEffect's own full immunity
+// filter (0x733050) is a separate arc.
 CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGameAIBase* pCaster, BOOL bPositive)
 {
-    (void)pCaster;
-
     CProjectileSummonVFX* p = NULL;
     switch (typeIndex) {
     case 0:  // base CProjectile (0x530790); base-projectile ctor not recovered
@@ -645,56 +647,80 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     case 1: {
         p = new CProjectileSummonVFX(CResRef("AbjurH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0xD7, 0x8C, 0x46, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = bPositive ? CResRef("EFF_P01") : CResRef("EFF_M02");
         break;
     }
     case 2: {
         p = new CProjectileSummonVFX(CResRef("AlterH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x4B, 0xD2, 0xA0, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = bPositive ? CResRef("EFF_P07") : CResRef("EFF_M08");
         break;
     }
     case 3: {
         p = new CProjectileSummonVFX(CResRef("InvocH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x6B, 0x06, 0xC9, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = bPositive ? CResRef("EFF_P05") : CResRef("EFF_M06");
         break;
     }
     case 4: {
         p = new CProjectileSummonVFX(CResRef("NecroH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0xB4, 0xD2, 0x50, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = bPositive ? CResRef("EFF_P06") : CResRef("EFF_M07");
         break;
     }
     case 5: {
         p = new CProjectileSummonVFX(CResRef("ConjuH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x69, 0xD7, 0x46, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = bPositive ? CResRef("EFF_P02") : CResRef("EFF_M03");
         break;
     }
     case 6: {
         p = new CProjectileSummonVFX(CResRef("EnchaH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x50, 0xD2, 0x50, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = bPositive ? CResRef("EFF_P04") : CResRef("EFF_M05");
         break;
     }
     case 7: {
         p = new CProjectileSummonVFX(CResRef("IllusH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x50, 0x5A, 0xD2, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = CResRef("EFF_M34");
         break;
     }
     case 8: {
         p = new CProjectileSummonVFX(CResRef("DivinH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x64, 0x46, 0xD2, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = bPositive ? CResRef("EFF_P03") : CResRef("EFF_M04");
         break;
     }
@@ -938,7 +964,10 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     case 55: {
         p = new CProjectileSummonVFX(CResRef("CCommaH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x80, 0x00, 0x80, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         p->m_fireSoundRef = CResRef("EFF_P47");
         break;
     }
@@ -980,7 +1009,10 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     case 63: {
         p = new CProjectileSummonVFX(CResRef("FireH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0xFF, 0x00, 0x00, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         break;
     }
     case 64: {
@@ -1001,7 +1033,10 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     case 67: {
         p = new CProjectileSummonVFX(CResRef("ParalH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x2D, 0x00, 0x5A, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         break;
     }
     case 68: {
