@@ -101,6 +101,7 @@ public:
 
 protected:
     void GetCellBounds(CRect& rBounds, CPoint& ptRef);   // 0x52B6B0 -- cell draw rect + ref point
+    void UpdateDirectionSequence(CVidCell* pCell);       // 0x52C8C0 -- pick anim sequence from facing
 
     CVidCell* m_pVidCell;       // +0x192 main animation cell
     CVidPalette m_palette;
@@ -128,6 +129,7 @@ protected:
     int field_1CA;              // +0x1CA -- mirror ref offset x
     int field_1CE;              // +0x1CE -- mirror ref offset y
     int m_hasShadowCell;        // +0x1D4 (param[0x75]) -- Frida-confirmed
+    SHORT m_dirCount;           // +0x1D8 -- directional sequence count (16/8/1; >1 => pick by facing)
     SHORT m_direction;          // +0x1DA -- Frida-confirmed (facing; drives mirror thresholds)
     SHORT m_facing;             // +0x1DC -- movement facing (0..15, CGameSprite::GetDirection)
     int m_visible;              // +0x1DE -- Frida-confirmed (render gate)

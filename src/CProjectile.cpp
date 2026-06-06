@@ -10,6 +10,7 @@
 #include "CGameSprite.h"
 #include "CInfinity.h"
 #include "CInfGame.h"
+#include "CUtil.h"
 #include "IcewindMisc.h"
 
 static LONG GetProjectileSourceDiagonalOffset(const CRect& rEllipse)
@@ -1359,6 +1360,10 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     m_useHeightOffset = 0;
     m_velocity = 0x14;
     m_renderFlags = 0x20000;
+    // +0x1D8 is left unwritten by the original base ctor (a leaf sets it, e.g.
+    // ARARROW = 0x10); default to 1 (non-directional) for definedness so Render
+    // skips the directional-sequence pick until a leaf overrides it.
+    m_dirCount = 1;
 
     // Motion-integrator state (AimAtPoint): subpixel position, step, carry and
     // random-spread band, all zero so the path starts straight from the launch.
@@ -1663,6 +1668,71 @@ DWORD CProjectileTravelling::GetRenderFlags()
     return m_renderFlags;
 }
 
+// 0x52C8C0
+//
+// Picks the cell's animation sequence from the current movement facing, for
+// directional projectiles (arrows: m_dirCount == 16). The 16 facings fold onto
+// 5 mirrored sequences (the mirror flag is applied separately in Render); an
+// 8-direction cell folds onto 3. m_direction caches the last facing the main
+// cell was sequenced to, so the sequence is only reset when the facing changes.
+// pCell defaults to the main cell; callers pass the shadow cell to sequence it
+// without disturbing m_direction.
+void CProjectileTravelling::UpdateDirectionSequence(CVidCell* pCell)
+{
+    if (pCell == NULL) {
+        pCell = m_pVidCell;
+    }
+
+    SHORT dirCount = m_dirCount;
+    if (dirCount == 1) {
+        return;
+    }
+    SHORT facing = m_facing;
+    if (m_direction == facing) {
+        return;
+    }
+
+    if (dirCount == 0x10) {
+        switch (facing) {
+        case 0: case 8:
+            pCell->SequenceSet(0);
+            break;
+        case 1: case 7: case 9: case 0xF:
+            pCell->SequenceSet(1);
+            break;
+        case 2: case 6: case 0xA: case 0xE:
+            pCell->SequenceSet(2);
+            break;
+        case 3: case 5: case 0xB: case 0xD:
+            pCell->SequenceSet(3);
+            break;
+        case 4: case 0xC:
+            pCell->SequenceSet(4);
+            break;
+        default:
+            UTIL_ASSERT(FALSE);
+        }
+    } else if (dirCount == 8) {
+        switch ((facing / 2) * 2) {
+        case 0: case 8:
+            pCell->SequenceSet(0);
+            break;
+        case 2: case 6: case 0xA: case 0xE:
+            pCell->SequenceSet(2);
+            break;
+        case 4: case 0xC:
+            pCell->SequenceSet(4);
+            break;
+        default:
+            UTIL_ASSERT(FALSE);
+        }
+    }
+
+    if (pCell == m_pVidCell) {
+        m_direction = facing;
+    }
+}
+
 // 0x52B6B0
 //
 // Cell draw rect + reference point, mirror/shadow aware. Transcribed from the
@@ -1713,10 +1783,10 @@ void CProjectileTravelling::GetCellBounds(CRect& rBounds, CPoint& ptRef)
 // field semantics were Frida-confirmed (Magic Missile). The draw geometry
 // follows the verified sibling CProjectileBAM::Render pattern -- the original's
 // mirror-rect stack-local aliasing at 0x52B190 is decompile-ambiguous; verify
-// with a render-rect Frida trace if a visual offset shows. Documented stubs:
-// the shadow-cell second pass, the palette-swap path, and the multi-segment
-// pass (FUN_0052C8C0 when (short)field_1D8 > 1) -- all disabled for the traced
-// cast.
+// with a render-rect Frida trace if a visual offset shows. The directional-
+// sequence pick (UpdateDirectionSequence when m_dirCount > 1, e.g. arrows) is
+// recovered. Documented stubs: the shadow-cell second pass and the palette-swap
+// path -- both disabled for the traced cast.
 void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
     (void)pVidMode;
@@ -1752,6 +1822,12 @@ void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSu
     }
     if (m_hasShadowCell != 0) {
         flags |= 0x4;
+    }
+
+    // Directional projectiles (m_dirCount > 1, e.g. arrows): pick the animation
+    // sequence matching the current facing before the cell is measured.
+    if (m_dirCount > 1) {
+        UpdateDirectionSequence(NULL);
     }
 
     CRect rFX;
