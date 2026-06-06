@@ -2958,27 +2958,19 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         pSprite->FeedBack(CGameSprite::FEEDBACK_SPELL, 0, 0, 0,
             static_cast<LONG>(strSpellName), 0, 0);
 
-        // Projectile launch -- TODO (FUN_0051EAF0 + CMessageFireProjectile
-        // + CProjectile::Launch vfn at +0x6c).  Binary 0x4619CA flow:
-        //   pProjectile = FUN_0051EAF0(pAbility->projectileType, this, 0);
-        //   if (FUN_00727720(pSpell, ..., &classByte) == 1) {
-        //       pProjectile->casterClass = classByte;
-        //   }
-        //   msg = new CMessageFireProjectile(pProjectile->m_projectileType,
-        //       target->m_id, target->m_pos,
-        //       CProjectile::DetermineHeight(pSprite),
-        //       m_id, m_id, 0);
-        //   if (pProjectile->m_projectileType == 0x130) {
-        //       int seed = rand() % 1000000;
-        //       pProjectile->seed = seed;
-        //       msg->field_20 = seed;
-        //   }
-        //   AddMessage(msg, FALSE);
-        //   pProjectile->vftbl[0x6c/4](dir, m_id, target->m_id, target->m_pos,
-        //                               0x1E, 0);  // CProjectile::Launch
-        // Blocked on the 5400-line projectile factory recovery.  Offensive
-        // object-target effects are applied above, but no visible
-        // bolt/missile flies.
+        // Projectile launch (binary FUN_00461190 @0x46146d).  Queue a broadcast
+        // CMessageFireProjectile; its Run() resolves the caster, builds the
+        // projectile from the factory (DecodeProjectile) and fires it.  The cast
+        // passes the caster id as both message caller and target so Run resolves
+        // the caster from m_targetId; the projectile's own target is the spell
+        // target.  The original also pre-builds the projectile here to stamp its
+        // caster-class index (proj +0x186 via FUN_00727720) for damage scaling --
+        // deferred; Fire ignores the height argument, so 0 is passed.
+        LONG nMissileTarget = (target != NULL)
+            ? target->m_id : CGameObjectArray::INVALID_INDEX;
+        CMessage* pFireMsg = new CMessageFireProjectile(pAbility->missileType,
+            nMissileTarget, targetPos, 0, m_id, m_id, 0);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pFireMsg, FALSE);
     } else {
         FireSpell(resRef, target);
     }
