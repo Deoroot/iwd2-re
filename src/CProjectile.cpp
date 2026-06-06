@@ -262,13 +262,15 @@ void CProjectile::CallBack()
 // the remaining hardcoded classes are left unimplemented rather than guessed.
 CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay)
 {
-    (void)pCaster;
-
     IcewindCVisualEffect visualEffect;
 
     if (projectileType > 0x1000) {
-        // Generic / spell-school overlay projectiles (0x560310). Not recovered.
-        return NULL;
+        CProjectile* pSpellHit = CProjectileSummonVFX::DecodeSpellHitProjectile(
+            projectileType - 0x1001, pCaster, FALSE);
+        if (pSpellHit != NULL) {
+            pSpellHit->m_projectileType = projectileType - 1;
+        }
+        return pSpellHit;
     }
 
     CResRef visualResRef;
@@ -619,4 +621,618 @@ void CProjectileSummonVFX::SetArrivalSound(const CResRef& arrivalSoundRef)
 void CProjectileSummonVFX::SetOffsetAboveTarget(BOOL offsetAboveTarget)
 {
     m_offsetAboveTarget = offsetAboveTarget;
+}
+
+// 0x560310
+//
+// Sub-factory for the casting/"spell hit" overlay projectiles -- the
+// DecodeProjectile path for projectileType > 0x1000 (typeIndex =
+// projectileType - 0x1001, bPositive selects the good/evil sound variant).
+// 107 of the 112 cases build a CProjectileSummonVFX overlay (resref "<spell>H"
+// or "<x>X") with per-case copy-from-back / tint-from-flags / fire sound /
+// offset-above-target. Not yet recovered (faithfully omitted, documented per
+// case): the optional caster color-glow flash (needs the effect-apply virtual
+// 0x733050), the aura-attach config on a few overlays, and 4 exotic projectile
+// classes (CallLightning x3 at 0x5348C0, Sunray at 0x57E860).
+CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGameAIBase* pCaster, BOOL bPositive)
+{
+    (void)pCaster;
+
+    CProjectileSummonVFX* p = NULL;
+    switch (typeIndex) {
+    case 0:  // base CProjectile (0x530790); base-projectile ctor not recovered
+        return NULL;
+    case 1: {
+        p = new CProjectileSummonVFX(CResRef("AbjurH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = bPositive ? CResRef("EFF_P01") : CResRef("EFF_M02");
+        break;
+    }
+    case 2: {
+        p = new CProjectileSummonVFX(CResRef("AlterH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = bPositive ? CResRef("EFF_P07") : CResRef("EFF_M08");
+        break;
+    }
+    case 3: {
+        p = new CProjectileSummonVFX(CResRef("InvocH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = bPositive ? CResRef("EFF_P05") : CResRef("EFF_M06");
+        break;
+    }
+    case 4: {
+        p = new CProjectileSummonVFX(CResRef("NecroH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = bPositive ? CResRef("EFF_P06") : CResRef("EFF_M07");
+        break;
+    }
+    case 5: {
+        p = new CProjectileSummonVFX(CResRef("ConjuH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = bPositive ? CResRef("EFF_P02") : CResRef("EFF_M03");
+        break;
+    }
+    case 6: {
+        p = new CProjectileSummonVFX(CResRef("EnchaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = bPositive ? CResRef("EFF_P04") : CResRef("EFF_M05");
+        break;
+    }
+    case 7: {
+        p = new CProjectileSummonVFX(CResRef("IllusH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = CResRef("EFF_M34");
+        break;
+    }
+    case 8: {
+        p = new CProjectileSummonVFX(CResRef("DivinH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = bPositive ? CResRef("EFF_P03") : CResRef("EFF_M04");
+        break;
+    }
+    case 9: {
+        p = new CProjectileSummonVFX(CResRef("ArmorH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M48");
+        break;
+    }
+    case 10: {
+        p = new CProjectileSummonVFX(CResRef("SArmorH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M36");
+        break;
+    }
+    case 11: {
+        p = new CProjectileSummonVFX(CResRef("GArmorH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M36");
+        break;
+    }
+    case 12: {
+        p = new CProjectileSummonVFX(CResRef("StrengH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M12");
+        break;
+    }
+    case 13: {
+        p = new CProjectileSummonVFX(CResRef("ConfusH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M16");
+        break;
+    }
+    case 14: {
+        p = new CProjectileSummonVFX(CResRef("SOFlamH"), IcewindCVisualEffect());
+        break;
+    }
+    case 15: {
+        p = new CProjectileSummonVFX(CResRef("DSpellH"), IcewindCVisualEffect());
+        break;
+    }
+    case 16: {
+        p = new CProjectileSummonVFX(CResRef("DisintH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M43");
+        break;
+    }
+    case 17: {
+        p = new CProjectileSummonVFX(CResRef("PWSileH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M44");
+        break;
+    }
+    case 18: {
+        p = new CProjectileSummonVFX(CResRef("None"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        break;
+    }
+    case 19: {
+        p = new CProjectileSummonVFX(CResRef("FODeatH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M07");
+        break;
+    }
+    case 20: {
+        p = new CProjectileSummonVFX(CResRef("MSwordH"), IcewindCVisualEffect());
+        break;
+    }
+    case 21: {
+        p = new CProjectileSummonVFX(CResRef("MSumm1H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        break;
+    }
+    case 22: {
+        p = new CProjectileSummonVFX(CResRef("MSumm2H"), IcewindCVisualEffect());
+        break;
+    }
+    case 23: {
+        p = new CProjectileSummonVFX(CResRef("MSumm3H"), IcewindCVisualEffect());
+        break;
+    }
+    case 24: {
+        p = new CProjectileSummonVFX(CResRef("MSumm4H"), IcewindCVisualEffect());
+        break;
+    }
+    case 25: {
+        p = new CProjectileSummonVFX(CResRef("MSumm5H"), IcewindCVisualEffect());
+        break;
+    }
+    case 26: {
+        p = new CProjectileSummonVFX(CResRef("MSumm6H"), IcewindCVisualEffect());
+        break;
+    }
+    case 27: {
+        p = new CProjectileSummonVFX(CResRef("MSumm7H"), IcewindCVisualEffect());
+        break;
+    }
+    case 28: {
+        p = new CProjectileSummonVFX(CResRef("CFElemH"), IcewindCVisualEffect());
+        break;
+    }
+    case 29: {
+        p = new CProjectileSummonVFX(CResRef("CEElemH"), IcewindCVisualEffect());
+        break;
+    }
+    case 30: {
+        p = new CProjectileSummonVFX(CResRef("CWElemH"), IcewindCVisualEffect());
+        break;
+    }
+    case 31: {
+        p = new CProjectileSummonVFX(CResRef("BlessH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P31");
+        break;
+    }
+    case 32: {
+        p = new CProjectileSummonVFX(CResRef("CurseH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P32");
+        break;
+    }
+    case 33: {
+        p = new CProjectileSummonVFX(CResRef("PrayerH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P31");
+        break;
+    }
+    case 34: {
+        p = new CProjectileSummonVFX(CResRef("RecitaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P44");
+        break;
+    }
+    case 35: {
+        p = new CProjectileSummonVFX(CResRef("CLWounH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P26");
+        break;
+    }
+    case 36: {
+        p = new CProjectileSummonVFX(CResRef("CMWounH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P26");
+        break;
+    }
+    case 37: {
+        p = new CProjectileSummonVFX(CResRef("CSWounH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P34");
+        break;
+    }
+    case 38: {
+        p = new CProjectileSummonVFX(CResRef("CCWounH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P46");
+        break;
+    }
+    case 39: {
+        p = new CProjectileSummonVFX(CResRef("HealH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P37");
+        break;
+    }
+    case 40: {
+        p = new CProjectileSummonVFX(CResRef("ASumm1H"), IcewindCVisualEffect());
+        break;
+    }
+    case 41: {
+        p = new CProjectileSummonVFX(CResRef("ASumm2H"), IcewindCVisualEffect());
+        break;
+    }
+    case 42: {
+        p = new CProjectileSummonVFX(CResRef("ASumm3H"), IcewindCVisualEffect());
+        break;
+    }
+    case 43: {
+        p = new CProjectileSummonVFX(CResRef("SPoisoH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P17");
+        break;
+    }
+    case 44: {
+        p = new CProjectileSummonVFX(CResRef("NPoisoH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P41");
+        break;
+    }
+    case 45:  // CallLightning projectile (class not recovered)
+        return NULL;
+    case 46: {
+        p = new CProjectileSummonVFX(CResRef("SChargH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P42");
+        break;
+    }
+    case 47: {
+        p = new CProjectileSummonVFX(CResRef("RParalH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P33");
+        break;
+    }
+    case 48: {
+        p = new CProjectileSummonVFX(CResRef("FActioH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P40");
+        break;
+    }
+    case 49: {
+        p = new CProjectileSummonVFX(CResRef("MMagicH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P13");
+        break;
+    }
+    case 50: {
+        p = new CProjectileSummonVFX(CResRef("SOOneH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P35");
+        break;
+    }
+    case 51: {
+        p = new CProjectileSummonVFX(CResRef("CStrenH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M41");
+        break;
+    }
+    case 52:  // CallLightning projectile (class not recovered)
+        return NULL;
+    case 53: {
+        p = new CProjectileSummonVFX(CResRef("RDeadH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P18");
+        break;
+    }
+    case 54: {
+        p = new CProjectileSummonVFX(CResRef("ResurrH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P18");
+        break;
+    }
+    case 55: {
+        p = new CProjectileSummonVFX(CResRef("CCommaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        p->m_fireSoundRef = CResRef("EFF_P47");
+        break;
+    }
+    case 56: {
+        p = new CProjectileSummonVFX(CResRef("RWOTFaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P36");
+        break;
+    }
+    case 57:  // Sunray projectile (class not recovered)
+        return NULL;
+    case 58: {
+        p = new CProjectileSummonVFX(CResRef("SStoneA"), IcewindCVisualEffect());
+        p->m_fireSoundRef = CResRef("CRE_P03");
+        break;
+    }
+    case 59: {
+        p = new CProjectileSummonVFX(CResRef("DDoorH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M09");
+        break;
+    }
+    case 60: {
+        p = new CProjectileSummonVFX(CResRef("DDoorH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M09");
+        break;
+    }
+    case 61: {
+        p = new CProjectileSummonVFX(CResRef("CoColdH"), IcewindCVisualEffect());
+        break;
+    }
+    case 62: {
+        p = new CProjectileSummonVFX(CResRef("SSOrbH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P38");
+        break;
+    }
+    case 63: {
+        p = new CProjectileSummonVFX(CResRef("FireH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        break;
+    }
+    case 64: {
+        p = new CProjectileSummonVFX(CResRef("ColdH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        break;
+    }
+    case 65: {
+        p = new CProjectileSummonVFX(CResRef("ElectrH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        break;
+    }
+    case 66: {
+        p = new CProjectileSummonVFX(CResRef("AcidH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        break;
+    }
+    case 67: {
+        p = new CProjectileSummonVFX(CResRef("ParalH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        // NOTE: caster color-glow flash omitted (needs effect-apply virtual 0x733050).
+        break;
+    }
+    case 68: {
+        p = new CProjectileSummonVFX(CResRef("MRageH"), IcewindCVisualEffect());
+        break;
+    }
+    case 69: {
+        p = new CProjectileSummonVFX(CResRef("RWOTFaG"), IcewindCVisualEffect());
+        break;
+    }
+    case 70: {
+        p = new CProjectileSummonVFX(CResRef("BDeath"), IcewindCVisualEffect());
+        break;
+    }
+    case 71: {
+        p = new CProjectileSummonVFX(CResRef("PortalH"), IcewindCVisualEffect());
+        break;
+    }
+    case 72:  // CallLightning projectile (class not recovered)
+        return NULL;
+    case 73: {
+        p = new CProjectileSummonVFX(CResRef("BBarrH1"), IcewindCVisualEffect());
+        p->m_visualEffect.SetTintFromFlags(TRUE);
+        p->m_fireSoundRef = CResRef("ARE_P20");
+        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        break;
+    }
+    case 74: {
+        p = new CProjectileSummonVFX(CResRef("BBarrH2"), IcewindCVisualEffect());
+        p->m_visualEffect.SetTintFromFlags(TRUE);
+        p->SetOffsetAboveTarget(TRUE);
+        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        break;
+    }
+    case 75: {
+        p = new CProjectileSummonVFX(CResRef("CoBonH1"), IcewindCVisualEffect());
+        p->m_visualEffect.SetTintFromFlags(TRUE);
+        p->m_fireSoundRef = CResRef("ARE_P21");
+        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        break;
+    }
+    case 76: {
+        p = new CProjectileSummonVFX(CResRef("CoBonH2"), IcewindCVisualEffect());
+        p->m_visualEffect.SetTintFromFlags(TRUE);
+        p->SetOffsetAboveTarget(TRUE);
+        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        break;
+    }
+    case 77: {
+        p = new CProjectileSummonVFX(CResRef("CLDamaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P103");
+        break;
+    }
+    case 78: {
+        p = new CProjectileSummonVFX(CResRef("CMDamaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P103");
+        break;
+    }
+    case 79: {
+        p = new CProjectileSummonVFX(CResRef("CSDamaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P103");
+        break;
+    }
+    case 80: {
+        p = new CProjectileSummonVFX(CResRef("CCDamaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P103");
+        break;
+    }
+    case 81: {
+        p = new CProjectileSummonVFX(CResRef("CDiseaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P108");
+        break;
+    }
+    case 82: {
+        p = new CProjectileSummonVFX(CResRef("PoisonH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P108");
+        break;
+    }
+    case 83: {
+        p = new CProjectileSummonVFX(CResRef("SLivinH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P109");
+        break;
+    }
+    case 84: {
+        p = new CProjectileSummonVFX(CResRef("HarmH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P103");
+        break;
+    }
+    case 85: {
+        p = new CProjectileSummonVFX(CResRef("DestruH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P113");
+        break;
+    }
+    case 86: {
+        p = new CProjectileSummonVFX(CResRef("ExaltaH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P106");
+        break;
+    }
+    case 87: {
+        p = new CProjectileSummonVFX(CResRef("CloudbH"), IcewindCVisualEffect());
+        break;
+    }
+    case 88: {
+        p = new CProjectileSummonVFX(CResRef("MTouchH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P107");
+        break;
+    }
+    case 89: {
+        p = new CProjectileSummonVFX(CResRef("MTouchH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P107");
+        break;
+    }
+    case 90: {
+        p = new CProjectileSummonVFX(CResRef("CGraceH"), IcewindCVisualEffect());
+        break;
+    }
+    case 91: {
+        p = new CProjectileSummonVFX(CResRef("SEaterH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M104");
+        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        break;
+    }
+    case 92: {
+        p = new CProjectileSummonVFX(CResRef("SWaveH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_P110");
+        break;
+    }
+    case 93: {
+        p = new CProjectileSummonVFX(CResRef("SuffocA"), IcewindCVisualEffect());
+        break;
+    }
+    case 94: {
+        p = new CProjectileSummonVFX(CResRef("ADHWilH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M105");
+        break;
+    }
+    case 95: {
+        p = new CProjectileSummonVFX(CResRef("MFMissX"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M103");
+        break;
+    }
+    case 96: {
+        p = new CProjectileSummonVFX(CResRef("VSpherX"), IcewindCVisualEffect());
+        break;
+    }
+    case 97: {
+        p = new CProjectileSummonVFX(CResRef("WVDeatH"), IcewindCVisualEffect());
+        break;
+    }
+    case 98: {
+        p = new CProjectileSummonVFX(CResRef("UWardX"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->SetOffsetAboveTarget(TRUE);
+        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        break;
+    }
+    case 99: {
+        p = new CProjectileSummonVFX(CResRef("WVHitH"), IcewindCVisualEffect());
+        break;
+    }
+    case 100: {
+        p = new CProjectileSummonVFX(CResRef("WDeath1"), IcewindCVisualEffect());
+        break;
+    }
+    case 101: {
+        p = new CProjectileSummonVFX(CResRef("WDeath2"), IcewindCVisualEffect());
+        break;
+    }
+    case 102: {
+        p = new CProjectileSummonVFX(CResRef("DDeath"), IcewindCVisualEffect());
+        break;
+    }
+    case 103: {
+        p = new CProjectileSummonVFX(CResRef("DDeath2"), IcewindCVisualEffect());
+        break;
+    }
+    case 104: {
+        p = new CProjectileSummonVFX(CResRef("MSumm1X"), IcewindCVisualEffect());
+        break;
+    }
+    case 105: {
+        p = new CProjectileSummonVFX(CResRef("ASumm1X"), IcewindCVisualEffect());
+        break;
+    }
+    case 106: {
+        p = new CProjectileSummonVFX(CResRef("CEElemX"), IcewindCVisualEffect());
+        break;
+    }
+    case 107: {
+        p = new CProjectileSummonVFX(CResRef("CFElemX"), IcewindCVisualEffect());
+        break;
+    }
+    case 108: {
+        p = new CProjectileSummonVFX(CResRef("CWElemX"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->SetOffsetAboveTarget(TRUE);
+        break;
+    }
+    case 109: {
+        p = new CProjectileSummonVFX(CResRef("GELoopX"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
+        break;
+    }
+    case 110: {
+        p = new CProjectileSummonVFX(CResRef("DAttacH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetTintFromFlags(TRUE);
+        p->m_fireSoundRef = CResRef("CRE_P01");
+        break;
+    }
+    case 111: {
+        p = new CProjectileSummonVFX(CResRef("WoMoonX"), IcewindCVisualEffect());
+        break;
+    }
+    default:
+        return NULL;
+    }
+    return p;
 }

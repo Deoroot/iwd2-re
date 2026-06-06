@@ -34,6 +34,7 @@ public:
     /* 007E */ CGameEffectList m_effectList;
     /* 00EA */ CGameArea* m_pArea;
     /* 00EE */ CSound m_sound;
+    /* 0152 */ CResRef m_fireSoundRef;
     /* 015E */ CResRef m_arrivalSoundRef;
     /* 0166 */ BOOL m_loopArrivalSound;
     /* 016A */ BOOLEAN m_bHasHeight;
@@ -65,6 +66,8 @@ public:
 
     void SetArrivalSound(const CResRef& arrivalSoundRef);
     void SetOffsetAboveTarget(BOOL offsetAboveTarget);
+
+    static CProjectile* DecodeSpellHitProjectile(int typeIndex, CGameAIBase* pCaster, BOOL bPositive);
 
 private:
     /* 0192 */ CVidCell m_vidCell;
