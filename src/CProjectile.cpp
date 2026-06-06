@@ -1464,21 +1464,24 @@ void CProjectileTravelling::AIUpdate()
 // computes the flight distance and lifetime.
 //
 // PARTIAL: the trajectory setup (distance^2 + lifetime + target point), the
-// subpixel-position seed and the initial facing are recovered -- the seed
-// values are Frida-confirmed exact against the original (m_posAccumX = launch.x
-// << 10, m_posAccumY = (launch.y << 12) / 3). The remaining launch ACTIONS in
-// the original's tail are documented stubs, with their now-known signatures:
-//   * CGameObject::AddToArea(pArea, launchPos, posZ, 0) -- inserts the
-//     projectile into the area and sets m_pos; the original aims from m_pos,
-//     which this sets to the same launch origin we use here directly.
+// area insertion (AddToArea), the subpixel-position seed and the initial facing
+// are recovered -- the seed values are Frida-confirmed exact against the
+// original (m_posAccumX = launch.x << 10, m_posAccumY = (launch.y << 12) / 3),
+// and AddToArea's arguments are Frida-confirmed (pNewArea == the pArea arg, pos
+// == the launch origin, listType 0). The remaining launch actions are documented
+// stubs:
+//   * the launch height (posZ): the original gates on m_bHasHeight and, for a
+//     creature source, reads the source's current animation height (source
+//     object's CGameAnimation at +0x50F0, GetHeight virtual; 0x20 for a
+//     non-creature source) -- the animation-height stub shared with AIUpdate;
+//     passed as 0 (ground) here.
 //   * the attached-object create (CGameObjectArray::Add 0x59A0F0 +
 //     CMessageHandler::AddMessage 0x4F7500 + CMessage 0x554D20 -> m_nTargetId);
 //     not exercised by Magic Missile (m_nTargetId stays INVALID).
 //   * the fire-sound setup (CSound at +0xEE, fields +0xF2/+0xF6,
 //     CDimm::GetResObject / CSound::SetChannel).
-// field_170 is the same y-weighted distance^2 AIUpdate tests for arrival, so the
-// recovered core makes the flight behave; AddToArea is the remaining gate to
-// actually launch the projectile into the world.
+// AddToArea registers the projectile with the area's object lists, so once a leaf
+// is wired into the factory the engine will drive its AIUpdate/Render.
 void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
                                  CPoint targetPos, LONG nHeight, SHORT nType)
 {
@@ -1529,6 +1532,13 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
 
     m_targetX = ptTarget.x;
     m_targetY = ptTarget.y;
+
+    // Insert the projectile into the area so the engine drives its AIUpdate /
+    // Render. CGameObject::AddToArea sets the base m_pos / m_posZ / area
+    // membership and registers with the area's object lists. pArea and the
+    // launch position (ptSource) are Frida-confirmed; posZ (the launch height)
+    // is the documented animation-height stub, passed as 0.
+    AddToArea(pArea, ptSource, 0, 0);
 
     // Subpixel launch position (1/1024 fixed point), seeded from the launch
     // origin. Frida-confirmed exact: X scaled << 10, Y also 4/3 y-scaled (the
