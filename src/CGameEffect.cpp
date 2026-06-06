@@ -1175,6 +1175,75 @@ BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
     return bResult;
 }
 
+// 0x4A3310
+//
+// CGameEffect::CheckAdd -- the effect-immunity gate.  CGameSprite::AddEffect
+// (0x733050) calls this on the incoming effect to decide whether it penetrates
+// the target's protections: returns 1 to add/apply, 0 when the target is immune
+// (or shatters).  Faithful __thiscall this == the effect; the five BYTE* params
+// address the target's scratch bytes field_70F6..field_70FA, of which
+// field_70F6..field_70F9 are forwarded to the effect's apply virtual and
+// field_70FA carries the gate level byte.
+//
+// SKELETON.  Only the verified shatter-death gate below is recovered.  The rest
+// of the original (the 0x4A35EC.. normal path: probability/level gating, the
+// seven CSevenEyes checks, spell-school / spell-level immunity, and the
+// dispel-feedback tail) walks the target's internal std::map effect lists
+// (sprite +0xD94 / +0xDA4 via the inlined red-black-tree lookups at 0x4C4EF0 /
+// 0x4C5AE0), spawns CMessage cleanup objects, and runs under SEH -- none of
+// which is modelled yet.  Its spell-level-immunity branch depends on
+// CRuleTables::GetSpellAbilityValue (0x547040, now recovered).  Recovering the
+// tail is a dedicated arc; this method is intentionally NOT wired into
+// AddEffect (which remains the reconstructed minimum), so the documented
+// default below changes no behaviour.
+int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70F7, BYTE* pField70F8, BYTE* pField70F9, BYTE* pField70FA)
+{
+    // Shatter-death gate (0x4A3341): when the target is in the petrify/freeze
+    // death state (m_baseStats.m_flags & 0x20000) and the incoming effect is a
+    // damage / death / animation opcode, the original shatters the creature and
+    // blocks the effect.  Opcode list verified against the cascade at 0x4A3369.
+    if ((pSprite->m_baseStats.m_flags & 0x20000) != 0) {
+        bool bShatter = false;
+        switch (m_effectID) {
+        case 0x3:   case 0x5:   case 0xc:   case 0xd:   case 0x18:  case 0x19:
+        case 0x26:  case 0x27:  case 0x28:  case 0x2d:  case 0x37:  case 0x3a:
+        case 0x3c:  case 0x48:  case 0x4a:  case 0x4c:  case 0x4e:  case 0x50:
+        case 0x52:  case 0x6d:  case 0x6e:  case 0x80:  case 0x86:  case 0x87:
+        case 0x88:  case 0x89:  case 0x9a:  case 0x9d:  case 0x9e:  case 0xa0:
+        case 0xa5:  case 0xa8:  case 0xac:  case 0xb1:  case 0xf1:  case 0xf5:
+        case 0xf7:  case 0xfa:  case 0xff:  case 0x100: case 0x101: case 0x107:
+        case 0x108: case 0x115: case 0x116: case 0x117: case 0x118: case 0x119:
+        case 0x11a: case 0x11c: case 0x11d: case 0x125: case 0x126: case 0x127:
+        case 0x190: case 0x194: case 0x195: case 0x19c: case 0x19e: case 0x1a0:
+        case 0x1a3: case 0x1a4: case 0x1a8: case 0x1a9: case 0x1ac: case 0x1af:
+        case 0x1b3:
+            bShatter = true;
+            break;
+        default:
+            // 0x12/0x17 shatter only when m_dwFlags is negative; the level-drain
+            // opcodes 0x5d/0x5e only when it is positive.
+            if (static_cast<LONG>(m_dwFlags) < 0) {
+                bShatter = (m_effectID == 0x12 || m_effectID == 0x17);
+            } else if (static_cast<LONG>(m_dwFlags) > 0) {
+                bShatter = (m_effectID == 0x5d || m_effectID == 0x5e);
+            }
+            break;
+        }
+
+        if (bShatter) {
+            // UNIMPLEMENTED: spawn the shatter-death cleanup messages
+            // (CMessageHandler::AddMessage of the 0x847B40 / 0x847BB8 message
+            // objects).  The gate result -- effect blocked -- is faithful; only
+            // the death side-effect is omitted.
+            return 0;
+        }
+    }
+
+    // UNIMPLEMENTED: the normal immunity path (0x4A35EC..0x4A3BD0).  Defaults to
+    // "effect applies"; see the dedicated-arc note above.
+    return 1;
+}
+
 // 0x799E60
 void CGameEffect::OnLoad(CGameSprite* pSprite)
 {
