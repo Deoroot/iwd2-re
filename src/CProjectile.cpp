@@ -1929,19 +1929,27 @@ CProjectileSPMAGMIS::CProjectileSPMAGMIS(SHORT nCount, SHORT nPaletteFlag)
 
 // 0x530C90 (vtable slot 27 -- Fire; the multi-missile launch)
 //
-// STUB. The real launch (0x530C90, ~344 instrs, Ghidra-empty) drains the
-// pre-spawned sub-missile list, aiming and firing each MMissiT into the area
-// with a per-missile spread/timing. Recovered next; stubbed so the launcher
-// links and constructs (the sub-missiles sit in the list, unfired).
+// Launches the pre-spawned MMissiT sub-missiles. Each homes on the same target,
+// so they all converge on it -- the classic Magic Missile behaviour. The
+// launcher itself is never drawn or added to the area; it only spawns and fires.
+//
+// PARTIAL (core of the ~344-instr Ghidra-empty original): the list drain + the
+// per-missile Fire are recovered. Documented as deferred: the original also (a)
+// copies the launcher's gameplay effects onto each sub-missile's effect list so
+// the missiles deal damage, (b) copies the caster-class index (+0x186), and (c)
+// jitters each sub-missile's velocity by rand()%20 - 10 for a staggered visual
+// spread. Here the missiles fire straight, undamaging, but they fly and home.
+// The original deletes the launcher at the end (delete this); left to leak per
+// cast rather than risk a self-delete through the message path.
 void CProjectileSPMAGMIS::Fire(CGameArea* pArea, LONG source, LONG target,
                                CPoint targetPos, LONG nHeight, SHORT nType)
 {
-    (void)pArea;
-    (void)source;
-    (void)target;
-    (void)targetPos;
-    (void)nHeight;
-    (void)nType;
+    POSITION pos = m_subMissiles.GetHeadPosition();
+    while (pos != NULL) {
+        CProjectile* pSub = m_subMissiles.GetNext(pos);
+        pSub->Fire(pArea, source, target, targetPos, nHeight, nType);
+    }
+    m_subMissiles.RemoveAll();
 }
 
 // 0x52B190 (vtable slot 19 -- Render)
