@@ -7,10 +7,13 @@
 #include "CSound.h"
 #include "IcewindCVisualEffect.h"
 
+class CGameAIBase;
 class CGameArea;
 
 class CProjectile : public CGameObject {
 public:
+    static CProjectile* DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay);
+
     /* 0068 */ BOOLEAN IsProjectile() override;
     /* 006C */ virtual void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType);
     /* 0070 */ virtual void OnArrival();

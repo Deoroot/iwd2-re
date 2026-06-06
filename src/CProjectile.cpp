@@ -252,6 +252,60 @@ void CProjectile::CallBack()
 {
 }
 
+// 0x51EAF0
+//
+// Factory that maps a numeric projectile type to a concrete CProjectile
+// subclass. The original dispatches ~327 hardcoded types (projectileType - 1
+// indexes a 386-entry jump table) plus a generic path for types > 0x1000
+// (handled by the school-overlay sub-factory at 0x560310). Only the eight
+// spell-school casting-glow projectiles (CProjectileBAM) are recovered here;
+// the remaining hardcoded classes are left unimplemented rather than guessed.
+CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay)
+{
+    (void)pCaster;
+
+    IcewindCVisualEffect visualEffect;
+
+    if (projectileType > 0x1000) {
+        // Generic / spell-school overlay projectiles (0x560310). Not recovered.
+        return NULL;
+    }
+
+    CResRef visualResRef;
+    switch (projectileType) {
+    case 0x6F:
+        visualResRef = "NecroCG";
+        break;
+    case 0x70:
+        visualResRef = "AlterCG";
+        break;
+    case 0x71:
+        visualResRef = "EnchaCG";
+        break;
+    case 0x72:
+        visualResRef = "AbjurCG";
+        break;
+    case 0x73:
+        visualResRef = "IllusCG";
+        break;
+    case 0x74:
+        visualResRef = "ConjuCG";
+        break;
+    case 0x75:
+        visualResRef = "InvocCG";
+        break;
+    case 0x76:
+        visualResRef = "DivinCG";
+        break;
+    default:
+        // ~90 hardcoded projectile classes not yet recovered.
+        return NULL;
+    }
+
+    BYTE sequenceDelay = castDelay ? castDelay : 0x32;
+    return new CProjectileBAM(visualResRef, CResRef(""), sequenceDelay, 0, visualEffect);
+}
+
 // -----------------------------------------------------------------------------
 // INCOMPLETE: only CProjectileBAM subclass recovered; the global projectile
 // dispatch switch (0x57B0C0) and remaining projectile types are not yet
