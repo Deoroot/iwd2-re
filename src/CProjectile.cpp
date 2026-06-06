@@ -286,6 +286,11 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileArrow();
         break;
 
+    case 0xDA:
+        // MMissiT -- Magic Missile homing sub-missile (spawned by the launcher).
+        pProjectile = new CProjectileMMissiT(0);
+        break;
+
     case 0x6F:
     case 0x70:
     case 0x71:
@@ -1810,6 +1815,44 @@ CProjectileArrow::CProjectileArrow()
     m_hasShadowCell = 0;
     m_dirCount = 0x10;
     m_velocity = static_cast<SHORT>(m_velocity * 5);
+
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x57E030
+//
+// CProjectileMMissiT -- the Magic Missile homing sub-missile (DecodeProjectile
+// type 0xDA). Builds the "MMissiT" travelling base, then configures a mirrored
+// 16-direction-ish missile at double the base velocity. The factory constructs
+// it with nPaletteFlag == 0, so the optional palette recolour is skipped.
+//
+// As with the other leaves, the fire-sound resref (+0x152) and the +0x17E field
+// the original seeds are deferred (empty CResRef default, not read on the
+// flight path).
+CProjectileMMissiT::CProjectileMMissiT(SHORT nPaletteFlag)
+    : CProjectileTravelling(CResRef("MMissiT"))
+{
+    m_pVidCell->SequenceSet(0);
+
+    m_velocity = static_cast<SHORT>(m_velocity << 1);
+    field_1CA = 0xF;
+    field_1CE = 0xB;
+    m_tinted = 0;
+    m_useHeightOffset = 0;
+    m_mirror = 1;
+    field_1D2 = 0x80;
+    m_hasShadowCell = 0;
+    m_renderFlags |= 8;
+
+    if (nPaletteFlag != 0) {
+        if (nPaletteFlag == 1) {
+            m_palette.SetRange(0, 0x21, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+            m_pVidCell->SetPalette(m_palette);
+        } else {
+            UTIL_ASSERT(FALSE);
+        }
+    }
 
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
     m_nTargetId = CGameObjectArray::INVALID_INDEX;

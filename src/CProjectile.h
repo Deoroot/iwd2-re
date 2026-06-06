@@ -128,6 +128,7 @@ protected:
     int m_mirror;               // +0x1C6 -- Frida-confirmed (flip; adds blit flag 0x200)
     int field_1CA;              // +0x1CA -- mirror ref offset x
     int field_1CE;              // +0x1CE -- mirror ref offset y
+    SHORT field_1D2;            // +0x1D2 -- leaf-set render param (e.g. MMissiT = 0x80)
     int m_hasShadowCell;        // +0x1D4 (param[0x75]) -- Frida-confirmed
     SHORT m_dirCount;           // +0x1D8 -- directional sequence count (16/8/1; >1 => pick by facing)
     SHORT m_direction;          // +0x1DA -- Frida-confirmed (facing; drives mirror thresholds)
@@ -147,6 +148,15 @@ protected:
 class CProjectileArrow : public CProjectileTravelling {
 public:
     CProjectileArrow();   // 0x5324A0
+};
+
+// Leaf 0x57E030 -- the Magic Missile homing sub-missile (DecodeProjectile type
+// 0xDA; vtable 0x8510A4). Spawned in quantity by the Magic Missile launcher
+// (CProjectileMagicMissileMulti), not cast directly. A directional (mirrored)
+// travelling missile at double the base velocity.
+class CProjectileMMissiT : public CProjectileTravelling {
+public:
+    CProjectileMMissiT(SHORT nPaletteFlag);   // 0x57E030
 };
 
 #endif /* CPROJECTILE_H_ */
