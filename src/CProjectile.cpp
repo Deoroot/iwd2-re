@@ -1463,13 +1463,22 @@ void CProjectileTravelling::AIUpdate()
 // the source/target/area, resolves the launch origin and the target point, and
 // computes the flight distance and lifetime.
 //
-// PARTIAL: the verified trajectory setup (distance^2 + lifetime + target point)
-// is recovered. The launch ACTIONS in the original's tail -- AddToArea
-// (0x4C7BE0), the fire CMessage (0x554D20), the fire-sound setup (+0xF2/+0xF6),
-// the +0x9C/+0xA0 render-position scaling, and the moving-target animation-
-// height tracking -- are documented stubs. field_170 is the same y-weighted
-// distance^2 AIUpdate tests for arrival, so the recovered core makes the flight
-// behave; wiring the projectile into the area is the remaining work.
+// PARTIAL: the trajectory setup (distance^2 + lifetime + target point), the
+// subpixel-position seed and the initial facing are recovered -- the seed
+// values are Frida-confirmed exact against the original (m_posAccumX = launch.x
+// << 10, m_posAccumY = (launch.y << 12) / 3). The remaining launch ACTIONS in
+// the original's tail are documented stubs, with their now-known signatures:
+//   * CGameObject::AddToArea(pArea, launchPos, posZ, 0) -- inserts the
+//     projectile into the area and sets m_pos; the original aims from m_pos,
+//     which this sets to the same launch origin we use here directly.
+//   * the attached-object create (CGameObjectArray::Add 0x59A0F0 +
+//     CMessageHandler::AddMessage 0x4F7500 + CMessage 0x554D20 -> m_nTargetId);
+//     not exercised by Magic Missile (m_nTargetId stays INVALID).
+//   * the fire-sound setup (CSound at +0xEE, fields +0xF2/+0xF6,
+//     CDimm::GetResObject / CSound::SetChannel).
+// field_170 is the same y-weighted distance^2 AIUpdate tests for arrival, so the
+// recovered core makes the flight behave; AddToArea is the remaining gate to
+// actually launch the projectile into the world.
 void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
                                  CPoint targetPos, LONG nHeight, SHORT nType)
 {
@@ -1520,6 +1529,24 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
 
     m_targetX = ptTarget.x;
     m_targetY = ptTarget.y;
+
+    // Subpixel launch position (1/1024 fixed point), seeded from the launch
+    // origin. Frida-confirmed exact: X scaled << 10, Y also 4/3 y-scaled (the
+    // iso squash) so AimAtPoint's decode reproduces m_pos. Without this the
+    // flight would start from (0, 0).
+    m_posAccumX = ptSource.x << 10;
+    m_posAccumY = (ptSource.y << 12) / 3;
+
+    // Initial facing toward the target, both points 4/3 y-scaled. The original
+    // reads m_pos here -- which the preceding AddToArea set to this same launch
+    // origin; AddToArea is not yet wired, so aim from ptSource directly.
+    CPoint ptStartScaled;
+    ptStartScaled.x = ptSource.x;
+    ptStartScaled.y = (ptSource.y * 4) / 3;
+    CPoint ptTargetScaled;
+    ptTargetScaled.x = ptTarget.x;
+    ptTargetScaled.y = (ptTarget.y * 4) / 3;
+    m_facing = static_cast<SHORT>(CGameSprite::GetDirection(ptStartScaled, ptTargetScaled));
 }
 
 // 0x52BD20 (vtable slot 33 -- the per-tick motion integrator; AIUpdate's "aim")
