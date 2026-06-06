@@ -138,4 +138,15 @@ protected:
     SHORT m_lifetime;           // +0x29E -- Frida-confirmed (decrements 1/tick from 0x7FFF)
 };
 
+// Leaf 0x5324A0 -- the canonical travelling arrow (DecodeProjectile types
+// 0x2/0x5/0x6; vtable 0x84E58C). The arrow-specific virtual overrides (its
+// destructor 0x5325E0, slot34 0x532860, and the slot37 impact/effect delivery
+// 0x5329A0) are deferred -- the leaf inherits CProjectileTravelling's flight and
+// render virtuals, so it flies and draws but does not yet deliver its on-hit
+// effects.
+class CProjectileArrow : public CProjectileTravelling {
+public:
+    CProjectileArrow();   // 0x5324A0
+};
+
 #endif /* CPROJECTILE_H_ */

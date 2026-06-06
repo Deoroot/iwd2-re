@@ -260,9 +260,10 @@ void CProjectile::CallBack()
 // Factory that maps a numeric projectile type to a concrete CProjectile
 // subclass. The original dispatches ~327 hardcoded types (projectileType - 1
 // indexes a 386-entry jump table) plus a generic path for types > 0x1000
-// (handled by the school-overlay sub-factory at 0x560310). Only the eight
-// spell-school casting-glow projectiles (CProjectileBAM) are recovered here;
-// the remaining hardcoded classes are left unimplemented rather than guessed.
+// (handled by the school-overlay sub-factory at 0x560310). The casting-glow
+// overlays (CProjectileBAM), the summon/spell-hit VFX (CProjectileSummonVFX) and
+// the canonical travelling arrow (CProjectileArrow) are recovered here; the
+// remaining hardcoded classes are left unimplemented rather than guessed.
 CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay)
 {
     IcewindCVisualEffect visualEffect;
@@ -278,6 +279,13 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
 
     CProjectile* pProjectile = NULL;
     switch (projectileType) {
+    case 0x2:
+    case 0x5:
+    case 0x6:
+        // ARARROW -- the canonical travelling arrow.
+        pProjectile = new CProjectileArrow();
+        break;
+
     case 0x6F:
     case 0x70:
     case 0x71:
@@ -1773,6 +1781,38 @@ void CProjectileTravelling::GetCellBounds(CRect& rBounds, CPoint& ptRef)
         if (rBounds.right < extX) rBounds.right = extX;
         if (rBounds.bottom < extY) rBounds.bottom = extY;
     }
+}
+
+// 0x5324A0
+//
+// CProjectileArrow -- the canonical travelling arrow (DecodeProjectile types
+// 0x2/0x5/0x6). Builds the "ARARROW" travelling base, then configures the arrow:
+// the first animation sequence, a three-range palette recolour from the game
+// master bitmap, a tinted 16-direction cell, and 5x the base velocity.
+//
+// The original also seeds the fire-sound resref (+0x152) and a +0x17E field;
+// both are deferred -- the CResRef members default-construct empty and neither
+// is read on the flight/render path. The arrow-specific impact overrides are
+// deferred too (see the class comment).
+CProjectileArrow::CProjectileArrow()
+    : CProjectileTravelling(CResRef("ARARROW"))
+{
+    m_pVidCell->SequenceSet(0);
+
+    m_palette.SetRange(5, 0x1B, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_palette.SetRange(4, 0x17, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_palette.SetRange(2, 0x2E, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_pVidCell->SetPalette(m_palette);
+
+    m_tinted = 1;
+    m_useHeightOffset = 0;
+    m_mirror = 0;
+    m_hasShadowCell = 0;
+    m_dirCount = 0x10;
+    m_velocity = static_cast<SHORT>(m_velocity * 5);
+
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
 }
 
 // 0x52B190 (vtable slot 19 -- Render)
