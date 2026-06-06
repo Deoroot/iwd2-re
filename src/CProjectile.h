@@ -94,26 +94,32 @@ public:
     CProjectileTravelling(const CResRef& resRef);
     ~CProjectileTravelling() override;
     void AIUpdate() override;                  // vtable slot 3 (0x52B900)
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;  // slot 19 (0x52B190)
     virtual void AimAtPoint(int x, int y);     // vtable slot 33 (0x52BD20)
+    virtual DWORD GetRenderFlags();            // vtable slot 32 (0x5297D0)
 
 protected:
-    CVidCell* m_pVidCell;
+    void GetCellBounds(CRect& rBounds, CPoint& ptRef);   // 0x52B6B0 -- cell draw rect + ref point
+
+    CVidCell* m_pVidCell;       // +0x192 main animation cell
     CVidPalette m_palette;
     CVidBitmap m_bitmap;
-    DWORD field_196;
-    SHORT m_velocity;   // +0x70 in the binary -- Frida-confirmed (arrival radius = velocity+1)
-    int m_targetX;      // +0xC8 -- Frida-confirmed (constant target point)
-    int m_targetY;      // +0xCC -- Frida-confirmed
-    int field_170;      // +0x170 -- nonzero during flight; 0 => arrived
-    DWORD field_1C6;
-    DWORD field_1CA;
-    DWORD field_1CE;
-    DWORD field_1D4;
-    SHORT field_1DA;
-    DWORD field_1DE;
-    BYTE field_29C;
+    CVidCell* m_pShadowCell;    // +0x196 secondary "shadow" cell (drawn when m_hasShadowCell)
+    SHORT m_velocity;           // +0x70 -- Frida-confirmed (arrival radius = velocity+1)
+    int m_targetX;              // +0xC8 -- Frida-confirmed (target point)
+    int m_targetY;              // +0xCC -- Frida-confirmed
+    int field_170;              // +0x170 -- nonzero during flight; 0 => arrived
+    int m_tinted;               // +0x1BE -- Frida-confirmed (apply area tint colour)
+    int m_useHeightOffset;      // +0x1C2 -- Frida-confirmed (add area height offset)
+    int m_mirror;               // +0x1C6 -- Frida-confirmed (flip; adds blit flag 0x200)
+    int field_1CA;              // +0x1CA -- mirror ref offset x
+    int field_1CE;              // +0x1CE -- mirror ref offset y
+    int m_hasShadowCell;        // +0x1D4 (param[0x75]) -- Frida-confirmed
+    SHORT m_direction;          // +0x1DA -- Frida-confirmed (facing; drives mirror thresholds)
+    int m_visible;              // +0x1DE -- Frida-confirmed (render gate)
+    BYTE m_paletteSwap;         // +0x29C (param[0xa7]) -- Frida-confirmed
     BYTE field_29D;
-    SHORT m_lifetime;   // +0x29E -- Frida-confirmed (decrements 1/tick from 0x7FFF)
+    SHORT m_lifetime;           // +0x29E -- Frida-confirmed (decrements 1/tick from 0x7FFF)
 };
 
 #endif /* CPROJECTILE_H_ */

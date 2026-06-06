@@ -1343,12 +1343,14 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
 
     m_pVidCell = new CVidCell(resRef, FALSE);
 
-    field_196 = 0;
-    field_1D4 = 0;
-    field_1C6 = 0;
-    field_1DE = 1;
-    field_1DA = 0;
-    field_29C = 0;
+    m_pShadowCell = NULL;
+    m_hasShadowCell = 0;
+    m_mirror = 0;
+    m_visible = 1;
+    m_direction = 0;
+    m_paletteSwap = 0;
+    m_tinted = 0;
+    m_useHeightOffset = 0;
     m_velocity = 0x14;
     m_targetX = 0;
     m_targetY = 0;
@@ -1440,4 +1442,172 @@ void CProjectileTravelling::AIUpdate()
 // flight movement system. Stubbed so AIUpdate links.
 void CProjectileTravelling::AimAtPoint(int x, int y)
 {
+}
+
+// 0x5297D0 (vtable slot 32 -- base blit flags)
+//
+// Ghidra recovers no function at the vtable target. A Frida trace of a Magic
+// Missile render showed it returns 0x20008; stubbed to that observed value
+// pending disassembly of the real getter.
+DWORD CProjectileTravelling::GetRenderFlags()
+{
+    return 0x20008;
+}
+
+// 0x52B6B0
+//
+// Cell draw rect + reference point, mirror/shadow aware. Transcribed from the
+// original's base and mirror blocks; the shadow-cell combine (m_hasShadowCell)
+// is not exercised by Magic Missile and the original's cell aliasing there is
+// unresolved, so it falls back to the base cell bounds.
+void CProjectileTravelling::GetCellBounds(CRect& rBounds, CPoint& ptRef)
+{
+    CPoint center;
+    CSize size;
+
+    if (m_mirror == 0 && m_hasShadowCell == 0) {
+        m_pVidCell->GetCurrentCenterPoint(ptRef, FALSE);
+        m_pVidCell->GetCurrentFrameSize(size, FALSE);
+        rBounds.SetRect(0, 0, size.cx, size.cy);
+    } else if (m_hasShadowCell != 0) {
+        m_pVidCell->GetCurrentCenterPoint(ptRef, FALSE);
+        m_pVidCell->GetCurrentFrameSize(size, FALSE);
+        rBounds.SetRect(0, 0, size.cx, size.cy);
+    }
+
+    if (m_mirror != 0) {
+        m_pVidCell->GetCurrentCenterPoint(center, FALSE);
+        m_pVidCell->GetCurrentFrameSize(size, FALSE);
+        if (1540 < m_direction && m_direction < 3596) {
+            center.y = size.cy - center.y;
+        }
+        center.y += m_posZ;
+        int minX = field_1CA;
+        int minY = field_1CE;
+        ptRef.x = center.x;
+        ptRef.y = center.y;
+        if (ptRef.x < minX) ptRef.x = minX;
+        if (ptRef.y < minY) ptRef.y = minY;
+        rBounds.SetRect(0, 0, size.cx + (ptRef.x - center.x), size.cy + (ptRef.y - center.y));
+        int extX = (ptRef.x - minX) + field_1CA * 2;
+        int extY = field_1CE * 2 + (ptRef.y - minY);
+        if (rBounds.right < extX) rBounds.right = extX;
+        if (rBounds.bottom < extY) rBounds.bottom = extY;
+    }
+}
+
+// 0x52B190 (vtable slot 19 -- Render)
+//
+// Tile-based draw of a travelling projectile. The visibility/passability gates,
+// the field-driven blit flags (mirror/tint/shadow), the tint, and the
+// CInfinity FX pipeline are transcribed from the original; the render-config
+// field semantics were Frida-confirmed (Magic Missile). The draw geometry
+// follows the verified sibling CProjectileBAM::Render pattern -- the original's
+// mirror-rect stack-local aliasing at 0x52B190 is decompile-ambiguous; verify
+// with a render-rect Frida trace if a visual offset shows. Documented stubs:
+// the shadow-cell second pass, the palette-swap path, and the multi-segment
+// pass (FUN_0052C8C0 when (short)field_1D8 > 1) -- all disabled for the traced
+// cast.
+void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    (void)pVidMode;
+    if (pArea == NULL) {
+        return;
+    }
+
+    DWORD flags = GetRenderFlags();
+    if (m_mirror != 0) {
+        flags |= 0x200;
+    }
+
+    // Tile-visibility gate (32x32 visibility tiles).
+    LONG tileIndex = (m_pos.y / 32) * pArea->m_visibility.m_nWidth + (m_pos.x / 32);
+    if (!pArea->m_visibility.IsTileVisible(tileIndex)) {
+        return;
+    }
+
+    // Passability/occlusion gate via the projectile terrain table (16x16 / 12y
+    // search cells); 0xFF == blocked.
+    static const BYTE TERRAIN[16] = { 0xFF, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05,
+                                      0x05, 0x05, 0xFF, 0x05, 0x05, 0xFF, 0x05, 0x05 };
+    CPoint searchPos(m_pos.x / 16, m_pos.y / 12);
+    if (pArea->m_search.GetMobileCost(searchPos, TERRAIN, 3, TRUE) == 0xFF) {
+        return;
+    }
+    if (m_visible == 0) {
+        return;
+    }
+
+    if (m_tinted != 0) {
+        flags |= 0x10000;
+    }
+    if (m_hasShadowCell != 0) {
+        flags |= 0x4;
+    }
+
+    CRect rFX;
+    CPoint ptRef;
+    GetCellBounds(rFX, ptRef);
+
+    CPoint newPos;
+    newPos.x = m_pos.x;
+    if (m_mirror == 0 && m_hasShadowCell == 0) {
+        newPos.y = m_pos.y - m_posZ;
+    } else {
+        newPos.y = m_pos.y;
+    }
+    if (m_useHeightOffset != 0) {
+        newPos.y += pArea->GetHeightOffset(m_pos, m_listType);
+    }
+
+    CRect rGCBounds;
+    rGCBounds.left = newPos.x - ptRef.x;
+    rGCBounds.top = newPos.y - ptRef.y;
+    rGCBounds.right = rGCBounds.left + rFX.Width();
+    rGCBounds.bottom = rGCBounds.top + rFX.Height();
+
+    // Clip to the area viewport (CGameArea +0x514..0x560 -- unmodelled fields,
+    // accessed by raw offset).
+    const BYTE* pAreaBytes = reinterpret_cast<const BYTE*>(pArea);
+    CRect rViewport;
+    rViewport.left = *reinterpret_cast<const int*>(pAreaBytes + 0x55C);
+    rViewport.top = *reinterpret_cast<const int*>(pAreaBytes + 0x560);
+    rViewport.right = (*reinterpret_cast<const int*>(pAreaBytes + 0x51C)
+                       - *reinterpret_cast<const int*>(pAreaBytes + 0x514)) + rViewport.left;
+    rViewport.bottom = (*reinterpret_cast<const int*>(pAreaBytes + 0x520)
+                        - *reinterpret_cast<const int*>(pAreaBytes + 0x518)) + rViewport.top;
+    if (!IntersectRect(&rViewport, &rGCBounds, &rViewport)) {
+        return;
+    }
+
+    // Direction-based mirror flags + base blit flag.
+    if (2568 < m_direction) {
+        flags |= 0x10;
+    }
+    if (1540 < m_direction && m_direction < 3596) {
+        flags |= 0x20;
+    }
+    flags |= 0x80;
+
+    COLORREF tintColor = RGB(0xFF, 0xFF, 0xFF);
+    if (m_tinted != 0 || m_mirror != 0) {
+        tintColor = pArea->GetTintColor(m_pos, m_listType);
+    }
+
+    CInfinity* pInfinity = pArea->GetInfinity();
+    pInfinity->FXPrep(rFX, flags, nSurface, newPos, ptRef);
+    if (pInfinity->FXLock(rFX, flags)) {
+        if (m_tinted != 0) {
+            m_pVidCell->SetTintColor(tintColor);
+        }
+        if (m_hasShadowCell != 0 && m_pShadowCell != NULL) {
+            pInfinity->FXRender(m_pShadowCell, ptRef.x, ptRef.y, flags, 0);
+        }
+        // m_paletteSwap != 0 also swaps the cell palette before this draw
+        // (CResBitmap colour table) -- documented; not exercised by the trace.
+        pInfinity->FXRender(m_pVidCell, ptRef.x, ptRef.y, flags, 0x80);
+        pInfinity->FXRenderClippingPolys(newPos.x, newPos.y, 0, ptRef, rViewport, FALSE, flags);
+        pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
+        pInfinity->FXBltFrom(nSurface, rFX, newPos.x, newPos.y, ptRef.x, ptRef.y, flags);
+    }
 }
