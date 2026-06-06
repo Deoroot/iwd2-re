@@ -1330,10 +1330,15 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
 // their own vtable and per-projectile configuration.
 //
 // STEP 1: the CProjectile base sub-object is constructed by its (implicit)
-// member ctor; this body only initializes the travelling additions. The
-// original also pokes several base-CProjectile fields in the +0x9C..0xDC
-// "drift gap" (see the projectile-factory layout note) -- 0/flag defaults that
-// CProjectile.h does not model -- which are intentionally omitted.
+// member ctor; this body initializes the travelling additions. The original
+// also zeroes the motion-integrator work fields in the +0x9C..0xC0 "drift gap"
+// (see the projectile-factory layout note) -- the subpixel position, per-tick
+// step, carry and random-spread band that AimAtPoint reads each tick -- plus
+// the +0xE6 render flags; these are modelled by-name on CProjectileTravelling
+// and seeded here. The remaining unread gap defaults (+0xC4, +0xD0..0xDC) are
+// omitted. field_E0 (the carry modulus) is left unwritten by the original; it
+// is only consulted when a carry is non-zero, which the zeroed carries prevent,
+// so it is zero-seeded here for definedness.
 CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     : m_palette(CVidPalette::TYPE_RANGE)
 {
@@ -1353,6 +1358,21 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     m_tinted = 0;
     m_useHeightOffset = 0;
     m_velocity = 0x14;
+    m_renderFlags = 0x20000;
+
+    // Motion-integrator state (AimAtPoint): subpixel position, step, carry and
+    // random-spread band, all zero so the path starts straight from the launch.
+    m_posAccumX = 0;
+    m_posAccumY = 0;
+    m_stepX = 0;
+    m_stepY = 0;
+    field_AC = 0;
+    field_B0 = 0;
+    field_B4 = 0;
+    field_B8 = 0;
+    field_BC = 0;
+    field_C0 = 0;
+    field_E0 = 0;
     m_targetX = 0;
     m_targetY = 0;
     field_170 = 0;
@@ -1597,12 +1617,13 @@ void CProjectileTravelling::AimAtPoint(int x, int y)
 
 // 0x5297D0 (vtable slot 32 -- base blit flags)
 //
-// Ghidra recovers no function at the vtable target. A Frida trace of a Magic
-// Missile render showed it returns 0x20008; stubbed to that observed value
-// pending disassembly of the real getter.
+// Trivial getter: `mov eax, [ecx+0xe6]; ret`. Returns the render-flags field
+// the ctor seeds to 0x20000. (A Magic Missile render trace observed 0x20008 --
+// the extra 0x8 is OR'd into the field elsewhere on the launch path, not by
+// this getter.)
 DWORD CProjectileTravelling::GetRenderFlags()
 {
-    return 0x20008;
+    return m_renderFlags;
 }
 
 // 0x52B6B0

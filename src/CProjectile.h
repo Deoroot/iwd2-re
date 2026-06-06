@@ -118,6 +118,7 @@ protected:
     int field_BC;               // +0xBC -- random step-spread band high (x)
     int field_C0;               // +0xC0 -- random step-spread band high (y)
     USHORT field_E0;            // +0xE0 -- carry wrap modulus
+    DWORD m_renderFlags;        // +0xE6 -- base blit flags (GetRenderFlags, slot 32)
     int m_targetX;              // +0xC8 -- Frida-confirmed (target point)
     int m_targetY;              // +0xCC -- Frida-confirmed
     int field_170;              // +0x170 -- nonzero during flight; 0 => arrived
