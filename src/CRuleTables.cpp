@@ -3512,6 +3512,68 @@ void CRuleTables::GetBaseCombatValues(CGameSprite* pSprite, int& a2, int& a3, in
     }
 }
 
+// 0x547040
+//
+// Returns the governing spellcasting ability modifier for `pSprite`, used by
+// the caster (CSpell::BuildAbilityEffect) and effect-immunity (0x4A3310) paths
+// as a per-class caster-level / spell-value contribution.  `nClass` selects
+// which ability score drives the result:
+//   wizard                       -> INT
+//   cleric / druid / paladin /
+//   ranger                       -> WIS
+//   bard / sorcerer              -> CHR
+//   anything else (non-caster,
+//   or out of range)             -> treated as score 0
+// The value is floor((score - 10) / 2): the standard 3.5e ability modifier.
+// The binary computes it in floating point and truncates with __ftol; for
+// scores below 10 it first subtracts an extra 1.0 so the truncating cast still
+// lands on the floored value for odd sub-10 scores.
+//
+// `resRef` and `nCasterLevel` are part of the call ABI but are not read here.
+int CRuleTables::GetSpellAbilityValue(CGameSprite* pSprite, const CResRef& resRef, int nSaveMod, BYTE nClass, DWORD nSpecialization, BYTE nCasterLevel)
+{
+    if (pSprite == NULL) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CRuleTables.cpp
+        // __LINE__: 6961
+        UTIL_ASSERT(pSprite != NULL);
+    }
+
+    // The shipped binary issues this virtual call and discards the result.
+    pSprite->GetAIType();
+
+    SHORT nScore = 0;
+    switch (nClass) {
+    case CAIOBJECTTYPE_C_BARD:
+    case CAIOBJECTTYPE_C_SORCERER:
+        nScore = pSprite->m_derivedStats.m_nCHR;
+        break;
+    case CAIOBJECTTYPE_C_CLERIC:
+    case CAIOBJECTTYPE_C_DRUID:
+    case CAIOBJECTTYPE_C_PALADIN:
+    case CAIOBJECTTYPE_C_RANGER:
+        nScore = pSprite->m_derivedStats.m_nWIS;
+        break;
+    case CAIOBJECTTYPE_C_WIZARD:
+        nScore = pSprite->m_derivedStats.m_nINT;
+        break;
+    default:
+        nScore = 0;
+        break;
+    }
+
+    float fValue = static_cast<float>(nScore);
+    if (nScore < 10) {
+        fValue -= 1.0f;
+    }
+    int nValue = static_cast<int>((fValue - 10.0f) / 2.0f);
+
+    if (nClass == CAIOBJECTTYPE_C_CLERIC && nSpecialization == 0x200000 && nSaveMod == 0x10) {
+        nValue++;
+    }
+
+    return nValue;
+}
+
 // FIXME: For unknown reason `nClass` and `nLevel` params are passed as
 // pointers.
 //

@@ -442,6 +442,7 @@ public:
     INT GetEncumbranceMod(CGameSprite* pSprite) const;
     void GetBaseCombatValues(CGameSprite* pSprite, int& a2, int& a3, int& a4, BOOL a5) const;
     DWORD GetMaxSpellLevel(const BYTE& nClass, const UINT& nLevel) const;
+    static int GetSpellAbilityValue(CGameSprite* pSprite, const CResRef& resRef, int nSaveMod, BYTE nClass, DWORD nSpecialization, BYTE nCasterLevel);
     BYTE GetSpecializationIndex(BYTE nClass, DWORD nSpecialization) const;
     DWORD GetSpecializationMask(BYTE nClass, BYTE nIndex) const;
 
