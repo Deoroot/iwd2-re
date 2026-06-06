@@ -274,39 +274,87 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         return pSpellHit;
     }
 
-    CResRef visualResRef;
+    CProjectile* pProjectile = NULL;
     switch (projectileType) {
     case 0x6F:
-        visualResRef = "NecroCG";
-        break;
     case 0x70:
-        visualResRef = "AlterCG";
-        break;
     case 0x71:
-        visualResRef = "EnchaCG";
-        break;
     case 0x72:
-        visualResRef = "AbjurCG";
-        break;
     case 0x73:
-        visualResRef = "IllusCG";
-        break;
     case 0x74:
-        visualResRef = "ConjuCG";
-        break;
     case 0x75:
-        visualResRef = "InvocCG";
+    case 0x76: {
+        // Spell-school casting-glow overlays.
+        CResRef visualResRef;
+        switch (projectileType) {
+        case 0x6F: visualResRef = "NecroCG"; break;
+        case 0x70: visualResRef = "AlterCG"; break;
+        case 0x71: visualResRef = "EnchaCG"; break;
+        case 0x72: visualResRef = "AbjurCG"; break;
+        case 0x73: visualResRef = "IllusCG"; break;
+        case 0x74: visualResRef = "ConjuCG"; break;
+        case 0x75: visualResRef = "InvocCG"; break;
+        case 0x76: visualResRef = "DivinCG"; break;
+        }
+        BYTE sequenceDelay = castDelay ? castDelay : 0x32;
+        pProjectile = new CProjectileBAM(visualResRef, CResRef(""), sequenceDelay, 0, visualEffect);
         break;
-    case 0x76:
-        visualResRef = "DivinCG";
+    }
+
+    case 0x121:
+    case 0x122:
+    case 0x123:
+    case 0x124:
+    case 0x125: {
+        // Summon-group VFX overlays (mirror CreateSummonGroupProjectile):
+        // copy-from-back tint, EFF_M13 arrival sound, offset above the target.
+        CResRef visualResRef;
+        switch (projectileType) {
+        case 0x121: visualResRef = "MSumm1X"; break;
+        case 0x122: visualResRef = "ASumm1X"; break;
+        case 0x123: visualResRef = "CEElemX"; break;
+        case 0x124: visualResRef = "CFElemX"; break;
+        case 0x125: visualResRef = "CWElemX"; break;
+        }
+        visualEffect.SetCopyFromBack(TRUE);
+        CProjectileSummonVFX* pSummon = new CProjectileSummonVFX(visualResRef, visualEffect);
+        pSummon->SetArrivalSound(CResRef("EFF_M13"));
+        pSummon->SetOffsetAboveTarget(TRUE);
+        pProjectile = pSummon;
         break;
+    }
+
+    case 0x15B:
+    case 0x161:
+    case 0x162: {
+        // Single spell-hit VFX overlays: copy-from-back tint only.
+        CResRef visualResRef;
+        switch (projectileType) {
+        case 0x15B: visualResRef = "PortalH"; break;
+        case 0x161: visualResRef = "IllusH"; break;
+        case 0x162: visualResRef = "CCDamaH"; break;
+        }
+        visualEffect.SetCopyFromBack(TRUE);
+        pProjectile = new CProjectileSummonVFX(visualResRef, visualEffect);
+        break;
+    }
+
+    case 0x169:
+        // Gate VFX overlay: no copy-from-back tint, no arrival sound.
+        pProjectile = new CProjectileSummonVFX(CResRef("GateX"), visualEffect);
+        break;
+
     default:
-        // ~90 hardcoded projectile classes not yet recovered.
+        // ~80 hardcoded projectile classes not yet recovered.
         return NULL;
     }
 
-    BYTE sequenceDelay = castDelay ? castDelay : 0x32;
-    return new CProjectileBAM(visualResRef, CResRef(""), sequenceDelay, 0, visualEffect);
+    // Common tail (0x528E1C): the factory stamps the 0-based projectile type on
+    // every object it builds before returning it.
+    if (pProjectile != NULL) {
+        pProjectile->m_projectileType = projectileType - 1;
+    }
+    return pProjectile;
 }
 
 // -----------------------------------------------------------------------------
