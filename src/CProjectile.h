@@ -159,4 +159,28 @@ public:
     CProjectileMMissiT(SHORT nPaletteFlag);   // 0x57E030
 };
 
+// Intermediate base for the Magic Missile launcher (ctor 0x5309C0). Pre-spawns a
+// list of sub-missiles in its constructor; the launcher's Fire drains the list
+// into the area. The original multiply-inherits the sub-missile list at +0x2A2
+// (a CPtrList, secondary vtable 0x84E0B8); we model it as a member -- it is
+// transient launch staging, so the layout difference is immaterial.
+class CProjectileMagicMissileMulti : public CProjectileTravelling {
+public:
+    CProjectileMagicMissileMulti(const CResRef& resRef, SHORT nCount, USHORT nSubType, BYTE nPaletteFlag);
+
+protected:
+    SHORT m_missileCount;                                  // +0x2A0
+    CTypedPtrList<CPtrList, CProjectile*> m_subMissiles;   // +0x2A2 (binary: a 2nd base)
+    USHORT m_subType;                                      // +0x2BE
+};
+
+// Leaf 0x531120 -- the Magic Missile launcher (DecodeProjectile types 0x44-0x48,
+// one per caster-level band = 1..5 missiles). Spawns N MMissiT sub-missiles in
+// its base, then fires them. vtable 0x84E0C4.
+class CProjectileSPMAGMIS : public CProjectileMagicMissileMulti {
+public:
+    CProjectileSPMAGMIS(SHORT nCount, SHORT nPaletteFlag);   // 0x531120
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;  // 0x530C90
+};
+
 #endif /* CPROJECTILE_H_ */

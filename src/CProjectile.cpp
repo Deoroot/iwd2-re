@@ -291,6 +291,17 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileMMissiT(0);
         break;
 
+    case 0x44:
+    case 0x45:
+    case 0x46:
+    case 0x47:
+    case 0x48:
+        // SPMAGMIS -- Magic Missile launcher; band count = projectileType - 0x43
+        // (1..5 missiles), palette flag 1.
+        pProjectile = new CProjectileSPMAGMIS(
+            static_cast<SHORT>(projectileType - 0x43), 1);
+        break;
+
     case 0x6F:
     case 0x70:
     case 0x71:
@@ -1856,6 +1867,81 @@ CProjectileMMissiT::CProjectileMMissiT(SHORT nPaletteFlag)
 
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
     m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x5309C0
+//
+// CProjectileMagicMissileMulti -- the Magic Missile launcher base. Builds the
+// travelling base, then pre-spawns nCount sub-missiles (DecodeProjectile of
+// nSubType + 1) into the sub-missile list; the launcher's Fire later drains them
+// into the area. The original copies the fire-sound resref onto each sub-missile
+// after the first (FUN_0078A990/FUN_0078AC30) -- deferred (the resref defaults
+// empty).
+CProjectileMagicMissileMulti::CProjectileMagicMissileMulti(const CResRef& resRef,
+    SHORT nCount, USHORT nSubType, BYTE nPaletteFlag)
+    : CProjectileTravelling(resRef)
+{
+    m_pVidCell->SequenceSet(0);
+    m_missileCount = nCount;
+    m_subType = nSubType;
+    m_renderFlags |= 8;
+
+    if (nPaletteFlag != 0) {
+        if (nPaletteFlag == 1) {
+            m_palette.SetRange(0, 0x21, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+            m_pVidCell->SetPalette(m_palette);
+        } else {
+            UTIL_ASSERT(FALSE);
+        }
+    }
+
+    for (SHORT i = 0; i < nCount; ++i) {
+        CProjectile* pSub = CProjectile::DecodeProjectile(
+            static_cast<USHORT>(m_subType + 1), NULL, 0);
+        m_subMissiles.AddTail(pSub);
+    }
+
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x531120
+//
+// CProjectileSPMAGMIS -- the Magic Missile launcher leaf (DecodeProjectile types
+// 0x44-0x48). nCount = the band's missile count (1..5); the sub-missiles are
+// "MMissiT" (sub-type 0xD9 -> spawned type 0xDA).
+CProjectileSPMAGMIS::CProjectileSPMAGMIS(SHORT nCount, SHORT nPaletteFlag)
+    : CProjectileMagicMissileMulti(CResRef("SPMAGMIS"), nCount, 0xD9,
+        static_cast<BYTE>(nPaletteFlag))
+{
+    m_tinted = 0;
+    m_useHeightOffset = 0;
+    m_hasShadowCell = 0;
+    field_1CA = 10;
+    field_1CE = 7;
+    m_mirror = 1;
+    field_1D2 = 0x80;
+    m_dirCount = 1;
+
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x530C90 (vtable slot 27 -- Fire; the multi-missile launch)
+//
+// STUB. The real launch (0x530C90, ~344 instrs, Ghidra-empty) drains the
+// pre-spawned sub-missile list, aiming and firing each MMissiT into the area
+// with a per-missile spread/timing. Recovered next; stubbed so the launcher
+// links and constructs (the sub-missiles sit in the list, unfired).
+void CProjectileSPMAGMIS::Fire(CGameArea* pArea, LONG source, LONG target,
+                               CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)pArea;
+    (void)source;
+    (void)target;
+    (void)targetPos;
+    (void)nHeight;
+    (void)nType;
 }
 
 // 0x52B190 (vtable slot 19 -- Render)
