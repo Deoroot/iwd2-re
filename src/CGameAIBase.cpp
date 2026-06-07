@@ -2756,7 +2756,24 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         }
     } else {
         resRef = sStr1;
-        specificLevel = static_cast<SHORT>(m_curAction.m_specificID);
+        // Spell (0x1F) / SpellPoint (0x5F) cast from the UI carry the resref in
+        // String1 with specificID == 0; their caster level is the sprite's own
+        // level. The real Spell handlers (ExecuteAction case 0x9e -> the cast
+        // state machine) are unrecovered, so this stopgap -- which routes Spell
+        // through the ForceSpell handler -- derives the level here. ForceSpell
+        // (0x71) / ForceSpellPoint (0x72) and their Really/NoDec variants keep
+        // the script-supplied level in specificID.
+        if (m_curAction.m_actionID == CAIAction::FORCESPELL
+            || m_curAction.m_actionID == CAIAction::REALLYFORCESPELL
+            || m_curAction.m_actionID == CAIAction::FORCESPELLPOINT) {
+            specificLevel = static_cast<SHORT>(m_curAction.m_specificID);
+        } else if (GetObjectType() == CGameObject::TYPE_SPRITE) {
+            specificLevel = static_cast<CGameSprite*>(this)
+                                ->GetDerivedStats()
+                                ->m_nLevel;
+        } else {
+            specificLevel = 1;
+        }
     }
     if (specificLevel < 2) {
         specificLevel = 1;
@@ -3032,7 +3049,24 @@ SHORT CGameAIBase::ForceSpellPointAction()
         }
     } else {
         resRef = sStr1;
-        specificLevel = static_cast<SHORT>(m_curAction.m_specificID);
+        // Spell (0x1F) / SpellPoint (0x5F) cast from the UI carry the resref in
+        // String1 with specificID == 0; their caster level is the sprite's own
+        // level. The real Spell handlers (ExecuteAction case 0x9e -> the cast
+        // state machine) are unrecovered, so this stopgap -- which routes Spell
+        // through the ForceSpell handler -- derives the level here. ForceSpell
+        // (0x71) / ForceSpellPoint (0x72) and their Really/NoDec variants keep
+        // the script-supplied level in specificID.
+        if (m_curAction.m_actionID == CAIAction::FORCESPELL
+            || m_curAction.m_actionID == CAIAction::REALLYFORCESPELL
+            || m_curAction.m_actionID == CAIAction::FORCESPELLPOINT) {
+            specificLevel = static_cast<SHORT>(m_curAction.m_specificID);
+        } else if (GetObjectType() == CGameObject::TYPE_SPRITE) {
+            specificLevel = static_cast<CGameSprite*>(this)
+                                ->GetDerivedStats()
+                                ->m_nLevel;
+        } else {
+            specificLevel = 1;
+        }
     }
     if (specificLevel < 2) {
         specificLevel = 1;
