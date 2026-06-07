@@ -720,14 +720,22 @@ void CProjectileSummonVFX::Fire(CGameArea* pArea, LONG source, LONG target, CPoi
     m_pos.y = m_offsetAboveTarget ? targetPos.y - 100 : targetPos.y + 1;
     m_posZ = 0;
 
+    // Per-cast visual variety (binary 0x57E776): randomize the overlay vidcell's
+    // starting sequence.  The constructor hardcodes the randomize flag (+0x2b8)
+    // to 1 (0x57E50A), so the pick is unconditional -- when the BAM holds more
+    // than one sequence choose one at random, else sequence 0.  Overrides the
+    // constructor's fixed SequenceSet(0) so repeated hits don't always show the
+    // same variant.
+    SHORT nSeqCount = m_vidCell.GetNumberSequences(FALSE) & 0xFF;
+    m_vidCell.SequenceSet(nSeqCount > 1 ? static_cast<SHORT>(rand() % nSeqCount) : 0);
+
     rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
     if (rc == CGameObjectArray::SUCCESS) {
         CGameObject::AddToArea(pArea, m_pos, 0, CGAMEOBJECT_LIST_FRONT);
         // Impact cue (binary 0x57E838): the overlay plays its fire-sound on launch
         // -- the spell-hit sound (e.g. EFF_M06 for an Invocation hit such as Magic
         // Missile).  The original passes the loop flag at +0x15a (one-shot for these
-        // cues, not modelled here) and fireAndForget FALSE.  The per-variant random
-        // pick (m_sound setup via the +0x192 sound object) is deferred.
+        // cues, not modelled here) and fireAndForget FALSE.
         PlaySound(m_fireSoundRef, FALSE, FALSE);
         DeliverEffects();
     } else {
