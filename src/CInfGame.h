@@ -241,6 +241,7 @@ public:
     static void StartCharacterTerminationSequence();
     void ReadyCharacterTerminationSequence(int a1, int a2);
     void FeedBack(SHORT feedBackId, LONG value, BOOLEAN a3);
+    LONG ShareXP(LONG nXP, BOOLEAN bFeedback, BOOLEAN bCombat);
     CString GetDirPortraits();
     CString GetDirCharacters();
     BYTE GetCharactersControlled();

@@ -14,6 +14,7 @@
 #include "CGameSprite.h"
 #include "CInfCursor.h"
 #include "CItem.h"
+#include "CMessage.h"
 #include "CPathSearch.h"
 #include "CScreenChapter.h"
 #include "CScreenCharacter.h"
@@ -8298,6 +8299,120 @@ CString CInfGame::GetDirSave()
 CString CInfGame::GetSaveGameDirectory()
 {
     return m_sMultiplayerSaveDir + m_sSaveGame + "\\";
+}
+
+// 0x5C0BB0
+//
+// Divide an experience award among the living party and deliver it -- the
+// engine's kill / quest XP payout (GemRB models this routine as Game::ShareXP
+// with SX_DIVIDE, plus SX_CR for combat kills).  Pass one walks the party,
+// counting the members that are not dead and summing their levels.  When
+// bCombat is set the raw award is first rescaled against the party's average
+// level through the monster-rate table and then halved; otherwise it is used
+// as-is.  The pool is split evenly between the living members, with the
+// division remainder handed out a point at a time to the earliest members, and
+// pass two posts each living member an opcode-104 (XP) effect carrying its
+// share -- after docking that share by the member's multiclassing penalty.
+// Returns the total actually handed out and announces it through FeedBack.
+LONG CInfGame::ShareXP(LONG nXP, BOOLEAN bFeedback, BOOLEAN bCombat)
+{
+    // --- pass 1: count the living members and sum their levels ---
+    SHORT nLiving = 0;
+    SHORT nLevelSum = 0;
+
+    for (SHORT i = 0; i < m_nCharacters; i++) {
+        LONG nMemberId = GetCharacterId(i);
+
+        CGameSprite* pMember;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nMemberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pMember),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            if ((pMember->GetDerivedStats()->m_generalState & STATE_DEAD) == 0) {
+                nLiving++;
+                nLevelSum += pMember->GetDerivedStats()->m_nLevel;
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nMemberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+    }
+
+    if (nLiving == 0) {
+        nLiving = 1;
+    }
+
+    // --- the combat path rescales by the party average level, then halves ---
+    LONG nPool;
+    if (bCombat) {
+        nPool = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetMoncRate(
+                    static_cast<WORD>(nXP),
+                    static_cast<WORD>(nLevelSum / nLiving))
+            >> 1;
+    } else {
+        nPool = nXP;
+    }
+
+    LONG nPerMember = nPool / nLiving;
+    LONG nRemainder = nPool % nLiving;
+
+    // --- pass 2: deliver each living member its (penalty-adjusted) share ---
+    ITEM_EFFECT effect;
+    CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_XP);
+    effect.durationType = 1;
+    effect.effectAmount = nPerMember;
+
+    LONG nTotal = 0;
+    for (SHORT i = 0; i < m_nCharacters; i++) {
+        LONG nMemberId = GetCharacterId(i);
+
+        CGameSprite* pMember;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nMemberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pMember),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            if ((pMember->GetDerivedStats()->m_generalState & STATE_DEAD) == 0) {
+                effect.effectAmount = nPerMember;
+                if (nRemainder > 0) {
+                    nRemainder--;
+                    effect.effectAmount = nPerMember + 1;
+                }
+
+                INT nPenalty = pMember->GetMulticlassingPenalty();
+                if (nPenalty > 0) {
+                    effect.effectAmount = (100 - nPenalty) * effect.effectAmount / 100;
+                }
+
+                nTotal += effect.effectAmount;
+
+                CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                    CPoint(-1, -1),
+                    -1,
+                    CPoint(-1, -1));
+
+                CMessage* message = new CMessageAddEffect(pEffect, nMemberId, nMemberId);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nMemberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+    }
+
+    FeedBack(FEEDBACK_EXPERIENCE, nTotal, bFeedback);
+    return nTotal;
 }
 
 // 0x5C20E0
