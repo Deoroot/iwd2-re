@@ -2874,8 +2874,13 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         // creature inside Magic Missile's 50-square range yet past sight still
         // made the original walk while our range-only gate cast in place).  range
         // == 0xFFFF (-1) is unbounded (matches FUN_007567F0's -1 short test); the
-        // grid-square distance carries a +2 slack; self casts never walk.
-        if (target != static_cast<CGameObject*>(this)) {
+        // grid-square distance carries a +2 slack; self casts never walk.  The
+        // whole decision is latched to m_actionCount <= 0 -- the binary's +0x54EA
+        // "casting begun" flag, set once the cast machine runs -- so a target that
+        // steps out of sight mid-cast cannot re-trigger the walk and restart the
+        // cast.
+        if (m_actionCount <= 0
+            && target != static_cast<CGameObject*>(this)) {
             CPoint selfPos = pSprite->GetPos();
             LONG dx = selfPos.x / CPathSearch::GRID_SQUARE_SIZEX
                 - targetPos.x / CPathSearch::GRID_SQUARE_SIZEX;
@@ -2897,6 +2902,13 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
                 m_actionCount = -1;
                 return pSprite->MoveToObject(target);
             }
+            // In range and in sight: drop the approach path that MoveToObject
+            // submitted (it paths all the way to personal space, CGameSprite.cpp
+            // :14060) so the caster does not coast into melee after the spell
+            // fires.  The binary posts the same CMessageDropPath right before it
+            // casts (0x7408ED, vtable 0x84C44C, just ahead of LAB_00740922).
+            CMessage* pDropPath = new CMessageDropPath(m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pDropPath, FALSE);
         }
 
         // (2) Orient.  The SEQ_CAST executor compares m_nDirection against
