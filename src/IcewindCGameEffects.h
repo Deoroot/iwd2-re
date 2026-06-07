@@ -221,9 +221,9 @@ public:
     /* 0190 */ int field_190;
 };
 
-class IcewindCGameEffectVisualSpellHit : public CGameEffect {
+class CGameEffectVisualSpellHitIWD : public CGameEffect {
 public:
-    IcewindCGameEffectVisualSpellHit(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
+    CGameEffectVisualSpellHitIWD(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
     CGameEffect* Copy() override;
     BOOL ApplyEffect(CGameSprite* pSprite) override;
 };

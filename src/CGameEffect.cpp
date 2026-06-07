@@ -730,7 +730,7 @@ CGameEffect* CGameEffect::DecodeEffect(ITEM_EFFECT* effect, const CPoint& source
     case ICEWIND_CGAMEEFFECT_COLORGLOWDISSIPATE:
         return new IcewindCGameEffectColorGlowDissipate(effect, source, sourceID, target);
     case ICEWIND_CGAMEEFFECT_VISUALSPELLHIT:
-        return new IcewindCGameEffectVisualSpellHit(effect, source, sourceID, target);
+        return new CGameEffectVisualSpellHitIWD(effect, source, sourceID, target);
     case ICEWIND_CGAMEEFFECT_SNILLOCSSNOWBALLSWARMDAMAGE:
         // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameEffect.cpp
         // __LINE__: 1329
