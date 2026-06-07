@@ -19,6 +19,7 @@
 #include "CGameTimer.h"
 #include "CGameTrigger.h"
 #include "CInfGame.h"
+#include "CPathSearch.h"
 #include "CProjectile.h"
 #include "CScreenCharacter.h"
 #include "CScreenChapter.h"
@@ -2735,46 +2736,9 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         return ACTION_INTERRUPTABLE;
     }
 
-    // UI Spell casts orient the caster toward the target BEFORE any cast visual
-    // plays.  The original gates the whole cast on facing: the SEQ_CAST sequence
-    // executor (FUN_00742840) compares m_nDirection against GetDirection(cast
-    // point) and, while they differ, posts a gradual CMessageSetDirection (vtable
-    // PTR_FUN_0084d248) -> CGameSprite::SetDirection and re-enters next tick
-    // WITHOUT advancing the cast -- so the casting glow is born already facing
-    // the target instead of latched to the pre-turn facing.  This ForceSpell
-    // stopgap merges that executor into the action handler, so reproduce the gate
-    // here.  The real force actions (ForceSpell / ForceSpellPoint and their Really
-    // variants) deliberately do NOT orient; exclude them, the same split used for
-    // the script-supplied cast-level branch below.
-    if (m_curAction.m_actionID != CAIAction::FORCESPELL
-        && m_curAction.m_actionID != CAIAction::REALLYFORCESPELL
-        && m_curAction.m_actionID != CAIAction::FORCESPELLPOINT
-        && GetObjectType() == CGameObject::TYPE_SPRITE) {
-        CGameSprite* pCaster = static_cast<CGameSprite*>(this);
-        // The original cast-sequence executor (FUN_00740270, launches at 0x742783)
-        // gates its cast WORK each tick on m_nDirection == GetDirection(target's
-        // live GetPos(), vtable +0x1c) but lets the cast-frame counter free-run:
-        // it is dispatcher-incremented every tick and NEVER reset, so the turn is
-        // just the first few ticks where the gate is closed (Frida ground truth:
-        // ctr 0..14, dir rotates 0->6 over ctr 1..4, fire at ctr 14, no reset).
-        // This stopgap merges that executor into the action handler and instead
-        // PINS the counter at 0 across the turn, so the cast-time machine below
-        // creates the glow (its m_actionCount==0 hook) on the first facing tick
-        // rather than the un-turned tick 0 -- the glow-vs-body desync fix.  The
-        // m_actionCount<=0 guard disables the gate once the cast is counting:
-        // without it a target that moves mid-cast re-fires the turn and re-pins
-        // the counter every tick, restarting the cast forever (the un-guarded
-        // 0d1347bf loop).
-        if (m_actionCount <= 0
-            && pCaster->m_nDirection != pCaster->GetDirection(target->m_pos)) {
-            pCaster->SetDirection(target->m_pos);
-            // DoAction (0x44D780) post-increments m_actionCount on the
-            // ACTION_INTERRUPTABLE return, so -1 lands back at 0 next tick --
-            // pinning the counter at its first tick through the gradual turn.
-            m_actionCount = -1;
-            return ACTION_INTERRUPTABLE;
-        }
-    }
+    // The caster move-to-range and orient gates run AFTER the spell + ability
+    // are resolved (the chosen ability's range drives the approach distance) --
+    // see the combined gate below, just before the cast-time machine.
 
     // Resolve resref + cast level.  Script can pass either a CString in
     // m_string1 (with cast level in m_specificID) or a numeric spell id in
@@ -2882,6 +2846,65 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
     BOOL bInstantCast = !isSprite || m_curAction.m_actionID == 0xB5;
     CGameSprite* pSprite = isSprite ? static_cast<CGameSprite*>(this) : NULL;
     CPoint targetPos = target->GetPos();
+
+    // --- Move-to-range + caster orient gate (binary FUN_00740270). ----------
+    // Only the normal UI casts (Spell 0x1F / SpellNoDec 0xBF) walk and turn;
+    // the force actions (ForceSpell 0x71 / ReallyForceSpell 0xB5 /
+    // ForceSpellPoint 0x72) deliberately fire in place.  Both gates run here --
+    // after the ability is chosen, before the cast-time machine -- in approach-
+    // then-face order: the walk takes priority so the orient gate never preempts
+    // the path (a turn-vs-walk fight that would never make progress).  The
+    // original runs face-then-range with a free-running cast counter; this
+    // stopgap pins the counter (see below), so the order is swapped to keep the
+    // walk alive.
+    if (isSprite
+        && m_curAction.m_actionID != CAIAction::FORCESPELL
+        && m_curAction.m_actionID != CAIAction::REALLYFORCESPELL
+        && m_curAction.m_actionID != CAIAction::FORCESPELLPOINT) {
+        // (1) Move-to-range.  FUN_00740270's range branch (0x740892) tests the
+        // chosen ability's range with FUN_007567F0 and, when the target lies
+        // outside it, walks the caster toward it via FUN_0073EDD0
+        // (== CGameSprite::MoveToObject), re-entering next tick instead of
+        // casting.  range == 0xFFFF (-1) is unbounded; self casts never walk.
+        // Distance is in search-grid squares with a +2 slack, matching
+        // FUN_007567F0's (dx*dx + dy*dy) <= (range + 2)^2 test.
+        if (pAbility->range != 0xFFFF
+            && target != static_cast<CGameObject*>(this)) {
+            CPoint selfPos = pSprite->GetPos();
+            LONG dx = selfPos.x / CPathSearch::GRID_SQUARE_SIZEX
+                - targetPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+            LONG dy = selfPos.y / CPathSearch::GRID_SQUARE_SIZEY
+                - targetPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+            LONG slack = pAbility->range + 2;
+            if (dx * dx + dy * dy > slack * slack) {
+                pSpell->Release();
+                delete pSpell;
+                // Pin the action counter (DoAction post-increments -1 -> 0) so
+                // the cast-time machine still sees m_actionCount == 0 on its
+                // first tick once the approach finishes -- a counter inflated by
+                // the walk would skip ApplyCastingEffect and fizzle the cast.
+                m_actionCount = -1;
+                return pSprite->MoveToObject(target);
+            }
+        }
+
+        // (2) Orient.  The SEQ_CAST executor compares m_nDirection against
+        // GetDirection(the target's live GetPos()) and, while they differ, posts
+        // a gradual CMessageSetDirection (-> CGameSprite::SetDirection) and
+        // re-enters WITHOUT advancing the cast, so the casting glow is born
+        // already facing the target.  The m_actionCount <= 0 guard disables the
+        // gate once the cast is counting: otherwise a target that moves mid-cast
+        // re-fires the turn and re-pins the counter every tick, restarting the
+        // cast forever (the un-guarded 0d1347bf loop).
+        if (m_actionCount <= 0
+            && pSprite->m_nDirection != pSprite->GetDirection(targetPos)) {
+            pSpell->Release();
+            delete pSpell;
+            pSprite->SetDirection(targetPos);
+            m_actionCount = -1;
+            return ACTION_INTERRUPTABLE;
+        }
+    }
 
     if (!bInstantCast) {
         WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
