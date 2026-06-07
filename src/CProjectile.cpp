@@ -6,6 +6,7 @@
 #include "CBaldurChitin.h"
 #include "CGameEffect.h"
 #include "CGameArea.h"
+#include "CMessage.h"
 #include "CGameObjectArray.h"
 #include "CGameSprite.h"
 #include "CInfinity.h"
@@ -214,9 +215,49 @@ void CProjectile::OnArrival()
 }
 
 // 0x52A1A0
+//
+// Delivers the projectile's accumulated gameplay effects to its target on
+// arrival (called from OnArrival). Resolves the target (m_targetId); if it
+// cannot hold effects (not an AI object) they are discarded, otherwise each
+// effect is handed to the target as a CMessageAddEffect (which, when run,
+// AddEffect()s it onto the target -- i.e. the damage).
+//
+// PARTIAL vs 0x52A1A0: the original wraps the per-effect CMessageAddEffects in a
+// message-list (subtype 105, ctor 0x5152C0 / vtbl 0x84D564 / Run 0x5157F0 -- a
+// separate, reused container class) and queues that once; here we queue each
+// recovered CMessageAddEffect directly (identical application path; ADD_EFFECT
+// is already in the Iwd2MessageRunRecovered whitelist). Also deferred: the
+// immunity gate (FUN_004E7120 projectile-type immunity + the target's
+// per-caster-class immunity array at +0x2BF, then
+// CGameEffect::FeedBackImmuneToResource) -- effects currently always apply.
 void CProjectile::DeliverEffects()
 {
-    // TODO: Incomplete.
+    CGameObject* pTarget;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    if ((pTarget->GetObjectType() & CGameObject::TYPE_AIBASE) == 0) {
+        // Target cannot hold effects -> discard them.
+        ClearEffects();
+    } else {
+        POSITION pos = m_effectList.GetHeadPosition();
+        while (pos != NULL) {
+            CGameEffect* pEffect = m_effectList.GetNext(pos);
+            CMessage* pMsg = new CMessageAddEffect(pEffect, m_sourceId, m_targetId);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+        }
+        // The effects are now owned by the queued messages; drop our references.
+        m_effectList.RemoveAll();
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
 
 // 0x52A480
