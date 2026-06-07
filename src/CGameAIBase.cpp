@@ -2735,18 +2735,31 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         return ACTION_INTERRUPTABLE;
     }
 
-    // UI Spell casts orient the caster toward the target.  The original turns
-    // gradually inside the SEQ_CAST sequence executor (FUN_00742840 posts a
-    // CMessageSetDirection -> CGameSprite::SetDirection), which this ForceSpell
-    // stopgap bypasses; the real force actions (ForceSpell / ForceSpellPoint and
-    // their Really variants) deliberately do NOT orient.  Match that split: turn
-    // only for the aliased Spell variants, the same set excluded from the
-    // script-supplied cast-level branch below.
+    // UI Spell casts orient the caster toward the target BEFORE any cast visual
+    // plays.  The original gates the whole cast on facing: the SEQ_CAST sequence
+    // executor (FUN_00742840) compares m_nDirection against GetDirection(cast
+    // point) and, while they differ, posts a gradual CMessageSetDirection (vtable
+    // PTR_FUN_0084d248) -> CGameSprite::SetDirection and re-enters next tick
+    // WITHOUT advancing the cast -- so the casting glow is born already facing
+    // the target instead of latched to the pre-turn facing.  This ForceSpell
+    // stopgap merges that executor into the action handler, so reproduce the gate
+    // here.  The real force actions (ForceSpell / ForceSpellPoint and their Really
+    // variants) deliberately do NOT orient; exclude them, the same split used for
+    // the script-supplied cast-level branch below.
     if (m_curAction.m_actionID != CAIAction::FORCESPELL
         && m_curAction.m_actionID != CAIAction::REALLYFORCESPELL
         && m_curAction.m_actionID != CAIAction::FORCESPELLPOINT
         && GetObjectType() == CGameObject::TYPE_SPRITE) {
-        static_cast<CGameSprite*>(this)->SetDirection(target->m_pos);
+        CGameSprite* pCaster = static_cast<CGameSprite*>(this);
+        if (pCaster->m_nDirection != pCaster->GetDirection(target->m_pos)) {
+            pCaster->SetDirection(target->m_pos);
+            // Hold the cast-frame counter at its first tick across the turn so
+            // the cast-time machine still creates the glow on the tick the caster
+            // reaches the target facing.  DoAction post-increments m_actionCount
+            // on the ACTION_INTERRUPTABLE return, so -1 lands back at 0 next tick.
+            m_actionCount = -1;
+            return ACTION_INTERRUPTABLE;
+        }
     }
 
     // Resolve resref + cast level.  Script can pass either a CString in
