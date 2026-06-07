@@ -442,6 +442,7 @@ public:
     CGameEffectDamage();
     CGameEffectDamage(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
     CGameEffect* Copy() override;
+    BOOL ApplyEffect(CGameSprite* pSprite) override;
 
     void WakeOnDamage(CGameSprite* pSprite);
 };

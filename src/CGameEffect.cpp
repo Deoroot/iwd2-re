@@ -2350,6 +2350,109 @@ void CGameEffectDamage::WakeOnDamage(CGameSprite* pSprite)
     }
 }
 
+// 0x4A7900
+//
+// CGameEffectDamage::ApplyEffect -- opcode #12, the core combat-damage handler.
+// Rolls the effect's dice, subtracts the total from the target's hit points, and
+// on a lethal result builds + applies a CGameEffectDeath.  This is what makes
+// every weapon hit and every damaging spell (Magic Missile included) actually
+// wound a creature.
+//
+// CORE RECOVERY.  The faithful spine (dice roll -> mode-switch HP subtract ->
+// death effect) is recovered; the surrounding original sub-systems are documented
+// stubs pending their own arcs, each marked HACK below:
+//   * entry gates (0x4A7913..0x4A7F1E): magic-class immunity, the animation-busy
+//     check, the global no-damage flag, the creature-state pre-gates at +0x5BC,
+//     and the "HP < -9 already pulped" short-circuit.
+//   * damage scaling + reduction (0x4A8038..0x4A8200): party difficulty scale,
+//     the +0xA14 "absorb to pool" special, the per-type resistance switch, the
+//     near-death party clamp, and the FUN_00448250 saving-throw pass.
+//   * cosmetic feedback (0x4A83A8..0x4A8636): the floating damage number, hit
+//     sound, blood spatter, sequence change, and the damage-flash markers.
+//   * the type-specific death-animation kind switch (0x4A8742..0x4A89BF): the
+//     gib / burnt / frozen / disintegrate variants.  We set the normal kind (4),
+//     which is what magic damage uses.
+// Replaces 0x4A7900.
+BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
+{
+    // m_dwFlags packs the damage descriptor: low word = how to apply it
+    // (0/3 = subtract, 1 = set, 2 = percent), high word = damage-type bitmask.
+    DWORD mode = m_dwFlags & 0xFFFF;
+
+    // --- roll the dice: total = base amount + sum of m_numDice d(m_diceSize) ---
+    int total = 0;
+    for (DWORD i = 0; i < m_numDice; i++) {
+        total += CUtil::UtilRandInt(m_diceSize, -pSprite->m_tempStats.m_nLuck) + 1;
+    }
+    total += m_effectAmount;
+    m_effectAmount = total;
+    if (total < 1) {
+        m_done = TRUE;
+        return TRUE;
+    }
+
+    // mode 3 deals half (rounded down, floored at 1).
+    if (mode == 3) {
+        total /= 2;
+        if (total < 1) {
+            total = 1;
+        }
+        m_effectAmount = total;
+    }
+
+    // HACK: difficulty scaling, the per-type resistance switch, and the
+    // saving-throw pass are unrecovered -- the target takes the full rolled
+    // total with no reduction -- replaces 0x4A8038..0x4A8200.  The clamp below
+    // is where that reduction would bottom out.
+    if (m_effectAmount < 0) {
+        m_effectAmount = 0;
+    }
+
+    // --- subtract from hit points (HACK: the per-effect vtable[0x28] damage-
+    // accounting hook is omitted; it records the resisted amount for triggers
+    // and does not change HP -- replaces the calls at 0x4A8398 / 0x4A83D1). ---
+    switch (mode) {
+    case 0:
+    case 3:
+        pSprite->GetBaseStats()->m_hitPoints -= static_cast<SHORT>(m_effectAmount);
+        break;
+    case 1: {
+        SHORT maxHP = pSprite->GetDerivedStats()->m_nMaxHitPoints;
+        pSprite->GetBaseStats()->m_hitPoints =
+            (m_effectAmount < maxHP) ? static_cast<SHORT>(m_effectAmount) : maxHP;
+        break;
+    }
+    case 2:
+        pSprite->GetBaseStats()->m_hitPoints =
+            static_cast<SHORT>(pSprite->GetBaseStats()->m_hitPoints * m_effectAmount / 100);
+        break;
+    }
+
+    // HACK: the damage-flash markers, the FUN_004A8DF0 post-damage hook, and all
+    // cosmetic feedback (sound / blood / sequence) are unrecovered -- replaces
+    // 0x4A83A8..0x4A8636.
+
+    if (pSprite->GetBaseStats()->m_hitPoints > 0) {
+        // Survived.  HACK: the Hardiness regeneration feat is unrecovered --
+        // replaces 0x4A864C..0x4A85F4.
+        WakeOnDamage(pSprite);
+    } else {
+        // Lethal -- queue the death effect on the target.  (The DEATH opcode
+        // handler is itself still a stub, so the kill is registered but the
+        // death state machine does not yet run.)
+        CGameEffectDeath* pDeath = new CGameEffectDeath();
+        pDeath->field_18C = 0;
+        pDeath->m_dwFlags = 4; // normal death-animation kind; magic damage uses 4
+        pDeath->m_source = m_source;
+        pDeath->m_sourceID = m_sourceID;
+        pDeath->m_casterLevel = m_casterLevel;
+        pSprite->AddEffect(pDeath, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+    }
+
+    m_done = TRUE;
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // NOTE: Inlined.
