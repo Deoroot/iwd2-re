@@ -2493,26 +2493,94 @@ CGameEffect* CGameEffectDeath::Copy()
 // points reach <= 0; it is what actually transitions a creature to the dead
 // state and plays its death animation.
 //
-// CORE RECOVERY.  Only the normal-death transition (the 0x4AC0DE case-4 path of
-// the original's death-type switch) is recovered: zero the hit points, raise
-// STATE_DEAD on both the base and derived general-state words, and run the SEQ_DIE
-// animation.  This is what magic / generic damage produces and is enough for a
-// slain creature to fall.  The rest of the original 0x4A7900-sized state machine
-// is a documented stub pending its own arc:
+// CORE RECOVERY.  Two faithful pieces are recovered:
+//   * the on-death effect-list teardown (0x4AB884 + 0x4ABCE3): mark the death
+//     animation running, then strip the effects that no longer make sense on a
+//     corpse -- holds, portrait icons, disease/poison, and the grease/entangle/
+//     web ground holds -- from both effect lists, and drop every remaining
+//     non-permanent effect.  Each pass takes the list's GetPosCurrent() as
+//     posLeave so the in-flight death effect (this) is preserved.
+//   * the normal-death transition (the 0x4AC0DE case-4 path of the original's
+//     death-type switch): zero the hit points, raise STATE_DEAD on both the base
+//     and derived general-state words, and run the SEQ_DIE animation.  This is
+//     what magic / generic damage produces and is enough for a slain creature to
+//     fall.
+//
+// The rest of the original 0x4A7900-sized state machine is a documented stub
+// pending its own arc:
 //   * entry gates (0x4AB52A..0x4AB5B4): the animation-busy check and the global
 //     no-death flag.
 //   * the petrify/freeze SetSequence short-circuit (0x4AB5BA..0x4AB628).
-//   * party bookkeeping (0x4AB62E..0x4ABE9D): the death reaction shout, the
+//   * party bookkeeping (0x4AB62E..0x4AB882): the death reaction shout, the
 //     six-slot party-wipe scan -> ReadyCharacterTerminationSequence (game over),
 //     portrait / toolbar / selection cleanup, and the death feedback messages.
-//   * the gore pipeline (0x4AB8A0..0x4AC2xx): blood spatter, the seven gore-piece
-//     sub-objects, the burning/acid persistent effects, and the per-death-type
-//     sequence + state-bit selection (frozen / stone / chunked / burnt).
-//   * the on-death effect-list teardown (the many RemoveAllOfType passes) and the
-//     XP / death-variable bookkeeping.
+//   * the gore pipeline + death-type switch variants (0x4AB8EA..0x4ACD1F): blood
+//     spatter, the seven gore-piece sub-objects, the burning/acid persistent
+//     effects, and the gib / burnt / frozen / stone sequence + state-bit
+//     selection (only the normal kind, case 4, is recovered above).
+//   * the corpse teardown tail (0x4ACF71..0x4AD202): the dead AI-type set, the
+//     death-variable bookkeeping, DropPath / DropSearchRequest, and the death
+//     notification messages.  The XP award likewise lives here and is unrecovered.
 // Replaces 0x4AB510.
 BOOL CGameEffectDeath::ApplyEffect(CGameSprite* pSprite)
 {
+    // --- on-death effect-list teardown (0x4AB884) ---
+    // The death animation is now running; strip the control / portrait-icon
+    // effects that make no sense on a corpse from both effect lists.  posLeave
+    // (GetPosCurrent) keeps this in-flight death effect off the removal sweep.
+    pSprite->m_animationRunning = TRUE;
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_HOLDCREATURE,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_HOLDCREATURE,
+        pSprite->GetEquipedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_PORTRAITICON,
+        pSprite->GetEquipedEffectList()->GetPosCurrent(), 13);
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_PORTRAITICON,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), 13);
+
+    // --- drop every remaining non-permanent effect (0x4ABCE3) ---
+    pSprite->GetTimedEffectList()->RemoveAllEffectsIgnoreMoreThenPermanent(
+        pSprite->GetTimedEffectList()->GetPosCurrent(), TRUE, FALSE, 0, 0);
+
+    // 0x4ABCF0: a corpse is no longer poisoned or diseased.
+    pSprite->GetBaseStats()->m_generalState &= ~(STATE_POISONED | STATE_DISEASED);
+    pSprite->GetDerivedStats()->m_generalState &= ~(STATE_POISONED | STATE_DISEASED);
+
+    // 0x4ABD2C: the lingering damage-over-time and portrait-icon effects.
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_DISEASE,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_DISEASE,
+        pSprite->GetEquipedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_POISON,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_POISON,
+        pSprite->GetEquipedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_PORTRAITICON,
+        pSprite->GetEquipedEffectList()->GetPosCurrent(), 6);
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_PORTRAITICON,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), 6);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_PORTRAITICON,
+        pSprite->GetEquipedEffectList()->GetPosCurrent(), 7);
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_PORTRAITICON,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), 7);
+
+    // 0x4ABDCE: the grease / entangle / web ground holds.  The binary reuses the
+    // timed list's iterator position as posLeave for all six passes, including
+    // the equipped-list ones -- matched here.
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_GREASEPOOL,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_ENTANGLE,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_WEBHOLD,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_GREASEPOOL,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_ENTANGLE,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+    pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite, CGAMEEFFECT_WEBHOLD,
+        pSprite->GetTimedEffectList()->GetPosCurrent(), -1);
+
+    // --- normal-death transition (death-type switch case 4, 0x4AC0DE) ---
     pSprite->GetBaseStats()->m_hitPoints = 0;
     pSprite->GetBaseStats()->m_generalState |= STATE_DEAD;
     pSprite->GetDerivedStats()->m_generalState |= STATE_DEAD;
