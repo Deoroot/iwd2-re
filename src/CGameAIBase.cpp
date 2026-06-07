@@ -2751,12 +2751,26 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         && m_curAction.m_actionID != CAIAction::FORCESPELLPOINT
         && GetObjectType() == CGameObject::TYPE_SPRITE) {
         CGameSprite* pCaster = static_cast<CGameSprite*>(this);
-        if (pCaster->m_nDirection != pCaster->GetDirection(target->m_pos)) {
+        // The original cast-sequence executor (FUN_00740270, launches at 0x742783)
+        // gates its cast WORK each tick on m_nDirection == GetDirection(target's
+        // live GetPos(), vtable +0x1c) but lets the cast-frame counter free-run:
+        // it is dispatcher-incremented every tick and NEVER reset, so the turn is
+        // just the first few ticks where the gate is closed (Frida ground truth:
+        // ctr 0..14, dir rotates 0->6 over ctr 1..4, fire at ctr 14, no reset).
+        // This stopgap merges that executor into the action handler and instead
+        // PINS the counter at 0 across the turn, so the cast-time machine below
+        // creates the glow (its m_actionCount==0 hook) on the first facing tick
+        // rather than the un-turned tick 0 -- the glow-vs-body desync fix.  The
+        // m_actionCount<=0 guard disables the gate once the cast is counting:
+        // without it a target that moves mid-cast re-fires the turn and re-pins
+        // the counter every tick, restarting the cast forever (the un-guarded
+        // 0d1347bf loop).
+        if (m_actionCount <= 0
+            && pCaster->m_nDirection != pCaster->GetDirection(target->m_pos)) {
             pCaster->SetDirection(target->m_pos);
-            // Hold the cast-frame counter at its first tick across the turn so
-            // the cast-time machine still creates the glow on the tick the caster
-            // reaches the target facing.  DoAction post-increments m_actionCount
-            // on the ACTION_INTERRUPTABLE return, so -1 lands back at 0 next tick.
+            // DoAction (0x44D780) post-increments m_actionCount on the
+            // ACTION_INTERRUPTABLE return, so -1 lands back at 0 next tick --
+            // pinning the counter at its first tick through the gradual turn.
             m_actionCount = -1;
             return ACTION_INTERRUPTABLE;
         }
