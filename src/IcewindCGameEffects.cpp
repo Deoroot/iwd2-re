@@ -1015,6 +1015,57 @@ CGameEffect* IcewindCGameEffectVisualSpellHit::Copy()
     return copy;
 }
 
+// 0x5601E0
+//
+// IcewindCGameEffectVisualSpellHit::ApplyEffect -- opcode #233 ("Graphics:
+// Icewind Visual Spell Hit").  Plays the school-specific spell-hit overlay on
+// the target -- the impact flash + sound for Icewind spells (Magic Missile uses
+// Type 3 = Invocation -> the "InvocH" overlay + the EFF_M06 hit sound).
+// Previously inherited the base no-op stub, so spell impacts had no VFX or sound.
+//
+// m_dwFlags carries the graphic Type (the effect's param2); the third character
+// of m_sourceRes selects the positive (priest, 'P') vs negative sound variant.
+// The original spawns the school overlay projectile via
+// CProjectileSummonVFX::DecodeSpellHitProjectile and Fire()s it at the target,
+// and additionally queues a CMessageFireProjectile of type (Type + 0x1000) -- the
+// secondary spell-hit projectile layer.  The 0x1000+ projectile range is not yet
+// covered by the factory, so that queued message is a faithful no-op here.
+BOOL IcewindCGameEffectVisualSpellHit::ApplyEffect(CGameSprite* pSprite)
+{
+    if (pSprite->m_pArea == NULL) {
+        m_done = TRUE;
+        return FALSE;
+    }
+
+    BOOL bPositive = FALSE;
+    const BYTE* res = m_sourceRes.GetResRef();
+    if (res[2] == 'P' || res[2] == 'p') {
+        bPositive = TRUE;
+    }
+
+    CProjectile* pVFX = CProjectileSummonVFX::DecodeSpellHitProjectile(m_dwFlags, pSprite, bPositive);
+
+    // Secondary spell-hit projectile layer (type + 0x1000).
+    CMessage* pMsg = new CMessageFireProjectile(static_cast<WORD>(m_dwFlags + 0x1000),
+        pSprite->m_id,
+        pSprite->GetPos(),
+        0,
+        pSprite->m_id,
+        pSprite->m_id,
+        0);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+
+    // The school overlay, fired directly at the target.  Guarded against the
+    // unrecovered DecodeSpellHitProjectile types (which return NULL) -- the
+    // original assumes a valid projectile because all its cases are implemented.
+    if (pVFX != NULL) {
+        pVFX->Fire(pSprite->m_pArea, pSprite->m_id, pSprite->m_id, pSprite->GetPos(), 0, 0);
+    }
+
+    m_done = TRUE;
+    return FALSE;
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x49E4D0
