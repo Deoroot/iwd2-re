@@ -5647,6 +5647,7 @@ void CGameSprite::SetCursor(LONG nToolTip)
                 g_pBaldurChitin->GetObjectCursor()->SetCursor(pGame->GetIconIndex(), FALSE);
                 break;
             }
+            break;
         case 3:
             g_pBaldurChitin->GetObjectCursor()->SetCursor(6, FALSE);
             break;
