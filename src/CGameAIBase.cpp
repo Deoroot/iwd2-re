@@ -19,6 +19,7 @@
 #include "CGameTimer.h"
 #include "CGameTrigger.h"
 #include "CInfGame.h"
+#include "CProjectile.h"
 #include "CScreenCharacter.h"
 #include "CScreenChapter.h"
 #include "CScreenWorld.h"
@@ -2932,6 +2933,13 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         BYTE nClass = static_cast<BYTE>(m_curAction.m_specificID2 & 0xFF);
         DWORD nSpec = pSprite->m_baseStats.m_specialization;
         BYTE nLevel = static_cast<BYTE>(specificLevel);
+
+        // Pre-build the projectile (binary FUN_00461190 @0x46137c: DecodeProjectile
+        // with the ability's missileType) before the effect dispatch, so the
+        // targetType-2 gameplay effects can ride the missile (CProjectile::AddEffect)
+        // and deliver on arrival instead of at cast.  Fired directly after the loop.
+        CProjectile* pProj = CProjectile::DecodeProjectile(pAbility->missileType, this, 0);
+
         for (LONG e = 0; e < static_cast<LONG>(pAbility->effectCount); ++e) {
             CGameEffect* pEffect = pSpell->BuildAbilityEffect(
                 nAbilityIndex, e, this, nClass, nSpec, nLevel);
@@ -2948,9 +2956,15 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
                 continue;
             }
             case 2:
-                // Projectile attach is still unrecovered; apply directly to
-                // the explicit object target so targeted spells have gameplay
-                // impact even though the missile visual is absent.
+                // targetType 2 (preset target): the effect rides the missile and
+                // delivers on arrival (binary case 2 @0x461953: CProjectile::AddEffect
+                // on the pre-built projectile).  If the projectile type is unrecovered
+                // (pProj NULL), fall back to a direct cast-time application so the
+                // spell still has gameplay impact even without the missile.
+                if (pProj != NULL) {
+                    pProj->AddEffect(pEffect);
+                    continue;
+                }
                 if (target != NULL) {
                     CMessage* msg = new CMessageAddEffect(pEffect, m_id, target->m_id);
                     g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
@@ -2989,19 +3003,19 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         pSprite->FeedBack(CGameSprite::FEEDBACK_SPELL, 0, 0, 0,
             static_cast<LONG>(strSpellName), 0, 0);
 
-        // Projectile launch (binary FUN_00461190 @0x46146d).  Queue a broadcast
-        // CMessageFireProjectile; its Run() resolves the caster, builds the
-        // projectile from the factory (DecodeProjectile) and fires it.  The cast
-        // passes the caster id as both message caller and target so Run resolves
-        // the caster from m_targetId; the projectile's own target is the spell
-        // target.  The original also pre-builds the projectile here to stamp its
-        // caster-class index (proj +0x186 via FUN_00727720) for damage scaling --
-        // deferred; Fire ignores the height argument, so 0 is passed.
-        LONG nMissileTarget = (target != NULL)
-            ? target->m_id : CGameObjectArray::INVALID_INDEX;
-        CMessage* pFireMsg = new CMessageFireProjectile(pAbility->missileType,
-            nMissileTarget, targetPos, 0, m_id, m_id, 0);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(pFireMsg, FALSE);
+        // Projectile launch (binary FUN_00461190 @0x46146d): fire the pre-built
+        // projectile directly via CProjectile::Fire (vtable slot 0x6c, height 0x1e),
+        // carrying the targetType-2 effects attached above so they deliver on
+        // arrival rather than at cast.  The original ALSO queues a broadcast
+        // CMessageFireProjectile here, but its Run() skips on the casting owner and
+        // only fires the visual on remote machines -- that MP replication is deferred
+        // with the rest of MP.  The caster-class stamp (proj +0x186 via FUN_00727720)
+        // for damage scaling is likewise still deferred.  Fire ignores nHeight.
+        if (pProj != NULL) {
+            LONG nMissileTarget = (target != NULL)
+                ? target->m_id : CGameObjectArray::INVALID_INDEX;
+            pProj->Fire(pSprite->m_pArea, m_id, nMissileTarget, targetPos, 0x1E, 0);
+        }
     } else {
         FireSpell(resRef, target);
     }
