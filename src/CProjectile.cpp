@@ -723,6 +723,12 @@ void CProjectileSummonVFX::Fire(CGameArea* pArea, LONG source, LONG target, CPoi
     rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
     if (rc == CGameObjectArray::SUCCESS) {
         CGameObject::AddToArea(pArea, m_pos, 0, CGAMEOBJECT_LIST_FRONT);
+        // Impact cue (binary 0x57E838): the overlay plays its fire-sound on launch
+        // -- the spell-hit sound (e.g. EFF_M06 for an Invocation hit such as Magic
+        // Missile).  The original passes the loop flag at +0x15a (one-shot for these
+        // cues, not modelled here) and fireAndForget FALSE.  The per-variant random
+        // pick (m_sound setup via the +0x192 sound object) is deferred.
+        PlaySound(m_fireSoundRef, FALSE, FALSE);
         DeliverEffects();
     } else {
         delete this;
