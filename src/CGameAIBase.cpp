@@ -2734,6 +2734,20 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         return ACTION_INTERRUPTABLE;
     }
 
+    // UI Spell casts orient the caster toward the target.  The original turns
+    // gradually inside the SEQ_CAST sequence executor (FUN_00742840 posts a
+    // CMessageSetDirection -> CGameSprite::SetDirection), which this ForceSpell
+    // stopgap bypasses; the real force actions (ForceSpell / ForceSpellPoint and
+    // their Really variants) deliberately do NOT orient.  Match that split: turn
+    // only for the aliased Spell variants, the same set excluded from the
+    // script-supplied cast-level branch below.
+    if (m_curAction.m_actionID != CAIAction::FORCESPELL
+        && m_curAction.m_actionID != CAIAction::REALLYFORCESPELL
+        && m_curAction.m_actionID != CAIAction::FORCESPELLPOINT
+        && GetObjectType() == CGameObject::TYPE_SPRITE) {
+        static_cast<CGameSprite*>(this)->SetDirection(target->m_pos);
+    }
+
     // Resolve resref + cast level.  Script can pass either a CString in
     // m_string1 (with cast level in m_specificID) or a numeric spell id in
     // m_specificID alone (cast level falls back to caster's m_nLevel).
