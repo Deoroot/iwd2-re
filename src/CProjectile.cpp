@@ -1401,11 +1401,13 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     field_B8 = 0;
     field_BC = 0;
     field_C0 = 0;
+    field_C4 = 0;
     field_E0 = 0;
     m_targetX = 0;
     m_targetY = 0;
     field_170 = 0;
 
+    m_casterClass = 0;
     m_sourceId = 0;
     m_targetId = 0;
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
@@ -1932,27 +1934,140 @@ CProjectileSPMAGMIS::CProjectileSPMAGMIS(SHORT nCount, SHORT nPaletteFlag)
 
 // 0x530C90 (vtable slot 27 -- Fire; the multi-missile launch)
 //
-// Launches the pre-spawned MMissiT sub-missiles. Each homes on the same target,
-// so they all converge on it -- the classic Magic Missile behaviour. The
-// launcher itself is never drawn or added to the area; it only spawns and fires.
+// Recovered from the ~344-instruction Ghidra-empty original (capstone disasm).
+// Launches the pre-spawned MMissiT sub-missiles in a fan: it resolves the caster
+// (source) and target positions, builds the launch direction (source - target,
+// the y un-squashed by 4/3 to undo the iso projection), then walks the
+// sub-missile list two at a time and gives each pair an equal-and-opposite
+// perpendicular drift (the running spread index times the unit normal). The
+// drift seeds the per-tick carry (field_AC/field_B0) which AimAtPoint folds into
+// the homing step and bleeds off by field_E0 each tick, so the missiles splay
+// out then curve back onto the shared target -- the classic Magic Missile
+// spread. An odd man out flies straight.
 //
-// PARTIAL (core of the ~344-instr Ghidra-empty original): the list drain + the
-// per-missile Fire are recovered. Documented as deferred: the original also (a)
-// copies the launcher's gameplay effects onto each sub-missile's effect list so
-// the missiles deal damage, (b) copies the caster-class index (+0x186), and (c)
-// jitters each sub-missile's velocity by rand()%20 - 10 for a staggered visual
-// spread. Here the missiles fire straight, undamaging, but they fly and home.
-// The original deletes the launcher at the end (delete this); left to leak per
-// cast rather than risk a self-delete through the message path.
+// Per sub-missile it also clones the launcher's gameplay effects onto the
+// missile's own list (so each missile carries the damage), copies the caster
+// class/resref, and jitters the missile velocity by rand()%20 - 10 for a
+// staggered arrival. It then drains the staging list and deletes itself (the
+// launcher is never added to the area; CMessageFireProjectile::Run does not
+// touch it after Fire, so the self-delete is safe).
+//
+// NOTE: the cloned effects only deliver once the sub-missile impact path
+// (CProjectile::DeliverEffects, slot 0x78) is recovered; today they ride inert.
+// The launcher's own m_casterClass/m_casterResRef are not set on the cast path
+// yet (it has no caster-class wiring), so they propagate as the ctor defaults.
 void CProjectileSPMAGMIS::Fire(CGameArea* pArea, LONG source, LONG target,
                                CPoint targetPos, LONG nHeight, SHORT nType)
 {
+    (void)nHeight;
+    CGameObjectArray* pArray = g_pBaldurChitin->GetObjectGame()->GetObjectArray();
+    BYTE rc;
+
+    // Resolve the caster (source) position.
+    CGameObject* pSource;
+    do {
+        rc = pArray->GetShare(source, CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+    CPoint ptSource = pSource->GetPos();
+    pArray->ReleaseShare(source, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    // Resolve the target position.
+    CGameObject* pTarget;
+    do {
+        rc = pArray->GetShare(target, CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+    CPoint ptTarget = pTarget->GetPos();
+    pArray->ReleaseShare(target, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    // Launch direction (source - target), the y un-squashed by 4/3.
+    int dirX = ptSource.x - ptTarget.x;
+    int dirY = (ptSource.y * 4) / 3 - (ptTarget.y * 4) / 3;
+    int dist = static_cast<int>(
+        sqrt(static_cast<double>(dirX * dirX + dirY * dirY)) + 0.5);
+
+    int normX;
+    int normY;
+    if (dist == 0) {
+        dist = 1;
+        normX = 1;
+        normY = 1;
+    } else {
+        normX = ((dirX << 10) * m_velocity) / dist;
+        normY = ((dirY << 10) * m_velocity) / dist;
+    }
+    // Unit-normal length (truncated) and the running per-pair spread index.
+    int normLen = static_cast<int>(sqrt(static_cast<double>(normX * normX + normY * normY)));
+    int spreadIndex = 1;
+
+    // Walk the sub-missiles two at a time, splaying each pair symmetrically.
     POSITION pos = m_subMissiles.GetHeadPosition();
     while (pos != NULL) {
-        CProjectile* pSub = m_subMissiles.GetNext(pos);
-        pSub->Fire(pArea, source, target, targetPos, nHeight, nType);
+        CProjectileTravelling* pA = static_cast<CProjectileTravelling*>(m_subMissiles.GetNext(pos));
+        PrimeAndFireSubMissile(pA, pArea, source, target, targetPos, nType);
+
+        CProjectileTravelling* pB = NULL;
+        if (pos != NULL) {
+            pB = static_cast<CProjectileTravelling*>(m_subMissiles.GetNext(pos));
+            PrimeAndFireSubMissile(pB, pArea, source, target, targetPos, nType);
+        }
+
+        if (pB != NULL) {
+            // Equal-and-opposite perpendicular drift, growing each pair.
+            int offX = spreadIndex * normX;
+            int offY = spreadIndex * normY;
+            USHORT band = static_cast<USHORT>((spreadIndex * normLen) / 10);
+            int hasOffset = (offX != 0 || offY != 0) ? 1 : 0;
+
+            pA->field_AC = offY;
+            pA->field_B0 = -offX;
+            pA->field_E0 = band;
+            pA->field_C4 = hasOffset;
+
+            pB->field_AC = -offY;
+            pB->field_B0 = offX;
+            pB->field_E0 = band;
+            pB->field_C4 = hasOffset;
+
+            ++spreadIndex;
+        } else {
+            // Odd man out: no drift, flies straight to the target.
+            pA->field_AC = 0;
+            pA->field_B0 = 0;
+            pA->field_E0 = static_cast<USHORT>(m_velocity);
+            pA->field_C4 = 0;
+        }
     }
+
     m_subMissiles.RemoveAll();
+    delete this;
+}
+
+// Per sub-missile launch prep shared by the pair and odd-man paths of
+// CProjectileSPMAGMIS::Fire (inlined in the original at 0x530C90): clone the
+// launcher's effects onto the missile, jitter its velocity, copy the caster
+// fields, then fire it. The perpendicular drift is set by the caller afterwards
+// (the original pokes the missile's carry fields after this returns).
+void CProjectileSPMAGMIS::PrimeAndFireSubMissile(CProjectileTravelling* pMissile,
+    CGameArea* pArea, LONG source, LONG target, CPoint targetPos, SHORT nType)
+{
+    for (POSITION ep = m_effectList.GetHeadPosition(); ep != NULL; ) {
+        CGameEffect* pEffect = m_effectList.GetNext(ep);
+        CGameEffect* pClone = pEffect->Copy();
+        pClone->m_projectileType = pMissile->m_projectileType;
+        pMissile->m_effectList.AddTail(pClone);
+    }
+
+    pMissile->m_velocity = static_cast<SHORT>(rand() % 20 + pMissile->m_velocity - 10);
+    pMissile->m_casterClass = m_casterClass;
+    pMissile->m_casterResRef = m_casterResRef;
+
+    pMissile->Fire(pArea, source, target, targetPos, 0, nType);
 }
 
 // 0x52B190 (vtable slot 19 -- Render)

@@ -41,6 +41,8 @@ public:
     /* 0166 */ BOOL m_loopArrivalSound;
     /* 016A */ BOOLEAN m_bHasHeight;
     /* 0182 */ LONG m_nTargetId;
+    /* 0186 */ LONG m_casterClass;
+    /* 018A */ CResRef m_casterResRef;
 };
 
 class CProjectileBAM : public CProjectile {
@@ -90,6 +92,10 @@ private:
 // subset the constructor initializes is modelled so far (field_XXX names carry
 // the binary offset); more is added as the virtuals and leaves are recovered.
 class CProjectileTravelling : public CProjectile {
+    // The Magic Missile launcher (0x530C90) pokes its sub-missiles' motion fields
+    // directly (the original writes raw offsets +0xAC/+0xB0/+0xE0/+0xC4/+0x70).
+    friend class CProjectileSPMAGMIS;
+
 public:
     CProjectileTravelling(const CResRef& resRef);
     ~CProjectileTravelling() override;
@@ -118,6 +124,7 @@ protected:
     int field_B8;               // +0xB8 -- random step-spread band low (y)
     int field_BC;               // +0xBC -- random step-spread band high (x)
     int field_C0;               // +0xC0 -- random step-spread band high (y)
+    int field_C4;               // +0xC4 -- lateral-offset flag (1 if the launcher gave a perpendicular spread step)
     USHORT field_E0;            // +0xE0 -- carry wrap modulus
     DWORD m_renderFlags;        // +0xE6 -- base blit flags (GetRenderFlags, slot 32)
     int m_targetX;              // +0xC8 -- Frida-confirmed (target point)
@@ -181,6 +188,11 @@ class CProjectileSPMAGMIS : public CProjectileMagicMissileMulti {
 public:
     CProjectileSPMAGMIS(SHORT nCount, SHORT nPaletteFlag);   // 0x531120
     void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;  // 0x530C90
+
+private:
+    // Per sub-missile prep inlined twice inside Fire (0x530C90).
+    void PrimeAndFireSubMissile(CProjectileTravelling* pMissile, CGameArea* pArea,
+        LONG source, LONG target, CPoint targetPos, SHORT nType);
 };
 
 #endif /* CPROJECTILE_H_ */
