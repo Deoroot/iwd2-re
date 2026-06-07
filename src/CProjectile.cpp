@@ -1402,15 +1402,15 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
 // step, carry and random-spread band that AimAtPoint reads each tick -- plus
 // the +0xE6 render flags; these are modelled by-name on CProjectileTravelling
 // and seeded here. The remaining unread gap defaults (+0xC4, +0xD0..0xDC) are
-// omitted. field_E0 (the carry modulus) is left unwritten by the original; it
+// omitted. m_driftDecay (the carry modulus) is left unwritten by the original; it
 // is only consulted when a carry is non-zero, which the zeroed carries prevent,
 // so it is zero-seeded here for definedness.
 CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     : m_palette(CVidPalette::TYPE_RANGE)
 {
-    field_1CA = 0;
-    field_1CE = 0;
-    field_29D = 0;
+    m_mirrorMinX = 0;
+    m_mirrorMinY = 0;
+    m_distLifetime = 0;
     m_lifetime = 0x7FFF;
 
     m_pVidCell = new CVidCell(resRef, FALSE);
@@ -1436,17 +1436,17 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     m_posAccumY = 0;
     m_stepX = 0;
     m_stepY = 0;
-    field_AC = 0;
-    field_B0 = 0;
-    field_B4 = 0;
-    field_B8 = 0;
-    field_BC = 0;
-    field_C0 = 0;
-    field_C4 = 0;
-    field_E0 = 0;
+    m_driftX = 0;
+    m_driftY = 0;
+    m_jitterMinX = 0;
+    m_jitterMinY = 0;
+    m_jitterMaxX = 0;
+    m_jitterMaxY = 0;
+    m_hasDrift = 0;
+    m_driftDecay = 0;
     m_targetX = 0;
     m_targetY = 0;
-    field_170 = 0;
+    m_flightDistSq = 0;
 
     m_casterClass = 0;
     m_sourceId = 0;
@@ -1499,7 +1499,7 @@ void CProjectileTravelling::AIUpdate()
         OnArrival();
         return;
     }
-    if (field_170 == 0) {
+    if (m_flightDistSq == 0) {
         OnArrival();
         return;
     }
@@ -1594,13 +1594,13 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
     // arrival; drives the lifetime.
     int dx = ptTarget.x - ptSource.x;
     int dy = ptTarget.y - ptSource.y;
-    field_170 = dx * dx + (dy * dy * 16) / 9;
+    m_flightDistSq = dx * dx + (dy * dy * 16) / 9;
 
-    // Distance-based lifetime (only when field_29D is set; Magic Missile leaves
+    // Distance-based lifetime (only when m_distLifetime is set; Magic Missile leaves
     // it 0, keeping the 0x7FFF default).
-    if (field_29D != 0) {
+    if (m_distLifetime != 0) {
         m_lifetime = static_cast<SHORT>(
-            static_cast<int>(sqrt(static_cast<double>(field_170))) / m_velocity + 1);
+            static_cast<int>(sqrt(static_cast<double>(m_flightDistSq))) / m_velocity + 1);
     }
 
     m_targetX = ptTarget.x;
@@ -1648,7 +1648,7 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
 // the layout-drift note. The y axis is pre-scaled 4/3 to undo the isometric
 // squash before the facing/distance maths (CGameSprite::GetDirection then
 // applies its own iso ratios). The rand() term (_rand 0x7E8160) spreads the
-// step within the [field_B4, field_BC) band when set -- 0 for Magic Missile, so
+// step within the [m_jitterMinX, m_jitterMaxX) band when set -- 0 for Magic Missile, so
 // the path stays straight. Depends on Fire seeding the subpixel position
 // (m_posAccumX/Y), which is currently stubbed.
 void CProjectileTravelling::AimAtPoint(int x, int y)
@@ -1677,15 +1677,15 @@ void CProjectileTravelling::AimAtPoint(int x, int y)
         m_targetY = y;
 
         // Fold in the per-tick carry, then a random spread within the band.
-        m_stepX += field_AC;
-        m_stepY += field_B0;
-        int spreadX = field_BC - field_B4;
+        m_stepX += m_driftX;
+        m_stepY += m_driftY;
+        int spreadX = m_jitterMaxX - m_jitterMinX;
         if (spreadX > 0) {
-            m_stepX += field_B4 + rand() % spreadX;
+            m_stepX += m_jitterMinX + rand() % spreadX;
         }
-        int spreadY = field_C0 - field_B8;
+        int spreadY = m_jitterMaxY - m_jitterMinY;
         if (spreadY > 0) {
-            m_stepY += field_B8 + rand() % spreadY;
+            m_stepY += m_jitterMinY + rand() % spreadY;
         }
     }
 
@@ -1694,15 +1694,15 @@ void CProjectileTravelling::AimAtPoint(int x, int y)
     m_posAccumY += m_stepY;
 
     // Bleed each carry down by one modulus per tick (zero once exhausted).
-    if (field_AC < 0) {
-        field_AC = (field_AC <= -field_E0) ? field_AC + field_E0 : 0;
-    } else if (field_AC > 0) {
-        field_AC = (field_AC >= field_E0) ? field_AC - field_E0 : 0;
+    if (m_driftX < 0) {
+        m_driftX = (m_driftX <= -m_driftDecay) ? m_driftX + m_driftDecay : 0;
+    } else if (m_driftX > 0) {
+        m_driftX = (m_driftX >= m_driftDecay) ? m_driftX - m_driftDecay : 0;
     }
-    if (field_B0 < 0) {
-        field_B0 = (field_B0 <= -field_E0) ? field_B0 + field_E0 : 0;
-    } else if (field_B0 > 0) {
-        field_B0 = (field_B0 >= field_E0) ? field_B0 - field_E0 : 0;
+    if (m_driftY < 0) {
+        m_driftY = (m_driftY <= -m_driftDecay) ? m_driftY + m_driftDecay : 0;
+    } else if (m_driftY > 0) {
+        m_driftY = (m_driftY >= m_driftDecay) ? m_driftY - m_driftDecay : 0;
     }
 
     // Decode the subpixel position back to the cell position (undo the 1/1024
@@ -1831,15 +1831,15 @@ void CProjectileTravelling::GetCellBounds(CRect& rBounds, CPoint& ptRef)
             center.y = size.cy - center.y;
         }
         center.y += m_posZ;
-        int minX = field_1CA;
-        int minY = field_1CE;
+        int minX = m_mirrorMinX;
+        int minY = m_mirrorMinY;
         ptRef.x = center.x;
         ptRef.y = center.y;
         if (ptRef.x < minX) ptRef.x = minX;
         if (ptRef.y < minY) ptRef.y = minY;
         rBounds.SetRect(0, 0, size.cx + (ptRef.x - center.x), size.cy + (ptRef.y - center.y));
-        int extX = (ptRef.x - minX) + field_1CA * 2;
-        int extY = field_1CE * 2 + (ptRef.y - minY);
+        int extX = (ptRef.x - minX) + m_mirrorMinX * 2;
+        int extY = m_mirrorMinY * 2 + (ptRef.y - minY);
         if (rBounds.right < extX) rBounds.right = extX;
         if (rBounds.bottom < extY) rBounds.bottom = extY;
     }
@@ -1893,12 +1893,12 @@ CProjectileMMissiT::CProjectileMMissiT(SHORT nPaletteFlag)
     m_pVidCell->SequenceSet(0);
 
     m_velocity = static_cast<SHORT>(m_velocity << 1);
-    field_1CA = 0xF;
-    field_1CE = 0xB;
+    m_mirrorMinX = 0xF;
+    m_mirrorMinY = 0xB;
     m_tinted = 0;
     m_useHeightOffset = 0;
     m_mirror = 1;
-    field_1D2 = 0x80;
+    m_leafRenderParam = 0x80;
     m_hasShadowCell = 0;
     m_renderFlags |= 8;
 
@@ -1963,10 +1963,10 @@ CProjectileSPMAGMIS::CProjectileSPMAGMIS(SHORT nCount, SHORT nPaletteFlag)
     m_tinted = 0;
     m_useHeightOffset = 0;
     m_hasShadowCell = 0;
-    field_1CA = 10;
-    field_1CE = 7;
+    m_mirrorMinX = 10;
+    m_mirrorMinY = 7;
     m_mirror = 1;
-    field_1D2 = 0x80;
+    m_leafRenderParam = 0x80;
     m_dirCount = 1;
 
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
@@ -1981,8 +1981,8 @@ CProjectileSPMAGMIS::CProjectileSPMAGMIS(SHORT nCount, SHORT nPaletteFlag)
 // the y un-squashed by 4/3 to undo the iso projection), then walks the
 // sub-missile list two at a time and gives each pair an equal-and-opposite
 // perpendicular drift (the running spread index times the unit normal). The
-// drift seeds the per-tick carry (field_AC/field_B0) which AimAtPoint folds into
-// the homing step and bleeds off by field_E0 each tick, so the missiles splay
+// drift seeds the per-tick carry (m_driftX/m_driftY) which AimAtPoint folds into
+// the homing step and bleeds off by m_driftDecay each tick, so the missiles splay
 // out then curve back onto the shared target -- the classic Magic Missile
 // spread. An odd man out flies straight.
 //
@@ -2065,23 +2065,23 @@ void CProjectileSPMAGMIS::Fire(CGameArea* pArea, LONG source, LONG target,
             USHORT band = static_cast<USHORT>((spreadIndex * normLen) / 10);
             int hasOffset = (offX != 0 || offY != 0) ? 1 : 0;
 
-            pA->field_AC = offY;
-            pA->field_B0 = -offX;
-            pA->field_E0 = band;
-            pA->field_C4 = hasOffset;
+            pA->m_driftX = offY;
+            pA->m_driftY = -offX;
+            pA->m_driftDecay = band;
+            pA->m_hasDrift = hasOffset;
 
-            pB->field_AC = -offY;
-            pB->field_B0 = offX;
-            pB->field_E0 = band;
-            pB->field_C4 = hasOffset;
+            pB->m_driftX = -offY;
+            pB->m_driftY = offX;
+            pB->m_driftDecay = band;
+            pB->m_hasDrift = hasOffset;
 
             ++spreadIndex;
         } else {
             // Odd man out: no drift, flies straight to the target.
-            pA->field_AC = 0;
-            pA->field_B0 = 0;
-            pA->field_E0 = static_cast<USHORT>(m_velocity);
-            pA->field_C4 = 0;
+            pA->m_driftX = 0;
+            pA->m_driftY = 0;
+            pA->m_driftDecay = static_cast<USHORT>(m_velocity);
+            pA->m_hasDrift = 0;
         }
     }
 

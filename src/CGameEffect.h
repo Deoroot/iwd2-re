@@ -456,7 +456,7 @@ public:
     BOOL ApplyEffect(CGameSprite* pSprite) override;
     void DisplayString(CGameSprite* pSprite) override;
 
-    /* 018C */ int field_18C;
+    /* 018C */ int m_deathType;  // 0=normal (from damage), 1=default, N=custom
 };
 
 class CGameEffectDefrost : public CGameEffect {

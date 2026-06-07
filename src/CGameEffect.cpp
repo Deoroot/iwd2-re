@@ -2441,7 +2441,7 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         // handler is itself still a stub, so the kill is registered but the
         // death state machine does not yet run.)
         CGameEffectDeath* pDeath = new CGameEffectDeath();
-        pDeath->field_18C = 0;
+        pDeath->m_deathType = 0;
         pDeath->m_dwFlags = 4; // normal death-animation kind; magic damage uses 4
         pDeath->m_source = m_source;
         pDeath->m_sourceID = m_sourceID;
@@ -2459,20 +2459,20 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 CGameEffectDeath::CGameEffectDeath()
 {
     m_effectID = CGAMEEFFECT_DEATH;
-    field_18C = 1;
+    m_deathType = 1;
 }
 
 // NOTE: Inlined.
 CGameEffectDeath::CGameEffectDeath(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target)
     : CGameEffect(effect, source, sourceID, target, FALSE)
 {
-    field_18C = 0;
+    m_deathType = 0;
 }
 
 // 0x494150
 CGameEffectDeath::CGameEffectDeath(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target, int a5)
 {
-    field_18C = a5;
+    m_deathType = a5;
 }
 
 // 0x452E70
@@ -2480,7 +2480,7 @@ CGameEffect* CGameEffectDeath::Copy()
 {
     ITEM_EFFECT* effect = GetItemEffect();
     CGameEffectDeath* copy = new CGameEffectDeath(effect, m_source, m_sourceID, m_target);
-    copy->field_18C = field_18C;
+    copy->m_deathType = m_deathType;
     delete effect;
     copy->CopyFromBase(this);
     return copy;

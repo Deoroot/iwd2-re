@@ -84,16 +84,12 @@ private:
 // animation cell plus a range palette and bitmap on top of CProjectile. 17 leaf
 // classes derive from it (~63 DecodeProjectile cases). vtable 0x84D9C4.
 //
-// STEP 1 of the family recovery: layout + ctor/dtor only. The 12 virtual
-// overrides (vtable 0x84D9C4 -- the flight/render/collision behaviour at
-// 0x52B900/0x52B190/Fire 0x52C050 and the new slots 32-39) are NOT yet
-// recovered; the class inherits CProjectile's minimal virtuals for now, so an
-// instance constructs correctly but does not yet fly or draw. Only the field
-// subset the constructor initializes is modelled so far (field_XXX names carry
-// the binary offset); more is added as the virtuals and leaves are recovered.
+// The core flight, render, and collision virtuals (slots 3/19/27/32/33) are
+// recovered; a few leaf-specific overrides (CProjectileArrow slots 34/37) remain
+// stubbed.
 class CProjectileTravelling : public CProjectile {
-    // The Magic Missile launcher (0x530C90) pokes its sub-missiles' motion fields
-    // directly (the original writes raw offsets +0xAC/+0xB0/+0xE0/+0xC4/+0x70).
+    // The Magic Missile launcher (0x530C90) writes its sub-missiles' drift
+    // fields directly (m_driftX/Y, m_driftDecay, m_hasDrift, m_velocity).
     friend class CProjectileSPMAGMIS;
 
 public:
@@ -118,31 +114,31 @@ protected:
     int m_posAccumY;            // +0xA0 -- subpixel position (4/3 y-scaled, 1/1024)
     int m_stepX;                // +0xA4 -- per-tick velocity step x
     int m_stepY;                // +0xA8 -- per-tick velocity step y
-    int field_AC;               // +0xAC -- per-tick carry x (bled off by field_E0 modulus)
-    int field_B0;               // +0xB0 -- per-tick carry y
-    int field_B4;               // +0xB4 -- random step-spread band low (x)
-    int field_B8;               // +0xB8 -- random step-spread band low (y)
-    int field_BC;               // +0xBC -- random step-spread band high (x)
-    int field_C0;               // +0xC0 -- random step-spread band high (y)
-    int field_C4;               // +0xC4 -- lateral-offset flag (1 if the launcher gave a perpendicular spread step)
-    USHORT field_E0;            // +0xE0 -- carry wrap modulus
+    int m_driftX;               // +0xAC -- per-tick lateral drift carry X (bled off by m_driftDecay)
+    int m_driftY;               // +0xB0 -- per-tick lateral drift carry Y
+    int m_jitterMinX;           // +0xB4 -- random step-spread band low (x)
+    int m_jitterMinY;           // +0xB8 -- random step-spread band low (y)
+    int m_jitterMaxX;           // +0xBC -- random step-spread band high (x)
+    int m_jitterMaxY;           // +0xC0 -- random step-spread band high (y)
+    int m_hasDrift;             // +0xC4 -- lateral-offset flag (1 if the launcher gave a perpendicular spread step)
+    USHORT m_driftDecay;        // +0xE0 -- drift carry decay modulus per tick (launch velocity for odd-man)
     DWORD m_renderFlags;        // +0xE6 -- base blit flags (GetRenderFlags, slot 32)
     int m_targetX;              // +0xC8 -- Frida-confirmed (target point)
     int m_targetY;              // +0xCC -- Frida-confirmed
-    int field_170;              // +0x170 -- nonzero during flight; 0 => arrived
+    int m_flightDistSq;         // +0x170 -- flight distance^2 computed at Fire; 0 => arrived
     int m_tinted;               // +0x1BE -- Frida-confirmed (apply area tint colour)
     int m_useHeightOffset;      // +0x1C2 -- Frida-confirmed (add area height offset)
     int m_mirror;               // +0x1C6 -- Frida-confirmed (flip; adds blit flag 0x200)
-    int field_1CA;              // +0x1CA -- mirror ref offset x
-    int field_1CE;              // +0x1CE -- mirror ref offset y
-    SHORT field_1D2;            // +0x1D2 -- leaf-set render param (e.g. MMissiT = 0x80)
+    int m_mirrorMinX;           // +0x1CA -- mirror ref-point clamp X (GetCellBounds)
+    int m_mirrorMinY;           // +0x1CE -- mirror ref-point clamp Y (GetCellBounds)
+    SHORT m_leafRenderParam;    // +0x1D2 -- leaf-set render param (MMissiT/SPMAGMIS = 0x80)
     int m_hasShadowCell;        // +0x1D4 (param[0x75]) -- Frida-confirmed
     SHORT m_dirCount;           // +0x1D8 -- directional sequence count (16/8/1; >1 => pick by facing)
     SHORT m_direction;          // +0x1DA -- Frida-confirmed (facing; drives mirror thresholds)
     SHORT m_facing;             // +0x1DC -- movement facing (0..15, CGameSprite::GetDirection)
     int m_visible;              // +0x1DE -- Frida-confirmed (render gate)
     BYTE m_paletteSwap;         // +0x29C (param[0xa7]) -- Frida-confirmed
-    BYTE field_29D;
+    BYTE m_distLifetime;        // +0x29D -- gate: when set, compute lifetime from sqrt(dist)/velocity
     SHORT m_lifetime;           // +0x29E -- Frida-confirmed (decrements 1/tick from 0x7FFF)
 };
 

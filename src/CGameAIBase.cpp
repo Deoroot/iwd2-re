@@ -921,7 +921,7 @@ SHORT CGameAIBase::ExecuteAction()
         // 0x83 = Kill (ACTION.IDS 131).  Resolves target, skips work if
         // the derivedStats already carry STATE_DEAD, runs the sub_761650
         // prep, builds a CGameEffectDeath (inlined default ctor: effectID
-        // 13 + field_18C 1 over the CGameEffect base ctor's zeroing) with
+        // 13 + m_deathType 1 over the CGameEffect base ctor's zeroing) with
         // m_dwFlags 4 (instant equip-style timing) and m_sourceID set to
         // the target itself (the binary writes target.m_id, not caster's,
         // into the source slot -- preserved as-is), then queues a
