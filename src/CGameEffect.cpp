@@ -2486,6 +2486,42 @@ CGameEffect* CGameEffectDeath::Copy()
     return copy;
 }
 
+// 0x4AB510
+//
+// CGameEffectDeath::ApplyEffect -- opcode #13, the death handler.  The damage
+// opcode (and Slay, petrify, etc.) builds + applies this once a target's hit
+// points reach <= 0; it is what actually transitions a creature to the dead
+// state and plays its death animation.
+//
+// CORE RECOVERY.  Only the normal-death transition (the 0x4AC0DE case-4 path of
+// the original's death-type switch) is recovered: zero the hit points, raise
+// STATE_DEAD on both the base and derived general-state words, and run the SEQ_DIE
+// animation.  This is what magic / generic damage produces and is enough for a
+// slain creature to fall.  The rest of the original 0x4A7900-sized state machine
+// is a documented stub pending its own arc:
+//   * entry gates (0x4AB52A..0x4AB5B4): the animation-busy check and the global
+//     no-death flag.
+//   * the petrify/freeze SetSequence short-circuit (0x4AB5BA..0x4AB628).
+//   * party bookkeeping (0x4AB62E..0x4ABE9D): the death reaction shout, the
+//     six-slot party-wipe scan -> ReadyCharacterTerminationSequence (game over),
+//     portrait / toolbar / selection cleanup, and the death feedback messages.
+//   * the gore pipeline (0x4AB8A0..0x4AC2xx): blood spatter, the seven gore-piece
+//     sub-objects, the burning/acid persistent effects, and the per-death-type
+//     sequence + state-bit selection (frozen / stone / chunked / burnt).
+//   * the on-death effect-list teardown (the many RemoveAllOfType passes) and the
+//     XP / death-variable bookkeeping.
+// Replaces 0x4AB510.
+BOOL CGameEffectDeath::ApplyEffect(CGameSprite* pSprite)
+{
+    pSprite->GetBaseStats()->m_hitPoints = 0;
+    pSprite->GetBaseStats()->m_generalState |= STATE_DEAD;
+    pSprite->GetDerivedStats()->m_generalState |= STATE_DEAD;
+    pSprite->SetSequence(CGameSprite::SEQ_DIE);
+
+    m_done = TRUE;
+    return TRUE;
+}
+
 // 0x4ADC90
 void CGameEffectDeath::DisplayString(CGameSprite* pSprite)
 {
