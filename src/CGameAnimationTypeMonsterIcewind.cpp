@@ -2386,6 +2386,7 @@ SHORT CGameAnimationTypeMonsterIcewind::SetSequence(SHORT nSequence)
         m_currentVidCellBase = &m_deVidCellBase;
         m_currentVidCellExtend = &m_deVidCellExtend;
         m_currentBamSequence = 0;
+        break;
     case 6:
         if (m_currentBamSequence != 0
             || m_currentVidCellBase != &m_sdVidCellBase) {
