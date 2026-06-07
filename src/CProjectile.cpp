@@ -2076,7 +2076,11 @@ void CProjectileSPMAGMIS::Fire(CGameArea* pArea, LONG source, LONG target,
             // Equal-and-opposite perpendicular drift, growing each pair.
             int offX = spreadIndex * normX;
             int offY = spreadIndex * normY;
-            USHORT band = static_cast<USHORT>((spreadIndex * normLen) / 10);
+            // Per-tick bleed-off of the lateral drift.  Binary 0x530C90 divides
+            // by 40 (0x28); a larger divisor -> smaller decay -> the splay holds
+            // longer before the missiles home in.  /10 bled the drift off ~4x too
+            // fast, pulling the missiles back to centre early (a too-narrow fan).
+            USHORT band = static_cast<USHORT>((spreadIndex * normLen) / 40);
             int hasOffset = (offX != 0 || offY != 0) ? 1 : 0;
 
             pA->m_driftX = offY;
