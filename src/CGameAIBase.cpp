@@ -2861,22 +2861,33 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         && m_curAction.m_actionID != CAIAction::FORCESPELL
         && m_curAction.m_actionID != CAIAction::REALLYFORCESPELL
         && m_curAction.m_actionID != CAIAction::FORCESPELLPOINT) {
-        // (1) Move-to-range.  FUN_00740270's range branch (0x740892) tests the
-        // chosen ability's range with FUN_007567F0 and, when the target lies
-        // outside it, walks the caster toward it via FUN_0073EDD0
-        // (== CGameSprite::MoveToObject), re-entering next tick instead of
-        // casting.  range == 0xFFFF (-1) is unbounded; self casts never walk.
-        // Distance is in search-grid squares with a +2 slack, matching
-        // FUN_007567F0's (dx*dx + dy*dy) <= (range + 2)^2 test.
-        if (pAbility->range != 0xFFFF
-            && target != static_cast<CGameObject*>(this)) {
+        // (1) Move-to-range + line-of-sight.  FUN_00740270 fires only when the
+        // target is BOTH within the chosen ability's range (FUN_007567F0,
+        // 0x7408B6) AND in line of sight (CGameArea::CheckLOS, 0x7408DC); a spell
+        // whose header flag 0x800 is set bypasses the LOS half (0x7408E5).  When
+        // neither holds it walks the caster toward the target via FUN_0073EDD0
+        // (== CGameSprite::MoveToObject, 0x740A37) and re-enters next tick.
+        // CheckLOS fails not only on blocking terrain but also when the target is
+        // beyond the caster's sight range (its leading distance gate,
+        // CGameArea.cpp:498) -- so a target sitting inside a spell's generous range
+        // but past sight is still approached first (the runtime-traced gap: a
+        // creature inside Magic Missile's 50-square range yet past sight still
+        // made the original walk while our range-only gate cast in place).  range
+        // == 0xFFFF (-1) is unbounded (matches FUN_007567F0's -1 short test); the
+        // grid-square distance carries a +2 slack; self casts never walk.
+        if (target != static_cast<CGameObject*>(this)) {
             CPoint selfPos = pSprite->GetPos();
             LONG dx = selfPos.x / CPathSearch::GRID_SQUARE_SIZEX
                 - targetPos.x / CPathSearch::GRID_SQUARE_SIZEX;
             LONG dy = selfPos.y / CPathSearch::GRID_SQUARE_SIZEY
                 - targetPos.y / CPathSearch::GRID_SQUARE_SIZEY;
             LONG slack = pAbility->range + 2;
-            if (dx * dx + dy * dy > slack * slack) {
+            BOOL bInRange = pAbility->range == 0xFFFF
+                || dx * dx + dy * dy <= slack * slack;
+            BOOL bCanCast = bInRange
+                && (m_pArea->CheckLOS(m_pos, targetPos, GetTerrainTable(), FALSE)
+                    || (pSpell->GetItemFlags() & 0x800) != 0);
+            if (!bCanCast) {
                 pSpell->Release();
                 delete pSpell;
                 // Pin the action counter (DoAction post-increments -1 -> 0) so
