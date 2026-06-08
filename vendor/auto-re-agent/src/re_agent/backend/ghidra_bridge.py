@@ -113,7 +113,7 @@ class GhidraBridgeBackend:
         caps = BackendCapabilities(has_decompile=True)
 
         probes: list[tuple[str, str]] = [
-            ("has_asm", "asm"),
+            ("has_asm", "dump-asm"),
             ("has_structs", "source-struct"),
             ("has_xrefs", "xrefs-from"),
             ("has_search", "search"),
@@ -244,9 +244,29 @@ class GhidraBridgeBackend:
     # -- asm ------------------------------------------------------------------
 
     def get_asm(self, target: str) -> AsmResult | None:
-        """Retrieve disassembly for a function."""
-        raw = self._try_run("asm", target)
-        if raw is None:
+        """Retrieve disassembly for a function.
+
+        Our ghidra-bridge exposes ``dump-asm <target> <output>`` (writes the
+        listing to a file via headless PyGhidra), not an ``asm`` stdout command.
+        Listing format is ``XXXXXXXX MNEMONIC ...`` which matches the parsers.
+        """
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".asm", delete=False) as tmp:
+            out_path = tmp.name
+        try:
+            if self._try_run("dump-asm", target, out_path) is None:
+                return None
+            with open(out_path, "r", encoding="utf-8", errors="replace") as f:
+                raw = f.read()
+        finally:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+
+        if not raw.strip():
             return None
 
         lines = raw.strip().splitlines()

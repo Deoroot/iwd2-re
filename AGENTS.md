@@ -75,7 +75,7 @@ Branch: `re-agent-workflow`.
 |---|---|
 | Decompile + caller/callee counts | `gb decompile 0xADDR` |
 | Callers / callees | `gb xrefs-to 0xADDR` / `gb xrefs-from 0xADDR` |
-| Disassembly | `gb dump-asm 0xADDR` (it is `dump-asm`, not `asm`) |
+| Disassembly (boots PyGhidra, ~1 min) | `gb dump-asm 0xADDR out.asm` (writes a file; not `asm`) |
 | Struct / vtable | `gb struct CClass` / `gb vtable CClass` |
 | Crash addr → containing fn | `gb containing 0xADDR` |
 | Unrecovered (by caller count) | `gb unimplemented CClass` |
@@ -88,8 +88,8 @@ objective verifier). Run from `C:\iwd2-re` so the bridge finds the yaml via cwd:
 .venv-reagent/Scripts/re-agent --config re-agent.yaml parity --filter "CClass::" --output tmp_parity.json
 ```
 
-GREEN/YELLOW/RED per fn. `asm`-based signals (fp_sensitivity, large-asm-tiny-source) degrade
-until the backend `asm`→`dump-asm` rename is fixed.
+GREEN/YELLOW/RED per fn. `asm`-based signals (fp_sensitivity, large-asm-tiny-source) read
+`dump-asm`, which boots PyGhidra headless (~1 min/call) — heavier than the cache-read signals.
 
 ⚠️ `re-agent reverse` (LLM whole-file codegen loop) is **NOT validated here** and fights
 minimal-diff + faithfulness. Never commit its output unverified. Use `parity` as a lint, not

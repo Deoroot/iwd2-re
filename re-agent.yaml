@@ -30,7 +30,7 @@ llm:
 backend:
   type: "ghidra-bridge"
   cli_path: 'C:\iwd2-re\.venv-reagent\Scripts\ghidra-bridge.exe'
-  timeout_s: 45
+  timeout_s: 180          # dump-asm boots PyGhidra headless (~1 min cold)
 
 parity:
   enabled: true
