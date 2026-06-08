@@ -1,0 +1,54 @@
+# re-agent configuration
+# See: https://github.com/dryxio/auto-re-agent for documentation.
+
+project_profile:
+  hook_patterns:
+    - "RH_ScopedInstall\\s*\\(\\s*(\\w+)\\s*,\\s*(0x[0-9A-Fa-f]+)"
+    - "RH_ScopedVirtualInstall\\s*\\(\\s*(\\w+)\\s*,\\s*(0x[0-9A-Fa-f]+)"
+  stub_patterns:
+    - "plugin::Call"
+  stub_markers:
+    - "NOTSA_UNREACHABLE"
+  stub_call_prefix: "plugin::Call"
+  class_macro: "RH_ScopedClass"
+  source_root: 'C:\iwd2-re\src'
+  source_extensions:
+    - ".cpp"
+    - ".h"
+    - ".hpp"
+  hooks_csv: 'C:\iwd2-re\.ghidra-exports\hooks.csv'
+
+llm:
+  provider: "claude-cli"   # Claude Code CLI (subscription, no API key)
+  model: "sonnet:medium"   # <model>[:<effort>] -> claude --model sonnet --effort medium
+  # api_key: null  # Set via RE_AGENT_LLM_API_KEY env var
+  # base_url: null  # Set via RE_AGENT_LLM_BASE_URL env var
+  max_tokens: 4096
+  temperature: 0.0
+  timeout_s: 1800
+
+backend:
+  type: "ghidra-bridge"
+  cli_path: 'C:\iwd2-re\.venv-reagent\Scripts\ghidra-bridge.exe'
+  timeout_s: 45
+
+parity:
+  enabled: true
+  call_count_warn_diff: 3
+  inline_wrapper_autoskip: false
+  # semantic_rules_file: null
+  # manual_checks_file: null
+  cache_dir: ".cache/re-agent-parity"
+
+orchestrator:
+  max_review_rounds: 4
+  max_functions_per_class: 10
+  objective_verifier_enabled: true
+  objective_call_count_tolerance: 3
+  objective_control_flow_tolerance: 2
+
+output:
+  report_dir: "reports/re-agent"
+  log_dir: "reports/re-agent/logs"
+  session_file: "re-agent-progress.json"
+  format: "json"

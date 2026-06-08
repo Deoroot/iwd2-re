@@ -12,7 +12,7 @@
 - GemRB graph: `repo_root="C:\iwd2-re\refs\gemrb"`. Alias `gemrb`.
 - Both: `cross_repo_search_tool` searches both simultaneously.
 
-Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, ghidra curl, raw binaries.
+Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, `.ghidra-exports/`, raw binaries.
 
 | Want | Tool |
 |------|------|
@@ -50,21 +50,58 @@ Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one co
 Don't invent code. Check Ghidra first. `// 0xADDR` can be stale. Ghidra wins.
 Address not in funcs table → check vtable DATA xref (virtual method).
 
-## GhidraMCP
+## Ghidra access — ghidra-bridge (no GhidraMCP)
 
-`curl -s "http://127.0.0.1:8089/get_xrefs_to?address=0x0084c44c&limit=5"`.
-Mutations in-memory → persist with `save_program`.
-`__thiscall` `this` locked → document type via `batch_set_comments` plate comment.
+GhidraMCP (HTTP `:8089`) is **retired**. Ghidra data now comes from **ghidra-ai-bridge**:
+a PyGhidra **headless export** into `.ghidra-exports/` (not a live server). Toolchain lives
+in the `.venv-reagent` venv; config is `ghidra-bridge.yaml` + `re-agent.yaml` (repo root).
+pip installs for this toolchain are blocked for the agent → user runs them via the `!` prefix.
+Branch: `re-agent-workflow`.
 
-**Read PE bytes (use pefile, not `/memory_bytes`):**
+**(Re)build the export** — when Ghidra renames/types change or the dump is stale.
+**Close the Ghidra GUI first** (headless takes the project's exclusive lock):
+
+```bash
+.venv-reagent/Scripts/python scripts/reagent_address_map.py   # // 0xADDR -> address_map.json + hooks.csv (~7944)
+.venv-reagent/Scripts/ghidra-bridge --config ghidra-bridge.yaml export all   # read-only dump, ~28k fns
+```
+
+`export all` is read-only. NEVER run `create-functions`/`fix-all` without first backing up
+`IWD2.rep` — they write the Ghidra DB (`createFunction`) and a `.corrupted` rep already exists.
+
+**Query** (`gb` = `.venv-reagent/Scripts/ghidra-bridge --config ghidra-bridge.yaml`):
+
+| Want | Cmd |
+|---|---|
+| Decompile + caller/callee counts | `gb decompile 0xADDR` |
+| Callers / callees | `gb xrefs-to 0xADDR` / `gb xrefs-from 0xADDR` |
+| Disassembly | `gb dump-asm 0xADDR` (it is `dump-asm`, not `asm`) |
+| Struct / vtable | `gb struct CClass` / `gb vtable CClass` |
+| Crash addr → containing fn | `gb containing 0xADDR` |
+| Unrecovered (by caller count) | `gb unimplemented CClass` |
+
+**Parity** = faithfulness lint of recovered C++ vs Ghidra (11 signals + call-count/control-flow
+objective verifier). Run from `C:\iwd2-re` so the bridge finds the yaml via cwd:
+
+```bash
+.venv-reagent/Scripts/re-agent --config re-agent.yaml parity --address 0xADDR
+.venv-reagent/Scripts/re-agent --config re-agent.yaml parity --filter "CClass::" --output tmp_parity.json
+```
+
+GREEN/YELLOW/RED per fn. `asm`-based signals (fp_sensitivity, large-asm-tiny-source) degrade
+until the backend `asm`→`dump-asm` rename is fixed.
+
+⚠️ `re-agent reverse` (LLM whole-file codegen loop) is **NOT validated here** and fights
+minimal-diff + faithfulness. Never commit its output unverified. Use `parity` as a lint, not
+`reverse` as an author; gate any behavioral claim with a Frida diff.
+
+**Read PE bytes (use pefile):**
 ```python
 import pefile
 pe = pefile.PE(r"C:\GOG Games\Icewind Dale 2\IWD2.exe", fast_load=True)
 ib = pe.OPTIONAL_HEADER.ImageBase
 print(pe.get_data(0x8ABCA4 - ib, 16))
 ```
-
-**Schema reference:** `ghidra_mcp_schema.json`.
 
 ## Frida tracing
 
@@ -76,6 +113,10 @@ Docs: `docs/frida-differential-tracing.md`. Template: `scripts/frida_formation_t
 - Hook function ENTRIES only. Mid-function hooks crash.
 - Runtime wins when `__thiscall` args disagree with decompiler.
 - Read PE constants with `pefile`, not memory endpoint.
+- Preferred input-driving order: Frida-RPC into the engine fn > keyboard > `PostMessage` > polite physical hijack (`BlockInput`+restore cursor, unattended only). IWD2 polls the mouse from the engine tick, so synthetic clicks can drop — physical is sometimes the only thing that registers. No cursor hijack while the user is at the machine.
+- Hedron revisit trace: kill old `iwd2-re/IWD2` first; 800x600 client click is `[500,250]` (world around `[2513,906]`, obj `524296`).
+- For mouse automation, hover first and prove `CGameSprite::IsOver` or `CGameArea::OnActionButtonDown picked=524296`; raw screenshots alone misled upward.
+- RE dialog replies are flaky with marker-only RPC; use `responseMarker` plus a real/post click on the visible reply line.
 
 ## Game assets (`data/near_infinity_export/`)
 
@@ -119,11 +160,12 @@ data/near_infinity_export/
 | `refs/gemrb/` | GemRB source  → use CRG graph (`repo_root="C:\iwd2-re\refs\gemrb"`) |
 | `refs/NearInfinity/` | File formats (.CRE/.ARE/.ITM) |
 | `refs/iesdp/` | Effects, opcodes, STATS.IDS |
-| `C:\ghidra_projects\IWD2\` | Live Ghidra project |
+| `C:\ghidra_projects\IWD2\` | Ghidra project (install `C:\ghidra_dist\ghidra_12.1_PUBLIC`). CLOSE the GUI before `ghidra-bridge export`. |
 
 ## Temp files
 
 `tmp_*.txt`, `tmp_*.json`, `chunk_*.sql` = RE session noise. Not tracked. Delete freely.
+`.venv-reagent/`, `.ghidra-exports/` = re-agent toolchain + export cache. Gitignored.
 
 ## Code changes
 
@@ -131,6 +173,7 @@ data/near_infinity_export/
 - Minimal diffs. One bug = one change. No refactor in bugfix commits.
 - Prefer named constants over magic numbers when defined in file.
 - `python scripts/vtable_audit.py ClassName` — catches missing virtual overrides.
+- After a recover, `re-agent parity --address 0xADDR` should be GREEN/YELLOW (RED = under-implemented vs Ghidra).
 
 ## No hacks
 
