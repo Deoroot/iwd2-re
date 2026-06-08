@@ -32,8 +32,8 @@ public:
     void SetActive(BOOL bActive);
     void SetBackgroundResRef(CResRef cNewResRef, BOOL bDoubleSize);
 
-    /* 0000 */ CUIManager* m_pManager; // #guess
-    /* 0004 */ CTypedPtrList<CPtrList, CUIControlBase*> m_lControls; // #guess
+    /* 0000 */ CUIManager* m_pManager;
+    /* 0004 */ CTypedPtrList<CPtrList, CUIControlBase*> m_lControls;
     /* 0020 */ DWORD m_nID;
     /* 0024 */ CPoint m_ptOrigin;
     /* 0030 */ CPoint m_ptBaseOrigin;

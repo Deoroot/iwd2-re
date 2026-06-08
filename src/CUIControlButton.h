@@ -38,22 +38,22 @@ public:
     void SetEnabled(BOOL bEnabled);
     void SetValid(BOOL bValid);
 
-    /* 0052 */ CVidCell m_cVidCell; // #guess
-    /* 012C */ SHORT m_nNormalFrame; // #guess
-    /* 012E */ SHORT m_nPressedFrame; // #guess
-    /* 0130 */ SHORT m_nDisabledFrame; // #guess
-    /* 0132 */ SHORT m_nRenderCount; // #guess
-    /* 0134 */ BOOL m_bPressed; // #guess
-    /* 0138 */ BYTE m_nMouseButtons; // #guess
+    /* 0052 */ CVidCell m_cVidCell;
+    /* 012C */ SHORT m_nNormalFrame;
+    /* 012E */ SHORT m_nPressedFrame;
+    /* 0130 */ SHORT m_nDisabledFrame;
+    /* 0132 */ SHORT m_nRenderCount;
+    /* 0134 */ BOOL m_bPressed;
+    /* 0138 */ BYTE m_nMouseButtons;
     /* 0139 */ unsigned char field_139;
     /* 013A */ CString* m_pText;
-    /* 013E */ CVidFont m_cVidFont; // #guess
+    /* 013E */ CVidFont m_cVidFont;
     /* 063E */ int field_63E;
     /* 0642 */ int field_642;
-    /* 0646 */ BOOL m_bEnabled; // #guess
+    /* 0646 */ BOOL m_bEnabled;
     /* 064A */ int m_nTextLines;
     /* 064C */ int field_64C;
-    /* 0650 */ BOOL m_bValid; // #guess
+    /* 0650 */ BOOL m_bValid;
     /* 0654 */ short field_654;
     /* 0656 */ BYTE m_nMaxLines;
     /* 0657 */ BYTE m_nTextFlags;

@@ -45,8 +45,8 @@ public:
     /* 0000 */ BOOL m_bHidden;
     /* 0004 */ BOOL m_bInitialized;
     /* 0008 */ CResRef m_cResRef;
-    /* 0010 */ CWarp* m_pWarp; // #guess
-    /* 0014 */ CUIControlBase* m_pFocusedControl; // #guess
+    /* 0010 */ CWarp* m_pWarp;
+    /* 0014 */ CUIControlBase* m_pFocusedControl;
     /* 0018 */ int field_18;
     /* 001C */ int field_1C;
     /* 0020 */ int field_20;
@@ -63,7 +63,7 @@ public:
     /* 008A */ CRect field_8A;
     /* 009A */ CRect field_9A;
     /* 00AA */ BOOL m_bDoubleSize;
-    /* 00AE */ CTypedPtrList<CPtrList, CUIPanel*> m_lPanels; // #guess
+    /* 00AE */ CTypedPtrList<CPtrList, CUIPanel*> m_lPanels;
 };
 
 #endif /* CUIMANAGER_H_ */
