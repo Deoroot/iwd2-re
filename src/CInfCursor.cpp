@@ -383,7 +383,7 @@ CInfToolTip::CInfToolTip()
     field_5E0 = 0;
     field_5E2 = 0;
     field_5E4 = 0;
-    field_5E6 = 0;
+    m_nTextWidth = 0;
     field_5E8 = 0;
     field_5EA = 0;
 }
@@ -411,7 +411,7 @@ void CInfToolTip::Initialize()
     field_5E0 = field_5DE;
 
     field_5E8 = GetSequenceLength(1, FALSE);
-    field_5E6 = 0;
+    m_nTextWidth = 0;
     field_5EA = GetSequenceLength(2, FALSE);
 }
 
@@ -438,7 +438,7 @@ BOOL CInfToolTip::FrameAdvance()
         GetFrameSize(1, field_5DA, frameSize1, FALSE);
         GetFrameSize(2, field_5DC, frameSize2, FALSE);
 
-        field_5DE = field_5E6 + static_cast<SHORT>(frameSize1.cx / 2 + frameSize2.cx / 2);
+        field_5DE = m_nTextWidth + static_cast<SHORT>(frameSize1.cx / 2 + frameSize2.cx / 2);
         field_5E2 = 2;
         break;
     case 1:
@@ -465,7 +465,7 @@ BOOL CInfToolTip::FrameAdvance()
         GetFrameSize(1, field_5DA, frameSize1, FALSE);
         GetFrameSize(2, field_5DC, frameSize2, FALSE);
 
-        field_5DE = field_5E6 + static_cast<SHORT>(frameSize1.cx / 2 + frameSize2.cx / 2);
+        field_5DE = m_nTextWidth + static_cast<SHORT>(frameSize1.cx / 2 + frameSize2.cx / 2);
         break;
     case 3:
         break;
@@ -627,18 +627,18 @@ void CInfToolTip::RenderText(CVidInf* pVidInf, INT x, int a4, const CRect& rFXCl
     }
 
     for (index = 0; index < 2; index++) {
-        if (field_5EC[index] == "") {
+        if (m_lines[index] == "") {
             break;
         }
     }
 
     INT y = m_font.GetBaseLineHeight(TRUE) + (rFXClip.Height() - index * m_font.GetFontHeight(TRUE)) / 2;
     for (index = 0; index < 2; index++) {
-        if (field_5EC[index] == "") {
+        if (m_lines[index] == "") {
             break;
         }
 
-        sLine = field_5EC[index];
+        sLine = m_lines[index];
 
         // FIXME: Calls `GetStringLength` two times.
         pVidInf->FXTextOut(&m_font,
@@ -662,10 +662,10 @@ void CInfToolTip::SetTextRef(const STRREF& textRef, const CString& sExtra)
     BYTE nLine;
     BYTE nLines;
 
-    field_5E6 = 0;
+    m_nTextWidth = 0;
 
     for (int index = 0; index < 2; index++) {
-        field_5EC[index] = "";
+        m_lines[index] = "";
     }
 
     CSize size1;
@@ -680,41 +680,41 @@ void CInfToolTip::SetTextRef(const STRREF& textRef, const CString& sExtra)
 
     if (sExtra != "") {
         if (textRef != -1 && g_pBaldurChitin->GetTlkTable().Fetch(textRef, strRes)) {
-            field_5EC[0] = strRes.szText;
-            CUtil::TrimRight(field_5EC[0]);
+            m_lines[0] = strRes.szText;
+            CUtil::TrimRight(m_lines[0]);
             nLines = CUtil::SplitString(&m_font,
                 sExtra,
                 nMaxWidth - 8,
                 1,
-                &(field_5EC[1]),
+                &(m_lines[1]),
                 FALSE,
                 TRUE,
                 TRUE,
                 -1);
-            // +1 for the pre-set name line in field_5EC[0] (inc bl @ 0x598c66).
+            // +1 for the pre-set name line in m_lines[0] (inc bl @ 0x598c66).
             nLines++;
         } else {
             int pos = CUtil::Find(sExtra, '\n', 0);
             if (pos != -1) {
-                field_5EC[0] = sExtra.Left(pos);
-                CUtil::TrimRight(field_5EC[0]);
+                m_lines[0] = sExtra.Left(pos);
+                CUtil::TrimRight(m_lines[0]);
                 nLines = CUtil::SplitString(&m_font,
                     sExtra.Mid(pos + 1),
                     nMaxWidth - 8,
                     1,
-                    &(field_5EC[1]),
+                    &(m_lines[1]),
                     FALSE,
                     TRUE,
                     TRUE,
                     -1);
-                // +1 for the pre-set first line in field_5EC[0] (inc bl @ 0x598c66).
+                // +1 for the pre-set first line in m_lines[0] (inc bl @ 0x598c66).
                 nLines++;
             } else {
                 nLines = CUtil::SplitString(&m_font,
                     sExtra.Mid(pos + 1),
                     nMaxWidth - 8,
                     2,
-                    field_5EC,
+                    m_lines,
                     FALSE,
                     TRUE,
                     TRUE,
@@ -723,42 +723,42 @@ void CInfToolTip::SetTextRef(const STRREF& textRef, const CString& sExtra)
         }
 
         if (nLines > 0) {
-            CUtil::TrimRight(field_5EC[nLines - 1]);
+            CUtil::TrimRight(m_lines[nLines - 1]);
             for (nLine = 0; nLine < nLines; nLine++) {
-                LONG nLineWidth = m_font.GetStringLength(field_5EC[nLine], TRUE);
-                if (nLineWidth > field_5E6) {
-                    field_5E6 = static_cast<SHORT>(nLineWidth);
+                LONG nLineWidth = m_font.GetStringLength(m_lines[nLine], TRUE);
+                if (nLineWidth > m_nTextWidth) {
+                    m_nTextWidth = static_cast<SHORT>(nLineWidth);
                 }
             }
         }
 
         m_font.GetRes()->Release();
 
-        field_5E6 = min(field_5E6 + 8, nMaxWidth);
+        m_nTextWidth = min(m_nTextWidth + 8, nMaxWidth);
     } else {
         if (textRef != -1 && g_pBaldurChitin->GetTlkTable().Fetch(textRef, strRes)) {
             nLines = CUtil::SplitString(&m_font,
                 strRes.szText,
                 nMaxWidth - 8,
                 2,
-                field_5EC,
+                m_lines,
                 FALSE,
                 TRUE,
                 TRUE,
                 -1);
             if (nLines > 0) {
-                CUtil::TrimRight(field_5EC[nLines - 1]);
+                CUtil::TrimRight(m_lines[nLines - 1]);
                 for (nLine = 0; nLine < nLines; nLine++) {
-                    LONG nLineWidth = m_font.GetStringLength(field_5EC[nLine], TRUE);
-                    if (nLineWidth > field_5E6) {
-                        field_5E6 = static_cast<SHORT>(nLineWidth);
+                    LONG nLineWidth = m_font.GetStringLength(m_lines[nLine], TRUE);
+                    if (nLineWidth > m_nTextWidth) {
+                        m_nTextWidth = static_cast<SHORT>(nLineWidth);
                     }
                 }
             }
 
             m_font.GetRes()->Release();
 
-            field_5E6 = min(field_5E6 + 8, nMaxWidth);
+            m_nTextWidth = min(m_nTextWidth + 8, nMaxWidth);
         } else {
             m_font.GetRes()->Release();
         }
@@ -772,10 +772,10 @@ void CInfToolTip::SetTextRef(CString sExtra, const STRREF& textRef1, const STRRE
     STR_RES strRes2;
 
     if (textRef1 != -1) {
-        field_5E6 = 0;
+        m_nTextWidth = 0;
 
         for (int index = 0; index < 2; index++) {
-            field_5EC[index] = "";
+            m_lines[index] = "";
         }
 
         CSize size1;
@@ -807,20 +807,20 @@ void CInfToolTip::SetTextRef(CString sExtra, const STRREF& textRef1, const STRRE
                 strRes1.szText,
                 nMaxWidth - 8,
                 2,
-                field_5EC,
+                m_lines,
                 FALSE,
                 TRUE,
                 TRUE,
                 -1);
             if (nLines > 0) {
-                CUtil::TrimRight(field_5EC[nLines - 1]);
+                CUtil::TrimRight(m_lines[nLines - 1]);
                 for (BYTE nLine = 0; nLine < nLines; nLine++) {
-                    field_5E6 = max(static_cast<SHORT>(m_font.GetStringLength(field_5EC[nLine], TRUE)), field_5E6);
+                    m_nTextWidth = max(static_cast<SHORT>(m_font.GetStringLength(m_lines[nLine], TRUE)), m_nTextWidth);
                 }
             }
 
             m_font.GetRes()->Release();
-            field_5E6 = min(field_5E6 + 8, nMaxWidth);
+            m_nTextWidth = min(m_nTextWidth + 8, nMaxWidth);
         }
     }
 }
