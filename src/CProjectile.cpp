@@ -329,7 +329,14 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
 
     case 0xDA:
         // MMissiT -- Magic Missile homing sub-missile (spawned by the launcher).
+        // The factory case stamps the projectile's launch ("whoosh") sound, which
+        // CProjectileTravelling::Fire plays when the missile enters the area. The
+        // launcher (CProjectileMagicMissileMulti) then clears it on every
+        // sub-missile after the first, so a volley whooshes once. (The original
+        // handler at 0x5252AD also sets m_bHasHeight = TRUE and clears
+        // m_arrivalSoundRef -- inert while the launch-height path is stubbed.)
         pProjectile = new CProjectileMMissiT(0);
+        pProjectile->m_fireSoundRef = CResRef("TRA_02");
         break;
 
     case 0x44:
@@ -1564,8 +1571,7 @@ void CProjectileTravelling::AIUpdate()
 //   * the attached-object create (CMessageHandler::AddMessage 0x4F7500 +
 //     CMessage 0x554D20 -> m_nTargetId); not exercised by Magic Missile
 //     (m_nTargetId stays INVALID).
-//   * the fire-sound setup (CSound at +0xEE, fields +0xF2/+0xF6,
-//     CDimm::GetResObject / CSound::SetChannel).
+// The launch sound (the inlined PlaySound at 0x52C6BA) is recovered below.
 // The projectile registers itself in the global object array (CGameObjectArray::
 // Add) to obtain an m_id before AddToArea, which adds that m_id to the area's
 // object lists so the engine drives its AIUpdate/Render.
@@ -1628,6 +1634,15 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
     // Register in the global object array (assigns m_id), then add to the area.
     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
     AddToArea(pArea, ptSource, 0, 0);
+
+    // Launch sound: the original inlines CProjectile::PlaySound's body here
+    // (0x52C6BA), immediately after the area insertion -- it plays m_fireSoundRef
+    // on the projectile's CSound at the launch position (m_pos, just set by
+    // AddToArea), channel 15. A Magic Missile sub-missile carries "TRA_02" (the
+    // travel whoosh); leaves with an empty fire-sound stay silent. The original
+    // reads a per-projectile fire-sound loop flag at +0x15A (FALSE for the
+    // recovered leaves), so the cue is one-shot here.
+    PlaySound(m_fireSoundRef, FALSE, FALSE);
 
     // Subpixel launch position (1/1024 fixed point), seeded from the launch
     // origin. Frida-confirmed exact: X scaled << 10, Y also 4/3 y-scaled (the
@@ -1934,9 +1949,10 @@ CProjectileMMissiT::CProjectileMMissiT(SHORT nPaletteFlag)
 // CProjectileMagicMissileMulti -- the Magic Missile launcher base. Builds the
 // travelling base, then pre-spawns nCount sub-missiles (DecodeProjectile of
 // nSubType + 1) into the sub-missile list; the launcher's Fire later drains them
-// into the area. The original copies the fire-sound resref onto each sub-missile
-// after the first (FUN_0078A990/FUN_0078AC30) -- deferred (the resref defaults
-// empty).
+// into the area. Each sub-missile is born with the "TRA_02" launch sound (stamped
+// by its DecodeProjectile case); the original clears it on every sub-missile after
+// the first (0x530ACB, assigning the empty default CResRef), so a volley plays a
+// single launch whoosh rather than one per missile.
 CProjectileMagicMissileMulti::CProjectileMagicMissileMulti(const CResRef& resRef,
     SHORT nCount, USHORT nSubType, BYTE nPaletteFlag)
     : CProjectileTravelling(resRef)
@@ -1958,6 +1974,9 @@ CProjectileMagicMissileMulti::CProjectileMagicMissileMulti(const CResRef& resRef
     for (SHORT i = 0; i < nCount; ++i) {
         CProjectile* pSub = CProjectile::DecodeProjectile(
             static_cast<USHORT>(m_subType + 1), NULL, 0);
+        if (i != 0) {
+            pSub->m_fireSoundRef = CResRef();
+        }
         m_subMissiles.AddTail(pSub);
     }
 
