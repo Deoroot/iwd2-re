@@ -50,23 +50,23 @@ public:
     }
 
     /* 0004 */ unsigned char m_bEnabled;
-    /* 0008 */ CUIPanel* m_pPanel; // #guess
-    /* 000A */ DWORD m_nID; // #guess
+    /* 0006 */ CUIPanel* m_pPanel;
+    /* 000A */ DWORD m_nID;
     /* 000E */ CPoint m_ptOrigin;
     /* 0016 */ CSize m_size;
-    /* 001E */ BOOLEAN m_bActive; // #guess
+    /* 001E */ BOOLEAN m_bActive;
     /* 001F */ BOOLEAN m_bNeedAsyncUpdate;
     /* 0020 */ BOOLEAN m_bNeedMouseMove;
     /* 0022 */ CRect m_rDirty;
-    /* 0032 */ BOOL m_bInactiveRender; // #guess
+    /* 0032 */ BOOL m_bInactiveRender;
     /* 0036 */ int m_nControlType;
     /* 003A */ BOOL m_bToolTipActive;
-    /* 003E */ STRREF m_nToolTipStrRef; // #guess
-    /* 0042 */ STRREF m_nSecondaryToolTipStrRef; // #guess
-    /* 0046 */ STRREF m_nTertiaryToolTipStrRef; // #guess
-    /* 004A */ USHORT m_nToolTipHotKeyIndex1; // #guess
-    /* 004C */ USHORT m_nToolTipHotKeyIndex2; // #guess
-    /* 004E */ CString m_sKey; // #guess
+    /* 003E */ STRREF m_nToolTipStrRef;
+    /* 0042 */ STRREF m_nSecondaryToolTipStrRef;
+    /* 0046 */ STRREF m_nTertiaryToolTipStrRef;
+    /* 004A */ USHORT m_nToolTipHotKeyIndex1;
+    /* 004C */ USHORT m_nToolTipHotKeyIndex2;
+    /* 004E */ CString m_sKey;
 };
 
 #endif /* CUICONTROLBASE_H_ */
