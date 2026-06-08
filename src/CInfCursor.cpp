@@ -684,7 +684,8 @@ void CInfToolTip::SetTextRef(const STRREF& textRef, const CString& sExtra)
             CUtil::TrimRight(m_lines[0]);
             nLines = CUtil::SplitString(&m_font,
                 sExtra,
-                nMaxWidth - 8,
+                // NOTE: full width here (no -8), unlike the other branches (0x598b78).
+                nMaxWidth,
                 1,
                 &(m_lines[1]),
                 FALSE,
