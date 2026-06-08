@@ -1026,10 +1026,16 @@ CGameEffect* CGameEffectVisualSpellHitIWD::Copy()
 // m_dwFlags carries the graphic Type (the effect's param2); the third character
 // of m_sourceRes selects the positive (priest, 'P') vs negative sound variant.
 // The original spawns the school overlay projectile via
-// CProjectileSummonVFX::DecodeSpellHitProjectile and Fire()s it at the target,
-// and additionally queues a CMessageFireProjectile of type (Type + 0x1000) -- the
-// secondary spell-hit projectile layer.  The 0x1000+ projectile range is not yet
-// covered by the factory, so that queued message is a faithful no-op here.
+// CProjectileSummonVFX::DecodeSpellHitProjectile and Fire()s it directly at the
+// target.  It also queues a CMessageFireProjectile of type (Type + 0x1000) -- the
+// multiplayer replication of the hit overlay -- but that message's Run (0x5007F0)
+// skips on the single-player casting owner, so in SP only the directly-fired
+// overlay above is shown.  Our CMessageFireProjectile::Run does not yet make the
+// SP owner skip (the multiplayer-owner game state is unrecovered), so queueing it
+// would actually fire the +0x1000 overlay (which the factory DOES cover: the
+// 0x1000+ path resolves to a different, wrong-school SummonVFX -> a spurious extra
+// impact sound, e.g. EFF_M08 layered over Magic Missile's EFF_M06).  We omit the
+// queue to match SP, exactly as the ForceSpellAction launch path does.
 BOOL CGameEffectVisualSpellHitIWD::ApplyEffect(CGameSprite* pSprite)
 {
     if (pSprite->m_pArea == NULL) {
@@ -1045,15 +1051,10 @@ BOOL CGameEffectVisualSpellHitIWD::ApplyEffect(CGameSprite* pSprite)
 
     CProjectile* pVFX = CProjectileSummonVFX::DecodeSpellHitProjectile(m_dwFlags, pSprite, bPositive);
 
-    // Secondary spell-hit projectile layer (type + 0x1000).
-    CMessage* pMsg = new CMessageFireProjectile(static_cast<WORD>(m_dwFlags + 0x1000),
-        pSprite->m_id,
-        pSprite->GetPos(),
-        0,
-        pSprite->m_id,
-        pSprite->m_id,
-        0);
-    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+    // The original's secondary (Type + 0x1000) CMessageFireProjectile -- the
+    // multiplayer replication layer -- is omitted here; its Run skips on the SP
+    // casting owner, and firing it in our build would add a spurious wrong-school
+    // overlay/sound (see the note above).
 
     // The school overlay, fired directly at the target.  Guarded against the
     // unrecovered DecodeSpellHitProjectile types (which return NULL) -- the
