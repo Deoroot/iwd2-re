@@ -885,8 +885,17 @@ BOOL CVidMode::DrawThickLine16(INT nXFrom, INT nYFrom, INT nXTo, INT nYTo, WORD*
 // 0x799540
 BOOL CVidMode::OutlinePoly(const CPoint* pPoly, SHORT nVertices, const CRect& rSurface, COLORREF rgbColor, const CPoint& ptOffset)
 {
-    // TODO: Incomplete.
+    if (nVertices <= 0) {
+        return FALSE;
+    }
 
+    if (g_pChitin->cVideo.Is3dAccelerated()) {
+        return OutlinePoly3d(pPoly, nVertices, rSurface, rgbColor, ptOffset);
+    }
+
+    // TODO: Incomplete. The software (non-accelerated) polygon rasterizer at
+    // 0x7995D5 is unrecovered; the 3D dispatch above covers accelerated mode,
+    // which is what draws container/door highlight outlines on GOG.
     return FALSE;
 }
 
