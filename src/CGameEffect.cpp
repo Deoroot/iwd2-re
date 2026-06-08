@@ -2428,9 +2428,33 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         break;
     }
 
-    // HACK: the damage-flash markers, the FUN_004A8DF0 post-damage hook, and all
-    // cosmetic feedback (sound / blood / sequence) are unrecovered -- replaces
-    // 0x4A83A8..0x4A8636.
+    // Impact sound (0x4A8432..0x4A8636): the original keys the hit cue on the
+    // damage-type bitmask (the high word of m_dwFlags). Each type that has a fixed
+    // cue plays it on the target; the remaining types feed only the blood pipeline.
+    // Magic Missile (type 0x400000) plays "HIT_07". Recovered here via
+    // CGameEffect::PlaySound. The interleaved VISUAL feedback -- the colour
+    // hit-markers (CGameSprite::StartSpriteEffect), the blood spatter (AddBlood for
+    // types 0/0x100000/0x1000000/0x2000000/0x4000000), the floating damage number,
+    // and the FUN_004A8DF0 post-damage hook -- stays stubbed.
+    switch (m_dwFlags & 0xFFFF0000) {
+    case 0x10000:
+        PlaySound(CResRef("EFF_M47"), pSprite);
+        break;
+    case 0x20000:
+        PlaySound(CResRef("EFF_M46"), pSprite);
+        break;
+    case 0x40000:
+        PlaySound(CResRef("MISC_02C"), pSprite);
+        break;
+    case 0x80000:
+        PlaySound(CResRef("MISC_01C"), pSprite);
+        break;
+    case 0x400000:
+        PlaySound(CResRef("HIT_07"), pSprite);
+        break;
+    default:
+        break;
+    }
 
     if (pSprite->GetBaseStats()->m_hitPoints > 0) {
         // Survived.  HACK: the Hardiness regeneration feat is unrecovered --
