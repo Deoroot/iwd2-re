@@ -114,7 +114,7 @@ class GhidraBridgeBackend:
 
         probes: list[tuple[str, str]] = [
             ("has_asm", "dump-asm"),
-            ("has_structs", "source-struct"),
+            ("has_structs", "struct"),
             ("has_xrefs", "xrefs-from"),
             ("has_search", "search"),
             ("has_enums", "source-enum"),
@@ -139,14 +139,19 @@ class GhidraBridgeBackend:
             callers = int(m.group(1))
             callees = int(m.group(2))
 
-        # Try to extract the function name from the first meaningful line.
+        # Prefer the bridge's known name (from our source address map), printed
+        # as `// Known as:  Class::Func`; fall back to the first signature-ish line.
         name = target
-        for line in raw.splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("//") and not stripped.startswith("Callers"):
-                # Heuristic: take the first line that looks like a signature.
-                name = stripped.split("(")[0].split()[-1] if "(" in stripped else target
-                break
+        known = re.search(r"^//\s*Known as:\s*(\S.*?)\s*$", raw, re.M)
+        if known:
+            name = known.group(1).strip()
+        else:
+            for line in raw.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("//") and not stripped.startswith("Callers"):
+                    # Heuristic: take the first line that looks like a signature.
+                    name = stripped.split("(")[0].split()[-1] if "(" in stripped else target
+                    break
 
         return DecompileResult(
             address=target,
@@ -192,8 +197,8 @@ class GhidraBridgeBackend:
     # -- struct ---------------------------------------------------------------
 
     def get_struct(self, name: str) -> StructDef | None:
-        """Retrieve a struct definition by name."""
-        raw = self._try_run("source-struct", name)
+        """Retrieve a struct definition by name (from the Ghidra export)."""
+        raw = self._try_run("struct", name)
         if raw is None:
             return None
 
