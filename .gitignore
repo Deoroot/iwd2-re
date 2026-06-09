@@ -413,6 +413,8 @@ FodyWeavers.xsd
 .claude/
 .gemini/
 .qoder/
+# Auto-generated agent skills
+/.agents/
 # RE session noise
 /tmp_*
 /bam_out/
