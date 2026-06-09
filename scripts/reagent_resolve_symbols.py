@@ -39,6 +39,7 @@ from pathlib import Path
 DEFAULT_MAP = r"C:\iwd2-re\.ghidra-exports\address_map.json"
 DEFAULT_INDEX = r"C:\iwd2-re\.ghidra-exports\_index.json"
 DEFAULT_GLOBALS = r"C:\iwd2-re\.ghidra-exports\_globals.json"
+DEFAULT_VTABLE_MAP = r"C:\iwd2-re\.ghidra-exports\vtable_map.json"
 DEFAULT_BRIDGE = r"C:\iwd2-re\.venv-reagent\Scripts\ghidra-bridge.exe"
 DEFAULT_CONFIG = r"C:\iwd2-re\ghidra-bridge.yaml"
 
@@ -50,6 +51,12 @@ TOKEN_RE = re.compile(r"\b(FUN|DAT|LAB)_([0-9a-fA-F]{6,8})\b")
 # LAB_x, PTR_DAT_x...) carries no information -- skip it so we never rewrite a
 # token into another placeholder (e.g. DAT_008c1758 -> PTR_DAT_008c1758).
 SYNTH_RE = re.compile(r"^(PTR_)?(FUN|LAB|DAT|UNK|SUB)_[0-9A-Fa-f]+$", re.IGNORECASE)
+
+# A Ghidra virtual call through `this`: `(**(code **)(*param_1 + 0xNN))(..)`. In a
+# __thiscall method param_1 IS this, so the slot 0xNN dispatches via the containing
+# class's vtable. Calls through other objects (piVarN, member objects) need type
+# inference and are intentionally left alone.
+VCALL_RE = re.compile(r"\(code \*+\)\(\*param_1 \+ (0x[0-9a-fA-F]+)\)")
 
 
 def _is_useful(name: str) -> bool:
@@ -125,6 +132,56 @@ def resolve(text: str, addr_map: dict[int, str]) -> tuple[str, dict[str, str], l
     return rewritten, resolved, sorted(unresolved)
 
 
+def load_vtable_map(path: Path | None) -> dict:
+    """Load ``vtable_map.json`` (``{class: {"slots": {off: {name,...}}}}``)."""
+    if not path or not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def lookup_class(map_path: Path, address: str) -> str | None:
+    """Return the class of the function at *address* from our address_map.json."""
+    try:
+        addr = int(address, 16)
+    except ValueError:
+        return None
+    try:
+        raw = json.loads(map_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    info = raw.get(f"{addr:08x}")
+    return info.get("class") if isinstance(info, dict) else None
+
+
+def annotate_vcalls(text: str, class_name: str, vmap: dict) -> tuple[str, int]:
+    """Annotate ``(*param_1 + 0xNN)`` virtual this-calls with the slot's method.
+
+    param_1 is ``this`` in a __thiscall method, so a virtual call through it
+    dispatches via *class_name*'s vtable (slot 0xNN). Other call objects are left
+    untouched. Returns ``(rewritten_text, annotation_count)``.
+    """
+    cls = vmap.get(class_name)
+    if not cls:
+        return text, 0
+    slots = cls.get("slots", {})
+    count = 0
+
+    def _sub(m: re.Match[str]) -> str:
+        nonlocal count
+        off = int(m.group(1), 16)
+        slot = slots.get(f"0x{off:04x}")
+        name = slot.get("name") if isinstance(slot, dict) else None
+        if not name:
+            return m.group(0)
+        count += 1
+        return f"{m.group(0)} /*{name}*/"
+
+    return VCALL_RE.sub(_sub, text), count
+
+
 def fetch_decompile(address: str, bridge: str, config: str) -> str:
     """Shell the ghidra-bridge to decompile *address* and return its text."""
     proc = subprocess.run(
@@ -150,6 +207,9 @@ def main() -> int:
     ap.add_argument("--index", type=Path, default=Path(DEFAULT_INDEX), help="Ghidra _index.json (function names; for ASM)")
     ap.add_argument("--globals", dest="globals_", type=Path, default=Path(DEFAULT_GLOBALS), help="Ghidra _globals.json (data names; for ASM)")
     ap.add_argument("--no-ghidra-names", action="store_true", help="resolve only against our address_map (skip _index/_globals)")
+    ap.add_argument("--vtable-map", dest="vtable_map", type=Path, default=Path(DEFAULT_VTABLE_MAP), help="vtable_map.json for virtual this-call resolution")
+    ap.add_argument("--this-class", dest="this_class", help="containing class for --input mode (auto-derived in --address mode)")
+    ap.add_argument("--no-vtable", action="store_true", help="skip virtual this-call annotation")
     ap.add_argument("--bridge", default=DEFAULT_BRIDGE, help="ghidra-bridge executable")
     ap.add_argument("--config", default=DEFAULT_CONFIG, help="ghidra-bridge.yaml path")
     ap.add_argument("--summary", action="store_true", help="print a resolved/unresolved summary to stderr")
@@ -170,6 +230,15 @@ def main() -> int:
         text = sys.stdin.read()
 
     rewritten, resolved, unresolved = resolve(text, addr_map)
+
+    n_vcall = 0
+    if not args.no_vtable:
+        cls = args.this_class
+        if cls is None and args.address:
+            cls = lookup_class(args.map, args.address)
+        if cls:
+            rewritten, n_vcall = annotate_vcalls(rewritten, cls, load_vtable_map(args.vtable_map))
+
     sys.stdout.write(rewritten)
 
     if args.summary or args.address:
@@ -178,6 +247,8 @@ def main() -> int:
             f"\n[resolve] {len(resolved)} token(s) -> {len(names)} name(s); "
             f"{len(unresolved)} FUN_ unresolved\n"
         )
+        if n_vcall:
+            sys.stderr.write(f"[vtable] {n_vcall} virtual this-call(s) annotated\n")
         for token, name in sorted(resolved.items()):
             sys.stderr.write(f"  {token} -> {name}\n")
         if unresolved:
