@@ -24,7 +24,7 @@ llm:
   base_url: "https://opencode.ai/zen/go/v1"
   # api_key via env (never commit it):  $env:RE_AGENT_LLM_API_KEY = "sk-opencode-..."
   # prev (Ollama Cloud local proxy): model "deepseek-v4-pro:cloud", base_url http://127.0.0.1:11434/v1
-  max_tokens: 16384   # deepseek-v4-pro reasons in the content field -> needs room for thinking + the final code, else the reply truncates mid-thought before emitting code
+  max_tokens: 32768   # deepseek-v4-pro reasons in the content field -> needs room for thinking + the final code, else the reply truncates mid-thought before emitting code. 16384 was an OUR-side ceiling: probe 2026-06-09 showed the provider emits >=41015 completion tokens in one reply (finish=stop, not length) and does not clamp the param. 32768 = ~2x headroom for reasoning + code, well under the proven cap.
   temperature: 0.0
   timeout_s: 1800
 
