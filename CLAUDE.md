@@ -50,24 +50,12 @@ Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one co
 Don't invent code. Check Ghidra first. `// 0xADDR` can be stale. Ghidra wins.
 Address not in funcs table → check vtable DATA xref (virtual method).
 
-## Ghidra access — ghidra-bridge (no GhidraMCP)
+## Ghidra access — ghidra-bridge
 
-GhidraMCP (HTTP `:8089`) is **retired**. Ghidra data now comes from **ghidra-ai-bridge**:
+Ghidra data now comes from **ghidra-ai-bridge**:
 a PyGhidra **headless export** into `.ghidra-exports/` (not a live server). Toolchain lives
 in the `.venv-reagent` venv; config is `ghidra-bridge.yaml` + `re-agent.yaml` (repo root).
-pip installs for this toolchain are blocked for the agent → user runs them via the `!` prefix.
 Branch: `re-agent-workflow`.
-
-**(Re)build the export** — when Ghidra renames/types change or the dump is stale.
-**Close the Ghidra GUI first** (headless takes the project's exclusive lock):
-
-```bash
-.venv-reagent/Scripts/python scripts/reagent_address_map.py   # // 0xADDR -> address_map.json + hooks.csv (~7944)
-.venv-reagent/Scripts/ghidra-bridge --config ghidra-bridge.yaml export all   # read-only dump, ~28k fns
-```
-
-`export all` is read-only. NEVER run `create-functions`/`fix-all` without first backing up
-`IWD2.rep` — they write the Ghidra DB (`createFunction`) and a `.corrupted` rep already exists.
 
 **Query** (`gb` = `.venv-reagent/Scripts/ghidra-bridge --config ghidra-bridge.yaml`):
 
