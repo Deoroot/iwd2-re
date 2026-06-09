@@ -47,7 +47,7 @@ TARGETS = {
     "ours": (
         "iwd2-re.exe",
         {"setMenu": 0x76BF40, "getMenu": 0x76BFB0, "render": 0x54A550,
-         "outline": 0x626010, "outlineSw": 0x7F6640, "outline3d": 0x7E0F00},
+         "outline": 0x626040, "outlineSw": 0x7F6640, "outline3d": 0x7E0F00},
     ),
 }
 
