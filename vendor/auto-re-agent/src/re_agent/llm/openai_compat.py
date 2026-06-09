@@ -57,7 +57,13 @@ class OpenAIProvider:
         )
 
         choice = response.choices[0]
-        return choice.message.content or ""
+        content = choice.message.content or ""
+        if not content:
+            if hasattr(choice.message, "reasoning_content") and choice.message.reasoning_content:
+                content = choice.message.reasoning_content
+            elif hasattr(choice.message, "reasoning") and choice.message.reasoning:
+                content = choice.message.reasoning
+        return content
 
     @property
     def supports_conversations(self) -> bool:

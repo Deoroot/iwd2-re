@@ -55,7 +55,16 @@ def create_provider(config: LLMConfig) -> LLMProvider:
             timeout_s=config.timeout_s,
         )
 
+    if config.provider == "opencode":
+        from re_agent.llm.opencode_cli import OpenCodeCLIProvider
+
+        return OpenCodeCLIProvider(
+            model=config.model or "ollama-cloud/deepseek-v4-pro",
+            variant=config.variant,
+            timeout_s=config.timeout_s,
+        )
+
     raise ValueError(
         f"Unknown LLM provider: {config.provider!r}. "
-        f"Supported providers: 'claude', 'claude-cli', 'openai', 'openai-compat', 'codex'."
+        f"Supported providers: 'claude', 'claude-cli', 'openai', 'openai-compat', 'codex', 'opencode'."
     )
