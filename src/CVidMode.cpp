@@ -893,10 +893,123 @@ BOOL CVidMode::OutlinePoly(const CPoint* pPoly, SHORT nVertices, const CRect& rS
         return OutlinePoly3d(pPoly, nVertices, rSurface, rgbColor, ptOffset);
     }
 
-    // TODO: Incomplete. The software (non-accelerated) polygon rasterizer at
-    // 0x7995D5 is unrecovered; the 3D dispatch above covers accelerated mode,
-    // which is what draws container/door highlight outlines on GOG.
-    return FALSE;
+    CRect rClip;
+    CRect rLock;
+
+    rClip.left = ptOffset.x + rSurface.left;
+    rClip.top = ptOffset.y + rSurface.top;
+    rClip.right = rClip.left + rSurface.Width();
+    rClip.bottom = rClip.top + rSurface.Height();
+
+    rLock.left = 0;
+    rLock.top = 0;
+    rLock.right = rSurface.Width();
+    rLock.bottom = rSurface.Height();
+
+    if (IsRectEmpty(&rLock)) {
+        return FALSE;
+    }
+
+    DDSURFACEDESC ddsd;
+    ddsd.dwSize = sizeof(ddsd);
+
+    if (!LockSurface(0, &ddsd, rSurface)) {
+        return FALSE;
+    }
+
+    if (ddsd.lpSurface == NULL) {
+        UTIL_ASSERT(FALSE);
+    }
+
+    SHORT nIndex;
+    SHORT nBpp = g_pChitin->cVideo.m_nBpp;
+
+    if (nBpp == 16) {
+        DWORD dwColor = ((GetRValue(rgbColor) >> field_C2) << m_dwRBitShift) |
+                        ((GetGValue(rgbColor) >> field_C6) << m_dwGBitShift) |
+                        ((GetBValue(rgbColor) >> field_CA) << m_dwBBitShift);
+
+        if (nVertices != 1) {
+            for (nIndex = 0; nIndex < nVertices - 1; nIndex++) {
+                DrawLine16(pPoly[nIndex].x - rClip.left,
+                    pPoly[nIndex].y - rClip.top,
+                    pPoly[nIndex + 1].x - rClip.left,
+                    pPoly[nIndex + 1].y - rClip.top,
+                    reinterpret_cast<WORD*>(ddsd.lpSurface),
+                    ddsd.lPitch >> 1,
+                    rLock,
+                    static_cast<WORD>(dwColor),
+                    FALSE);
+            }
+        }
+        DrawLine16(pPoly[nVertices - 1].x - rClip.left,
+            pPoly[nVertices - 1].y - rClip.top,
+            pPoly[0].x - rClip.left,
+            pPoly[0].y - rClip.top,
+            reinterpret_cast<WORD*>(ddsd.lpSurface),
+            ddsd.lPitch >> 1,
+            rLock,
+            static_cast<WORD>(dwColor),
+            FALSE);
+    } else if (nBpp == 24) {
+        DWORD dwColor = (GetBValue(rgbColor) << m_dwBBitShift) |
+                        (GetGValue(rgbColor) << m_dwGBitShift) |
+                        (GetRValue(rgbColor) << m_dwRBitShift);
+
+        if (nVertices != 1) {
+            for (nIndex = 0; nIndex < nVertices - 1; nIndex++) {
+                DrawLine24(pPoly[nIndex].x - rClip.left,
+                    pPoly[nIndex].y - rClip.top,
+                    pPoly[nIndex + 1].x - rClip.left,
+                    pPoly[nIndex + 1].y - rClip.top,
+                    reinterpret_cast<BYTE*>(ddsd.lpSurface),
+                    ddsd.lPitch,
+                    rLock,
+                    dwColor,
+                    FALSE);
+            }
+        }
+        DrawLine24(pPoly[nVertices - 1].x - rClip.left,
+            pPoly[nVertices - 1].y - rClip.top,
+            pPoly[0].x - rClip.left,
+            pPoly[0].y - rClip.top,
+            reinterpret_cast<BYTE*>(ddsd.lpSurface),
+            ddsd.lPitch,
+            rLock,
+            dwColor,
+            FALSE);
+    } else     if (nBpp == 32) {
+        DWORD dwColor = (GetBValue(rgbColor) << m_dwBBitShift) |
+                        (GetGValue(rgbColor) << m_dwGBitShift) |
+                        (GetRValue(rgbColor) << m_dwRBitShift);
+
+        if (nVertices != 1) {
+            for (nIndex = 0; nIndex < nVertices - 1; nIndex++) {
+                DrawLine32(pPoly[nIndex].x - rClip.left,
+                    pPoly[nIndex].y - rClip.top,
+                    pPoly[nIndex + 1].x - rClip.left,
+                    pPoly[nIndex + 1].y - rClip.top,
+                    reinterpret_cast<DWORD*>(ddsd.lpSurface),
+                    ddsd.lPitch >> 2,
+                    rLock,
+                    dwColor,
+                    FALSE);
+            }
+        }
+        DrawLine32(pPoly[nVertices - 1].x - rClip.left,
+            pPoly[nVertices - 1].y - rClip.top,
+            pPoly[0].x - rClip.left,
+            pPoly[0].y - rClip.top,
+            reinterpret_cast<DWORD*>(ddsd.lpSurface),
+            ddsd.lPitch >> 2,
+            rLock,
+            dwColor,
+            FALSE);
+    }
+
+    UnLockSurface(0, ddsd.lpSurface);
+
+    return TRUE;
 }
 
 // #binary-identical
