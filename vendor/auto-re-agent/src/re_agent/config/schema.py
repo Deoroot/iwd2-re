@@ -39,6 +39,11 @@ class LLMConfig:
     temperature: float = 0.0
     variant: str | None = None
     timeout_s: int = 1800
+    # codex provider extras: profile selects a ~/.codex/config.toml profile
+    # (e.g. "ocgo-launch" written by `ocgo launch codex`); reasoning_effort
+    # maps to -c model_reasoning_effort=<minimal|low|medium|high>.
+    profile: str | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass

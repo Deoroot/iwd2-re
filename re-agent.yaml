@@ -19,10 +19,11 @@ project_profile:
   hooks_csv: 'C:\iwd2-re\.ghidra-exports\hooks.csv'
 
 llm:
-  provider: "openai-compat"  # Ollama Cloud via ollama-launch-codex-app local proxy
-  model: "deepseek-v4-pro:cloud"
-  base_url: "http://127.0.0.1:11434/v1"
-  # api_key: not needed — ollama handles auth
+  provider: "openai-compat"  # OpenCode Go sub — direct OpenAI-compatible endpoint (no ocgo/codex/opencode)
+  model: "deepseek-v4-pro"
+  base_url: "https://opencode.ai/zen/go/v1"
+  # api_key via env (never commit it):  $env:RE_AGENT_LLM_API_KEY = "sk-opencode-..."
+  # prev (Ollama Cloud local proxy): model "deepseek-v4-pro:cloud", base_url http://127.0.0.1:11434/v1
   max_tokens: 4096
   temperature: 0.0
   timeout_s: 1800
@@ -41,7 +42,7 @@ parity:
   cache_dir: ".cache/re-agent-parity"
 
 orchestrator:
-  max_review_rounds: 4
+  max_review_rounds: 5
   max_functions_per_class: 10
   objective_verifier_enabled: true
   objective_call_count_tolerance: 3

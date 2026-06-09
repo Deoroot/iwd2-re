@@ -38,6 +38,20 @@ INLINE_RE = re.compile(r"(~?\w+)\s*\(")
 # How far below the address comment to look for the signature line.
 SIG_LOOKAHEAD = 4
 
+# Real IWD2 code lives in this range (matches ghidra-bridge.yaml code_range). A
+# `// 0xADDR` outside it is not a function: small values are struct field offsets
+# (`// 0x10`) and high values are data globals (`// 0x847f6c`). Excluding them
+# kills false entries like 0x10 -> "ResolveActionTarget" or 0x847f6c -> "RGB".
+CODE_MIN = 0x401000
+CODE_MAX = 0x800000
+
+# Control-flow / operator keywords the inline fallback can mis-grab as a function
+# name when a `// 0xADDR` sits above a non-signature line (e.g. `if (` -> "::if").
+CPP_KEYWORDS = frozenset({
+    "if", "while", "for", "switch", "else", "return", "do", "case", "default",
+    "goto", "break", "continue", "sizeof", "new", "delete", "catch", "throw",
+})
+
 
 def _signature_line(lines: list[str], start: int) -> str | None:
     """First non-blank, non-comment line within SIG_LOOKAHEAD of *start*."""
@@ -49,14 +63,17 @@ def _signature_line(lines: list[str], start: int) -> str | None:
     return None
 
 
-def build_map(source_root: Path) -> tuple[dict, list[tuple[str, int, str]]]:
-    """Return ``(address_map, unparsed)`` for the source tree.
+def build_map(source_root: Path) -> tuple[dict, list[tuple[str, int, str]], list[tuple[str, int, str]]]:
+    """Return ``(address_map, unparsed, filtered)`` for the source tree.
 
     *unparsed* lists ``(rel_path, line_no, comment)`` for ``// 0xADDR`` markers
-    whose signature could not be parsed -- useful to gauge coverage.
+    whose signature could not be parsed; *filtered* lists markers rejected as
+    non-functions (out-of-code-range address or keyword name) -- both useful to
+    gauge coverage.
     """
     address_map: dict = {}
     unparsed: list[tuple[str, int, str]] = []
+    filtered: list[tuple[str, int, str]] = []
 
     for path in sorted(source_root.rglob("*")):
         if path.suffix.lower() not in FILE_EXTENSIONS or not path.is_file():
@@ -68,6 +85,12 @@ def build_map(source_root: Path) -> tuple[dict, list[tuple[str, int, str]]]:
         for i, line in enumerate(lines):
             m = ADDR_RE.match(line)
             if not m:
+                continue
+            addr_int = int(m.group(1), 16)
+            # Reject non-function annotations: struct field offsets (// 0x10) and
+            # data globals (// 0x847f6c) fall outside the code range.
+            if not (CODE_MIN <= addr_int <= CODE_MAX):
+                filtered.append((rel, i + 1, line.strip()))
                 continue
             sig = _signature_line(lines, i)
             if sig is None:
@@ -84,7 +107,12 @@ def build_map(source_root: Path) -> tuple[dict, list[tuple[str, int, str]]]:
                     continue
                 cls, func = file_class, im.group(1)
 
-            addr_norm = f"{int(m.group(1), 16):08x}"
+            # Reject control-flow keywords mis-grabbed as a function name.
+            if func in CPP_KEYWORDS:
+                filtered.append((rel, i + 1, line.strip()))
+                continue
+
+            addr_norm = f"{addr_int:08x}"
             address_map[addr_norm] = {
                 "name": func,
                 "class": cls,
@@ -92,7 +120,7 @@ def build_map(source_root: Path) -> tuple[dict, list[tuple[str, int, str]]]:
                 "file": rel,
             }
 
-    return address_map, unparsed
+    return address_map, unparsed, filtered
 
 
 def main() -> int:
@@ -111,16 +139,17 @@ def main() -> int:
         print(f"ERROR: source root not found: {source_root}", file=sys.stderr)
         return 1
 
-    address_map, unparsed = build_map(source_root)
+    address_map, unparsed, filtered = build_map(source_root)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(address_map, indent=2), encoding="utf-8")
 
-    total_markers = len(address_map) + len(unparsed)
+    total_markers = len(address_map) + len(unparsed) + len(filtered)
     print(f"Scanned {source_root}")
     print(f"  // 0xADDR markers: {total_markers}")
     print(f"  mapped:            {len(address_map)}")
+    print(f"  filtered (non-fn): {len(filtered)}")
     print(f"  unparsed:          {len(unparsed)}")
     print(f"Saved {len(address_map)} entries to {out}")
 

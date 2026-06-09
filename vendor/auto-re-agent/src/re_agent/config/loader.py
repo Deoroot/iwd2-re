@@ -74,6 +74,39 @@ def _apply_env_overrides(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _load_dotenv(yaml_path: Path | None) -> None:
+    """Populate os.environ from a .env file (stdlib only, no python-dotenv).
+
+    Looks for ``.env`` next to the config file and in the current directory, so
+    secrets like ``RE_AGENT_LLM_API_KEY`` can live in ``C:\\iwd2-re\\.env``
+    instead of a shell var. Lines are ``KEY=VALUE`` (``#`` comments and blanks
+    skipped, optional ``export`` prefix and surrounding quotes stripped).
+    Already-set environment variables are NOT overwritten, so a real shell var
+    still takes precedence over the file.
+    """
+    candidates: list[Path] = []
+    if yaml_path is not None:
+        candidates.append(yaml_path.resolve().parent / ".env")
+    candidates.append(Path.cwd() / ".env")
+
+    seen: set[Path] = set()
+    for env_path in candidates:
+        if env_path in seen or not env_path.is_file():
+            continue
+        seen.add(env_path)
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            if key.startswith("export "):
+                key = key[len("export "):].strip()
+            val = val.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, val)
+
+
 def _apply_cli_overrides(raw: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
     """Apply CLI overrides using dot-notation keys (e.g., 'llm.model')."""
     for dotted_key, value in overrides.items():
@@ -203,6 +236,10 @@ def load_config(
         default_path = Path("re-agent.yaml")
         if default_path.exists():
             raw = _load_yaml_file(default_path)
+
+    # 1b. Load a .env file (if present) into os.environ first, so RE_AGENT_*
+    #     secrets can live in .env rather than a shell var.
+    _load_dotenv(yaml_path)
 
     # 2. Overlay environment variables.
     raw = _apply_env_overrides(raw)

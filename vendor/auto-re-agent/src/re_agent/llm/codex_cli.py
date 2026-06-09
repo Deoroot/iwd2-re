@@ -18,10 +18,18 @@ class CodexCLIProvider:
         model: str = "gpt-5.4",
         timeout_s: int = 1800,
         codex_bin: str = "codex",
+        profile: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         self._model = model
         self._timeout_s = timeout_s
         self._codex_bin = codex_bin
+        # profile: a ~/.codex/config.toml profile to route through (e.g. the
+        # "ocgo-launch" profile `ocgo launch codex` writes, which points codex
+        # at the local OpenCode Go proxy on 127.0.0.1:3456). reasoning_effort
+        # is passed as a -c override.
+        self._profile = profile
+        self._reasoning_effort = reasoning_effort
         self._conversations: dict[str, list[Message]] = {}
 
     def send(self, messages: list[Message], **kwargs: Any) -> str:
@@ -31,21 +39,24 @@ class CodexCLIProvider:
             out_path = Path(tmp.name)
 
         try:
+            cmd = [
+                self._codex_bin,
+                "exec",
+                "-s",
+                "read-only",
+                "--color",
+                "never",
+                "--skip-git-repo-check",
+                "--output-last-message",
+                str(out_path),
+            ]
+            if self._profile:
+                cmd += ["--profile", self._profile]
+            if self._reasoning_effort:
+                cmd += ["-c", f"model_reasoning_effort={self._reasoning_effort}"]
+            cmd += ["-m", str(model), prompt]
             proc = subprocess.run(
-                [
-                    self._codex_bin,
-                    "exec",
-                    "-s",
-                    "read-only",
-                    "--color",
-                    "never",
-                    "--skip-git-repo-check",
-                    "--output-last-message",
-                    str(out_path),
-                    "-m",
-                    str(model),
-                    prompt,
-                ],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
