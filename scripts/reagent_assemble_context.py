@@ -72,11 +72,16 @@ Recover the C++ body of this function as it appears in IWD2.exe. Rules (in order
    token (`FUN_0089abcd`, `field_0x40`). Missing a name is better than a wrong one.
 5. Invent no behaviour. If a path is unrecoverable, leave it a faithful stub (early
    return / no-op) rather than guessing. Ghidra is the truth.
+6. Write the REAL body -- every statement the decompile shows. NO `// function body`
+   placeholder, NO empty `{}`, and do NOT leak your analysis as code comments. Do NOT
+   fabricate `extern`/forward declarations or prototypes for unresolved `FUN_`/`DAT_`
+   tokens: call them by their raw token and leave them. An unresolved call is the honest
+   gap; a fabricated declaration is a hack (it also defeats the build gate's purpose).
 
-OUTPUT FORMAT (strict): keep any analysis to a few lines, then end your reply with
-the COMPLETE function in exactly ONE ```cpp code block, and that block MUST begin
-with the `// 0xADDR` address marker. Do not put decompile snippets in code blocks --
-only your final C++ goes in a fenced block.
+OUTPUT FORMAT (strict): keep any analysis to a few lines, then end your reply with the
+COMPLETE function -- full body, not a stub -- in exactly ONE ```cpp code block, and that
+block MUST begin with the `// 0xADDR` address marker. Do not put decompile snippets or
+invented declarations in code blocks -- only your final C++ function goes in the fence.
 """
 
 

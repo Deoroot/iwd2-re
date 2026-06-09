@@ -64,6 +64,12 @@ def _is_echo(block: str) -> bool:
     return sum(block.count(t) for t in ECHO_TOKENS) >= 3
 
 
+def _marked_blocks(reply: str, address: int) -> list[str]:
+    """Every fenced block carrying the ``// 0xADDR`` marker, in reply order, stripped."""
+    marker = re.compile(r"//[ \t]*0x0*%X\b" % address, re.IGNORECASE)
+    return [b.strip() for b in CODE_FENCE_RE.findall(reply) if marker.search(b)]
+
+
 def extract_code(reply: str, address: int, require_marker: bool = False) -> str | None:
     """Pull the recovered function out of the model reply.
 
@@ -76,15 +82,112 @@ def extract_code(reply: str, address: int, require_marker: bool = False) -> str 
     ONLY a marked fence (the caller uses that to decide whether to fire the closer turn).
     Returns None when nothing qualifies.
     """
-    blocks = CODE_FENCE_RE.findall(reply)
-    marker = re.compile(r"//[ \t]*0x0*%X\b" % address, re.IGNORECASE)
-    for b in blocks:                       # marker wins: a marked fence is the final answer
-        if marker.search(b):
-            return b.strip()
+    marked = _marked_blocks(reply, address)
+    if marked:                             # marker wins: a marked fence is the final answer
+        return marked[0]
     if require_marker:
         return None
+    blocks = CODE_FENCE_RE.findall(reply)
     clean = [b for b in blocks if not _is_echo(b)]   # markerless: dodge decompile echoes
     return clean[-1].strip() if clean else None
+
+
+# A MARKED block can still be a non-answer. deepseek sometimes emits the // 0xADDR marker
+# and the signature but STUBS the body (`{ // function body }`), or fabricates
+# `extern`/forward declarations for the unresolved FUN_/DAT_ tokens (a hack that violates
+# missing>wrong and turns a compile error into a link error -- both useless). Either way
+# the recovery is empty, so the marker must NOT short-circuit the closer turn.
+HOLLOW_RE = re.compile(
+    r"//\s*(?:function body|implementation(?: goes here)?|body here|your code|"
+    r"fill in|stub|TODO|\.\.\.)\s*$", re.I | re.M)
+FABRICATED_DECL_RE = re.compile(r"\bextern\b[^\n;{]*\b(?:FUN_|DAT_)[0-9a-fA-F]+", re.I)
+
+
+def _bodies(text: str) -> list[str]:
+    """Every brace-balanced body that opens right after a ``)`` -- function definitions.
+
+    A vtable/struct/initializer ``{`` is preceded by a name/``=``, not ``)``, so this
+    isolates real function bodies from the decls deepseek puts around them.
+    """
+    out: list[str] = []
+    i = 0
+    while True:
+        j = text.find("{", i)
+        if j < 0:
+            break
+        k = j - 1
+        while k >= 0 and text[k] in " \t\r\n":
+            k -= 1
+        if k >= 0 and text[k] == ")":          # `... ) {` -- a function body opens here
+            depth, m = 1, j + 1
+            while m < len(text) and depth:
+                depth += (text[m] == "{") - (text[m] == "}")
+                m += 1
+            out.append(text[j + 1:m - 1])
+            i = m
+        else:
+            i = j + 1
+    return out
+
+
+def _is_hollow(block: str) -> bool:
+    """True if the recovered function has no real body (placeholder or empty braces)."""
+    if HOLLOW_RE.search(block):
+        return True
+    no_comments = re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", "", block, flags=re.S))
+    bodies = _bodies(no_comments)
+    if not bodies:
+        return False                           # no function body found -> not this signal
+    biggest = max(bodies, key=len).strip()     # the recovered fn is the largest body
+    return ";" not in biggest and not re.search(
+        r"\b(return|if|for|while|switch|goto)\b", biggest)
+
+
+def _needs_closer(block: str | None) -> str | None:
+    """Why a marked block still needs a closer turn (None = it is a real answer)."""
+    if block is None:
+        return "no marked block"
+    if _is_hollow(block):
+        return "hollow body (stub/placeholder)"
+    if FABRICATED_DECL_RE.search(block):
+        return "fabricated extern decls for FUN_/DAT_"
+    return None
+
+
+def _closer_prompt(address: int) -> str:
+    return (f"Stop analysing. Output ONLY the final recovered function now: exactly one "
+            f"```cpp code block whose first line is the `// 0x{address:X}` marker, "
+            f"idiomatic C++ matching src/ (real this->/CClass::). Write the REAL body -- "
+            f"every statement the decompile shows, NOT a `// function body` placeholder or "
+            f"empty `{{}}`. Leave unresolved FUN_/DAT_ calls as their raw token; do NOT "
+            f"invent extern/forward declarations for them. No prose before or after.")
+
+
+def recover_with_closer(llm, cid, address: int, reply: str, out_dir: Path, tag: str) -> str | None:
+    """A real (marked, non-hollow, no-fabricated-decl) function from *reply*, else a closer.
+
+    deepseek (no tool channel) reasons in-content: reply 1 is often pure analysis with no
+    final block, OR a marked block whose body is a stub / invented externs. The thinking
+    is already in context, so ONE "closer" turn demanding the marked block ALONE plays to
+    the model's grain instead of fighting its ramble. Prefers the closer's block, then any
+    clean block; returns None only if nothing extractable surfaced at all.
+    """
+    marked = _marked_blocks(reply, address)
+    for b in marked:                           # a clean marked block already IS the answer
+        if _needs_closer(b) is None:
+            return b
+    why = _needs_closer(marked[0] if marked else None)
+    print(f"  {why} -> closer turn ({tag})...")
+    reply2 = llm.resume(cid, _closer_prompt(address))
+    (out_dir / f"{address:08x}.{tag}.txt").write_text(reply2, encoding="utf-8")
+    cands = [c for c in (extract_code(reply2, address, require_marker=True),
+                         extract_code(reply2, address),
+                         extract_code(reply, address, require_marker=True),
+                         extract_code(reply, address)) if c]
+    for c in cands:                            # prefer a clean block (the closer's first)
+        if _needs_closer(c) is None:
+            return c
+    return cands[0] if cands else None         # best-effort; let the build gate judge it
 
 
 def make_llm():
@@ -143,31 +246,23 @@ def main() -> int:
         "You are an expert reverse engineer recovering IWD2.exe into idiomatic, "
         "buildable C++ that matches the existing src/ exactly. Be terse: minimal "
         "analysis, then the final function in ONE ```cpp block beginning with its "
-        "// 0xADDR marker. Never put decompile snippets in code fences.")
+        "// 0xADDR marker, with its REAL body -- every statement the decompile shows, "
+        "never a placeholder or empty stub. Never put decompile snippets in code fences, "
+        "and never fabricate extern/forward declarations for unresolved FUN_/DAT_ tokens "
+        "(leave the raw call -- an unresolved call is the honest gap, a fake decl is a hack).")
     print("[2/4] deepseek first pass...")
     reply = llm.resume(cid, bundle)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / f"{addr:08x}.reply.txt").write_text(reply, encoding="utf-8")
-    candidate_code = extract_code(reply, addr, require_marker=True)
 
-    # deepseek reasons in-content and often runs out of tokens mid-thought before
-    # emitting a clean final block -- the reply holds only quoted decompile/header
-    # snippets, none carrying the // 0xADDR marker a real final answer must. When that
-    # happens, fire a "closer" turn: the thinking is already in context, so demanding
-    # the marked block ALONE plays to the model's grain instead of fighting its ramble.
+    # A real first pass is a MARKED, non-hollow block with no fabricated decls. deepseek
+    # (reasons in-content) often gives only analysis, or a marker over a stub / extern
+    # hack; recover_with_closer fires ONE closer turn to converge it -- the thinking is
+    # already in context, so playing to its grain beats fighting the ramble.
+    candidate_code = recover_with_closer(llm, cid, addr, reply, args.out_dir, "reply2")
     if candidate_code is None:
-        print("  no marked final block in reply -> closer turn (final code only)...")
-        closer = (f"Stop analysing. Output ONLY the final recovered function now: "
-                  f"exactly one ```cpp code block, its first line the `// 0x{addr:X}` "
-                  f"marker, idiomatic C++ matching src/ (real this->/CClass::, no "
-                  f"FUN_/DAT_/param_N/undefined). No prose before or after the block.")
-        reply2 = llm.resume(cid, closer)
-        (args.out_dir / f"{addr:08x}.reply2.txt").write_text(reply2, encoding="utf-8")
-        candidate_code = (extract_code(reply2, addr, require_marker=True)
-                          or extract_code(reply2, addr) or extract_code(reply, addr))
-    if candidate_code is None:
-        print("  WARNING: still no clean block -- emitting raw reply for inspection")
+        print("  WARNING: no extractable block anywhere -- emitting raw reply for inspection")
         candidate_code = reply.strip()
 
     candidate = args.out_dir / f"{addr:08x}.cpp"
@@ -187,12 +282,13 @@ def main() -> int:
                 break
             if build_verdict == "BUILD_FAIL" and r < rounds:
                 err = "\n".join(out.strip().splitlines()[-25:])
-                reply = llm.resume(cid, f"That did not compile. Fix it; return only the "
-                                        f"corrected function in one ```cpp block.\n\n"
-                                        f"Build output:\n{err}")
-                fixed = extract_code(reply, addr)
+                reply = llm.resume(cid, f"That did not compile. Fix it and return ONLY the "
+                                        f"corrected function in one ```cpp block whose first "
+                                        f"line is the `// 0x{addr:X}` marker -- real body, no "
+                                        f"invented extern/forward decls.\n\nBuild output:\n{err}")
+                fixed = recover_with_closer(llm, cid, addr, reply, args.out_dir, f"fix{r}")
                 if fixed is None:
-                    print("  fix round produced no clean block; keeping previous candidate")
+                    print("  fix round produced no usable block; keeping previous candidate")
                     break
                 candidate_code = fixed
                 candidate.write_text(candidate_code + "\n", encoding="utf-8")
