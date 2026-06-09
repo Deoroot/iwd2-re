@@ -119,7 +119,7 @@ def src_file_for(addr: int, map_path: Path) -> str | None:
 # ---- worktree -------------------------------------------------------------
 def sync_worktree(wt: Path) -> None:
     """Create the detached scratch worktree (once) or reset its src/ to HEAD."""
-    head, _ = run(["git", "-C", str(REPO), "rev-parse", "HEAD"])
+    _, head = run(["git", "-C", str(REPO), "rev-parse", "HEAD"])
     head = head.strip()
     if not (wt / ".git").exists():
         rc, out = run(["git", "-C", str(REPO), "worktree", "add", "--detach", str(wt), head])
