@@ -19,10 +19,10 @@ project_profile:
   hooks_csv: 'C:\iwd2-re\.ghidra-exports\hooks.csv'
 
 llm:
-  provider: "claude-cli"   # Claude Code CLI (subscription, no API key)
-  model: "sonnet:medium"   # <model>[:<effort>] -> claude --model sonnet --effort medium
-  # api_key: null  # Set via RE_AGENT_LLM_API_KEY env var
-  # base_url: null  # Set via RE_AGENT_LLM_BASE_URL env var
+  provider: "openai-compat"  # Ollama Cloud via ollama-launch-codex-app local proxy
+  model: "deepseek-v4-pro:cloud"
+  base_url: "http://127.0.0.1:11434/v1"
+  # api_key: not needed — ollama handles auth
   max_tokens: 4096
   temperature: 0.0
   timeout_s: 1800
