@@ -5,6 +5,16 @@
 #include "CVidMode.h"
 #include "CVideo3d.h"
 
+#include <new>
+#include <string.h>
+
+// 0xA07B20  Shared scratch the edge tables are built into. CVidPolyEdgeCache copies
+// in and out of this fixed-address buffer, so cached edges' links stay valid.
+static _EdgeDescription g_aEdgeScratch[CVPOLY_MAX_VERTICIES];
+
+// 0xA09F20  Global LRU cache of recently built edge tables.
+static CVidPolyEdgeCache g_edgeCache;
+
 // 0x85EAA4
 const BYTE CVidPoly::m_aDitherMask[] = {
     // clang-format off
@@ -32,8 +42,8 @@ CVidPoly::CVidPoly()
 {
     field_0 = 0;
     m_pVertices = NULL;
-    field_10 = 0;
-    field_C = 0;
+    m_pAET = NULL;
+    m_pET = NULL;
     m_nVertices = -1;
     m_pDrawHLineFunction = &CVidPoly::DrawHLine16;
 }
@@ -287,11 +297,145 @@ BOOL CVidPoly::FillConvexPoly(WORD* pSurface, LONG lPitch, const CRect& rClipRec
 }
 
 // 0x7C13A0
-BOOL CVidPoly::FillPoly(WORD* pSurface, LONG lPitch, const CRect& rClip, DWORD dwColor, DWORD dwFlags, const CPoint& ptRef)
+BOOL CVidPoly::FillPoly(WORD* pSurface, LONG lPitch, const CRect& rClipRect, DWORD dwColor, DWORD dwFlags, const CPoint& ptRef)
 {
-    // TODO: Incomplete.
+    CPoint ptRefAdjusted;
+    CRect rClip;
 
-    return FALSE;
+    ptRefAdjusted.x = ptRef.x;
+    ptRefAdjusted.y = ptRef.y;
+
+    rClip.left = rClipRect.left;
+    rClip.top = rClipRect.top;
+    rClip.right = rClipRect.right - 1;
+    rClip.bottom = rClipRect.bottom - 1;
+
+    LONG lScanlinePitch = lPitch;
+
+    if (m_nVertices < 3) {
+        return FALSE;
+    }
+
+    // __FILE__: C:\Projects\Icewind2\src\chitin\ChVidPoly.cpp
+    // __LINE__: 546
+    UTIL_ASSERT_MSG(m_nVertices < CVPOLY_MAX_VERTICIES, "Excessive poly vertex count");
+
+    if (m_nVertices >= CVPOLY_MAX_VERTICIES) {
+        return FALSE;
+    }
+
+    SetHLineFunction(dwFlags);
+
+    // Build the edge table, reusing a cached one when possible (flag 0x2 forces a rebuild).
+    if ((dwFlags & 0x2) == 0) {
+        if (!g_edgeCache.FindCached(this)) {
+            BuildEdgeTable(g_aEdgeScratch);
+            g_edgeCache.Cache(this);
+        }
+    } else {
+        BuildEdgeTable(g_aEdgeScratch);
+    }
+
+    m_pAET = NULL;
+
+    SHORT nScanline = static_cast<SHORT>(m_pET->nYMin);
+
+    if ((dwFlags & 0x8) != 0) {
+        pSurface = reinterpret_cast<WORD*>(reinterpret_cast<BYTE*>(pSurface) + lPitch * (rClip.bottom - nScanline));
+        lScanlinePitch = -lPitch;
+    } else {
+        pSurface = reinterpret_cast<WORD*>(reinterpret_cast<BYTE*>(pSurface) + lPitch * (nScanline - rClip.top));
+    }
+
+    ptRefAdjusted.y += nScanline - rClip.top;
+
+    while (m_pET != NULL || m_pAET != NULL) {
+        // Move every edge that opens on this scanline from the ET into the AET,
+        // keeping the AET sorted by current X.
+        _EdgeDescription* pEdge = m_pET;
+        _EdgeDescription* pActive = m_pAET;
+        _EdgeDescription** ppInsert = &m_pAET;
+        if (pEdge != NULL) {
+            do {
+                if (pEdge->nYMin != static_cast<INT>(nScanline)) {
+                    break;
+                }
+
+                _EdgeDescription* pScan = pActive;
+                while ((pActive = pScan,
+                           pActive != NULL && pActive->nX < static_cast<INT>(static_cast<SHORT>(pEdge->nX)))) {
+                    ppInsert = &pActive->pNext;
+                    pScan = pActive->pNext;
+                }
+
+                *ppInsert = pEdge;
+                m_pET = m_pET->pNext;
+                pEdge->pNext = pActive;
+                ppInsert = &pEdge->pNext;
+                pEdge = m_pET;
+            } while (pEdge != NULL);
+        }
+
+        // Draw the spans between consecutive AET edge pairs, clipped to rClip.
+        if (rClip.top <= nScanline && nScanline <= rClip.bottom) {
+            _EdgeDescription* pSpan = m_pAET;
+            while (pSpan != NULL) {
+                INT xMin;
+                if (rClip.left < pSpan->nX) {
+                    xMin = pSpan->nX - rClip.left;
+                } else {
+                    xMin = 0;
+                }
+
+                _EdgeDescription* pSpanEnd = pSpan->pNext;
+                INT xMax = pSpanEnd->nX;
+                if (xMax < rClip.right) {
+                    xMax = xMax - rClip.left;
+                } else {
+                    xMax = rClip.right - rClip.left;
+                }
+
+                (this->*m_pDrawHLineFunction)(pSurface, xMin, xMax, dwColor, rClip, ptRefAdjusted);
+
+                pSpan = pSpanEnd->pNext;
+            }
+        }
+
+        AdvanceActiveEdges();
+
+        // Re-sort the AET by X; advancing the edges may have reordered them.
+        if (m_pAET != NULL) {
+            bool bSwapped;
+            do {
+                _EdgeDescription* pCur = m_pAET;
+                _EdgeDescription** ppLink = &m_pAET;
+                bSwapped = false;
+                _EdgeDescription* pNext = pCur->pNext;
+                if (pNext == NULL) {
+                    break;
+                }
+
+                do {
+                    if (pNext->nX < pCur->nX) {
+                        *ppLink = pNext;
+                        bSwapped = true;
+                        pCur->pNext = pNext->pNext;
+                        pNext->pNext = pCur;
+                    }
+
+                    ppLink = &(*ppLink)->pNext;
+                    pCur = *ppLink;
+                    pNext = pCur->pNext;
+                } while (pNext != NULL);
+            } while (bSwapped);
+        }
+
+        nScanline++;
+        ptRefAdjusted.y++;
+        pSurface = reinterpret_cast<WORD*>(reinterpret_cast<BYTE*>(pSurface) + lScanlinePitch);
+    }
+
+    return TRUE;
 }
 
 // 0x7C15F0
@@ -360,6 +504,111 @@ void CVidPoly::SetPoly(CVIDPOLY_VERTEX* pVertices, WORD nVertices)
 {
     m_pVertices = pVertices;
     m_nVertices = nVertices;
+}
+
+// 0x7C18F0
+void CVidPoly::AdvanceActiveEdges()
+{
+    _EdgeDescription* pEdge = m_pAET;
+    _EdgeDescription* pPrev = NULL;
+
+    while (pEdge != NULL) {
+        INT nCount = pEdge->nCount;
+        pEdge->nCount = nCount - 1;
+
+        // Active edges survive one extra scanline once the edge table is exhausted.
+        INT nExpire = (m_pET == NULL) ? -1 : 0;
+        if (nCount - 1 == nExpire) {
+            if (pPrev == NULL) {
+                m_pAET = pEdge->pNext;
+            } else {
+                pPrev->pNext = pEdge->pNext;
+            }
+        } else {
+            pEdge->nX += pEdge->nWholeStep;
+            INT nErrTerm = pEdge->nErrTerm;
+            pEdge->nErrTerm = nErrTerm + pEdge->nErrAdjUp;
+            pPrev = pEdge;
+            if (pEdge->nErrTerm >= 0) {
+                pEdge->nX += pEdge->nXDir;
+                pEdge->nErrTerm -= pEdge->nDy;
+            }
+        }
+
+        pEdge = pEdge->pNext;
+    }
+}
+
+// 0x7C1970
+void CVidPoly::BuildEdgeTable(_EdgeDescription* pEdges)
+{
+    INT nVertices = m_nVertices;
+
+    m_pET = NULL;
+
+    INT nIndex = 0;
+    if (nVertices <= 0) {
+        return;
+    }
+
+    do {
+        INT nNext = nIndex + 1;
+        INT nNextIndex = static_cast<SHORT>(nNext % nVertices);
+
+        WORD yCur = m_pVertices[nIndex].y;
+        WORD yNext = m_pVertices[nNextIndex].y;
+
+        INT nXStart;
+        INT nXEnd;
+        INT nYMin;
+        INT nYMax;
+        if (yCur < yNext) {
+            nXStart = m_pVertices[nIndex].x;
+            nXEnd = m_pVertices[nNextIndex].x;
+            nYMax = yNext;
+            nYMin = yCur;
+        } else {
+            nXStart = m_pVertices[nNextIndex].x;
+            nXEnd = m_pVertices[nIndex].x;
+            nYMax = yCur;
+            nYMin = yNext;
+        }
+
+        INT nDy = nYMax - nYMin;
+        if (nDy != 0) {
+            INT nDx = nXEnd - nXStart;
+            INT nXDir = (nDx >= 0) ? 1 : -1;
+            INT nAbsDx = (nDx < 0) ? -nDx : nDx;
+
+            pEdges->nErrTerm = 1 - nDy;
+            pEdges->nXDir = nXDir;
+            pEdges->pNext = NULL;
+            pEdges->nX = nXStart;
+            pEdges->nYMin = nYMin;
+            pEdges->nCount = nDy;
+            pEdges->nDy = nDy;
+            pEdges->nWholeStep = (nAbsDx / nDy) * nXDir;
+            pEdges->nErrAdjUp = nAbsDx % nDy;
+
+            // Insert into the edge table, sorted by nYMin then nX.
+            _EdgeDescription* pScan = m_pET;
+            _EdgeDescription** ppLink = &m_pET;
+            _EdgeDescription* pCur;
+            while ((pCur = pScan) != NULL
+                && pCur->nYMin <= nYMin
+                && (pCur->nYMin != nYMin || pCur->nX <= nXStart)) {
+                ppLink = &pCur->pNext;
+                pScan = pCur->pNext;
+            }
+            *ppLink = pEdges;
+            pEdges->pNext = pCur;
+
+            pEdges++;
+        }
+
+        nIndex = nNext;
+        nVertices = m_nVertices;
+    } while (nIndex < nVertices);
 }
 
 // 0x7C1AA0
@@ -517,6 +766,95 @@ void CVidPoly::SetHLineFunction(DWORD dwFlags)
             }
         }
         break;
+    }
+}
+
+// Constructed inline by CVidPolyEdgeCache::Cache (operator new at 0x7C1F1B).
+CVidPolyEdgeCacheEntry::CVidPolyEdgeCacheEntry()
+{
+    m_nCount = 0;
+    m_pET = NULL;
+    m_pEdges = NULL;
+    m_pVertices = NULL;
+}
+
+// 0x7C1D40
+CVidPolyEdgeCacheEntry::~CVidPolyEdgeCacheEntry()
+{
+    if (m_pEdges != NULL) {
+        ::operator delete(m_pEdges);
+    }
+}
+
+// 0x7C1DE0
+BOOL CVidPolyEdgeCache::FindCached(CVidPoly* pPoly)
+{
+    m_cs.Lock();
+
+    POSITION pos = GetHeadPosition();
+    while (pos != NULL) {
+        POSITION posEntry = pos;
+        CVidPolyEdgeCacheEntry* pEntry = GetNext(pos);
+        if (pEntry != NULL
+            && pEntry->m_pVertices == pPoly->m_pVertices
+            && pEntry->m_nCount == pPoly->m_nVertices) {
+            // Hit: restore the cached edge table into the shared scratch buffer.
+            if (pEntry->m_pEdges != NULL && pEntry->m_pET != NULL && pEntry->m_pVertices != NULL) {
+                pPoly->m_pET = pEntry->m_pET;
+                memcpy(g_aEdgeScratch, pEntry->m_pEdges, pEntry->m_nCount * sizeof(_EdgeDescription));
+                pPoly->m_nVertices = pEntry->m_nCount;
+                pPoly->m_pVertices = pEntry->m_pVertices;
+            }
+
+            // Promote the entry to most-recently-used.
+            RemoveAt(posEntry);
+            AddHead(pEntry);
+
+            m_cs.Unlock();
+            return TRUE;
+        }
+    }
+
+    m_cs.Unlock();
+    return FALSE;
+}
+
+// 0x7C1EC0
+void CVidPolyEdgeCache::Cache(CVidPoly* pPoly)
+{
+    m_cs.Lock();
+
+    // The original releases the lock from a __try/__finally; an RAII guard gives the
+    // same "unlock on every exit" under the project's C++ exception model.
+    struct Unlocker {
+        CCriticalSection* pcs;
+        ~Unlocker() { pcs->Unlock(); }
+    } unlocker = { &m_cs };
+
+    // Evict least-recently-used entries while the cache is full.
+    while (GetCount() >= 16) {
+        CVidPolyEdgeCacheEntry* pOldest = RemoveTail();
+        if (pOldest != NULL) {
+            delete pOldest;
+        }
+    }
+
+    if (pPoly != NULL) {
+        CVidPolyEdgeCacheEntry* pEntry = ::new (std::nothrow) CVidPolyEdgeCacheEntry;
+        if (pEntry != NULL) {
+            if (pPoly->m_nVertices != 0) {
+                pEntry->m_pEdges = static_cast<_EdgeDescription*>(
+                    ::operator new(pPoly->m_nVertices * sizeof(_EdgeDescription), std::nothrow));
+                if (pEntry->m_pEdges != NULL) {
+                    memcpy(pEntry->m_pEdges, g_aEdgeScratch, pPoly->m_nVertices * sizeof(_EdgeDescription));
+                    pEntry->m_pET = pPoly->m_pET;
+                    pEntry->m_nCount = pPoly->m_nVertices;
+                    pEntry->m_pVertices = pPoly->m_pVertices;
+                }
+            }
+
+            AddTail(pEntry);
+        }
     }
 }
 
