@@ -72,7 +72,10 @@ Recover the C++ body of this function as it appears in IWD2.exe. Rules (in order
 5. Invent no behaviour. If a path is unrecoverable, leave it a faithful stub (early
    return / no-op) rather than guessing. Ghidra is the truth.
 
-Return only the function (its `// 0xADDR` marker + signature + body).
+OUTPUT FORMAT (strict): keep any analysis to a few lines, then end your reply with
+the COMPLETE function in exactly ONE ```cpp code block, and that block MUST begin
+with the `// 0xADDR` address marker. Do not put decompile snippets in code blocks --
+only your final C++ goes in a fenced block.
 """
 
 

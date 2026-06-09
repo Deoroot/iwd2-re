@@ -24,7 +24,7 @@ llm:
   base_url: "https://opencode.ai/zen/go/v1"
   # api_key via env (never commit it):  $env:RE_AGENT_LLM_API_KEY = "sk-opencode-..."
   # prev (Ollama Cloud local proxy): model "deepseek-v4-pro:cloud", base_url http://127.0.0.1:11434/v1
-  max_tokens: 4096
+  max_tokens: 16384   # deepseek-v4-pro reasons in the content field -> needs room for thinking + the final code, else the reply truncates mid-thought before emitting code
   temperature: 0.0
   timeout_s: 1800
 

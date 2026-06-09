@@ -39,6 +39,12 @@ PYTHON = sys.executable
 
 CODE_FENCE_RE = re.compile(r"```(?:cpp|c\+\+|c)?\s*\n(.*?)```", re.S)
 
+# Decompiler artefacts: a fence full of these is an ECHO of the Ghidra decompile the
+# model quoted while reasoning, NOT its recovered C++. We reject those -- deepseek
+# (no tool channel) reasons in-content and litters the reply with such snippets.
+ECHO_TOKENS = ("FUN_0", "DAT_0", "param_1", "param_2", "undefined", "uVar", "iVar",
+               "CONCAT", "ExceptionList", "local_", "LAB_0", "in_EAX", "extraout_")
+
 
 def run(cmd: list[str]) -> tuple[int, str]:
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -53,22 +59,38 @@ def assemble(address: str) -> str:
     return out
 
 
-def extract_code(reply: str, address: int) -> str:
-    """Pull the function body out of the model reply (fenced block or marker span)."""
+def _is_echo(block: str) -> bool:
+    """A fence dominated by decompiler artefacts = quoted decompile, not recovered C++."""
+    return sum(block.count(t) for t in ECHO_TOKENS) >= 3
+
+
+def extract_code(reply: str, address: int, require_marker: bool = False) -> str | None:
+    """Pull the recovered function out of the model reply.
+
+    The signature of a real FINAL answer (vs the decompile/header snippets deepseek
+    quotes mid-reasoning) is the ``// 0xADDR`` marker the instructions demand. A marked
+    fence WINS outright -- even if it still holds unresolved ``FUN_``/``DAT_`` tokens,
+    which a faithful first pass legitimately leaves in (instruction 4). The echo filter
+    only guards the markerless *best-effort* path, so a quoted decompile is not mistaken
+    for the answer when the model never marked one. With ``require_marker`` we accept
+    ONLY a marked fence (the caller uses that to decide whether to fire the closer turn).
+    Returns None when nothing qualifies.
+    """
     blocks = CODE_FENCE_RE.findall(reply)
-    if blocks:
-        # Prefer a block that carries the address marker, else the longest.
-        for b in blocks:
-            if re.search(r"//[ \t]*0x0*%X\b" % address, b, re.IGNORECASE):
-                return b.strip()
-        return max(blocks, key=len).strip()
-    return reply.strip()
+    marker = re.compile(r"//[ \t]*0x0*%X\b" % address, re.IGNORECASE)
+    for b in blocks:                       # marker wins: a marked fence is the final answer
+        if marker.search(b):
+            return b.strip()
+    if require_marker:
+        return None
+    clean = [b for b in blocks if not _is_echo(b)]   # markerless: dodge decompile echoes
+    return clean[-1].strip() if clean else None
 
 
 def make_llm():
     from re_agent.config.loader import load_config
     from re_agent.llm.openai_compat import OpenAIProvider
-    cfg = load_config(str(CONFIG))
+    cfg = load_config(CONFIG)
     llm = OpenAIProvider(
         api_key=cfg.llm.api_key, model=cfg.llm.model, base_url=cfg.llm.base_url,
         max_tokens=cfg.llm.max_tokens, temperature=cfg.llm.temperature,
@@ -119,12 +141,35 @@ def main() -> int:
     rounds = args.rounds if args.rounds is not None else cfg_rounds
     cid = llm.new_conversation(
         "You are an expert reverse engineer recovering IWD2.exe into idiomatic, "
-        "buildable C++ that matches the existing src/ exactly. Output only code.")
+        "buildable C++ that matches the existing src/ exactly. Be terse: minimal "
+        "analysis, then the final function in ONE ```cpp block beginning with its "
+        "// 0xADDR marker. Never put decompile snippets in code fences.")
     print("[2/4] deepseek first pass...")
     reply = llm.resume(cid, bundle)
-    candidate_code = extract_code(reply, addr)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    (args.out_dir / f"{addr:08x}.reply.txt").write_text(reply, encoding="utf-8")
+    candidate_code = extract_code(reply, addr, require_marker=True)
+
+    # deepseek reasons in-content and often runs out of tokens mid-thought before
+    # emitting a clean final block -- the reply holds only quoted decompile/header
+    # snippets, none carrying the // 0xADDR marker a real final answer must. When that
+    # happens, fire a "closer" turn: the thinking is already in context, so demanding
+    # the marked block ALONE plays to the model's grain instead of fighting its ramble.
+    if candidate_code is None:
+        print("  no marked final block in reply -> closer turn (final code only)...")
+        closer = (f"Stop analysing. Output ONLY the final recovered function now: "
+                  f"exactly one ```cpp code block, its first line the `// 0x{addr:X}` "
+                  f"marker, idiomatic C++ matching src/ (real this->/CClass::, no "
+                  f"FUN_/DAT_/param_N/undefined). No prose before or after the block.")
+        reply2 = llm.resume(cid, closer)
+        (args.out_dir / f"{addr:08x}.reply2.txt").write_text(reply2, encoding="utf-8")
+        candidate_code = (extract_code(reply2, addr, require_marker=True)
+                          or extract_code(reply2, addr) or extract_code(reply, addr))
+    if candidate_code is None:
+        print("  WARNING: still no clean block -- emitting raw reply for inspection")
+        candidate_code = reply.strip()
+
     candidate = args.out_dir / f"{addr:08x}.cpp"
     candidate.write_text(candidate_code + "\n", encoding="utf-8")
     print(f"  candidate -> {candidate} ({len(candidate_code)} chars)")
@@ -143,8 +188,13 @@ def main() -> int:
             if build_verdict == "BUILD_FAIL" and r < rounds:
                 err = "\n".join(out.strip().splitlines()[-25:])
                 reply = llm.resume(cid, f"That did not compile. Fix it; return only the "
-                                        f"corrected function.\n\nBuild output:\n{err}")
-                candidate_code = extract_code(reply, addr)
+                                        f"corrected function in one ```cpp block.\n\n"
+                                        f"Build output:\n{err}")
+                fixed = extract_code(reply, addr)
+                if fixed is None:
+                    print("  fix round produced no clean block; keeping previous candidate")
+                    break
+                candidate_code = fixed
                 candidate.write_text(candidate_code + "\n", encoding="utf-8")
             else:
                 break
