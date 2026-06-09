@@ -4,6 +4,7 @@
 #include "CUtil.h"
 #include "CVidMode.h"
 #include "CVideo3d.h"
+#include "CWarp.h"
 
 #include <new>
 #include <string.h>
@@ -859,15 +860,73 @@ void CVidPolyEdgeCache::Cache(CVidPoly* pPoly)
 }
 
 // 0x7C1FD0
+// Shaded span: every pixel of the fill colour is modulated by the brightness of the
+// pixel already on the surface, giving the translucent highlight overlay. The original
+// delegates the per-pixel maths to two CVidMode helpers reached through the active
+// engine's video mode — a weighted luminance of the destination pixel (0x79AD90) and a
+// per-channel scale of the fill colour by that luminance (0x79AD20); both are inlined
+// here against CVidMode's RGB masks/shifts.
 void CVidPoly::DrawHLineShaded16(void* pSurface, int xMin, int xMax, DWORD dwColor, const CRect& rSurface, const CPoint& ptRef)
 {
-    // TODO: Incomplete.
+    CWarp* pActiveEngine = g_pChitin->pActiveEngine;
+    CVidMode* pVidMode = (pActiveEngine != NULL) ? pActiveEngine->pVidMode : NULL;
+
+    int width = xMax - xMin + 1;
+    if (width > 0) {
+        WORD color16 = static_cast<WORD>(dwColor);
+        unsigned short* pSurface16 = reinterpret_cast<unsigned short*>(pSurface) + xMin;
+
+        for (int x = 0; x < width; x++) {
+            WORD dst = *pSurface16;
+
+            // 0x79AD90: weighted destination luminance (green doubled).
+            DWORD luminance =
+                  (((pVidMode->m_dwBBitMask & dst) >> pVidMode->m_dwBBitShift) << pVidMode->field_CA)
+                + (((pVidMode->m_dwGBitMask & dst) >> pVidMode->m_dwGBitShift) << pVidMode->field_C6) * 2
+                + (((pVidMode->m_dwRBitMask & dst) >> pVidMode->m_dwRBitShift) << pVidMode->field_C2);
+            DWORD scale = luminance >> 2;
+
+            // 0x79AD20: scale each channel of the fill colour by scale / 256.
+            *pSurface16 = static_cast<unsigned short>(
+                  (((((pVidMode->m_dwRBitMask & color16) >> pVidMode->m_dwRBitShift) * scale) >> 8) << pVidMode->m_dwRBitShift)
+                | (((((pVidMode->m_dwGBitMask & color16) >> pVidMode->m_dwGBitShift) * scale) >> 8) << pVidMode->m_dwGBitShift)
+                | (((((pVidMode->m_dwBBitMask & color16) >> pVidMode->m_dwBBitShift) * scale) >> 8) << pVidMode->m_dwBBitShift));
+
+            pSurface16++;
+        }
+    }
 }
 
 // 0x7C2040
+// Right-to-left twin of DrawHLineShaded16 (mirror FX); same destination-luminance
+// modulation, addressed from rSurface.Width() - xMin downwards.
 void CVidPoly::DrawHLineShadedMirrored16(void* pSurface, int xMin, int xMax, DWORD dwColor, const CRect& rSurface, const CPoint& ptRef)
 {
-    // TODO: Incomplete.
+    CWarp* pActiveEngine = g_pChitin->pActiveEngine;
+    CVidMode* pVidMode = (pActiveEngine != NULL) ? pActiveEngine->pVidMode : NULL;
+
+    int width = xMax - xMin + 1;
+    if (width > 0) {
+        WORD color16 = static_cast<WORD>(dwColor);
+        unsigned short* pSurface16 = reinterpret_cast<unsigned short*>(pSurface) + (rSurface.Width() - xMin);
+
+        for (int x = 0; x < width; x++) {
+            WORD dst = *pSurface16;
+
+            DWORD luminance =
+                  (((pVidMode->m_dwBBitMask & dst) >> pVidMode->m_dwBBitShift) << pVidMode->field_CA)
+                + (((pVidMode->m_dwGBitMask & dst) >> pVidMode->m_dwGBitShift) << pVidMode->field_C6) * 2
+                + (((pVidMode->m_dwRBitMask & dst) >> pVidMode->m_dwRBitShift) << pVidMode->field_C2);
+            DWORD scale = luminance >> 2;
+
+            *pSurface16 = static_cast<unsigned short>(
+                  (((((pVidMode->m_dwRBitMask & color16) >> pVidMode->m_dwRBitShift) * scale) >> 8) << pVidMode->m_dwRBitShift)
+                | (((((pVidMode->m_dwGBitMask & color16) >> pVidMode->m_dwGBitShift) * scale) >> 8) << pVidMode->m_dwGBitShift)
+                | (((((pVidMode->m_dwBBitMask & color16) >> pVidMode->m_dwBBitShift) * scale) >> 8) << pVidMode->m_dwBBitShift));
+
+            pSurface16--;
+        }
+    }
 }
 
 // 0x7D6970
