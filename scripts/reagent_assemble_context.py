@@ -43,6 +43,7 @@ from reagent_resolve_symbols import (  # noqa: E402
 )
 from reagent_ids_constants import load_ids, annotate as ids_annotate  # noqa: E402
 from reagent_bg2_pdb import format_block as bg2_block  # noqa: E402
+from reagent_file_formats import annotate as ff_annotate  # noqa: E402
 
 REPO = Path(r"C:\iwd2-re")
 EXPORTS = REPO / ".ghidra-exports"
@@ -135,6 +136,8 @@ def build(address: int, args) -> str:
     if args.ids_dir.is_dir():
         ids_blk, _n = ids_annotate(rewritten, load_ids(args.ids_dir), args.max_symbols)
 
+    ff_blk, _ff = ff_annotate(rewritten)   # on-disk layouts for any 4CC the fn parses
+
     rel = None
     raw_map = json.loads(args.map.read_text(encoding="utf-8"))
     info = raw_map.get(f"{address:08x}")
@@ -153,6 +156,8 @@ def build(address: int, args) -> str:
         parts += ["## Class layout (BG2EE PDB)", "```", bg2, "```", ""]
     if ids_blk:
         parts += ["## Engine constants (IDS candidates)", "```", ids_blk, "```", ""]
+    if ff_blk:
+        parts += ["## On-disk file formats (IESDP, IWD2 version)", "```", ff_blk, "```", ""]
     if header:
         parts += [f"## Existing header ({Path(rel).stem}.h)", "```cpp", header.strip(), "```", ""]
     parts += [INSTRUCTIONS]
