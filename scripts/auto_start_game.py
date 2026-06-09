@@ -55,6 +55,7 @@ def main() -> int:
     ap.add_argument("--party", default="Lady's Lament", help="party index or Party.ini name for --new-game")
     ap.add_argument("--timeout", type=float, default=120.0, help="seconds to wait for world activation")
     ap.add_argument("--no-wait", action="store_true", help="launch and return without waiting for the result")
+    ap.add_argument("--exe", default=str(EXE), help="iwd2-re.exe to launch (default: build/Debug; lets the scratch build+smoke gate point at an isolated exe)")
     args = ap.parse_args()
 
     if args.no_launch:
@@ -79,7 +80,7 @@ def main() -> int:
             env["IWD2_RE_AUTO_SLOT"] = str(args.slot)
             description = f"visible save slot {args.slot}"
 
-    proc = subprocess.Popen([str(EXE)], cwd=str(GAME_DIR), env=env)
+    proc = subprocess.Popen([args.exe], cwd=str(GAME_DIR), env=env)
     print(f"pid={proc.pid}; auto {description}")
 
     if args.no_wait:
