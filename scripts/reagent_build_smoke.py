@@ -131,6 +131,17 @@ def sync_worktree(wt: Path) -> None:
             raise SystemExit(f"worktree reset failed:\n{out}")
 
 
+def kill_stale_exe(wt: Path) -> None:
+    """Kill any process still running the worktree's iwd2-re.exe so the linker can
+    overwrite it. Scoped by exact path to the scratch build -- never the canonical game
+    the user may be playing. Belt-and-suspenders for a prior smoke that leaked a window
+    (e.g. it was force-killed before --kill-after could run)."""
+    exe = str(wt / "build" / "Debug" / "iwd2-re.exe")
+    run(["powershell", "-NoProfile", "-Command",
+         "Get-Process iwd2-re -ErrorAction SilentlyContinue | "
+         f"Where-Object {{ $_.Path -eq '{exe}' }} | Stop-Process -Force"])
+
+
 # ---- main -----------------------------------------------------------------
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -175,6 +186,7 @@ def main() -> int:
     else:
         print("[3/5] no --code: baseline build of /src as-is")
 
+    kill_stale_exe(args.worktree)   # free the link target if a prior smoke leaked a game
     build = args.worktree / "build"
     rc, out = run(["cmake", "-S", str(args.worktree), "-B", str(build), "-G", GENERATOR, "-A", "Win32"])
     if rc != 0:
@@ -188,7 +200,8 @@ def main() -> int:
     print(f"[4/5] built {exe}")
 
     rc, out = run([sys.executable, str(AUTO_START), "--exe", str(exe),
-                   "--slot", str(args.slot), "--timeout", str(args.timeout)])
+                   "--slot", str(args.slot), "--timeout", str(args.timeout),
+                   "--kill-after"])
     print("[5/5] smoke output:\n" + tail(out, 10))
 
     if args.remove:
