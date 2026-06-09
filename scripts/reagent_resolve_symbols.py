@@ -142,6 +142,87 @@ def load_vtable_map(path: Path | None) -> dict:
         return {}
 
 
+def slots_for_class(vmap: dict, class_name: str | None) -> dict[str, dict]:
+    """``{slot_off: slot_info}`` for *class_name* (empty if unknown).
+
+    The slot keys are zero-padded byte offsets into the vtable (``0x0000``,
+    ``0x0004`` ...) -- the same offset an x86 ``CALL [reg + 0xNN]`` dispatch uses.
+    """
+    cls = vmap.get(class_name) if class_name else None
+    return cls.get("slots", {}) if isinstance(cls, dict) else {}
+
+
+def invert_vtable_map(vmap: dict) -> dict[int, list[dict]]:
+    """Index every vtable slot target address -> its ``(class, slot, name)`` placements.
+
+    One code address can occupy a slot in several class vtables at once -- a base
+    method a subclass inherits unchanged points the subclass's slot at the same code
+    -- so the value is a list. Each entry: ``{class, slot, name, recovered}``.
+    """
+    out: dict[int, list[dict]] = {}
+    for cls, info in vmap.items():
+        for off, slot in (info.get("slots") or {}).items():
+            a = slot.get("addr") if isinstance(slot, dict) else None
+            if not a:
+                continue
+            try:
+                ai = int(a, 16)
+            except ValueError:
+                continue
+            out.setdefault(ai, []).append({
+                "class": cls, "slot": off,
+                "name": slot.get("name"), "recovered": bool(slot.get("recovered")),
+            })
+    return out
+
+
+def is_virtual(address: int, vmap: dict) -> list[dict]:
+    """Vtable placements of the function at *address* (``[]`` if not virtual).
+
+    A non-empty result IS the ``is_virtual`` fact: the address sits in >=1 class
+    vtable. Each entry is ``{class, slot, name, recovered}``; several entries mean the
+    same code is the virtual method for several classes (an inherited base impl). The
+    DEFINING placement (where the slot's name belongs to its own class) is listed
+    first, so ``result[0]`` is the natural "this is ``CClass``'s slot 0xNN" answer.
+    """
+    hits = invert_vtable_map(vmap).get(address, [])
+
+    def _own_first(h: dict) -> int:
+        nm = h.get("name") or ""
+        return 0 if nm.startswith(h["class"] + "::") else 1
+
+    return sorted(hits, key=_own_first)
+
+
+def virtual_placement(address: int, vmap: dict, this_class: str | None = None,
+                      this_name: str | None = None) -> dict | None:
+    """One target-matched vtable placement for *address* (None if not virtual).
+
+    ``is_virtual`` gives every placement; this picks the ONE that matters for a recovery
+    and guards the ICF trap. When *this_class* is known it takes that class's slot (the
+    slot whose offset this function dispatches at in its OWN vtable). It flags
+    ``folded`` when the address occupies many vtables or the slot name disagrees with
+    *this_name*: a trivial body MSVC merged by identical COMDAT folding (ICF) backs many
+    getters at once, so the slot NAME is an unreliable fold-winner -- only the OFFSET is
+    trustworthy, and the displayed name falls back to the caller's known *this_name*.
+    Returns ``{class, slot, name, recovered, folded, n_placements}``.
+    """
+    hits = is_virtual(address, vmap)
+    if not hits:
+        return None
+    own = [h for h in hits if this_class and h["class"] == this_class]
+    chosen = own[0] if own else hits[0]
+    classes = {h["class"] for h in hits}
+    folded = (len(hits) > 2 and len(classes) > 1) or bool(
+        this_name and chosen.get("name") and chosen["name"] != this_name)
+    return {
+        "class": chosen["class"], "slot": chosen["slot"],
+        "name": this_name or chosen.get("name"),
+        "recovered": bool(chosen.get("recovered")),
+        "folded": folded, "n_placements": len(hits),
+    }
+
+
 def lookup_class(map_path: Path, address: str) -> str | None:
     """Return the class of the function at *address* from our address_map.json."""
     try:

@@ -39,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reagent_resolve_symbols import (  # noqa: E402
-    load_names, resolve, annotate_vcalls, load_vtable_map, lookup_class,
+    load_names, resolve, annotate_vcalls, load_vtable_map, lookup_class, virtual_placement,
 )
 from reagent_ids_constants import load_ids, annotate as ids_annotate  # noqa: E402
 from reagent_bg2_pdb import format_block as bg2_block  # noqa: E402
@@ -122,9 +122,11 @@ def build(address: int, args) -> str:
     rewritten, _resolved, _unres = resolve(decomp, names)
 
     cls = lookup_class(args.map, f"{address:#x}")
+    vmap = load_vtable_map(args.vtable) if args.vtable.is_file() else {}
     n_vcall = 0
-    if cls and args.vtable.is_file():
-        rewritten, n_vcall = annotate_vcalls(rewritten, cls, load_vtable_map(args.vtable))
+    if cls and vmap:
+        rewritten, n_vcall = annotate_vcalls(rewritten, cls, vmap)
+    vplace = virtual_placement(address, vmap, cls, name) if vmap else None
 
     calls = call_set(exp.get("callees"), names)
 
@@ -146,6 +148,16 @@ def build(address: int, args) -> str:
     header = header_for(rel)
 
     parts: list[str] = [f"# Reverse target: {name} @ {address:#06x}", f"`{sig}`", ""]
+    if vplace:
+        if vplace["folded"]:
+            parts += [f"> This is a VIRTUAL method (vtable slot {vplace['slot']} of "
+                      f"{vplace['class']}). Its trivial body is shared by COMDAT folding "
+                      f"across {vplace['n_placements']} vtables, so declare it `virtual` "
+                      f"and keep the exact signature the header gives.", ""]
+        else:
+            parts += [f"> This is a VIRTUAL method: vtable slot {vplace['slot']} of "
+                      f"{vplace['class']} (`{vplace['name']}`). Declare it `virtual` with the "
+                      f"signature the header gives -- do not change its parameter list.", ""]
     parts += ["## Ghidra decompile (our names resolved"
               + (f", {n_vcall} virtual call(s) annotated" if n_vcall else "") + ")",
               "```c", rewritten.strip(), "```", ""]

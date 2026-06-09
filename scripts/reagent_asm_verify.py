@@ -55,13 +55,16 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from reagent_resolve_symbols import load_names  # noqa: E402
+from reagent_resolve_symbols import (  # noqa: E402
+    load_names, load_vtable_map, lookup_class, slots_for_class, virtual_placement,
+)
 from reagent_build_smoke import locate_function, src_file_for  # noqa: E402
 
 REPO = Path(r"C:\iwd2-re")
 DEFAULT_MAP = REPO / ".ghidra-exports" / "address_map.json"
 DEFAULT_INDEX = REPO / ".ghidra-exports" / "_index.json"
 DEFAULT_GLOBALS = REPO / ".ghidra-exports" / "_globals.json"
+DEFAULT_VTABLE = REPO / ".ghidra-exports" / "vtable_map.json"
 DEFAULT_BRIDGE = REPO / ".venv-reagent" / "Scripts" / "ghidra-bridge.exe"
 DEFAULT_CONFIG = REPO / "ghidra-bridge.yaml"
 
@@ -70,6 +73,15 @@ ASM_CALL_RE = re.compile(r"^\s*[0-9a-fA-F]{8}\s+CALL\s+(.+?)\s*$", re.IGNORECASE
 # Operand shapes.
 DIRECT_ADDR_RE = re.compile(r"^0x([0-9a-fA-F]+)$")
 DIRECT_NAME_RE = re.compile(r"^[A-Za-z_][\w:@?$.]*$")
+# A register-indirect dispatch ``[EAX + 0x1c]`` / ``dword ptr [ECX]`` -- an x86 virtual
+# call loads the vtable pointer into a GP register, then calls a slot off it, so the
+# base is a GP reg (NOT EBP/ESP, which address the stack frame: locals, args and plain
+# fn-pointers -- never a vtable). The captured offset is the vtable slot (absent = 0x0).
+INDIRECT_MEM_RE = re.compile(
+    r"\[\s*(E(?:AX|CX|DX|BX|SI|DI))\s*(?:\+\s*(0x[0-9a-fA-F]+))?\s*\]", re.IGNORECASE)
+# x86 GP registers -- a bare-register CALL operand (``CALL EAX``) is an indirect
+# fn-pointer dispatch, not a named callee; route it to indirect, not the game set.
+X86_REGS = {"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"}
 # A C++ call token in our source.
 SRC_CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_:]*)\s*\(")
 
@@ -118,11 +130,18 @@ def dump_asm(address: str, bridge: str, config: str) -> str:
 
 
 def parse_asm_callees(asm: str, names: dict[int, str]) -> dict:
-    """Classify the CALL targets in *asm* into game / crt / indirect / unresolved."""
+    """Classify the CALL targets in *asm* into game / crt / indirect / unresolved.
+
+    ``indirect_slots`` additionally records, for each GP-register memory-indirect
+    dispatch, the vtable slot offset it uses (normalised ``0x%04x``, absent = ``0x0000``)
+    so the caller can name it through the containing class's vtable. A bare-register or
+    EBP/ESP-relative dispatch has no resolvable slot and only bumps ``indirect``.
+    """
     game: dict[str, str] = {}     # leaf -> full name (for reporting)
     crt: set[str] = set()
     unresolved: set[str] = set()
     indirect = 0
+    indirect_slots: list[str] = []
     for line in asm.splitlines():
         m = ASM_CALL_RE.match(line)
         if not m:
@@ -138,14 +157,19 @@ def parse_asm_callees(asm: str, names: dict[int, str]) -> dict:
                 crt.add(name)
             else:
                 game[leaf(name)] = name
-        elif DIRECT_NAME_RE.match(op):
+        elif DIRECT_NAME_RE.match(op) and op.lower() not in X86_REGS:
             if CRT_HELPER_RE.search(op):
                 crt.add(op)
             else:
                 game[leaf(op)] = op
         else:
             indirect += 1   # CALL [reg+off] / CALL reg -- virtual or fn-pointer
-    return {"game": game, "crt": sorted(crt), "indirect": indirect, "unresolved": sorted(unresolved)}
+            mem = INDIRECT_MEM_RE.search(op)
+            if mem:
+                off = int(mem.group(2), 16) if mem.group(2) else 0
+                indirect_slots.append(f"0x{off:04x}")
+    return {"game": game, "crt": sorted(crt), "indirect": indirect,
+            "indirect_slots": indirect_slots, "unresolved": sorted(unresolved)}
 
 
 def src_callees(address: int, map_path: Path, src_override: Path | None) -> tuple[set[str], str | None]:
@@ -168,6 +192,36 @@ def src_callees(address: int, map_path: Path, src_override: Path | None) -> tupl
     return leaves, str(src_path)
 
 
+def resolve_vtable_candidates(slots: list[str], class_name: str | None,
+                              vmap: dict, src_leaves: set[str]) -> list[dict]:
+    """Name GP-register indirect dispatches via the containing class's vtable slots.
+
+    A static asm pass cannot PROVE the dispatched object is ``this`` (it may be a member
+    of another class), so each is a CANDIDATE, not a fact -- it assumes dispatch through
+    the containing class's vtable, the common ``this->Virtual()`` case. The value is
+    turning an opaque ``indirect: N`` into named hints (``slot -> CClass::Method``, with
+    whether ``src`` already calls it); it never flips the verdict to RED. Deduped by
+    slot, in first-seen order. Entry: ``{slot, name, recovered, in_src}``.
+    """
+    cslots = slots_for_class(vmap, class_name)
+    out: list[dict] = []
+    seen: set[str] = set()
+    for slot in slots:
+        if slot in seen:
+            continue
+        seen.add(slot)
+        info = cslots.get(slot)
+        name = info.get("name") if isinstance(info, dict) else None
+        if not name:
+            continue
+        out.append({
+            "slot": slot, "name": name,
+            "recovered": bool(info.get("recovered")),
+            "in_src": leaf(name) in src_leaves,
+        })
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--address", required=True, help="target function address (e.g. 0x402b70)")
@@ -175,6 +229,7 @@ def main() -> int:
     ap.add_argument("--map", type=Path, default=DEFAULT_MAP)
     ap.add_argument("--index", type=Path, default=DEFAULT_INDEX)
     ap.add_argument("--globals", dest="globals_", type=Path, default=DEFAULT_GLOBALS)
+    ap.add_argument("--vtable", type=Path, default=DEFAULT_VTABLE, help="vtable_map.json for indirect-call naming")
     ap.add_argument("--bridge", default=str(DEFAULT_BRIDGE))
     ap.add_argument("--config", default=str(DEFAULT_CONFIG))
     ap.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -191,6 +246,12 @@ def main() -> int:
     buckets = parse_asm_callees(asm, names)
     src_leaves, src_path = src_callees(addr, args.map, args.src)
 
+    vmap = load_vtable_map(args.vtable)
+    this_class = lookup_class(args.map, args.address)
+    vcands = resolve_vtable_candidates(buckets["indirect_slots"], this_class, vmap, src_leaves)
+    vplace = virtual_placement(addr, vmap, this_class, names.get(addr))   # the is_virtual fact
+    vmissing = [c for c in vcands if not c["in_src"]]
+
     asm_game = buckets["game"]
     missing = sorted({full for lf, full in asm_game.items() if lf not in src_leaves})
 
@@ -202,7 +263,8 @@ def main() -> int:
         reason = f"{len(missing)} named callee(s) in asm not in src (confirm not inlined helpers)"
     elif buckets["indirect"] or buckets["unresolved"]:
         verdict = "YELLOW"
-        reason = "only indirect/unresolved calls remain to confirm"
+        named = f"{len(vcands)} indirect named via vtable, {len(vmissing)} not in src; " if vcands else ""
+        reason = f"{named}only indirect/unresolved calls remain to confirm"
     else:
         verdict = "GREEN"
         reason = "every named asm callee is present in src"
@@ -212,6 +274,8 @@ def main() -> int:
         "missing": missing, "asm_game_calls": sorted(set(asm_game.values())),
         "indirect": buckets["indirect"], "crt_ignored": buckets["crt"],
         "unresolved": buckets["unresolved"], "src_call_leaves": sorted(src_leaves),
+        "this_class": this_class, "is_virtual": bool(vplace),
+        "virtual_placement": vplace, "vtable_candidates": vcands,
     }
     if args.json:
         print(json.dumps(result, indent=2))
@@ -219,6 +283,11 @@ def main() -> int:
 
     print(f"{verdict}  {args.address}  ({reason})")
     print(f"  src: {src_path}")
+    if vplace:
+        fold = (f" (COMDAT-folded across {vplace['n_placements']} vtables; "
+                f"slot reliable, name not)" if vplace["folded"] else "")
+        print(f"  is_virtual: {vplace['name'] or '?'} @ {vplace['class']} "
+              f"slot {vplace['slot']}{fold}")
     print(f"  asm named-game callees: {len(asm_game)}  | indirect: {buckets['indirect']}  "
           f"| crt-ignored: {len(buckets['crt'])}  | unresolved: {len(buckets['unresolved'])}")
     if missing:
@@ -227,6 +296,11 @@ def main() -> int:
             print(f"    - {n}")
         print("  ^ confirm by hand: a common benign cause is the binary inlining a helper")
         print("    your source still calls (the helper's own calls then read as missing).")
+    if vcands:
+        print(f"  indirect calls named via {this_class} vtable (candidates, assume dispatch through this):")
+        for c in vcands:
+            mark = "in src" if c["in_src"] else "NOT in src"
+            print(f"    - slot {c['slot']}: {c['name']}  [{mark}]")
     if buckets["unresolved"]:
         print(f"  unresolved asm calls: {', '.join(buckets['unresolved'])}")
     return 0
