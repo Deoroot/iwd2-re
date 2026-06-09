@@ -1141,13 +1141,72 @@ void CVidPoly::DrawHLineShadedMirrored24(void* pSurface, int xMin, int xMax, DWO
 }
 
 // 0x7D6EB0
+// 32bpp shaded span (the leaf the engine actually uses, since IWD2 runs 32bpp): alpha-
+// blends the fill colour over each destination pixel with alpha = (mean of the fill
+// colour's three channels) / 256, but only where the destination is mid-bright — its
+// channel sum must be in [0x20, lum*8]; darker or brighter pixels are left untouched.
+// All maths is on the packed 0x00RRGGBB DWORD, so it is channel-order agnostic.
 void CVidPoly::DrawHLineShaded32(void* pSurface, int xMin, int xMax, DWORD dwColor, const CRect& rSurface, const CPoint& ptRef)
 {
-    // TODO: Incomplete.
+    int c0 = dwColor & 0xFF;
+    int c1 = (dwColor >> 8) & 0xFF;
+    int c2 = (dwColor >> 16) & 0xFF;
+    int lum = (c0 + c1 + c2) / 3;
+
+    int width = xMax - xMin + 1;
+    if (width > 0) {
+        unsigned int* pSurface32 = reinterpret_cast<unsigned int*>(pSurface) + xMin;
+
+        for (int x = 0; x < width; x++) {
+            unsigned int px = *pSurface32;
+            int d0 = px & 0xFF;
+            int d1 = (px >> 8) & 0xFF;
+            int d2 = (px >> 16) & 0xFF;
+            int dsum = d0 + d1 + d2;
+
+            if (dsum >= 0x20 && lum >= (dsum >> 3)) {
+                int a = 255 - lum;
+                *pSurface32 =
+                      (static_cast<unsigned int>((c2 * lum + a * d2) >> 8) << 16)
+                    | (static_cast<unsigned int>((c1 * lum + a * d1) >> 8) << 8)
+                    |  static_cast<unsigned int>((c0 * lum + a * d0) >> 8);
+            }
+
+            pSurface32++;
+        }
+    }
 }
 
 // 0x7D6FD0
+// Right-to-left twin of DrawHLineShaded32 (mirror FX); same alpha blend, addressed from
+// rSurface.Width() - xMin downwards.
 void CVidPoly::DrawHLineShadedMirrored32(void* pSurface, int xMin, int xMax, DWORD dwColor, const CRect& rSurface, const CPoint& ptRef)
 {
-    // TODO: Incomplete.
+    int c0 = dwColor & 0xFF;
+    int c1 = (dwColor >> 8) & 0xFF;
+    int c2 = (dwColor >> 16) & 0xFF;
+    int lum = (c0 + c1 + c2) / 3;
+
+    int width = xMax - xMin + 1;
+    if (width > 0) {
+        unsigned int* pSurface32 = reinterpret_cast<unsigned int*>(pSurface) + (rSurface.Width() - xMin);
+
+        for (int x = 0; x < width; x++) {
+            unsigned int px = *pSurface32;
+            int d0 = px & 0xFF;
+            int d1 = (px >> 8) & 0xFF;
+            int d2 = (px >> 16) & 0xFF;
+            int dsum = d0 + d1 + d2;
+
+            if (dsum >= 0x20 && lum >= (dsum >> 3)) {
+                int a = 255 - lum;
+                *pSurface32 =
+                      (static_cast<unsigned int>((c2 * lum + a * d2) >> 8) << 16)
+                    | (static_cast<unsigned int>((c1 * lum + a * d1) >> 8) << 8)
+                    |  static_cast<unsigned int>((c0 * lum + a * d0) >> 8);
+            }
+
+            pSurface32--;
+        }
+    }
 }
