@@ -34,7 +34,8 @@ if [ "${1:-}" = "--run" ]; then
   echo "==> wait for world activation (engine writes vm_s1_out.txt)"
   status=""
   for i in $(seq 1 30); do
-    out=$(ssh "$VM" "cmd /c \"type $VM_REPO\\vm_s1_out.txt 2>nul\"" 2>/dev/null || true)
+    # NB: cmd's `type` rejects forward slashes -- use a backslash path.
+    out=$(ssh "$VM" 'cmd /c "type C:\iwd2-re\vm_s1_out.txt 2>nul"' 2>/dev/null || true)
     case "$out" in
       *loaded:*|*timeout*|*failed:*) status="$out"; break ;;
     esac
