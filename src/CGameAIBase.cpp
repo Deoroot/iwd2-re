@@ -9,7 +9,6 @@
 #include "CGameArea.h"
 #include "CGameContainer.h"
 #include "CGameDoor.h"
-#include "DebugLog.h"
 #include "CGameEffect.h"
 #include "CGameJournal.h"
 #include "CGameSpawning.h"
@@ -586,8 +585,6 @@ SHORT CGameAIBase::ExecuteAction()
         // Full recovery of FUN_00461190 (cast-time gate, FUN_00727720
         // target-point extraction, FUN_0054A510 + CMessageFireProjectile
         // for non-self targets) is still TODO.
-        Iwd2DebugLog("DO_ACTION_FORCE_SPELL spriteId=%ld actionId=0x%x specificId=%ld actionCount=%d interrupt=%d",
-            m_id, m_curAction.m_actionID, m_curAction.m_specificID, (int)m_actionCount, (int)m_interrupt);
         CGameObject* pObj = ResolveActionTarget();
         actionReturn = ForceSpellAction(pObj);
         if (pObj != NULL) {
@@ -600,9 +597,6 @@ SHORT CGameAIBase::ExecuteAction()
         // 0x5F = SpellPoint, 0x72 = ForceSpellPoint, 0xC0 = SpellPointNoDec.
         // Ghidra's binary jump table routes 0x72 to FUN_00461B80; the
         // reconstructed UI queues all three point-spell ids.
-        Iwd2DebugLog("DO_ACTION_FORCE_SPELL_POINT spriteId=%ld actionId=0x%x specificId=%ld actionCount=%d interrupt=%d dest=%d,%d",
-            m_id, m_curAction.m_actionID, m_curAction.m_specificID, (int)m_actionCount, (int)m_interrupt,
-            m_curAction.m_dest.x, m_curAction.m_dest.y);
         // 0x5F/0xC0 are normal casts: the original drives them through the
         // sprite cast executor (FUN_00742840 -> CGameSprite::SpellPointSequence),
         // which turns the caster to face the cast point before casting.  0x72
@@ -1455,11 +1449,6 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0x113) {
         // 0x113 = SaveGame(I:STRREF*) (ACTION.IDS 275).  Binary case 0x451282
         // only posts the message on SP or the MP host; clients no-op.
-        Iwd2DebugLog("ExecuteAction SaveGameAction open=%d host=%d service=%d strref=%ld",
-            g_pChitin->cNetwork.GetSessionOpen(),
-            g_pChitin->cNetwork.GetSessionHosting(),
-            g_pChitin->cNetwork.GetServiceProvider(),
-            m_curAction.GetSpecifics());
         if (!g_pChitin->cNetwork.GetSessionOpen()
             || g_pChitin->cNetwork.GetSessionHosting() == TRUE) {
             CMessage* msg = new CMessageSaveGame(
@@ -1467,7 +1456,6 @@ SHORT CGameAIBase::ExecuteAction()
                 m_id,
                 m_id);
             g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
-            Iwd2DebugLog("ExecuteAction SaveGameAction posted");
         }
         actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x11E) {
@@ -1542,9 +1530,6 @@ void CGameAIBase::ProcessAI()
         return;
     }
     if (m_nLastActionReturn == 0) {
-        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != CGameObjectArray::INVALID_INDEX) {
-            Iwd2DebugLog("ProcessAI blocked m_nLastActionReturn==0 spriteId=%ld", m_id);
-        }
         return;
     }
 
@@ -2933,15 +2918,11 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
         SHORT currentSeq = pSprite->m_nSequence;
 
-        Iwd2DebugLog("CAST_TIME spriteId=%ld speed=%d castTime=%d actionCount=%d currentSeq=%d animId=0x%lx",
-            m_id, (int)pAbility->speedFactor, (int)castTime, (int)m_actionCount, (int)currentSeq,
-            pSprite->GetAnimation()->GetAnimationId());
 
         // First-tick pre-cast hook.  Binary 0x46139A: queue the SPL's
         // pre-cast feature blocks (visuals, chant, projectile-spawn) before
         // any animation runs so they overlap with the cast-time wind-up.
         if (m_actionCount == 0) {
-            Iwd2DebugLog("CAST_APPLY_EFFECT spriteId=%ld animType=%d", m_id, (int)pSpell->GetAnimationType());
             pSprite->ApplyCastingEffect(pSpell, pAbility, targetPos);
             // TODO (multi-session): FUN_00727B80 silence/spell-state gate ->
             // concentration ITEM_EFFECT (opcode 0x88) broadcast against
@@ -2957,7 +2938,6 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
             // animation system picks up SEQ_CONJURE on the next render
             // (binary 0x461795 path, PTR_FUN_008488C4 vtable -> CMessageSetSequence).
             if (currentSeq != CGameSprite::SEQ_CONJURE) {
-                Iwd2DebugLog("CAST_SEQ_CONJURE spriteId=%ld", m_id);
                 CMessage* msg = new CMessageSetSequence(
                     CGameSprite::SEQ_CONJURE, m_id, m_id);
                 g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
@@ -2971,7 +2951,6 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
             // Stage 2: cast burst.  On entry transition send SEQ_CAST and
             // play the burst sound cue (ApplyCastingEffectPost).
             if (currentSeq != CGameSprite::SEQ_CAST) {
-                Iwd2DebugLog("CAST_SEQ_CAST spriteId=%ld", m_id);
                 CMessage* msg = new CMessageSetSequence(
                     CGameSprite::SEQ_CAST, m_id, m_id);
                 g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
@@ -3209,12 +3188,8 @@ SHORT CGameAIBase::ForceSpellPointAction()
         WORD castTime = static_cast<WORD>(pAbility->speedFactor) * 10;
         SHORT currentSeq = pSprite->m_nSequence;
 
-        Iwd2DebugLog("CAST_POINT_TIME spriteId=%ld speed=%d castTime=%d actionCount=%d currentSeq=%d animId=0x%lx target=%d,%d",
-            m_id, (int)pAbility->speedFactor, (int)castTime, (int)m_actionCount, (int)currentSeq,
-            pSprite->GetAnimation()->GetAnimationId(), targetPos.x, targetPos.y);
 
         if (m_actionCount == 0) {
-            Iwd2DebugLog("CAST_POINT_APPLY_EFFECT spriteId=%ld animType=%d", m_id, (int)pSpell->GetAnimationType());
             pSprite->ApplyCastingEffect(pSpell, pAbility, targetPos);
         }
 
@@ -3410,30 +3385,24 @@ SHORT CGameAIBase::StartCutScene()
     while (pos != NULL) {
         CAIConditionResponse* pConditionResponse = script.m_caList.GetNext(pos);
         if (pConditionResponse == NULL) {
-            Iwd2DebugLog("StartCutScene block null");
             continue;
         }
 
         POSITION responsePos = pConditionResponse->m_responseSet.m_responseList.GetHeadPosition();
         if (responsePos == NULL) {
-            Iwd2DebugLog("StartCutScene block no response");
             continue;
         }
 
         CAIResponse* pResponse = pConditionResponse->m_responseSet.m_responseList.GetNext(responsePos);
         if (pResponse == NULL || pResponse->m_actionList.GetCount() == 0) {
-            Iwd2DebugLog("StartCutScene response empty response=%p", pResponse);
             continue;
         }
-        Iwd2DebugLog("StartCutScene response actionCount=%ld", pResponse->m_actionList.GetCount());
 
         POSITION actionPos = pResponse->m_actionList.GetHeadPosition();
         CAIAction* pActorAction = pResponse->m_actionList.GetNext(actionPos);
         if (pActorAction == NULL) {
-            Iwd2DebugLog("StartCutScene actor action null");
             continue;
         }
-        Iwd2DebugLog("StartCutScene actor action id=%d", pActorAction->m_actionID);
 
         CAIAction actorAction(*pActorAction);
         actorAction.Decode(this);
@@ -3442,13 +3411,8 @@ SHORT CGameAIBase::StartCutScene()
             CGameObject::TYPE_AIBASE,
             FALSE);
         if (pObject == NULL) {
-            Iwd2DebugLog("StartCutScene actor unresolved");
             continue;
         }
-        Iwd2DebugLog("StartCutScene actor resolved id=%ld type=%u remaining=%ld",
-            pObject->GetId(),
-            pObject->GetObjectType(),
-            pResponse->m_actionList.GetCount() - 1);
 
         CAIResponse response;
         response.m_weight = pResponse->m_weight;
@@ -3485,9 +3449,6 @@ SHORT CGameAIBase::StartCutScene()
                 INFINITE);
     }
 
-    Iwd2DebugLog("CGameAIBase::StartCutScene script='%s' queued=%ld",
-        static_cast<LPCSTR>(sScript),
-        queuedCount);
 
     return ACTION_DONE;
 }

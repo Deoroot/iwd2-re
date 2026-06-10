@@ -28,7 +28,6 @@
 #include "CStore.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
-#include "DebugLog.h"
 
 // NOTE: Might be static in `CMessage`.
 //
@@ -5222,10 +5221,6 @@ void CMessageHandler::AsynchronousUpdate()
     while (!m_messageList.IsEmpty()) {
         CMessage* pMsg = m_messageList.RemoveHead();
         if (pMsg != NULL) {
-            if (pMsg->GetMsgSubType() == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME) {
-                Iwd2DebugLog("MessageHandler run SaveGame recovered=%d",
-                    Iwd2MessageRunRecovered(pMsg->GetMsgSubType()));
-            }
             if (Iwd2MessageRunRecovered(pMsg->GetMsgSubType())) {
                 pMsg->Run();
             }
@@ -5348,12 +5343,6 @@ BOOL CMessageHandler::ImportantMessage(BYTE* pData, DWORD dwSize)
 // 0x4F7500
 SHORT CMessageHandler::AddMessage(CMessage* message, BOOL bForcePassThrough)
 {
-    if (message != NULL
-        && message->GetMsgSubType() == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME) {
-        Iwd2DebugLog("MessageHandler add SaveGame force=%d comm=%d",
-            bForcePassThrough,
-            message->GetCommType());
-    }
     return AddMessage(message, bForcePassThrough, message->GetCommType());
 }
 
@@ -5500,22 +5489,13 @@ void CMessageAddAction::Run()
 
     if (rc == CGameObjectArray::SUCCESS) {
         if ((pSprite->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
-            Iwd2DebugLog("CMessageAddAction::Run added action=%d targetId=%ld interrupt=%d",
-                (int)m_action.m_actionID, m_targetId, (int)pSprite->m_interrupt);
             pSprite->AddAction(m_action);
             pSprite->m_interrupt = TRUE;
-        } else {
-            Iwd2DebugLog("CMessageAddAction::Run notAIBASE targetId=%ld type=%d",
-                m_targetId, (int)pSprite->GetObjectType());
         }
-
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
-    } else {
-        Iwd2DebugLog("CMessageAddAction::Run GetDenyFailed targetId=%ld rc=%d", m_targetId, (int)rc);
-    }
-}
+    }}
 
 // -----------------------------------------------------------------------------
 
@@ -7937,7 +7917,6 @@ void CMessageDropPath::Run()
 {
     CGameSprite* pSprite;
 
-    Iwd2DebugLog("CMessageDropPath::Run targetId=%ld", m_targetId);
 
     BYTE rc;
     do {
@@ -7949,8 +7928,6 @@ void CMessageDropPath::Run()
 
     if (rc == CGameObjectArray::SUCCESS) {
         if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
-            Iwd2DebugLog("CMessageDropPath::Run DROP spriteId=%ld hasPath=%d",
-                pSprite->GetId(), (int)(pSprite->m_pPath != NULL));
             pSprite->DropPath();
             pSprite->DropSearchRequest();
 
@@ -10029,13 +10006,7 @@ void CMessageSetDialogWait::Run()
         if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
             pSprite->m_dialogWait = m_wait;
             pSprite->m_dialogWaitTarget = m_waitTarget;
-            Iwd2DebugLog("CMessageSetDialogWait::Run set targetId=%ld m_dialogWait=%ld m_dialogWaitTarget=%ld",
-                m_targetId, m_wait, m_waitTarget);
-        } else {
-            Iwd2DebugLog("CMessageSetDialogWait::Run targetId=%ld NOT_SPRITE type=%d skipped",
-                m_targetId, (int)pSprite->GetObjectType());
         }
-
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
@@ -11107,17 +11078,11 @@ void CMessageSetPath::Run()
                     CPoint spritePos = pSprite->GetPos();
                     if (spritePos.x / CPathSearch::GRID_SQUARE_SIZEX != pathStart.x
                         || spritePos.y / CPathSearch::GRID_SQUARE_SIZEY != pathStart.y) {
-                        Iwd2DebugLog("CMessageSetPath::Run posMismatch spriteId=%ld spritePos=%ld,%ld grid=%ld,%ld pathStart=%ld,%ld",
-                            m_targetId, spritePos.x, spritePos.y,
-                            spritePos.x / CPathSearch::GRID_SQUARE_SIZEX, spritePos.y / CPathSearch::GRID_SQUARE_SIZEY,
-                            pathStart.x, pathStart.y);
                         if (g_pChitin->cNetwork.GetSessionOpen()) {
                             pSprite->JumpToPoint(CPoint(pathStart.x * CPathSearch::GRID_SQUARE_SIZEX,
                                                      pathStart.y * CPathSearch::GRID_SQUARE_SIZEY),
                                 FALSE);
                         } else {
-                            Iwd2DebugLog("CMessageSetPath::Run posMismatch DROPPING spriteId=%ld (singlePlayer)",
-                                m_targetId);
                             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
                                 CGameObjectArray::THREAD_ASYNCH,
                                 INFINITE);
@@ -11125,31 +11090,15 @@ void CMessageSetPath::Run()
                         }
                     }
 
-                    Iwd2DebugLog("CMessageSetPath::Run SetPath spriteId=%ld nPath=%d currPath=%d pos=%ld",
-                        m_targetId, (int)m_nPath, (int)m_currPath, m_position);
                     pSprite->SetPath(m_pPath, m_nPath);
                     pSprite->m_currPath = m_currPath;
                     pSprite->InitializeWalkingSound();
                     m_pPath = NULL;
-                } else {
-                    Iwd2DebugLog("CMessageSetPath::Run areaMismatch spriteId=%ld area=%p lookup=%p areaStr='%s'",
-                        m_targetId, pSprite->GetArea(), pArea, (const char*)m_sAreaString);
-                }
-            } else {
-                Iwd2DebugLog("CMessageSetPath::Run noArea spriteId=%ld", m_targetId);
-            }
-        } else {
-            Iwd2DebugLog("CMessageSetPath::Run notSprite targetId=%ld type=%d",
-                m_targetId, (int)pObject->GetObjectType());
-        }
-
+                }            }        }
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
-    } else {
-        Iwd2DebugLog("CMessageSetPath::Run GetDenyFailed targetId=%ld rc=%d", m_targetId, (int)rc);
-    }
-}
+    }}
 
 // -----------------------------------------------------------------------------
 
@@ -11284,7 +11233,6 @@ void CMessageSetSequence::Run()
                 pSprite->CheckSequence(m_sequence);
             }
 
-            Iwd2DebugLog("MSG_SET_SEQ spriteId=%ld seq=%d animId=0x%lx", m_targetId, (int)m_sequence, pSprite->GetAnimation()->GetAnimationId());
             pSprite->SetSequence(m_sequence);
 
             // NOTE: Uninline.
@@ -17164,13 +17112,6 @@ void CMessageSaveGame::Run()
         pGame->field_50D8 = FALSE;
     }
 
-    Iwd2DebugLog("CMessageSaveGame before SaveGame active=%p world=%p saveScreen=%d field50D8=%d field50DC=%d save='%s'",
-        g_pBaldurChitin->GetActiveEngine(),
-        g_pBaldurChitin->m_pEngineWorld,
-        pGame->m_bSaveScreen,
-        pGame->field_50D8,
-        pGame->field_50DC,
-        static_cast<LPCSTR>(pGame->m_sSaveGame));
 
     pGame->SaveGame(0, 0, 1);
 
@@ -17178,11 +17119,6 @@ void CMessageSaveGame::Run()
         g_pChitin->m_bDisplayStale = TRUE;
     }
 
-    Iwd2DebugLog("CMessageSaveGame after SaveGame saveScreen=%d field50D8=%d field50DC=%d displayStale=%d",
-        pGame->m_bSaveScreen,
-        pGame->field_50D8,
-        pGame->field_50DC,
-        g_pChitin->m_bDisplayStale);
 
     for (SHORT nArea = 0; nArea < CINFGAME_MAX_AREAS; nArea++) {
         CGameArea* pArea = pGame->m_gameAreas[nArea];
