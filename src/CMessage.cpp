@@ -5391,6 +5391,7 @@ SHORT CMessageHandler::AddMessage(CMessage* message, BOOL bForcePassThrough, SHO
 static BOOL Iwd2MessageRunRecovered(BYTE subType)
 {
     return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_ACTION
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_ADD_ITEM
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CLEAR_DIALOG_ACTIONS
