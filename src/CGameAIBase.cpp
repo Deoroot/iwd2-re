@@ -8,6 +8,7 @@
 #include "CBaldurProjector.h"
 #include "CGameArea.h"
 #include "CGameContainer.h"
+#include "DebugLog.h"
 #include "CGameDoor.h"
 #include "CGameEffect.h"
 #include "CGameJournal.h"
@@ -305,6 +306,53 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
 
     case CAITRIGGER_INCUTSCENEMODE:
         return g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode == 322;
+
+    case CAITRIGGER_RANGE: {
+        // 0x454851: Range(O:Object*,I:Range*,I:diffmode) -- squared search-grid
+        // distance to the object vs (range+1)^2, compared per diffmode.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        // DEFERRED: doors (TYPE 0x21) use the door-center helper 0x48B2C0; the
+        // plain position is close enough until that helper is recovered.
+        CPoint ptTarget = pObject->GetPos();
+        CPoint gridTarget(ptTarget.x / CPathSearch::GRID_SQUARE_SIZEX,
+            ptTarget.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+        CPoint ptSelf = GetPos();
+        CPoint gridSelf(ptSelf.x / CPathSearch::GRID_SQUARE_SIZEX,
+            ptSelf.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+        LONG nDistSq = (gridTarget.x - gridSelf.x) * (gridTarget.x - gridSelf.x)
+            + (gridTarget.y - gridSelf.y) * (gridTarget.y - gridSelf.y);
+        LONG nRangeSq = (cause.GetSpecifics() + 1) * (cause.GetSpecifics() + 1);
+
+        BOOL bHolds;
+        switch (cause.GetInt1()) {
+        case 1: // EQUAL
+            bHolds = nDistSq == nRangeSq;
+            break;
+        case 2: // LESS_THAN
+            bHolds = nDistSq < nRangeSq;
+            break;
+        case 3: // GREATER_THAN
+            bHolds = nRangeSq < nDistSq;
+            break;
+        default:
+            bHolds = FALSE;
+            break;
+        }
+
+        if (bHolds) {
+            field_342.Set(pObject->GetAIType());
+        }
+        return bHolds;
+    }
 
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
