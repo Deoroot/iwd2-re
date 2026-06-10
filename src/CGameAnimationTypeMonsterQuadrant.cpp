@@ -875,7 +875,7 @@ void CGameAnimationTypeMonsterQuadrant::Render(CInfinity* pInfinity, CVidMode* p
             if (bFadeOut) {
                 pInfinity->FXUnlock(dwRenderFlags, &rFXRect, ptPos + ptQuadCenter);
             } else {
-                pInfinity->FXUnlock(dwRenderFlags, &rFXRect, CPoint(0, 0));
+                pInfinity->FXUnlock(dwRenderFlags, NULL, CPoint(0, 0));
             }
 
             pInfinity->FXBltFrom(nSurface,

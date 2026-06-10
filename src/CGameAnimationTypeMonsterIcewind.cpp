@@ -2339,7 +2339,7 @@ void CGameAnimationTypeMonsterIcewind::Render(CInfinity* pInfinity, CVidMode* pV
         if (bFadeOut) {
             pInfinity->FXUnlock(dwRenderFlags, &rFXRect, ptPos + ptReference);
         } else {
-            pInfinity->FXUnlock(dwRenderFlags, &rFXRect, CPoint(0, 0));
+            pInfinity->FXUnlock(dwRenderFlags, NULL, CPoint(0, 0));
         }
 
         pInfinity->FXBltFrom(nSurface,
