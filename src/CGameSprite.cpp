@@ -12468,6 +12468,20 @@ BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bActive;
     }
 
+    case CAITRIGGER_NEARSAVEDLOCATION: {
+        // 0x4099: within Range search-grid cells of the location stored by
+        // SaveObjectLocation (the 00AMVW wander scripts' home anchor).
+        if (m_baseStats.m_savedLocationX != 0 && m_baseStats.m_savedLocationY != 0) {
+            CPoint pos = GetPos();
+            INT dx = (pos.x - m_baseStats.m_savedLocationX) / CPathSearch::GRID_SQUARE_SIZEX;
+            INT dy = (pos.y - m_baseStats.m_savedLocationY) / CPathSearch::GRID_SQUARE_SIZEY;
+            if (dx * dx + dy * dy <= trigger.m_specificID * trigger.m_specificID) {
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+
     case CAITRIGGER_NUMTIMESTALKEDTO:
         return m_nNumberOfTimesTalkedTo == trigger.m_specificID;
     case CAITRIGGER_NUMTIMESTALKEDTOGT:
@@ -14193,13 +14207,13 @@ SHORT CGameSprite::MoveToPoint()
     if (x == -1) {
         x = m_posStart.x;
     } else if (x == -2) {
-        x = m_baseStats.field_2E4;
+        x = m_baseStats.m_savedLocationX;
     }
 
     if (y == -1) {
         y = m_posStart.y;
     } else if (y == -2) {
-        y = m_baseStats.field_2E6;
+        y = m_baseStats.m_savedLocationY;
     }
 
     if (x / CPathSearch::GRID_SQUARE_SIZEX == m_pos.x / CPathSearch::GRID_SQUARE_SIZEX
@@ -15877,9 +15891,9 @@ SHORT CGameSprite::GetCasterLevel(CSpell* pSpell, BYTE nClass, DWORD nSpecializa
 // 0x75F240
 SHORT CGameSprite::SavePositionToBaseStats()
 {
-    m_baseStats.field_2E4 = static_cast<SHORT>(m_pos.x);
-    m_baseStats.field_2E6 = static_cast<SHORT>(m_pos.y);
-    m_baseStats.field_2E8 = m_nDirection;
+    m_baseStats.m_savedLocationX = static_cast<SHORT>(m_pos.x);
+    m_baseStats.m_savedLocationY = static_cast<SHORT>(m_pos.y);
+    m_baseStats.m_savedLocationFacing = m_nDirection;
     return ACTION_DONE;
 }
 

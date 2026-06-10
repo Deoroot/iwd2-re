@@ -562,9 +562,9 @@ public:
     /* 028C */ RESREF m_scriptMovement;
     /* 0294 */ BOOLEAN m_bStealthMode;
     /* 02E2 */ BOOLEAN field_2E2;
-    /* 02E4 */ SHORT field_2E4;
-    /* 02E6 */ SHORT field_2E6;
-    /* 02E8 */ SHORT field_2E8;
+    /* 02E4 */ SHORT m_savedLocationX;
+    /* 02E6 */ SHORT m_savedLocationY;
+    /* 02E8 */ SHORT m_savedLocationFacing;
     /* 02E9 */ BYTE field_2E9;
     /* 02EA */ BOOLEAN field_2EA[6];
     /* 02F7 */ BOOLEAN field_2F7;
