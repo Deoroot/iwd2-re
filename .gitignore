@@ -436,3 +436,6 @@ FodyWeavers.xsd
 /.cache/
 /reports/re-agent/
 /re-agent-progress.*
+# host (Linux) config variants — local paths, not for the Windows/VM checkout
+/re-agent.host.yaml
+/ghidra-bridge.host.yaml
