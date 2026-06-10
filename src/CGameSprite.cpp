@@ -10,6 +10,7 @@
 #include "CGameButtonList.h"
 #include "CGameContainer.h"
 #include "CGameTimer.h"
+#include "DebugLog.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CItem.h"
@@ -1343,6 +1344,12 @@ void CGameSprite::AddToArea(CGameArea* pNewArea, const CPoint& pos, LONG posZ, B
     if (m_baseStats.m_bRemoveFromArea) {
         m_removeFromArea = TRUE;
     }
+
+    // TEMP instrumentation (00AMVW wander debugging; remove after)
+    Iwd2DebugLog("AddToArea id=%ld f2E2=%d saved=(%d,%d) pos=(%ld,%ld)",
+        m_id, m_baseStats.field_2E2,
+        m_baseStats.m_savedLocationX, m_baseStats.m_savedLocationY,
+        pos.x, pos.y);
 
     if (!m_baseStats.field_2E2) {
         SavePositionToBaseStats();
@@ -12471,15 +12478,20 @@ BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
     case CAITRIGGER_NEARSAVEDLOCATION: {
         // 0x4099: within Range search-grid cells of the location stored by
         // SaveObjectLocation (the 00AMVW wander scripts' home anchor).
+        BOOL bNear = FALSE;
         if (m_baseStats.m_savedLocationX != 0 && m_baseStats.m_savedLocationY != 0) {
             CPoint pos = GetPos();
             INT dx = (pos.x - m_baseStats.m_savedLocationX) / CPathSearch::GRID_SQUARE_SIZEX;
             INT dy = (pos.y - m_baseStats.m_savedLocationY) / CPathSearch::GRID_SQUARE_SIZEY;
             if (dx * dx + dy * dy <= trigger.m_specificID * trigger.m_specificID) {
-                return TRUE;
+                bNear = TRUE;
             }
         }
-        return FALSE;
+        // TEMP instrumentation (00AMVW wander debugging; remove after)
+        Iwd2DebugLog("NearSavedLoc id=%ld saved=(%d,%d) pos=(%ld,%ld) range=%ld -> %d",
+            m_id, m_baseStats.m_savedLocationX, m_baseStats.m_savedLocationY,
+            m_pos.x, m_pos.y, trigger.m_specificID, bNear);
+        return bNear;
     }
 
     case CAITRIGGER_NUMTIMESTALKEDTO:
@@ -15893,7 +15905,7 @@ SHORT CGameSprite::SavePositionToBaseStats()
 {
     m_baseStats.m_savedLocationX = static_cast<SHORT>(m_pos.x);
     m_baseStats.m_savedLocationY = static_cast<SHORT>(m_pos.y);
-    m_baseStats.m_savedLocationFacing = m_nDirection;
+    m_baseStats.m_savedLocationFacing = static_cast<BYTE>(m_nDirection);
     return ACTION_DONE;
 }
 

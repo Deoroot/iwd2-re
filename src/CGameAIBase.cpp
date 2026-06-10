@@ -315,6 +315,10 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
 
         CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
         if (pObject == NULL) {
+            // TEMP instrumentation (00AMVW wander debugging; remove after)
+            if (cause.GetSpecifics() == 40) {
+                Iwd2DebugLog("Range id=%ld object unresolved", m_id);
+            }
             return FALSE;
         }
 
@@ -346,6 +350,12 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         default:
             bHolds = FALSE;
             break;
+        }
+
+        // TEMP instrumentation (00AMVW wander debugging; remove after)
+        if (cause.GetSpecifics() == 40) {
+            Iwd2DebugLog("Range id=%ld distSq=%ld rangeSq=%ld mode=%ld -> %d",
+                m_id, nDistSq, nRangeSq, cause.GetInt1(), bHolds);
         }
 
         if (bHolds) {
