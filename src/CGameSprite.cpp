@@ -12467,10 +12467,53 @@ void CGameSprite::UpdateTarget(CGameObject* pObject)
 }
 
 // 0x733050 (vtable 0x78)
-// TODO(vtable-stub): recover CGameSprite::AddEffect (effect-apply filter).
 void CGameSprite::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
 {
-    CGameAIBase::AddEffect(pEffect, list, noSave, immediateApply);
+    if (pEffect->m_effectID == CGAMEEFFECT_DETECTTRAPS) {
+        delete pEffect;
+        return;
+    }
+
+    // A target inside Otiluke's Resilient Sphere rejects every incoming effect
+    // except dispel, the effects-list carrier, and the cast-spell contingencies.
+    if (m_derivedStats.m_spellStates.test(SPLSTATE_OTILUKES_RESILIENT_SPHERE)
+        && pEffect->m_effectID != CGAMEEFFECT_DISPELEFFECTS
+        && pEffect->m_effectID != ICEWIND_CGAMEEFFECT_APPLYEFFECTSLIST
+        && pEffect->m_effectID != CGAMEEFFECT_CASTSPELL
+        && pEffect->m_effectID != CGAMEEFFECT_CASTSPELLPOINT) {
+        delete pEffect;
+        return;
+    }
+
+    if (GetAIType().Equal(CAIObjectType::NOT_SPRITE)) {
+        return;
+    }
+
+    if (!pEffect->CheckAdd(this, &field_70F6, &field_70F7, &field_70F8, &field_70F9, &field_70FA)
+        && !noSave) {
+        delete pEffect;
+    } else {
+        field_562C = 1;
+
+        if (immediateApply) {
+            m_tempStats = m_derivedStats;
+            pEffect->ResolveEffect(this);
+            if (pEffect->m_done) {
+                delete pEffect;
+                return;
+            }
+        }
+
+        if (list != 1 || pEffect->m_durationType == 2) {
+            m_equipedEffectList.AddTail(pEffect);
+        } else {
+            m_timedEffectList.AddTail(pEffect);
+        }
+    }
+
+    if (!g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active && immediateApply) {
+        ProcessEffectList();
+    }
 }
 
 // 0x728580 (vtable 0xAC)

@@ -239,31 +239,14 @@ BOOL CGameEffectList::HandleList(CGameSprite* pSprite)
     POSITION pos = GetHeadPosition();
     BOOL cont = TRUE;
     BOOL retry = FALSE;
-    int probabilisticCount = 0;
-    POSITION scanPos = pos;
-
-    while (scanPos != NULL) {
-        CGameEffect* pEffect = GetNext(scanPos);
-        if (pEffect->m_probabilityLower != 0 || pEffect->m_probabilityUpper != 100) {
-            probabilisticCount++;
-        }
-    }
-
-    // TODO INCOMPLETE: Original ResolveEffect should own probability state.
-    // Shared rolls keep exclusive SPL ranges such as Summon Monster one-shot.
-    int sharedProbabilityRoll = probabilisticCount > 1 ? rand() % 100 + 1 : 0;
 
     m_posNext = pos;
     m_posCurrent = pos;
 
     while (pos != NULL) {
         CGameEffect* pEffect = GetNext(m_posNext);
-        pEffect->field_118 = 0;
 
         if (cont) {
-            if (pEffect->m_probabilityLower != 0 || pEffect->m_probabilityUpper != 100) {
-                pEffect->field_118 = sharedProbabilityRoll;
-            }
             cont = pEffect->ResolveEffect(pSprite);
         }
 

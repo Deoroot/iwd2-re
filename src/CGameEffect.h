@@ -303,6 +303,7 @@ public:
     void PlaySound(const CResRef& soundResRef, CGameSprite* pSprite);
     BOOL CheckExpiration();
     int CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70F7, BYTE* pField70F8, BYTE* pField70F9, BYTE* pField70FA);
+    void FireSpell(CGameSprite* pSprite);
     ITEM_EFFECT* GetItemEffect();
     void DisplayStringRef(CGameSprite* pSprite, STRREF str);
     void AddColorEffect(CGameSprite* pSprite, BYTE r, BYTE g, BYTE b, BYTE periodLength);
