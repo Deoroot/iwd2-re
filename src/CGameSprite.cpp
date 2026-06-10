@@ -9,6 +9,7 @@
 #include "CGameArea.h"
 #include "CGameButtonList.h"
 #include "CGameContainer.h"
+#include "CGameTimer.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CItem.h"
@@ -11371,6 +11372,12 @@ void CGameSprite::ProcessAI()
     // CGameAIBase implementation until those branches are ported.
     CGameAIBase::ProcessAI();
 
+    // 0x72DA32: script timers tick every 16th AI frame, staggered per id, so
+    // TimerActive() expires and the 00AMVW wander loop repaces (2-5s).
+    if (((m_id ^ field_44A) & 0xF) == 0) {
+        CheckTimers(1);
+    }
+
     if (ProcessEffectList()
         && m_pArea != NULL
         && (m_dialogWait < 1
@@ -12446,8 +12453,21 @@ BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
 {
     // TODO INCOMPLETE: original 0x731B30 is a large status-trigger dispatcher.
     // This recovers the NumTimesTalkedTo block at 0x731F9F..0x731FCD, needed by
-    // the prologue 10HEDRON dialog entry condition.
+    // the prologue 10HEDRON dialog entry condition, and the TimerActive case
+    // (gates the ambient RandomWalk loop in 00AMVW*.BCS).
     switch (trigger.m_triggerID) {
+    case CAITRIGGER_TIMERACTIVE: {
+        BOOL bActive = FALSE;
+        POSITION pos = m_timers.GetHeadPosition();
+        while (pos != NULL) {
+            CGameTimer* pTimer = m_timers.GetNext(pos);
+            if (pTimer != NULL && pTimer->m_id == trigger.m_specificID) {
+                bActive = TRUE;
+            }
+        }
+        return bActive;
+    }
+
     case CAITRIGGER_NUMTIMESTALKEDTO:
         return m_nNumberOfTimesTalkedTo == trigger.m_specificID;
     case CAITRIGGER_NUMTIMESTALKEDTOGT:
