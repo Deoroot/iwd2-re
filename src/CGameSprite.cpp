@@ -12462,6 +12462,12 @@ BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
     // This recovers the NumTimesTalkedTo block at 0x731F9F..0x731FCD, needed by
     // the prologue 10HEDRON dialog entry condition, and the TimerActive case
     // (gates the ambient RandomWalk loop in 00AMVW*.BCS).
+    // TEMP instrumentation (00AMVW wander debugging; remove after)
+    if (m_id == 1048592 || m_id == 1114129) {
+        Iwd2DebugLog("WalkerTrig id=%ld trig=0x%X spec=%ld spec2=%ld",
+            m_id, trigger.m_triggerID, trigger.m_specificID, trigger.m_specific2);
+    }
+
     switch (trigger.m_triggerID) {
     case CAITRIGGER_TIMERACTIVE: {
         BOOL bActive = FALSE;
@@ -14726,6 +14732,24 @@ SHORT CGameSprite::ExecuteAction()
         return RandomWalk();
     }
 
+    // 0x72AA61 (jumptable cases 0xED/0x106). ReturnToSavedLocation(I:Tolerance)
+    // and the Delete variant: walk back to the saved location, face the saved
+    // direction on arrival.
+    if (m_curAction.m_actionID == 0xED || m_curAction.m_actionID == 0x106) {
+        return ReturnToSavedLocation();
+    }
+
+    // 0x72AD26 (jumptable case 0x10D). SetStartPos(P:Point*): re-anchor
+    // m_posStart; (-1,-1) means "here".
+    if (m_curAction.m_actionID == 0x10D) {
+        CPoint pt = m_curAction.m_dest;
+        if (pt.x == -1 && pt.y == -1) {
+            pt = m_pos;
+        }
+        m_posStart = pt;
+        return ACTION_DONE;
+    }
+
     return CGameAIBase::ExecuteAction();
 }
 
@@ -15503,6 +15527,42 @@ SHORT CGameSprite::RandomWalk()
 
     CAIAction moveAction(CAIAction::MOVETOPOINT, CPoint(x, y), 0, -1);
     AddAction(moveAction);
+
+    return ACTION_DONE;
+}
+
+// 0x75F270
+SHORT CGameSprite::ReturnToSavedLocation()
+{
+    if (m_baseStats.m_savedLocationX != 0 && m_baseStats.m_savedLocationY != 0) {
+        CPoint dest;
+        if (m_curAction.m_actionID == 0x12E) {
+            dest = m_pos;
+        } else {
+            dest.x = m_baseStats.m_savedLocationX;
+            dest.y = m_baseStats.m_savedLocationY;
+        }
+
+        SHORT actionReturn = MoveToPointRange(dest, m_curAction.m_specificID);
+        if (actionReturn != ACTION_DONE && actionReturn != ACTION_ERROR) {
+            m_lastActionID = CAIAction::MOVETOPOINT;
+            return actionReturn;
+        }
+
+        SetDirection(m_baseStats.m_savedLocationFacing);
+
+        if (m_pos.x != -1 || m_pos.y != -1 || m_pArea != NULL) {
+            CMessage* message = new CMessageSpriteUpdate(this, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        }
+
+        if (m_curAction.m_actionID == 0x106) {
+            // ReturnToSavedLocationDelete(): leave the area on arrival.
+            m_removeFromArea = TRUE;
+        }
+
+        return actionReturn;
+    }
 
     return ACTION_DONE;
 }

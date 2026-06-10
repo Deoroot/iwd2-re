@@ -603,6 +603,7 @@ public:
     SHORT Face();
     SHORT FaceObject(CGameAIBase* pObject);
     SHORT RandomWalk();
+    SHORT ReturnToSavedLocation();
     SHORT LeaveParty();
     void MoveGlobal(const CString& sArea, const CPoint& ptStart);
     SHORT GroupAttack(CGameSprite* pTarget);

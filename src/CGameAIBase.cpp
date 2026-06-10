@@ -261,6 +261,12 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         CVariable* pVar = pHash != NULL ? pHash->FindKey(sName) : NULL;
         LONG nValue = pVar != NULL ? pVar->m_intValue : 0;
 
+        // TEMP instrumentation (00AMVW wander debugging; remove after)
+        if (strncmp(sName, "RW_", 3) == 0) {
+            Iwd2DebugLog("GlobalTrig id=%ld name=%s hash=%p var=%p val=%ld want=%ld",
+                m_id, (LPCSTR)sName, pHash, pVar, nValue, nTriggerValue);
+        }
+
         if (trigger.m_triggerID == CAITRIGGER_GLOBAL) {
             return nValue == nTriggerValue;
         }
@@ -307,6 +313,52 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
     case CAITRIGGER_INCUTSCENEMODE:
         return g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode == 322;
 
+    case CAITRIGGER_ACTIONLISTEMPTY:
+        // 0x455356: idle check used by the waypoint-patrol scripts (10ELDGUM
+        // and friends) to wait for the previous MoveToPoint to finish.
+        return m_queuedActions.GetCount() == 0
+            && m_curAction.GetActionID() == CAIAction::NO_ACTION;
+
+    case CAITRIGGER_NEARLOCATION: {
+        // 0x458501: NearLocation(O:Object*,I:PointX,I:PointY,I:Range) --
+        // squared search-grid distance of the object to (x,y) vs Range^2.
+        // x/y of -1 resolve to the caller's position, -2 to its saved location.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG x = cause.GetSpecifics();
+        LONG y = cause.GetInt1();
+        if (x == -1) {
+            x = GetPos().x;
+        } else if (x == -2 && (GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+            x = static_cast<CGameSprite*>(this)->GetBaseStats()->m_savedLocationX;
+        }
+        if (y == -1) {
+            y = GetPos().y;
+        } else if (y == -2 && (GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
+            y = static_cast<CGameSprite*>(this)->GetBaseStats()->m_savedLocationY;
+        }
+
+        LONG nRange = cause.GetInt2();
+        BOOL bHolds = FALSE;
+        if (x > 0 && y > 0 && nRange > 0) {
+            CPoint posObject = pObject->GetPos();
+            LONG dx = (posObject.x - x) / CPathSearch::GRID_SQUARE_SIZEX;
+            LONG dy = (posObject.y - y) / CPathSearch::GRID_SQUARE_SIZEY;
+            bHolds = dx * dx + dy * dy <= nRange * nRange;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     case CAITRIGGER_RANGE: {
         // 0x454851: Range(O:Object*,I:Range*,I:diffmode) -- squared search-grid
         // distance to the object vs (range+1)^2, compared per diffmode.
@@ -317,7 +369,11 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         if (pObject == NULL) {
             // TEMP instrumentation (00AMVW wander debugging; remove after)
             if (cause.GetSpecifics() == 40) {
-                Iwd2DebugLog("Range id=%ld object unresolved", m_id);
+                const CAIObjectType& t = cause.GetCause();
+                Iwd2DebugLog("Range id=%ld unresolved cause ea=%d gen=%d race=%d cls=%d spec=%d inst=%ld loc=%ld name='%s'",
+                    m_id, t.m_nEnemyAlly, t.m_nGeneral, t.m_nRace, t.m_nClass,
+                    t.m_nSpecific, t.m_nInstance, t.m_nLocationType,
+                    (const char*)t.m_sName);
             }
             return FALSE;
         }
@@ -361,6 +417,10 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         if (bHolds) {
             field_342.Set(pObject->GetAIType());
         }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
         return bHolds;
     }
 
