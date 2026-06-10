@@ -1,0 +1,11 @@
+# Host-side clangd cannot compile this project: it is an MFC codebase whose root
+# header (src/mfc.h -> <afx.h>, <afxwin.h>, ...) only exists in Visual Studio on
+# the Win11 build VM. On the CachyOS host afx.h is not found, so every Win32/MFC
+# type (BYTE, DWORD, WORD, LONG, BOOL, CString, CPoint, CRect, ...) and the whole
+# class hierarchy fail to parse, producing thousands of cascading false positives
+# (pp_file_not_found -> unknown_typename -> undeclared_var_use -> init_conversion_failed).
+#
+# The authoritative type-check is the MSVC build on the VM (scripts/remote_build.sh).
+# clangd here is only useful for navigation, so silence its (entirely false) diagnostics.
+Diagnostics:
+  Suppress: '*'

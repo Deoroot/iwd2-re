@@ -32,13 +32,21 @@ if [ "${1:-}" = "--run" ]; then
   echo "==> deploy + launch in session 1 (renders + input; required for Frida)"
   ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
   echo "==> wait for world activation (engine writes vm_s1_out.txt)"
-  for _ in $(seq 1 30); do
+  status=""
+  for i in $(seq 1 30); do
     out=$(ssh "$VM" "cmd /c \"type $VM_REPO\\vm_s1_out.txt 2>nul\"" 2>/dev/null || true)
     case "$out" in
-      *loaded:*|*timeout*|*failed:*) echo "$out"; break ;;
+      *loaded:*|*timeout*|*failed:*) status="$out"; break ;;
     esac
+    echo "   ... waiting ($((i * 5))s)${out:+ [last: $out]}"
     sleep 5
   done
+  if [ -n "$status" ]; then
+    echo "   status: $status"
+  else
+    echo "   WARN: no terminal status after 150s; vm_s1_out.txt: '${out:-<empty>}'"
+    echo "   check: ssh $VM 'cmd /c type $VM_REPO\\vm_s1_out.txt' / tasklist | findstr iwd2"
+  fi
   echo "   game stays up. Attach Frida: ssh $VM 'cmd /c python $VM_REPO/scripts/frida_attach_test.py'"
 fi
 echo "done."
