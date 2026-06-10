@@ -14674,6 +14674,12 @@ SHORT CGameSprite::ExecuteAction()
         return UseContainer();
     }
 
+    // 0x7290D2 (ExecuteAction jumptable case 0x55). RandomWalk(): ambient
+    // wandering for area creatures (Targos villagers etc.).
+    if (m_curAction.m_actionID == CAIAction::RANDOMWALK) {
+        return RandomWalk();
+    }
+
     return CGameAIBase::ExecuteAction();
 }
 
@@ -15263,6 +15269,194 @@ SHORT CGameSprite::FaceObject(CGameAIBase* pObject)
             g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
         }
     }
+
+    return ACTION_DONE;
+}
+
+// 0x748CA0
+SHORT CGameSprite::RandomWalk()
+{
+    CAIObjectType cType(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+    cType.Set(CAIObjectType::ANYONE);
+
+    DWORD nCreFlags = m_baseStats.m_flags;
+
+    if (m_interrupt) {
+        return ACTION_INTERRUPTABLE;
+    }
+
+    // Re-queue the walk itself so the wandering repeats indefinitely.
+    CAIAction repeatAction(m_curAction.m_actionID, CPoint(-1, -1), 0, -1);
+    AddAction(repeatAction);
+
+    CRect rView;
+    CopyRect(&rView, &m_pArea->m_cInfinity.rViewPort);
+
+    UINT nWidth = rView.right - rView.left;
+    if (m_huntingRange != 0 && 2 * m_huntingRange < static_cast<INT>(nWidth)) {
+        nWidth = m_huntingRange;
+    }
+
+    UINT nHeight = rView.bottom - rView.top;
+    if (m_huntingRange != 0 && 2 * m_huntingRange < static_cast<INT>(nHeight)) {
+        nHeight = m_huntingRange;
+    }
+
+    // CRE flags bits 24-30 select which of our own identity components define
+    // the herd this walk drifts towards.
+    BOOL bHerd = FALSE;
+    if ((nCreFlags & 0x1000000) != 0) {
+        cType.m_nEnemyAlly = m_typeAI.m_nEnemyAlly;
+        bHerd = TRUE;
+    }
+    if ((nCreFlags & 0x2000000) != 0) {
+        cType.m_nGeneral = m_typeAI.m_nGeneral;
+        bHerd = TRUE;
+    }
+    if ((nCreFlags & 0x4000000) != 0) {
+        cType.m_nRace = m_typeAI.m_nRace;
+        bHerd = TRUE;
+    }
+    if ((nCreFlags & 0x8000000) != 0) {
+        cType.m_nClass = m_typeAI.m_nClass;
+        bHerd = TRUE;
+    }
+    if ((nCreFlags & 0x10000000) != 0) {
+        cType.m_nSpecific = m_typeAI.m_nSpecific;
+        bHerd = TRUE;
+    }
+    if ((nCreFlags & 0x20000000) != 0) {
+        cType.m_nGender = m_typeAI.m_nGender;
+        bHerd = TRUE;
+    }
+    if ((nCreFlags & 0x40000000) != 0) {
+        cType.m_nAlignment = m_typeAI.m_nAlignment;
+        bHerd = TRUE;
+    }
+
+    INT nHalfWidth = static_cast<INT>(nWidth) >> 1;
+    INT nHalfHeight = static_cast<INT>(nHeight) >> 1;
+
+    INT nDriftX = 0;
+    INT nDriftY = 0;
+
+    if (bHerd) {
+        LONG nNearestId = m_pArea->GetNearest(m_id,
+            cType,
+            GetVisualRange(),
+            GetVisibleTerrainTable(),
+            TRUE,
+            GetCanSeeInvisible(),
+            FALSE,
+            0,
+            FALSE);
+
+        CGameObject* pObject;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nNearestId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS && pObject != NULL) {
+            LONG dx = pObject->GetPos().x - m_pos.x;
+            nDriftX = dx < 0 ? -dx : dx;
+            if (nHalfWidth <= nDriftX) {
+                nDriftX = nHalfWidth;
+            }
+            if (dx < 0) {
+                nDriftX = -nDriftX;
+            }
+
+            LONG dy = pObject->GetPos().y - m_pos.y;
+            nDriftY = dy < 0 ? -dy : dy;
+            if (nHalfHeight <= nDriftY) {
+                nDriftY = nHalfHeight;
+            }
+            if (dy < 0) {
+                nDriftY = -nDriftY;
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nNearestId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+    }
+
+    BYTE nRounds = 0;
+    BYTE nAttempts = 0;
+    INT x = 0;
+    INT y = 0;
+
+    while (TRUE) {
+        BYTE nCost;
+        LONG nOffsetDistSq;
+
+        do {
+            INT nOffsetX = (nWidth != 0 ? rand() % static_cast<INT>(nWidth) : 0) - nHalfWidth;
+            INT nOffsetY = (nHeight != 0 ? rand() % static_cast<INT>(nHeight) : 0) - nHalfHeight;
+            nOffsetDistSq = nOffsetX * nOffsetX + nOffsetY * nOffsetY;
+
+            // Anchor on the spawn point once we have wandered out of range of it.
+            INT nAnchorX;
+            INT nAnchorY;
+            if (m_huntingRange == 0
+                || (m_pos.x - m_posStart.x) * (m_pos.x - m_posStart.x)
+                        + (m_pos.y - m_posStart.y) * (m_pos.y - m_posStart.y)
+                    < m_huntingRange) {
+                nAnchorX = m_pos.x;
+                nAnchorY = m_pos.y;
+            } else {
+                nAnchorX = m_posStart.x;
+                nAnchorY = m_posStart.y;
+            }
+
+            x = nOffsetX + nAnchorX + nDriftX;
+            y = nOffsetY + nAnchorY + nDriftY;
+            if (x < 0) {
+                x = 0;
+            }
+            if (y < 0) {
+                y = 0;
+            }
+            if (m_pArea->m_cInfinity.nAreaX <= x) {
+                x = m_pArea->m_cInfinity.nAreaX - 1;
+            }
+            if (m_pArea->m_cInfinity.nAreaY <= y) {
+                y = m_pArea->m_cInfinity.nAreaY - 1;
+            }
+
+            CPoint ptSearch(x / CPathSearch::GRID_SQUARE_SIZEX,
+                y / CPathSearch::GRID_SQUARE_SIZEY);
+
+            SHORT nTableIndex;
+            nCost = m_pArea->m_search.GetCost(ptSearch,
+                GetTerrainTable(),
+                m_animation.GetPersonalSpace(),
+                nTableIndex,
+                TRUE);
+
+            nAttempts++;
+        } while (nCost == CPathSearch::COST_IMPASSABLE && nAttempts < 100);
+
+        if (m_posStart.x == -1 && m_posStart.y == -1) {
+            nOffsetDistSq = -1;
+        }
+
+        nRounds++;
+        if (m_huntingRange == 0
+            || nOffsetDistSq <= static_cast<LONG>(static_cast<DWORD>(m_huntingRange) * m_huntingRange)
+            || nRounds > 19) {
+            break;
+        }
+
+        nAttempts = 0;
+    }
+
+    CAIAction moveAction(CAIAction::MOVETOPOINT, CPoint(x, y), 0, -1);
+    AddAction(moveAction);
 
     return ACTION_DONE;
 }
