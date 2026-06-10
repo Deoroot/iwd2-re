@@ -77,6 +77,15 @@ without it the bridge auto-loads the VM config and every lookup returns "Functio
 | Crash addr → containing fn | `gb containing 0xADDR` |
 | Unrecovered (by caller count) | `gb unimplemented CClass` |
 
+**"Function not found" / "no export for 0xADDR" on a VALID addr** = Ghidra never defined a function
+there (vtable-only callee, no direct `call`; `gb containing` shows the bytes swallowed by the previous
+fn). Fix: ensure a `// 0xADDR` exists in source (stub the method if new), then
+`python scripts/reagent_address_map.py --out .ghidra-exports/address_map.json` +
+`gb export create-functions` (~10 min: batch-creates from the map, re-exports all).
+⚠️ NEVER `gb build-map` — it can't parse our `// 0xADDR` convention and overwrites the map with an EMPTY one.
+Unknown virtual's addr: find the class vtable in `.rdata` via pefile (search a known method's ptr,
+subtract its header slot offset), read the wanted slot.
+
 **Parity** = faithfulness lint of recovered C++ vs Ghidra (11 signals + call-count/control-flow
 objective verifier). Run from the repo root (`/home/wills/iwd2-re`) so the bridge finds the yaml via cwd:
 
