@@ -30,7 +30,7 @@ import json
 import re
 from pathlib import Path
 
-REPO = Path(r"C:\iwd2-re")
+REPO = Path(__file__).resolve().parent.parent
 DEFAULT_TYPES = REPO / "data" / "pdb" / "extracted" / "bg2_pdb_types.txt"
 DEFAULT_OUT = REPO / ".ghidra-exports" / "bg2_pdb_layout.json"
 

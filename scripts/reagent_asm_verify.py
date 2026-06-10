@@ -60,13 +60,13 @@ from reagent_resolve_symbols import (  # noqa: E402
 )
 from reagent_build_smoke import locate_function, src_file_for  # noqa: E402
 
-REPO = Path(r"C:\iwd2-re")
+REPO = Path(__file__).resolve().parent.parent
 DEFAULT_MAP = REPO / ".ghidra-exports" / "address_map.json"
 DEFAULT_INDEX = REPO / ".ghidra-exports" / "_index.json"
 DEFAULT_GLOBALS = REPO / ".ghidra-exports" / "_globals.json"
 DEFAULT_VTABLE = REPO / ".ghidra-exports" / "vtable_map.json"
-DEFAULT_BRIDGE = REPO / ".venv-reagent" / "Scripts" / "ghidra-bridge.exe"
-DEFAULT_CONFIG = REPO / "ghidra-bridge.yaml"
+DEFAULT_BRIDGE = REPO / ".venv-reagent" / "bin" / "ghidra-bridge"
+DEFAULT_CONFIG = REPO / "ghidra-bridge.host.yaml"
 
 # A disassembly line: ``00403334 CALL <operand>``.
 ASM_CALL_RE = re.compile(r"^\s*[0-9a-fA-F]{8}\s+CALL\s+(.+?)\s*$", re.IGNORECASE)

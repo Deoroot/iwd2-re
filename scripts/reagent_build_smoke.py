@@ -30,9 +30,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(r"C:\iwd2-re")
+REPO = Path(__file__).resolve().parent.parent
 DEFAULT_MAP = REPO / ".ghidra-exports" / "address_map.json"
-DEFAULT_WORKTREE = Path(r"C:\iwd2-re-scratch")
+DEFAULT_WORKTREE = REPO.parent / "iwd2-re-scratch"
 AUTO_START = REPO / "scripts" / "auto_start_game.py"
 GENERATOR = "Visual Studio 16 2019"
 

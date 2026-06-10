@@ -18,9 +18,9 @@ reads the emitted candidate + report and decides whether it reaches src/.
 
 Runs under the toolchain venv (needs ``openai`` + ``re_agent``)::
 
-    .venv-reagent/Scripts/python scripts/reagent_first_pass.py --address 0x402b70
-    .venv-reagent/Scripts/python scripts/reagent_first_pass.py --address 0x402b70 --dry-run
-    .venv-reagent/Scripts/python scripts/reagent_first_pass.py --address 0x402b70 --gate asm
+    .venv-reagent/bin/python scripts/reagent_first_pass.py --address 0x402b70
+    .venv-reagent/bin/python scripts/reagent_first_pass.py --address 0x402b70 --dry-run
+    .venv-reagent/bin/python scripts/reagent_first_pass.py --address 0x402b70 --gate asm
 """
 from __future__ import annotations
 
@@ -31,9 +31,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(r"C:\iwd2-re")
+REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
-CONFIG = REPO / "re-agent.yaml"
+CONFIG = REPO / "re-agent.host.yaml"           # host (Linux) re-agent config
+if not CONFIG.is_file():                        # fall back to legacy VM config
+    CONFIG = REPO / "re-agent.yaml"
 OUT_DIR = REPO / "reports" / "re-agent" / "code"
 PYTHON = sys.executable
 

@@ -34,10 +34,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(r"C:\iwd2-re")
+REPO = Path(__file__).resolve().parent.parent
 DEFAULT_IDS_DIR = REPO / "data" / "near_infinity_export" / "IDS"
-DEFAULT_BRIDGE = REPO / ".venv-reagent" / "Scripts" / "ghidra-bridge.exe"
-DEFAULT_CONFIG = REPO / "ghidra-bridge.yaml"
+DEFAULT_BRIDGE = REPO / ".venv-reagent" / "bin" / "ghidra-bridge"
+DEFAULT_CONFIG = REPO / "ghidra-bridge.host.yaml"
 
 # A data row: VALUE (dec or 0xhex) then whitespace then a SYMBOL. The header lines
 # (a lone count ``267``, a label ``slo188``, or blank) lack the value+symbol pair

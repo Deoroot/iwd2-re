@@ -1,0 +1,11 @@
+#!/bin/sh
+# Host wrapper for re-agent's ghidra-bridge backend.
+#
+# re-agent invokes the bridge CLI as `<cli_path> decompile 0xADDR` with NO --config,
+# so the bridge auto-discovers ghidra-bridge.yaml (the VM config, C:\ export_dir) and
+# fails every lookup with "Function not found" on the Linux host. Force the host
+# config so decompile/xrefs/asm resolve against /home/wills/iwd2-re/.ghidra-exports.
+#
+# Point re-agent.host.yaml -> backend.cli_path at this script.
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$REPO/.venv-reagent/bin/ghidra-bridge" --config "$REPO/ghidra-bridge.host.yaml" "$@"

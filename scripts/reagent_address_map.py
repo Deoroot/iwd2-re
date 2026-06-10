@@ -31,12 +31,14 @@ FILE_EXTENSIONS = (".cpp", ".h", ".hpp")
 # A bare `// 0xADDR` comment alone on its line (trailing text tolerated).
 ADDR_RE = re.compile(r"^[ \t]*//[ \t]*0x([0-9A-Fa-f]+)\b")
 # Qualified out-of-line definition: `... Class::Func(` (skips template return
-# types like `ATL::CStringT<...>&` because they are not followed by `(`).
-QUAL_RE = re.compile(r"(~?\w+)\s*::\s*(~?\w+)\s*\(")
+# types like `ATL::CStringT<...>&` because they are not followed by `(`). The
+# method name is an identifier (optionally ~dtor) OR an `operator<sym>` overload
+# (`operator=`, `operator==`, `operator[]`, `operator()`, `operator new`...).
+QUAL_RE = re.compile(r"(~?\w+)\s*::\s*(~?\w+|operator\s*(?:\[\]|\(\)|[^\s(]+))\s*\(")
 # Inline member (header body): grab the identifier just before `(`.
 INLINE_RE = re.compile(r"(~?\w+)\s*\(")
-# How far below the address comment to look for the signature line.
-SIG_LOOKAHEAD = 4
+# (the signature search skips the marker's blank/comment doc block of any length;
+# see _signature_line — it stops only at the next address marker or EOF.)
 
 # Real IWD2 code lives in this range (matches ghidra-bridge.yaml code_range). A
 # `// 0xADDR` outside it is not a function: small values are struct field offsets
@@ -54,10 +56,14 @@ CPP_KEYWORDS = frozenset({
 
 
 def _signature_line(lines: list[str], start: int) -> str | None:
-    """First non-blank, non-comment line within SIG_LOOKAHEAD of *start*."""
-    for j in range(start + 1, min(start + 1 + SIG_LOOKAHEAD, len(lines))):
+    """First code line after *start*, skipping the marker's blank/comment doc
+    block of any length. Returns None at the next ``// 0xADDR`` marker or EOF, so
+    a markerless function never steals the following function's signature."""
+    for j in range(start + 1, len(lines)):
         stripped = lines[j].strip()
         if not stripped or stripped.startswith("//"):
+            if ADDR_RE.match(lines[j]):    # next function's marker -> no def here
+                return None
             continue
         return lines[j]
     return None
@@ -125,10 +131,11 @@ def build_map(source_root: Path) -> tuple[dict, list[tuple[str, int, str]], list
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--source-root", default=r"C:\iwd2-re\src", help="source tree to scan")
-    ap.add_argument("--out", default=r"C:\iwd2-re\.ghidra-exports\address_map.json",
+    repo = Path(__file__).resolve().parent.parent
+    ap.add_argument("--source-root", default=str(repo / "src"), help="source tree to scan")
+    ap.add_argument("--out", default=str(repo / ".ghidra-exports" / "address_map.json"),
                     help="output address_map.json path")
-    ap.add_argument("--hooks-csv", default=r"C:\iwd2-re\.ghidra-exports\hooks.csv",
+    ap.add_argument("--hooks-csv", default=str(repo / ".ghidra-exports" / "hooks.csv"),
                     help="also emit a re-agent hooks CSV (address,name,reversed)")
     ap.add_argument("--show-unparsed", type=int, default=10,
                     help="print up to N unparsed // 0xADDR markers (0 to suppress)")

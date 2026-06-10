@@ -31,8 +31,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from vtable_audit import Image, parse_headers, parse_addrs, find_vtable, vtable_len, EXE  # noqa: E402
 
-DEFAULT_INDEX = Path(r"C:\iwd2-re\.ghidra-exports\_index.json")
-DEFAULT_OUT = Path(r"C:\iwd2-re\.ghidra-exports\vtable_map.json")
+REPO = Path(__file__).resolve().parent.parent
+DEFAULT_INDEX = REPO / ".ghidra-exports" / "_index.json"
+DEFAULT_OUT = REPO / ".ghidra-exports" / "vtable_map.json"
 
 # A Ghidra "name" that is itself a synthetic placeholder carries no information.
 SYNTH_RE = re.compile(r"^(PTR_)?(FUN|LAB|DAT|UNK|SUB)_[0-9A-Fa-f]+$", re.IGNORECASE)

@@ -45,7 +45,7 @@ from reagent_ids_constants import load_ids, annotate as ids_annotate  # noqa: E4
 from reagent_bg2_pdb import format_block as bg2_block  # noqa: E402
 from reagent_file_formats import annotate as ff_annotate  # noqa: E402
 
-REPO = Path(r"C:\iwd2-re")
+REPO = Path(__file__).resolve().parent.parent
 EXPORTS = REPO / ".ghidra-exports"
 DEFAULT_MAP = EXPORTS / "address_map.json"
 DEFAULT_INDEX = EXPORTS / "_index.json"

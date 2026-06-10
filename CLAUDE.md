@@ -62,7 +62,9 @@ Ghidra data now comes from **ghidra-ai-bridge** (vendored at `vendor/ghidra-ai-b
 a PyGhidra **headless export** into `.ghidra-exports/` (not a live server). Runs **on the host** —
 Linux venv `.venv-reagent/bin/{re-agent,ghidra-bridge}`, Ghidra 12.1.2 at `/opt/ghidra`, project at
 `~/ghidra_projects/IWD2/IWD2`. Config = `ghidra-bridge.host.yaml` + `re-agent.host.yaml` (repo root,
-gitignored, Linux paths). Branch: `re-agent-workflow`.
+gitignored, Linux paths). Branch: `re-agent-workflow`. re-agent's backend reaches the bridge via
+`scripts/ghidra-bridge-host` (its `cli_path`), which injects `--config ghidra-bridge.host.yaml` —
+without it the bridge auto-loads the VM config and every lookup returns "Function not found".
 
 **Query** (`gb` = `.venv-reagent/bin/ghidra-bridge --config ghidra-bridge.host.yaml`):
 
@@ -163,10 +165,20 @@ data/near_infinity_export/
 `tmp_*.txt`, `tmp_*.json`, `chunk_*.sql` = RE session noise. Not tracked. Delete freely.
 `.venv-reagent/`, `.ghidra-exports/` = re-agent toolchain + export cache. Gitignored.
 
+## Recover a function: assemble context FIRST
+
+Before recovering ANY function, build its offline context bundle (fast, no PyGhidra boot):
+
+    python scripts/reagent_assemble_context.py --address 0xADDR --out tmp_ctx.md
+
+Bundle = resolved decompile (our names, vtable-slot-annotated vcalls) + REQUIRED CALL SET
+(binary ground truth — reproduce exactly) + BG2 PDB layout + IDS constants + class header.
+Read it, then write idiomatic C++. Don't hand-recover from a bare decompile.
+
 ## Code changes
 
+- Recover → assemble its context bundle first (`reagent_assemble_context.py`, above).
 - Verify `// 0xADDR` against Ghidra before touching.
-- Minimal diffs. One bug = one change. No refactor in bugfix commits.
 - Prefer named constants over magic numbers when defined in file.
 - `python scripts/vtable_audit.py ClassName` — catches missing virtual overrides.
 - After a recover, `re-agent parity --address 0xADDR` should be GREEN/YELLOW (RED = under-implemented vs Ghidra).

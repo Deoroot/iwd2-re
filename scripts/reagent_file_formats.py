@@ -36,7 +36,7 @@ import re
 import sys
 from pathlib import Path
 
-REPO = Path(r"C:\iwd2-re")
+REPO = Path(__file__).resolve().parent.parent
 IESDP = REPO / "refs" / "iesdp" / "file_formats" / "ie_formats"
 NI = REPO / "data" / "near_infinity_export"
 EXPORTS = REPO / ".ghidra-exports"
