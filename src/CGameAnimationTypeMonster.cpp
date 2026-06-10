@@ -834,6 +834,116 @@ BOOL CGameAnimationTypeMonster::IsMirroring()
     return m_currentBamDirection > m_extendDirectionTest;
 }
 
+// 0x6AC310
+void CGameAnimationTypeMonster::Render(CInfinity* pInfinity, CVidMode* pVidMode, INT nSurface, const CRect& rectFX, const CPoint& ptNewPos, const CPoint& ptReference, DWORD dwRenderFlags, COLORREF rgbTintColor, const CRect& rGCBounds, BOOL bDithered, BOOL bFadeOut, LONG posZ, BYTE transparency)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjAnimation.cpp
+    // __LINE__: 6109
+    UTIL_ASSERT(pInfinity != NULL && pVidMode != NULL);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjAnimation.cpp
+    // __LINE__: 6110
+    UTIL_ASSERT(m_currentVidCell != NULL);
+
+    CPoint ptPos(ptNewPos.x, ptNewPos.y + posZ);
+    CRect rFXRect(rectFX);
+    BYTE alpha = transparency;
+
+    if (m_extendDirectionTest < m_currentBamDirection) {
+        dwRenderFlags |= CInfinity::MIRROR_FX;
+    }
+
+    dwRenderFlags |= CInfinity::FXPREP_COPYFROMBACK;
+    dwRenderFlags |= 0x4;
+
+    if (m_translucent) {
+        dwRenderFlags |= 0x2;
+        alpha = transparency != 0
+            ? static_cast<BYTE>((transparency * 128) / 255 + 128)
+            : 128;
+    } else if (transparency != 0) {
+        dwRenderFlags |= 0x2;
+    }
+
+    pInfinity->FXPrep(rFXRect, dwRenderFlags, nSurface, ptPos, ptReference);
+
+    if (pInfinity->FXLock(rFXRect, dwRenderFlags)) {
+        COLORREF oldTintColor = m_currentVidCell->GetTintColor();
+        int r = GetRValue(oldTintColor) + GetRValue(rgbTintColor) - 255;
+        int g = GetGValue(oldTintColor) + GetGValue(rgbTintColor) - 255;
+        int b = GetBValue(oldTintColor) + GetBValue(rgbTintColor) - 255;
+        m_currentVidCell->SetTintColor(RGB(
+            r < 0 ? 0 : static_cast<BYTE>(r),
+            g < 0 ? 0 : static_cast<BYTE>(g),
+            b < 0 ? 0 : static_cast<BYTE>(b)));
+
+        COLORREF oldWeaponTintColor = 0;
+        if (m_renderWeapons && m_currentVidCellWeapon != NULL) {
+            oldWeaponTintColor = m_currentVidCellWeapon->GetTintColor();
+            r = GetRValue(oldWeaponTintColor) + GetRValue(rgbTintColor) - 255;
+            g = GetGValue(oldWeaponTintColor) + GetGValue(rgbTintColor) - 255;
+            b = GetBValue(oldWeaponTintColor) + GetBValue(rgbTintColor) - 255;
+            m_currentVidCellWeapon->SetTintColor(RGB(
+                r < 0 ? 0 : static_cast<BYTE>(r),
+                g < 0 ? 0 : static_cast<BYTE>(g),
+                b < 0 ? 0 : static_cast<BYTE>(b)));
+        }
+
+        if (m_bHasOverlay) {
+            m_overlayBitmap.GetRes()->Demand();
+            m_currentVidCell->SetPalette(m_overlayBitmap.GetRes()->GetColorTable(),
+                m_overlayBitmap.GetRes()->GetColorCount(),
+                CVidPalette::TYPE_RESOURCE);
+        }
+
+        pInfinity->FXRender(m_currentVidCell,
+            ptReference.x,
+            ptReference.y,
+            dwRenderFlags,
+            alpha);
+
+        if (m_renderWeapons && m_currentVidCellWeapon != NULL) {
+            pInfinity->FXRender(m_currentVidCellWeapon,
+                ptReference.x,
+                ptReference.y,
+                dwRenderFlags,
+                alpha);
+        }
+
+        if (m_bHasOverlay) {
+            m_overlayBitmap.Release();
+        }
+
+        if (m_renderWeapons && m_currentVidCellWeapon != NULL) {
+            m_currentVidCellWeapon->SetTintColor(oldWeaponTintColor);
+        }
+
+        m_currentVidCell->SetTintColor(oldTintColor);
+
+        pInfinity->FXRenderClippingPolys(ptPos.x,
+            ptPos.y - posZ,
+            posZ,
+            ptReference,
+            CRect(rGCBounds.left, rGCBounds.top - posZ, rGCBounds.right, rGCBounds.bottom - posZ),
+            bDithered,
+            dwRenderFlags);
+
+        if (bFadeOut) {
+            pInfinity->FXUnlock(dwRenderFlags, &rFXRect, ptPos + ptReference);
+        } else {
+            pInfinity->FXUnlock(dwRenderFlags, NULL, CPoint(0, 0));
+        }
+
+        pInfinity->FXBltFrom(nSurface,
+            rFXRect,
+            ptPos.x,
+            ptPos.y,
+            ptReference.x,
+            ptReference.y,
+            dwRenderFlags);
+    }
+}
+
 // 0x6AB070
 void CGameAnimationTypeMonster::IncrementFrame()
 {
