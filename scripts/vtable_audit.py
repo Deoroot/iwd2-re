@@ -35,7 +35,10 @@ import sys
 import struct
 from collections import Counter, defaultdict
 
-EXE = r"C:\GOG Games\Icewind Dale 2\IWD2.exe"
+import os
+EXE = os.environ.get("IWD2_EXE",
+    os.path.expanduser("~/Games/Heroic/Icewind Dale 2/IWD2.exe")
+    if os.name == "posix" else r"C:\GOG Games\Icewind Dale 2\IWD2.exe")
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 
 # ---- PE -------------------------------------------------------------------

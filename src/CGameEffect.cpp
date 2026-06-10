@@ -1,5 +1,6 @@
 #include "CGameEffect.h"
 
+
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
@@ -1124,6 +1125,20 @@ CGameEffect::CGameEffect(ITEM_EFFECT* effect, const CPoint& source, LONG sourceI
     m_source = source;
     m_sourceID = sourceID;
     m_target = target;
+
+    // 0x48C310 ctor tail: the CGameEffect-level state is initialized here, not
+    // by the (separate) default ctor.  field_118 latches the raw duration --
+    // the delayed-effect state machine (ResolveEffect case 6) reads it back as
+    // the post-delay duration after m_duration is converted to an absolute
+    // deadline.  Missing m_done/m_forceRepass left uninitialized heap garbage
+    // (0xCDCDCDCD) that made AddEffect delete freshly decoded effects.
+    m_done = FALSE;
+    m_compareIdOnly = FALSE;
+    m_compareIdAndFlagsOnly = FALSE;
+    m_forceRepass = FALSE;
+    field_188 = 0;
+    field_118 = m_duration;
+    m_secondaryType = 1;
 }
 
 // 0x499B10

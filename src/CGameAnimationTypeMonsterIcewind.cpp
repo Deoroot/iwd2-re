@@ -2280,8 +2280,8 @@ void CGameAnimationTypeMonsterIcewind::Render(CInfinity* pInfinity, CVidMode* pV
         BYTE g = GetGValue(oldTintColor) + GetGValue(rgbTintColor) - 255 >= 0
             ? GetGValue(oldTintColor) + GetGValue(rgbTintColor) + 1
             : 0;
-        BYTE r = GetBValue(oldTintColor) + GetBValue(rgbTintColor) - 255 >= 0
-            ? GetBValue(oldTintColor) + GetBValue(rgbTintColor) + 1
+        BYTE r = GetRValue(oldTintColor) + GetRValue(rgbTintColor) - 255 >= 0
+            ? GetRValue(oldTintColor) + GetRValue(rgbTintColor) + 1
             : 0;
         m_currentVidCell->SetTintColor(RGB(r, g, b));
 
