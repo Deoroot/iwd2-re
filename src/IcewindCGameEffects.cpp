@@ -885,7 +885,11 @@ CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const CString& resRef, co
         spawnPos,
         0,
         pSpawned->GetAnimation()->GetListType());
-    pSpawned->SetFacing(pSpawned->GetDirection(m_pSprite->GetPos()));
+    // 0x55FE40: dir = caster->GetDirection(caster->GetPos()).  m_pos == target
+    // takes GetDirection's early-out, so this yields the CASTER's current
+    // facing -- the summoned creature spawns looking the same way as its
+    // summoner, not toward it.
+    pSpawned->SetFacing(m_pSprite->GetDirection(m_pSprite->GetPos()));
     pSpawned->m_posStart = pSpawned->m_pos;
 
     Icewind586B70::Instance()->AddSummoned(m_pSprite, pSpawned);

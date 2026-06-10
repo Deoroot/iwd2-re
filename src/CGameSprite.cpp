@@ -11733,16 +11733,17 @@ SHORT CGameSprite::SpellPointSequence()
 {
     CPoint castPoint = m_curAction.m_dest;
 
-    // 0x742886: turn toward the cast point.  Post a CMessageSetDirection while
-    // not yet facing (gradual turn via m_nNewDirection / ChangeDirection), then
-    // let the cast proceed.  The original waits for the turn before casting (its
-    // cast timer m_castCounter stays idle meanwhile); the bridged
-    // ForceSpellPointAction times on m_actionCount, and holding that to wait
-    // stalled the cast -- the timer never reached cast time, so the cast looped
-    // forever.  Instead the caster turns concurrently while the cast animates.
-    if (m_nDirection != GetDirection(castPoint)) {
-        CMessage* pFaceCast = new CMessageSetDirection(castPoint, m_id, m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(pFaceCast, FALSE);
+    // 0x742886: turn toward the cast point BEFORE the cast runs.  The SEQ_CAST
+    // executor re-enters every tick without advancing the cast while
+    // m_nDirection differs from GetDirection(castPoint), so the casting glow is
+    // born already facing the cast point.  Latched to m_actionCount <= 0 like
+    // the object-target executor (FUN_00740270, CGameAIBase.cpp): once the cast
+    // machine is counting the gate is inert, so the turn cannot re-pin the
+    // counter and restart the cast (the earlier infinite-cast loop).
+    if (m_actionCount <= 0 && m_nDirection != GetDirection(castPoint)) {
+        SetDirection(castPoint);
+        m_actionCount = -1;
+        return ACTION_INTERRUPTABLE;
     }
 
     return ForceSpellPointAction();
