@@ -2940,8 +2940,9 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         && m_curAction.m_actionID != CAIAction::REALLYFORCESPELL
         && m_curAction.m_actionID != CAIAction::FORCESPELLPOINT) {
         // (1) Move-to-range + line-of-sight.  FUN_00740270 fires only when the
-        // target is BOTH within the chosen ability's range (FUN_007567F0,
-        // 0x7408B6) AND in line of sight (CGameArea::CheckLOS, 0x7408DC); a spell
+        // target is BOTH within the chosen ability's range
+        // (CGameSprite::CheckCastingRange, 0x7408B6) AND in line of sight
+        // (CGameArea::CheckLOS, 0x7408DC); a spell
         // whose header flag 0x800 is set bypasses the LOS half (0x7408E5).  When
         // neither holds it walks the caster toward the target via FUN_0073EDD0
         // (== CGameSprite::MoveToObject, 0x740A37) and re-enters next tick.
@@ -2951,7 +2952,7 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         // but past sight is still approached first (the runtime-traced gap: a
         // creature inside Magic Missile's 50-square range yet past sight still
         // made the original walk while our range-only gate cast in place).  range
-        // == 0xFFFF (-1) is unbounded (matches FUN_007567F0's -1 short test); the
+        // == 0xFFFF (-1) is unbounded (matches CheckCastingRange's -1 short test); the
         // grid-square distance carries a +2 slack; self casts never walk.  The
         // whole decision is latched to m_actionCount <= 0 -- the binary's +0x54EA
         // "casting begun" flag, set once the cast machine runs -- so a target that

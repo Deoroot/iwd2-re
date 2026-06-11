@@ -11720,6 +11720,54 @@ BOOL GetCastingVisualEffect(WORD animationType, WORD& effectID, LONG& effectAmou
 
 }
 
+// 0x7567F0
+//
+// Range gate for the targeted casts (Spell / SpellPoint).  Demands the SPL,
+// picks the highest ability whose minCasterLevel the caster meets, then
+// tests the target point against that ability's range in path-grid squares
+// (+2 squares of slack).  range == 0xFFFF is unbounded.  No ability
+// qualifying (or none at all) fails the gate.  Line of sight is the
+// caller's problem.
+BOOL CGameSprite::CheckCastingRange(CSpell* pSpell, const CPoint& targetPos, BYTE nClass, DWORD nSpecialization)
+{
+    pSpell->Demand();
+
+    SHORT casterLevel = GetCasterLevel(pSpell, nClass, nSpecialization);
+
+    Spell_ability_st* ability = NULL;
+    if (pSpell->GetAbilityCount() > 0) {
+        INT index = 0;
+        do {
+            if (casterLevel < pSpell->GetAbility(index)->minCasterLevel) {
+                break;
+            }
+            ability = pSpell->GetAbility(index);
+            ++index;
+        } while (index < pSpell->GetAbilityCount());
+
+        if (ability != NULL) {
+            if (ability->range == 0xFFFF) {
+                pSpell->Release();
+                return TRUE;
+            }
+
+            const CPoint& pos = GetPos();
+            LONG dx = pos.x / CPathSearch::GRID_SQUARE_SIZEX
+                - targetPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+            LONG dy = pos.y / CPathSearch::GRID_SQUARE_SIZEY
+                - targetPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+            LONG range = ability->range + 2;
+            if (dx * dx + dy * dy <= range * range) {
+                pSpell->Release();
+                return TRUE;
+            }
+        }
+    }
+
+    pSpell->Release();
+    return FALSE;
+}
+
 // 0x740270
 SHORT CGameSprite::Spell(CGameAIBase* target)
 {
@@ -11822,38 +11870,12 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
 
         STRREF genericName = targetCheckSpell->GetGenericName();
         if (genericName != 0x64A5 && genericName != 0x7E89 && genericName != 0x2F55) {
-            BOOL canCast = FALSE;
-            if (targetCheckSpell->Demand()) {
-                SHORT casterLevel = GetCasterLevel(targetCheckSpell, nClass, nSpecialization);
-                Spell_ability_st* ability = NULL;
-                INT abilityCount = targetCheckSpell->GetAbilityCount();
-                for (INT index = 0; index < abilityCount; ++index) {
-                    Spell_ability_st* candidate = targetCheckSpell->GetAbility(index);
-                    if (candidate == NULL
-                        || candidate->minCasterLevel > static_cast<WORD>(casterLevel)) {
-                        break;
-                    }
-                    ability = candidate;
-                }
-
-                if (ability != NULL) {
-                    LONG dx = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX
-                        - targetPos.x / CPathSearch::GRID_SQUARE_SIZEX;
-                    LONG dy = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY
-                        - targetPos.y / CPathSearch::GRID_SQUARE_SIZEY;
-                    LONG range = ability->range + 2;
-                    BOOL inRange = ability->range == 0xFFFF
-                        || dx * dx + dy * dy <= range * range;
-                    canCast = inRange
-                        && (m_pArea->CheckLOS(
-                                m_pos,
-                                targetPos,
-                                GetVisibleTerrainTable(),
-                                FALSE)
-                            || (targetCheckSpell->GetItemFlags() & 0x800) != 0);
-                }
-                targetCheckSpell->Release();
-            }
+            // 0x740891: itemFlags are read before the range gate; flag 0x800
+            // (the asm tests the NOTed bit) waives the line-of-sight half.
+            DWORD itemFlags = targetCheckSpell->GetItemFlags();
+            BOOL canCast = CheckCastingRange(targetCheckSpell, targetPos, nClass, nSpecialization)
+                && (m_pArea->CheckLOS(m_pos, targetPos, GetVisibleTerrainTable(), FALSE)
+                    || (itemFlags & 0x800) != 0);
 
             if (!canCast) {
                 if (deleteTargetCheckSpell) {
