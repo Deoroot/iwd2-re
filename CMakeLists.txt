@@ -427,6 +427,7 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/IcewindCVisualEffect.h"
     "src/IcewindMisc.cpp"
     "src/IcewindMisc.h"
+    "src/MfcCString.cpp"
     "src/main.cpp"
     "src/mfc.h"
     "src/resource.h"
