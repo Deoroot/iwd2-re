@@ -419,8 +419,16 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
 
     default:
-        // ~80 hardcoded projectile classes not yet recovered.
-        return NULL;
+        // 0x528DEF: unknown / unrecovered type.  The binary asserts FALSE
+        // (CProjectile.cpp:3127) and then builds a plain CProjectile, so the
+        // factory never returns NULL for an in-range type.  ~80 hardcoded
+        // projectile classes still fall through here.
+        // HACK: the assert is omitted -- the binary's UtilAssert (0x780C00)
+        // shows a continueable "Run Debugger?" dialog, ours suspends and
+        // shuts the game down, so asserting would kill every cast with an
+        // unrecovered projectile class -- replaces 0x528DEF.
+        pProjectile = new CProjectile();
+        break;
     }
 
     // Common tail (0x528E1C): the factory stamps the 0-based projectile type on
@@ -435,6 +443,37 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
 // INCOMPLETE: only CProjectileBAM subclass recovered; the global projectile
 // dispatch switch (0x57B0C0) and remaining projectile types are not yet
 // implemented. Fire/AIUpdate/Render mapped from Ghidra.
+
+// 0x530790
+//
+// Default constructor, used by DecodeProjectile's default case (every
+// subclass constructor inlines this same body before its own overrides, so
+// subclasses run it implicitly here too).  Not transcribed: the binary
+// stamps the MSVC /GS security-cookie value into field_17E (no portable
+// equivalent) and re-zeroes four undeclared CGameEffectList tail fields
+// (+0x46/+0x62/+0x64/+0x68 inside the list) right after the list
+// constructor has run.
+CProjectile::CProjectile()
+{
+    m_casterClass = 0;
+    m_projectileType = 0;
+    field_70 = 0;
+    m_sourceId = 0;
+    m_targetId = 0;
+    m_effectList.m_posNext = NULL;
+    m_pArea = NULL;
+    field_16C = 0;
+    field_16E = 0;
+    field_170 = 0;
+    field_17C = 0;
+    m_callBackProjectile = -1;
+    m_bHasHeight = FALSE;
+    m_fireSoundRef = "";
+    field_15A = 0;
+    m_arrivalSoundRef = "";
+    m_loopArrivalSound = FALSE;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
 
 // 0x57CAC0
 CProjectileBAM::CProjectileBAM(const CResRef& visualResRef, const CResRef& arrivalSoundRef, BYTE sequenceDelay, BYTE initialDelay, const IcewindCVisualEffect& visualEffect)
@@ -778,8 +817,8 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
 {
     CProjectileSummonVFX* p = NULL;
     switch (typeIndex) {
-    case 0:  // base CProjectile (0x530790); base-projectile ctor not recovered
-        return NULL;
+    case 0:  // plain base CProjectile (ctor 0x530790)
+        return new CProjectile();
     case 1: {
         p = new CProjectileSummonVFX(CResRef("AbjurH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);

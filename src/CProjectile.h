@@ -16,6 +16,8 @@ class CProjectile : public CGameObject {
 public:
     static CProjectile* DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay);
 
+    CProjectile();
+
     /* 0068 */ BOOLEAN IsProjectile() override;
     /* 006C */ virtual void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType);
     /* 0070 */ virtual void OnArrival();
@@ -30,6 +32,7 @@ public:
     void PlaySound(CResRef resRef, BOOL loop, BOOL fireAndForget);
 
     /* 006E */ WORD m_projectileType;
+    /* 0070 */ WORD field_70;
     /* 0072 */ LONG m_sourceId;
     /* 0076 */ LONG m_targetId;
     /* 007A */ LONG m_callBackProjectile;
@@ -37,9 +40,15 @@ public:
     /* 00EA */ CGameArea* m_pArea;
     /* 00EE */ CSound m_sound;
     /* 0152 */ CResRef m_fireSoundRef;
+    /* 015A */ DWORD field_15A;
     /* 015E */ CResRef m_arrivalSoundRef;
     /* 0166 */ BOOL m_loopArrivalSound;
     /* 016A */ BOOLEAN m_bHasHeight;
+    /* 016C */ WORD field_16C;
+    /* 016E */ WORD field_16E;
+    /* 0170 */ DWORD field_170;
+    /* 017C */ BYTE field_17C;
+    /* 017E */ DWORD field_17E;
     /* 0182 */ LONG m_nTargetId;
     /* 0186 */ LONG m_casterClass;
     /* 018A */ CResRef m_casterResRef;
