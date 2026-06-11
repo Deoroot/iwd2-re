@@ -15906,14 +15906,24 @@ SHORT CGameSprite::ExecuteAction()
         SetCurrAction(GetNextAction(m_aiAction));
     }
 
+    // 0x729A84 (jumptable case 0x19). Spell(31) / SpellNoDec(191).  The binary
+    // resolver takes TYPE_AIBASE and filters non-AIBASE targets itself; ours
+    // does not (its type-byte filter is a coverage TODO), so the same filter
+    // runs here before the call.  Spell() is then called unconditionally --
+    // a NULL target still runs its prologue (projectile cleanup, aura-
+    // cleansing feedback) before its own NULL exit, like the binary.
     if (m_curAction.m_actionID == CAIAction::SPELL
         || m_curAction.m_actionID == CAIAction::SPELLNODEC) {
-        SHORT actionReturn = ACTION_ERROR;
         CGameObject* object = ResolveActionTarget();
         if (object != NULL
-            && (object->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
-            actionReturn = Spell(static_cast<CGameAIBase*>(object));
+            && (object->GetObjectType() & CGameObject::TYPE_AIBASE) == 0) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                object->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            object = NULL;
         }
+        SHORT actionReturn = Spell(static_cast<CGameAIBase*>(object));
         if (object != NULL) {
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 object->m_id,
@@ -15921,6 +15931,14 @@ SHORT CGameSprite::ExecuteAction()
                 INFINITE);
         }
         return actionReturn;
+    }
+
+    // 0x729E8F (jumptable case 0x2c). SpellPoint(95) / SpellPointNoDec(192):
+    // straight to the point-cast executor, no target resolution -- the cast
+    // point travels in the action.
+    if (m_curAction.m_actionID == CAIAction::SPELLPOINT
+        || m_curAction.m_actionID == CAIAction::SPELLPOINTNODEC) {
+        return SpellPointSequence();
     }
 
     if (m_curAction.m_actionID == 8) {

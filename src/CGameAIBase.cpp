@@ -688,18 +688,11 @@ SHORT CGameAIBase::ExecuteAction()
         || m_curAction.m_actionID == CAIAction::FORCESPELLPOINT
         || m_curAction.m_actionID == CAIAction::SPELLPOINTNODEC) {
         // 0x5F = SpellPoint, 0x72 = ForceSpellPoint, 0xC0 = SpellPointNoDec.
-        // Ghidra's binary jump table routes 0x72 to FUN_00461B80; the
-        // reconstructed UI queues all three point-spell ids.
-        // 0x5F/0xC0 are normal casts: the original drives them through the
-        // sprite cast executor (FUN_00742840 -> CGameSprite::SpellPointSequence),
-        // which turns the caster to face the cast point before casting.  0x72
-        // ForceSpellPoint is the "force" variant and is not oriented.
-        if (m_curAction.m_actionID != CAIAction::FORCESPELLPOINT
-            && (GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
-            actionReturn = static_cast<CGameSprite*>(this)->SpellPointSequence();
-        } else {
-            actionReturn = ForceSpellPointAction();
-        }
+        // Ghidra's binary jump table routes 0x72 to FUN_00461B80.  Sprites
+        // never reach here for 0x5F/0xC0 anymore: CGameSprite::ExecuteAction
+        // dispatches them to SpellPointSequence (jumptable case 0x2c), like
+        // the binary.  Non-sprite AIBASEs keep the force path.
+        actionReturn = ForceSpellPointAction();
     } else if (m_curAction.m_actionID == 0x10) {
         // 0x10 = GiveOrder (ACTION.IDS).
         CGameObject* pObj = ResolveActionTarget();
