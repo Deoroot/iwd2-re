@@ -191,6 +191,7 @@ Read it, then write idiomatic C++. Don't hand-recover from a bare decompile.
 - Prefer named constants over magic numbers when defined in file.
 - `python scripts/vtable_audit.py ClassName` — catches missing virtual overrides.
 - After a recover, `re-agent parity --address 0xADDR` should be GREEN/YELLOW (RED = under-implemented vs Ghidra).
+- End every recover session by recommending the next function(s) to recover (callee gaps hit, `gb unimplemented`, caller counts).
 
 ## No hacks
 
