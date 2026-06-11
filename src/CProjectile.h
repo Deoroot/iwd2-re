@@ -7,6 +7,7 @@
 #include "CVidPalette.h"
 #include "CVidBitmap.h"
 #include "CSound.h"
+#include "IcewindCProjectileTargetMap.h"
 #include "IcewindCVisualEffect.h"
 
 class CGameAIBase;
@@ -224,11 +225,47 @@ class IcewindCProjectileTravellingVFX : public CProjectileTravelling {
 public:
     IcewindCProjectileTravellingVFX(const CResRef& resRef);   // 0x578110
 
+    void AIUpdate() override;                 // 0x578AB0 (vtable slot 3)
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x5791D0 (slot 27)
+    void AimAtPoint(int x, int y) override;   // 0x578ED0 (slot 33)
+
 protected:
-    /* 00D0 */ DWORD m_trailColors[4];
+    // BG2 PDB: CProjectile::m_terrainTable. The wandering leaves pass it to
+    // CSearchBitmap::GetLOSCost to bounce off walls.
+    /* 00D0 */ BYTE m_terrainTable[16];
     /* 02A0 */ BYTE field_2A0;
     /* 02A1 */ BYTE field_2A1;
     /* 02A2 */ IcewindCVisualEffect m_visualEffect;
+};
+
+// Leaf 0x57F640 -- the wandering tornado (WhirlwX BAM; DecodeProjectile
+// type 0x131, m_projectileType 0x130). Used by Whirlwind (SPPR613) and Wing
+// Buffet (SPIN159); Wall of Moonlight (WoMoonX, ctor 0x5802B0, factory type
+// 0x130) is the sibling family. vtable 0x851444 (34 slots; Render and
+// GetRenderFlags are inherited -- slot 19 = 0x578480, the family Render
+// currently recovered as CProjectileSummonVFX::Render). Wanders the area
+// from its wander seed (MP-replicated through CMessageFireProjectile +0x20)
+// and strikes everything it touches through the embedded
+// IcewindCProjectileTargetMap (period 3, re-strike interval 33, max 8 total
+// strikes, spares the caster, gather radius 70).
+class CProjectileWhirlwind : public IcewindCProjectileTravellingVFX {
+public:
+    CProjectileWhirlwind();        // 0x57F640
+    ~CProjectileWhirlwind() override;   // 0x57F760 (vtable slot 0)
+
+    void AIUpdate() override;      // 0x57F8D0 (slot 3)
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x57FF80 (slot 27)
+    void OnArrival() override;     // 0x580270 (slot 28)
+
+    POINT* PickWanderPoint(POINT* pResult, BOOL bReverseFacing);   // 0x5800E0
+
+    /* 02AE */ LONG m_nLifetime;
+    /* 02B2 */ LONG m_nLegBudget;
+    /* 02B6 */ LONG field_2B6;
+    /* 02BA */ IcewindCProjectileTargetMap m_targetMap;
+    /* 02F0 */ CSound m_loopSound;
+    /* 0354 */ BYTE m_bFinishing;
+    /* 0356 */ LONG m_wanderSeed;
 };
 
 #endif /* CPROJECTILE_H_ */

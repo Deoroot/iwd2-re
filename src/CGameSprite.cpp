@@ -12432,13 +12432,11 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
             m_id,
             0);
         if (m_curProjectile->m_projectileType == 0x130) {
-            // DEFERRED: 0x74272C also stores this same roll into the
-            // projectile at +0x356 -- the wander seed of the unrecovered
-            // whirlwind projectile (factory type 0x131, WhirlwX BAM, ctor
-            // 0x57F640, sizeof 0x35A, spells SPIN159/SPPR613; its
-            // IcewindCProjectileTargetMap member is recovered, the projectile
-            // class itself is not).
-            message->field_20 = rand() % 1000000;
+            // 0x74272C: seed the whirlwind's deterministic wander chain, and
+            // replicate it through the message for multiplayer.
+            LONG wanderSeed = rand() % 1000000;
+            static_cast<CProjectileWhirlwind*>(m_curProjectile)->m_wanderSeed = wanderSeed;
+            message->field_20 = wanderSeed;
         }
         g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
@@ -13031,13 +13029,11 @@ SHORT CGameSprite::SpellPointSequence()
                 m_id,
                 0);
             if (m_curProjectile->m_projectileType == 0x130) {
-                // DEFERRED: the binary also stores this same roll into the
-                // projectile at +0x356 -- the wander seed of the unrecovered
-                // whirlwind projectile (factory type 0x131, WhirlwX BAM, ctor
-                // 0x57F640, sizeof 0x35A, spells SPIN159/SPPR613; its
-                // IcewindCProjectileTargetMap member is recovered, the
-                // projectile class itself is not).
-                message->field_20 = rand() % 1000000;
+                // Seed the whirlwind's deterministic wander chain, and
+                // replicate it through the message for multiplayer.
+                LONG wanderSeed = rand() % 1000000;
+                static_cast<CProjectileWhirlwind*>(m_curProjectile)->m_wanderSeed = wanderSeed;
+                message->field_20 = wanderSeed;
             }
             g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
@@ -13302,12 +13298,11 @@ SHORT CGameSprite::UseItemPoint()
         m_id,
         0);
     if (m_curProjectile->m_projectileType == 0x130) {
-        // DEFERRED: the binary stores this same roll into the projectile at
-        // +0x356 -- the wander seed of the unrecovered whirlwind projectile
-        // (factory type 0x131, WhirlwX BAM, ctor 0x57F640, sizeof 0x35A,
-        // spells SPIN159/SPPR613; its IcewindCProjectileTargetMap member is
-        // recovered, the projectile class itself is not).
-        message->field_20 = rand() % 1000000;
+        // Seed the whirlwind's deterministic wander chain, and replicate it
+        // through the message for multiplayer.
+        LONG wanderSeed = rand() % 1000000;
+        static_cast<CProjectileWhirlwind*>(m_curProjectile)->m_wanderSeed = wanderSeed;
+        message->field_20 = wanderSeed;
     }
     g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
