@@ -759,6 +759,7 @@ public:
     DWORD nUnused[32];
 };
 
+#pragma pack(push, 4)
 class CAreaVariable {
 public:
     CAreaVariable()
@@ -774,6 +775,9 @@ public:
     /* 002C */ double m_floatValue;
     /* 0034 */ SCRIPTNAME m_stringValue;
 };
+#pragma pack(pop)
+
+static_assert(sizeof(CAreaVariable) == 0x54, "CAreaVariable must match the on-disk variable record");
 
 // Seen in `CScreenStore::OpenBag`.
 #define CSTOREFILEHEADER_STORETYPE_BAG 4
