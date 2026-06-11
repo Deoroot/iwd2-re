@@ -12,6 +12,7 @@
 
 class CGameAIBase;
 class CGameArea;
+class CGameSprite;
 
 class CProjectile : public CGameObject {
 public:
@@ -30,6 +31,7 @@ public:
     void ClearEffects();
     LONG DetermineHeight(CGameSprite* pSprite);
     SHORT GetDirection(CPoint target);
+    BOOL IsTargetImmune(CGameSprite* pSprite);
     void PlaySound(CResRef resRef, BOOL loop, BOOL fireAndForget);
 
     /* 006E */ WORD m_projectileType;
@@ -222,6 +224,9 @@ private:
 // and the visual-effect member. The already-recovered chainers
 // (CProjectileSummonVFX) keep their independent minimal models for now.
 class IcewindCProjectileTravellingVFX : public CProjectileTravelling {
+    // The strike tracker's gather pass reads m_terrainTable off its owner.
+    friend class IcewindCProjectileTargetMap;
+
 public:
     IcewindCProjectileTravellingVFX(const CResRef& resRef);   // 0x578110
 

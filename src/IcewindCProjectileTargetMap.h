@@ -1,6 +1,7 @@
 #ifndef ICEWINDCPROJECTILETARGETMAP_H_
 #define ICEWINDCPROJECTILETARGETMAP_H_
 
+#include <list>
 #include <map>
 
 #include "mfc.h"
@@ -20,18 +21,16 @@ struct IcewindCProjectileTargetEntry {
 // 0x5806C0, 0x580C00; the Whirlwind embeds it at +0x2BA). No BG2 PDB name --
 // Icewind* is the repo convention for IWD2-only classes.
 //
-// Service flow (slot 0, 0x55A610): when m_serviceCountdown expires, gather the
-// objects within m_nRange of m_pOwner via CGameArea::GetAllInRange/
-// GetAllInRangeBack (virtual slot 1), merge them into m_targets (0x55A890:
-// out-of-range entries reset m_nTicksInRange, new entries are inserted, and a
-// target is due when m_nTicksInRange % m_strikeInterval == 0 -- so on first
-// contact -- while m_nStrikes < m_maxStrikesPerTarget), then strike the due
-// list (0x55AB20: m_bSkipSource spares m_pOwner->m_sourceId; each strike bumps
+// Service flow (slot 0): when m_serviceCountdown expires, gather the objects
+// within m_nRange of m_pOwner (virtual slot 1), merge them into m_targets (a
+// target is due on first contact and then every m_strikeInterval in-range
+// passes, capped per victim by m_maxStrikesPerTarget), then strike the due
+// list: m_bSkipSource spares m_pOwner->m_sourceId, and each strike bumps
 // m_nStrikes until m_maxStrikesTotal latches m_bDone and the tracker goes
-// inert). A strike (0x55AB80) posts a copy of every effect on the owner's
-// m_effectList to the victim through the message handler, or only
-// CGameEffect::FeedBackImmuneToResource(victim, owner->m_casterResRef) when
-// the owner reports the victim immune (0x536FC0).
+// inert. A strike posts a copy of every effect on the owner's m_effectList
+// to the victim through the message handler, or only
+// CGameEffect::FeedBackImmuneToResource when CProjectile::IsTargetImmune
+// (0x536FC0) reports the victim immune.
 //
 // vtable 0x84EEA8 (2 slots; a sibling class at vtable 0x84EEB0 shares slot 0
 // and overrides only the gather). Binary sizeof 0x34 with a VC6 std::map at
@@ -40,8 +39,8 @@ class IcewindCProjectileTargetMap {
 public:
     IcewindCProjectileTargetMap();
 
-    /* slot 0 */ virtual void Service();
-    /* slot 1 */ virtual std::map<LONG, CPoint> GatherTargets();
+    /* slot 0 */ virtual void Service();   // 0x55A610
+    /* slot 1 */ virtual std::map<LONG, CPoint> GatherTargets();   // 0x55AD90
 
     /* 0004 */ CGameObject* m_pOwner;
     /* 0008 */ std::map<LONG, IcewindCProjectileTargetEntry> m_targets;
@@ -54,6 +53,11 @@ public:
     /* 0030 */ BOOLEAN m_bDone;
     /* 0031 */ BOOLEAN m_bSkipSource;
     /* 0032 */ WORD m_nRange;
+
+private:
+    std::list<LONG> CollectDueStrikes(std::map<LONG, CPoint>& scan);   // 0x55A890
+    void Strike(std::list<LONG>& due);                                 // 0x55AB20
+    void DeliverStrike(LONG targetId);                                 // 0x55AB80
 };
 
 #endif /* ICEWINDCPROJECTILETARGETMAP_H_ */

@@ -275,6 +275,22 @@ SHORT CProjectile::GetDirection(CPoint target)
     return CGameSprite::GetDirection(ptStart, ptTarget);
 }
 
+// 0x536FC0
+// TRUE when the target is immune to this projectile: the projectile type is
+// on the target's projectile-immunity list, or m_casterClass (when <= 8)
+// indexes a set slot of the spell-level immunity table (the table
+// CGameEffectImmunityToSpellLevel writes).
+BOOL CProjectile::IsTargetImmune(CGameSprite* pSprite)
+{
+    if (pSprite->GetDerivedStats()->m_cImmunitiesProjectile.OnList(m_projectileType) == 0
+        && ((m_casterClass & 0xFF) > 8
+            || pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[m_casterClass & 0xFF] == 0)) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 // 0x52A4E0
 void CProjectile::PlaySound(CResRef resRef, BOOL loop, BOOL fireAndForget)
 {
