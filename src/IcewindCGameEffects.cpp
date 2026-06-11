@@ -3174,9 +3174,11 @@ BOOL IcewindCGameEffectGlobeOfInvulnerability::ApplyEffect(CGameSprite* pSprite)
         AddPortraitIcon(pSprite, 96);
 
         pSprite->GetDerivedStats()->m_visualEffects.set(IWD_VFX_MINOR_GLOBE_OF_INVULNERABILITY);
-        pSprite->GetDerivedStats()->field_1E0 = 1;
-        pSprite->GetDerivedStats()->field_1E4 = 1;
-        pSprite->GetDerivedStats()->field_1E8 = 1;
+        // Immune to spells of level 1-3 -- the table CProjectile::IsTargetImmune
+        // indexes with the projectile's spell level.
+        pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[1] = TRUE;
+        pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[2] = TRUE;
+        pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[3] = TRUE;
         break;
     case 1:
         if (m_secondaryType) {
@@ -3189,10 +3191,11 @@ BOOL IcewindCGameEffectGlobeOfInvulnerability::ApplyEffect(CGameSprite* pSprite)
         AddPortraitIcon(pSprite, 97);
 
         pSprite->GetDerivedStats()->m_visualEffects.set(IWD_VFX_GLOBE_OF_INVULNERABILITY);
-        pSprite->GetDerivedStats()->field_1E0 = 1;
-        pSprite->GetDerivedStats()->field_1E4 = 1;
-        pSprite->GetDerivedStats()->field_1E8 = 1;
-        pSprite->GetDerivedStats()->field_1EC = 1;
+        // Immune to spells of level 1-4.
+        pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[1] = TRUE;
+        pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[2] = TRUE;
+        pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[3] = TRUE;
+        pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[4] = TRUE;
         break;
     default:
         // __FILE__: C:\Projects\Icewind2\src\Baldur\IcewindCGameEffects.cpp

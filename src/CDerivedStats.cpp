@@ -23,7 +23,17 @@ CDerivedStats::CDerivedStats()
 
     BonusInit();
 
-    // TODO: Incomplete.
+    // The binary ctor tail (0x443F25..0x4440CF) resets every container
+    // member after BonusInit. The list members are freshly constructed and
+    // empty at this point, so their RemoveAll/ClearAll calls are no-ops;
+    // the raw arrays are not -- skipping them leaves heap garbage that
+    // CProjectile::IsTargetImmune reads as "immune to every spell level"
+    // (every whirlwind-family strike then feeds back "Unaffected by
+    // effects from <RESOURCE>" instead of applying its effects).
+    m_cImmunitiesSpellLevel.ClearAll();
+    m_cBounceSpellLevel.ClearAll();
+    m_cBounceProjectileLevelDec.ClearAll();
+    m_cImmunitiesProjectileLevelDec.ClearAll();
 }
 
 // 0x5D6650
@@ -355,9 +365,9 @@ CDerivedStats& CDerivedStats::operator=(const CDerivedStats& other)
     m_appliedColorEffects = other.m_appliedColorEffects;
     m_cBounceProjectile = other.m_cBounceProjectile;
     m_cBounceEffect = other.m_cBounceEffect;
-    // m_cBounceSpellLevel = other.m_cBounceSpellLevel;
-    // m_cBounceProjectileLevelDec = other.m_cBounceProjectileLevelDec;
-    // m_cImmunitiesProjectileLevelDec = other.m_cImmunitiesProjectileLevelDec;
+    m_cBounceSpellLevel = other.m_cBounceSpellLevel;
+    m_cBounceProjectileLevelDec = other.m_cBounceProjectileLevelDec;
+    m_cImmunitiesProjectileLevelDec = other.m_cImmunitiesProjectileLevelDec;
     field_3C8 = other.field_3C8;
     field_3E4 = other.field_3E4;
     field_400 = other.field_400;

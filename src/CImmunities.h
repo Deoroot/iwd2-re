@@ -33,6 +33,22 @@ public:
     /* 0000 */ BOOL m_levels[10];
 };
 
+// BG2 PDB: per-level decrementing immunity pool (spell deflection style:
+// an immune flag plus the number of spell levels left in the pool).
+class CSpellLevelDecrementing {
+public:
+    /* 0000 */ BOOL m_bImmune;
+    /* 0004 */ LONG m_nLevels;
+};
+
+// BG2 PDB: CImmunitiesSpellLevelDecrementing.
+class CImmunitiesSpellLevelDecrementing {
+public:
+    void ClearAll();
+
+    /* 0000 */ CSpellLevelDecrementing m_levels[10];
+};
+
 class CWeaponIdentification {
 public:
     CWeaponIdentification();

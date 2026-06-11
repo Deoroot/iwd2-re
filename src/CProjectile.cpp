@@ -277,14 +277,14 @@ SHORT CProjectile::GetDirection(CPoint target)
 
 // 0x536FC0
 // TRUE when the target is immune to this projectile: the projectile type is
-// on the target's projectile-immunity list, or m_casterClass (when <= 8)
+// on the target's projectile-immunity list, or m_nSpellLevel (when <= 8)
 // indexes a set slot of the spell-level immunity table (the table
 // CGameEffectImmunityToSpellLevel writes).
 BOOL CProjectile::IsTargetImmune(CGameSprite* pSprite)
 {
     if (pSprite->GetDerivedStats()->m_cImmunitiesProjectile.OnList(m_projectileType) == 0
-        && ((m_casterClass & 0xFF) > 8
-            || pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[m_casterClass & 0xFF] == 0)) {
+        && ((m_nSpellLevel & 0xFF) > 8
+            || pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[m_nSpellLevel & 0xFF] == 0)) {
         return FALSE;
     }
 
@@ -478,7 +478,7 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
 // constructor has run.
 CProjectile::CProjectile()
 {
-    m_casterClass = 0;
+    m_nSpellLevel = 0;
     m_projectileType = 0;
     field_70 = 0;
     m_sourceId = 0;
@@ -1531,7 +1531,7 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     m_targetY = 0;
     m_flightDistSq = 0;
 
-    m_casterClass = 0;
+    m_nSpellLevel = 0;
     m_sourceId = 0;
     m_targetId = 0;
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
@@ -2082,16 +2082,16 @@ CProjectileSPMAGMIS::CProjectileSPMAGMIS(SHORT nCount, SHORT nPaletteFlag)
 // spread. An odd man out flies straight.
 //
 // Per sub-missile it also clones the launcher's gameplay effects onto the
-// missile's own list (so each missile carries the damage), copies the caster
-// class/resref, and jitters the missile velocity by rand()%20 - 10 for a
+// missile's own list (so each missile carries the damage), copies the spell
+// level/caster resref, and jitters the missile velocity by rand()%20 - 10 for a
 // staggered arrival. It then drains the staging list and deletes itself (the
 // launcher is never added to the area; CMessageFireProjectile::Run does not
 // touch it after Fire, so the self-delete is safe).
 //
 // NOTE: the cloned effects only deliver once the sub-missile impact path
 // (CProjectile::DeliverEffects, slot 0x78) is recovered; today they ride inert.
-// The launcher's own m_casterClass/m_casterResRef are not set on the cast path
-// yet (it has no caster-class wiring), so they propagate as the ctor defaults.
+// The launcher's own m_nSpellLevel/m_casterResRef are not set on the cast path
+// yet, so they propagate as the ctor defaults.
 void CProjectileSPMAGMIS::Fire(CGameArea* pArea, LONG source, LONG target,
                                CPoint targetPos, LONG nHeight, SHORT nType)
 {
@@ -2204,7 +2204,7 @@ void CProjectileSPMAGMIS::PrimeAndFireSubMissile(CProjectileTravelling* pMissile
     }
 
     pMissile->m_velocity = static_cast<SHORT>(rand() % 20 + pMissile->m_velocity - 10);
-    pMissile->m_casterClass = m_casterClass;
+    pMissile->m_nSpellLevel = m_nSpellLevel;
     pMissile->m_casterResRef = m_casterResRef;
 
     pMissile->Fire(pArea, source, target, targetPos, 0, nType);

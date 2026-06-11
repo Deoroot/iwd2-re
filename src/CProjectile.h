@@ -53,7 +53,13 @@ public:
     /* 017C */ BYTE field_17C;
     /* 017E */ CString field_17E;
     /* 0182 */ LONG m_nTargetId;
-    /* 0186 */ LONG m_casterClass;
+    // The level of the spell that launched this projectile -- IsTargetImmune
+    // (0x536FC0) indexes the target's spell-level immunity table (the one
+    // Globe of Invulnerability sets) with it. Only the AI-side
+    // FireSpell/FireSpellPoint paths look up and store the real memorized
+    // level; the player executors (Spell/SpellPointSequence/UseItemPoint)
+    // store 0.
+    /* 0186 */ LONG m_nSpellLevel;
     /* 018A */ CResRef m_casterResRef;
 };
 

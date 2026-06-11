@@ -12551,7 +12551,13 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
     m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
     if (m_curProjectile != NULL) {
         m_curProjectile->m_casterResRef = spellResRef;
-        m_curProjectile->m_casterClass = nClass;
+        // The binary store (0x7424F4) reads a stack slot no instruction on
+        // the completion path writes (stale frame data; in the
+        // SpellPointSequence twin the same store provably reads the
+        // always-zero spell-failure flag). Store the defined value of that
+        // set -- the real spell level is only filled by the AI-side
+        // FireSpell paths.
+        m_curProjectile->m_nSpellLevel = 0;
     }
 
     for (LONG effectIndex = 0; effectIndex < ability->effectCount; ++effectIndex) {
@@ -12570,8 +12576,10 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
         effect->m_source = m_pos;
         effect->m_sourceID = m_id;
         effect->m_target = targetPos;
+        // Overwritten with the same (zero) local as the m_nSpellLevel store
+        // above.
         if (effect->m_effectAmount != 0) {
-            effect->m_effectAmount = nClass;
+            effect->m_effectAmount = 0;
         }
 
         IcewindMisc::ApplyDamageModifiers(this, effect);
@@ -13153,7 +13161,10 @@ SHORT CGameSprite::SpellPointSequence()
         m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
         if (m_curProjectile != NULL) {
             m_curProjectile->m_casterResRef = spellResRef;
-            m_curProjectile->m_casterClass = nClass;
+            // The binary store (0x7443DC) reads the spell-failure flag,
+            // which is provably zero here: the whole fire block is guarded
+            // by `flag == 0` and nothing rewrites it in between.
+            m_curProjectile->m_nSpellLevel = 0;
         }
 
         for (LONG effectIndex = 0; effectIndex < ability->effectCount; ++effectIndex) {
@@ -13171,8 +13182,10 @@ SHORT CGameSprite::SpellPointSequence()
             effect->m_source = m_pos;
             effect->m_sourceID = m_id;
             effect->m_target = castPoint;
+            // Overwritten with the same (zero) flag as the m_nSpellLevel
+            // store above.
             if (effect->m_effectAmount != 0) {
-                effect->m_effectAmount = nClass;
+                effect->m_effectAmount = 0;
             }
 
             IcewindMisc::ApplyDamageModifiers(this, effect);
@@ -13452,7 +13465,7 @@ SHORT CGameSprite::UseItemPoint()
 
     m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
     m_curProjectile->m_casterResRef = m_curItem->cResRef;
-    m_curProjectile->m_casterClass = 0;
+    m_curProjectile->m_nSpellLevel = 0;
 
     for (INT effectIndex = 0; effectIndex < ability->effectCount; ++effectIndex) {
         CGameEffect* itemEffect = m_curItem->GetAbilityEffect(field_55A0, effectIndex, this);
