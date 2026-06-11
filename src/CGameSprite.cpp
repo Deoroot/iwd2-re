@@ -13053,6 +13053,290 @@ SHORT CGameSprite::SpellPointSequence()
     return ACTION_DONE;
 }
 
+// 0x7473E0
+//
+// Sprite executor for the UseItemPoint (97) action: resolve the item (slot
+// index from the action, or an equipment scan when string1 names a resref),
+// then run the item-use lifecycle at the target point -- depleted-charge
+// Unusable trigger, range/LOS approach with MoveToPointRange, orient, a
+// 20-tick use time, invisibility/sanctuary dispel, then fire the ability
+// projectile with its effects and consume one charge.  Wired from
+// ExecuteAction (jumptable case 0x2e).
+SHORT CGameSprite::UseItemPoint()
+{
+    field_55A0 = 0;
+    CPoint castPoint = m_curAction.m_dest;
+    ITEM_ABILITY* ability = NULL;
+
+    if (m_actionCount == 0) {
+        m_curItem = NULL;
+    }
+
+    if (m_curItem == NULL) {
+        CString resName = m_curAction.GetString1();
+        if (resName.CompareNoCase("") == 0) {
+            if (m_curAction.m_specificID == -1) {
+                return ACTION_ERROR;
+            }
+
+            m_curItem = m_equipment.m_items[m_curAction.m_specificID];
+            if (m_curItem == NULL) {
+                return ACTION_ERROR;
+            }
+            field_559E = static_cast<short>(m_curAction.m_specificID);
+
+            m_curItem->Demand();
+            ability = m_curItem->GetAbility(m_curAction.m_specificID2);
+            field_55A0 = static_cast<short>(m_curAction.m_specificID2);
+            if (ability == NULL) {
+                m_curItem->Release();
+                return ACTION_ERROR;
+            }
+        } else {
+            for (INT nSlot = 0; nSlot < CGameSpriteEquipment::NUM_SLOT; ++nSlot) {
+                if (m_equipment.m_items[nSlot] == NULL) {
+                    continue;
+                }
+
+                if (m_equipment.m_items[nSlot]->cResRef == m_curAction.GetString1()) {
+                    m_curItem = m_equipment.m_items[nSlot];
+                    field_559E = static_cast<short>(nSlot);
+                    if (m_curItem == NULL) {
+                        return ACTION_ERROR;
+                    }
+
+                    m_curItem->Demand();
+                    ability = m_curItem->GetAbility(m_curAction.m_specificID2);
+                    field_55A0 = static_cast<short>(m_curAction.m_specificID2);
+                    if (ability == NULL) {
+                        m_curItem->Release();
+                        return ACTION_ERROR;
+                    }
+                    break;
+                }
+            }
+        }
+    } else {
+        m_curItem->Demand();
+    }
+
+    if (m_curItem == NULL) {
+        return ACTION_ERROR;
+    }
+
+    if (ability == NULL) {
+        ability = m_curItem->GetAbility(m_curAction.m_specificID2);
+        field_55A0 = static_cast<short>(m_curAction.m_specificID2);
+        if (ability == NULL) {
+            m_curItem->Release();
+            return ACTION_ERROR;
+        }
+    }
+
+    if (ability->usageFlags == 3
+        && m_curItem->GetUsageCount(field_55A0) == 0
+        && ability->maxUsageCount > 0) {
+        CString sItemRes;
+        m_curItem->cResRef.CopyToString(sItemRes);
+
+        CAITrigger trigger(CAITrigger::UNUSABLE, 0);
+        trigger.m_string1 = sItemRes;
+
+        CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+        m_curItem->Release();
+        return ACTION_ERROR;
+    }
+
+    LONG gridTargetX = castPoint.x / CPathSearch::GRID_SQUARE_SIZEX;
+    LONG gridTargetY = castPoint.y / CPathSearch::GRID_SQUARE_SIZEY;
+    const CPoint& pos = GetPos();
+    LONG dx = pos.x / CPathSearch::GRID_SQUARE_SIZEX - gridTargetX;
+    LONG dy = pos.y / CPathSearch::GRID_SQUARE_SIZEY - gridTargetY;
+    LONG distance = dx * dx + dy * dy;
+    LONG range = ability->range + 1;
+    BYTE personalHalf = static_cast<BYTE>((m_animation.GetPersonalSpace() - 1) >> 1);
+
+    LONG nearLimit = personalHalf + range;
+    // SHORT @ 0x85BC86 (= 1): extra approach slack once the use has started.
+    LONG farLimit = range + 1 + personalHalf;
+    if ((nearLimit * nearLimit < distance && !field_7118)
+        || farLimit * farLimit < distance
+        || !m_pArea->CheckLOS(castPoint, GetPos(), GetVisibleTerrainTable(), FALSE)) {
+        SHORT moveResult = MoveToPointRange(castPoint, 0);
+        if (moveResult == ACTION_DONE) {
+            moveResult = ACTION_INTERRUPTABLE;
+        }
+        m_curItem->Release();
+        return moveResult;
+    }
+
+    if (m_pPath != NULL) {
+        CMessage* message = new CMessageDropPath(m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    SHORT oldDirection = m_nDirection;
+    field_7118 = 1;
+    if (oldDirection != GetDirection(castPoint)) {
+        CMessage* message = new CMessageSetDirection(castPoint, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        m_curItem->Release();
+        return ACTION_NORMAL;
+    }
+
+    if (m_pPath != NULL) {
+        CMessage* message = new CMessageDropPath(m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    if (m_actionCount == 0) {
+        if (m_castCounter != -1) {
+            m_bStartedCasting = FALSE;
+        } else {
+            m_castCounter = 0;
+            m_bStartedCasting = TRUE;
+        }
+    } else if (m_castCounter == -1) {
+        m_castCounter = 0;
+        m_bStartedCasting = TRUE;
+    }
+
+    if (m_actionCount < 20 || !m_bStartedCasting) {
+        m_curItem->Release();
+        return ACTION_INTERRUPTABLE;
+    }
+
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    // UNIMPLEMENTED: result 2 (use-magic-device gated) -- the binary rolls
+    // FUN_005468B0(this, item); on failure FeedBack(0x41) plus a no-save
+    // piercing backfire of 2 x level d6 (level = FUN_004EA3F0, the item's
+    // highest effect spell level) that still consumes the charge; on
+    // success FeedBack(0x42).  Both helpers are unrecovered, so result 2
+    // proceeds as a plain success without feedback.
+    game->CheckItemUsable(this, m_curItem);
+
+    ITEM_EFFECT effect;
+    if (!CheckInvisibility(FALSE)) {
+        CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_FORCEVISIBLE);
+        effect.durationType = 1;
+        CGameEffect* visibleEffect = CGameEffect::DecodeEffect(
+            &effect,
+            m_pos,
+            m_id,
+            CPoint(-1, -1));
+        CMessage* message = new CMessageAddEffect(visibleEffect, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    if (m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]) {
+        CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_DISPELSANCTUARY);
+        effect.durationType = 1;
+        CGameEffect* sanctuaryEffect = CGameEffect::DecodeEffect(
+            &effect,
+            m_pos,
+            m_id,
+            CPoint(-1, -1));
+        CMessage* message = new CMessageAddEffect(sanctuaryEffect, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
+    m_curProjectile->m_casterResRef = m_curItem->cResRef;
+    m_curProjectile->m_casterClass = 0;
+
+    for (INT effectIndex = 0; effectIndex < ability->effectCount; ++effectIndex) {
+        CGameEffect* itemEffect = m_curItem->GetAbilityEffect(field_55A0, effectIndex, this);
+        itemEffect->m_source = m_pos;
+        itemEffect->m_sourceID = m_id;
+        itemEffect->m_target = castPoint;
+
+        IcewindMisc::ApplyDamageModifiers(this, itemEffect);
+
+        switch (itemEffect->m_targetType) {
+        case 1: {
+            itemEffect->m_flags |= 2;
+            CMessage* message = new CMessageAddEffect(itemEffect, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            continue;
+        }
+        case 2:
+            m_curProjectile->AddEffect(itemEffect);
+            continue;
+        case 3:
+            ApplyEffectToParty(itemEffect);
+            break;
+        case 4:
+            m_pArea->ApplyEffect(itemEffect, FALSE, FALSE, 0, NULL);
+            break;
+        case 5:
+            m_pArea->ApplyEffect(itemEffect, TRUE, FALSE, 0, NULL);
+            break;
+        case 6:
+            m_pArea->ApplyEffect(itemEffect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
+            break;
+        case 7:
+            break;
+        case 8:
+            m_pArea->ApplyEffect(itemEffect, FALSE, FALSE, 0, this);
+            break;
+        default:
+            break;
+        }
+        delete itemEffect;
+    }
+
+    CMessageFireProjectile* message = new CMessageFireProjectile(
+        m_curProjectile->m_projectileType,
+        CGameObjectArray::INVALID_INDEX,
+        castPoint,
+        m_curProjectile->DetermineHeight(this),
+        m_id,
+        m_id,
+        0);
+    if (m_curProjectile->m_projectileType == 0x130) {
+        // DEFERRED: the binary stores this same roll into the projectile at
+        // +0x356 (field of the unrecovered type-0x130 CProjectile subclass).
+        message->field_20 = rand() % 1000000;
+    }
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+    // The binary re-derives the height for the direct fire.
+    m_curProjectile->Fire(
+        m_pArea,
+        m_id,
+        CGameObjectArray::INVALID_INDEX,
+        castPoint,
+        m_curProjectile->DetermineHeight(this),
+        0);
+    m_curProjectile = NULL;
+
+    WORD usageCount = m_curItem->GetUsageCount(field_55A0);
+    m_curItem->SetUsageCount(field_55A0, usageCount - 1);
+    m_curItem->Release();
+
+    if (ability->maxUsageCount > 0) {
+        // UNIMPLEMENTED: the binary removes the button when
+        // ability->usageFlags == 1 and FUN_0075D450(field_559E, field_55A0)
+        // (the depleted-item check/cleanup helper, unrecovered) reports the
+        // item spent; the refresh runs without removal instead.
+        CAbilityId buttonAbility;
+        buttonAbility.m_itemType = 2;
+        buttonAbility.m_itemNum = field_559E;
+        buttonAbility.m_abilityNum = field_55A0;
+        UpdateQuickButtons(buttonAbility, -1, FALSE, FALSE);
+
+        if (game->GetCharacterPortraitNum(m_id)
+            == g_pBaldurChitin->m_pEngineWorld->GetSelectedCharacter()) {
+            game->m_cButtonArray.UpdateButtons();
+        }
+    }
+
+    AutoPause(0x40);
+    return ACTION_DONE;
+}
+
 void CGameSprite::ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st* pAbility)
 {
     if (pSpell == NULL || pAbility == NULL) {
@@ -15929,6 +16213,12 @@ SHORT CGameSprite::ExecuteAction()
     if (m_curAction.m_actionID == CAIAction::SPELLPOINT
         || m_curAction.m_actionID == CAIAction::SPELLPOINTNODEC) {
         return SpellPointSequence();
+    }
+
+    // 0x729AE4 (jumptable case 0x2e). UseItemPoint(97): straight to the
+    // point-use executor, no target resolution.
+    if (m_curAction.m_actionID == 97) {
+        return UseItemPoint();
     }
 
     if (m_curAction.m_actionID == 8) {

@@ -461,6 +461,7 @@ public:
     void ApplyCastingEffect(CSpell* pSpell, const Spell_ability_st* pAbility, const CPoint& targetPos);
     SHORT Spell(CGameAIBase* target);
     SHORT SpellPointSequence();
+    SHORT UseItemPoint();
     void DropPath();
     void DropSearchRequest();
     BOOL MoveToBack();
