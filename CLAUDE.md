@@ -159,6 +159,21 @@ data/near_infinity_export/
 | Area edges? | `WMP/WORLDMAP.WMP` |
 | Script usage? | grep `BCS/*.BAF` + `BS/*.BAF` |
 
+### Asset names / StringRefs
+
+Resolve the canonical TLK name before naming an asset in recovered-code comments or
+commit messages. Do not infer names from resrefs:
+
+```bash
+python scripts/reagent_asset_names.py SPWI304 AR1000 60SPELLS
+python scripts/reagent_asset_names.py SPWI304 --verbose
+python scripts/reagent_asset_names.py SPWI304 --json
+python scripts/reagent_asset_names.py --strref 6618
+```
+
+Compact output is comment-ready: `Fireball (SPWI304.SPL, strref 6618)`. Supported
+named resources: SPL, ITM, CRE, STO, and ARE.
+
 ## External refs
 
 | Path | Use |
