@@ -17,7 +17,6 @@
 #include "CUIManager.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
-#include "DebugLog.h"
 
 // Splits a raw DLG script blob (one or more BIOC-style "Trigger(args)"
 // expressions juxtaposed without separators) into the line-per-call shape
@@ -92,16 +91,11 @@ BOOL CGameDialogSprite::StartDialog(CGameSprite* pSprite)
         m_bMusicThreadPriorityChanged = SetThreadPriority(g_pChitin->m_hMusicThread, 15);
     }
 
-    Iwd2DebugLog("CGameDialogSprite::StartDialog talkerId=%ld entryCount=%d",
-        pSprite->GetId(),
-        m_dialogEntriesOrdered.GetCount());
 
     for (INT nIndex = 0; nIndex < m_dialogEntriesOrdered.GetCount(); nIndex++) {
         CGameDialogEntry* pEntry = m_dialogEntriesOrdered.GetAt(nIndex);
         BOOL held = pEntry != NULL
             && pEntry->m_startCondition.Hold(CTypedPtrList<CPtrList, CAITrigger*>(), pSprite);
-        Iwd2DebugLog("CGameDialogSprite::StartDialog entry=%d valid=%d held=%d dialogIndex=%d",
-            nIndex, pEntry != NULL, held, pEntry ? pEntry->m_dialogIndex : -1);
         if (held) {
             // FIXME: Unused.
             LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetProtagonist();
@@ -115,13 +109,10 @@ BOOL CGameDialogSprite::StartDialog(CGameSprite* pSprite)
             m_bDialogActive = 1;
             m_sScrollMarker = "";
 
-            Iwd2DebugLog("CGameDialogSprite::StartDialog ENTERED talkerId=%ld dialogIndex=%d",
-                pSprite->GetId(), pEntry->m_dialogIndex);
             return TRUE;
         }
     }
 
-    Iwd2DebugLog("CGameDialogSprite::StartDialog NO MATCH talkerId=%ld", pSprite->GetId());
     return FALSE;
 }
 
@@ -140,8 +131,6 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
         m_characterIndex = characterIndex;
         g_pBaldurChitin->GetObjectGame()->SetProtagonist(characterIndex);
         m_talkerIndex = talkerIndex;
-        Iwd2DebugLog("CGameDialogSprite::Initialize REUSE file='%s' entries=%d",
-            szFile, m_dialogEntriesOrdered.GetCount());
         return;
     }
 
@@ -152,7 +141,6 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
     if (file != "") {
         pRes = static_cast<CResDLG*>(g_pChitin->cDimm.GetResObject(file, 0x3F3, TRUE));
         if (pRes == NULL) {
-            Iwd2DebugLog("CGameDialogSprite::Initialize RESOURCE NOT FOUND file='%s'", szFile);
             cNewFile = "";
         } else {
             bRequested = TRUE;
@@ -170,8 +158,6 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
     }
 
     if (!bValid) {
-        Iwd2DebugLog("CGameDialogSprite::Initialize INVALID file='%s' pRes=%p probeSize=%lu",
-            szFile, pRes, nProbeSize);
         ClearMarshal();
     } else {
         void* pData = NULL;
@@ -184,15 +170,11 @@ void CGameDialogSprite::Initialize(CResRef file, LONG characterIndex, LONG talke
             pData = pRes->Demand();
         }
 
-        Iwd2DebugLog("CGameDialogSprite::Initialize LOADING file='%s' pData=%p nSize=%lu",
-            szFile, pData, nSize);
 
         LoadEntries(pData, nSize, characterIndex, talkerIndex);
 
         m_file = file;
 
-        Iwd2DebugLog("CGameDialogSprite::Initialize LOADED file='%s' entries=%d ordered=%d",
-            szFile, m_dialogEntries.GetCount(), m_dialogEntriesOrdered.GetCount());
 
         if (pRes != NULL) {
             static_cast<CRes*>(pRes)->Release();

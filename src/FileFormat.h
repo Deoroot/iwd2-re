@@ -561,20 +561,34 @@ public:
     /* 0284 */ RESREF m_scriptSpecial3;
     /* 028C */ RESREF m_scriptMovement;
     /* 0294 */ BOOLEAN m_bStealthMode;
+    /* 0295 */ BOOLEAN m_bSetDeathVariable;
+    /* 0296 */ BOOLEAN m_bIncrementKillCount;
+    /* 0297 */ BYTE field_297;
+    /* 0298 */ WORD m_internals[5];
+    /* 02A2 */ char m_secondaryDeathVariable[32];
+    /* 02C2 */ char m_tertiaryDeathVariable[32];
     /* 02E2 */ BOOLEAN field_2E2;
-    /* 02E4 */ SHORT field_2E4;
-    /* 02E6 */ SHORT field_2E6;
-    /* 02E8 */ SHORT field_2E8;
+    /* 02E4 */ SHORT m_savedLocationX;
+    /* 02E6 */ SHORT m_savedLocationY;
+    /* 02E8 */ BYTE m_savedLocationFacing;
     /* 02E9 */ BYTE field_2E9;
     /* 02EA */ BOOLEAN field_2EA[6];
+    /* 02F0 */ BYTE field_2F0[7];
     /* 02F7 */ BOOLEAN field_2F7;
     /* 02F8 */ BOOLEAN m_bRemoveFromArea;
     /* 02F9 */ BYTE field_2F9;
     /* 02FA */ BYTE m_fadeSpeed;
     /* 02FB */ unsigned char field_2FB;
     /* 02FC */ unsigned char m_critSectService;
+    /* 02FD */ BYTE field_2FD[2];
     /* 02FF */ unsigned char field_2FF;
+    /* 0300 */ BYTE field_300[124];
 };
+
+// CRE V2.2: the header spans file bytes 8..0x383 (the offsets section the
+// binary reads at +900 starts right after). Any size drift here silently
+// shears every later field in the Unmarshal memcpy.
+static_assert(sizeof(CCreatureFileHeader) == 0x37C, "CCreatureFileHeader must match the CRE V2.2 on-disk header");
 
 #pragma pack(push)
 #pragma pack(2)
@@ -745,6 +759,7 @@ public:
     DWORD nUnused[32];
 };
 
+#pragma pack(push, 4)
 class CAreaVariable {
 public:
     CAreaVariable()
@@ -760,6 +775,9 @@ public:
     /* 002C */ double m_floatValue;
     /* 0034 */ SCRIPTNAME m_stringValue;
 };
+#pragma pack(pop)
+
+static_assert(sizeof(CAreaVariable) == 0x54, "CAreaVariable must match the on-disk variable record");
 
 // Seen in `CScreenStore::OpenBag`.
 #define CSTOREFILEHEADER_STORETYPE_BAG 4

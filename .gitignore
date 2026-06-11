@@ -413,6 +413,8 @@ FodyWeavers.xsd
 .claude/
 .gemini/
 .qoder/
+# Auto-generated agent skills
+/.agents/
 # RE session noise
 /tmp_*
 /bam_out/
@@ -427,3 +429,13 @@ FodyWeavers.xsd
 /data/ghidra/IWD2_rep_*.zip
 /pi-session-*
 /*this-session-is-being-continued*
+
+# re-agent workflow (branch re-agent-workflow): generated artifacts, do not commit
+/.venv-reagent/
+/.ghidra-exports/
+/.cache/
+/reports/re-agent/
+/re-agent-progress.*
+# host (Linux) config variants — local paths, not for the Windows/VM checkout
+/re-agent.host.yaml
+/ghidra-bridge.host.yaml

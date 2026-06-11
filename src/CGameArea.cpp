@@ -28,7 +28,6 @@
 #include "CTiledObject.h"
 #include "CUtil.h"
 #include "CVidPoly.h"
-#include "DebugLog.h"
 
 #include <vector>
 
@@ -754,9 +753,179 @@ LONG CGameArea::GetGroundPile(const CPoint& ptPos)
 // 0x46B160
 LONG CGameArea::GetNearest(LONG startObject, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, BOOL checkLOS, BOOL seeInvisible, BOOL ignoreSleeping, BYTE nNearest, BOOL ignoreDead)
 {
-    // TODO: Incomplete.
+    LONG nBestId = CGameObjectArray::INVALID_INDEX;
 
-    return -1;
+    CAIObjectType cSearcherType(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+
+    DWORD nStateMask = STATE_DEAD;
+    BOOL bWantsRaceBE = type.m_nRace == 0xBE;
+    if (ignoreSleeping) {
+        nStateMask = STATE_DEAD | STATE_SLEEPING;
+    }
+
+    if (terrainTable == NULL) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\AreaRegion.cpp
+        // __LINE__: 852
+        UTIL_ASSERT(FALSE);
+    }
+
+    CGameObject* pStart;
+    if (m_pGame->GetObjectArray()->GetShare(startObject,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pStart,
+            INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        return CGameObjectArray::INVALID_INDEX;
+    }
+
+    cSearcherType.Set(pStart->GetAIType());
+
+    CPoint posStart = pStart->GetPos();
+    if (posStart.x < 0 || posStart.y < 0) {
+        // NOTE: the binary formats an "Illegal position!: %d %d" string into a
+        // heap buffer and immediately frees it (dead debug print).
+        m_pGame->GetObjectArray()->ReleaseShare(startObject, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return CGameObjectArray::INVALID_INDEX;
+    }
+
+    if (type.m_nLocationType != 0
+        && (pStart->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
+        CPoint ptLocation;
+        INT nRadius;
+        if (type.GetAiLocation(static_cast<CGameAIBase*>(pStart), ptLocation, nRadius) == 1) {
+            m_pGame->GetObjectArray()->ReleaseShare(startObject, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return FindObjectNear(ptLocation.x, ptLocation.y, type, static_cast<SHORT>(nRadius), terrainTable, checkLOS, seeInvisible, nNearest, ignoreDead);
+        }
+    }
+
+    if (pStart->GetVertListType() != CGameObject::LIST_FRONT) {
+        CPoint pos = pStart->GetPos();
+        m_pGame->GetObjectArray()->ReleaseShare(startObject, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return FindObjectNear(pos.x, pos.y, type, range, terrainTable, checkLOS, seeInvisible, nNearest, ignoreDead);
+    }
+
+    LONG nStartX = posStart.x;
+    LONG nStartYPersp = (posStart.y * 4) / 3;
+
+    if (m_visibility.PointToTile(posStart) >= m_visibility.m_nWidth * m_visibility.m_nHeight) {
+        // NOTE: dead "Illegal position!" debug print in the binary, as above.
+        m_pGame->GetObjectArray()->ReleaseShare(startObject, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return CGameObjectArray::INVALID_INDEX;
+    }
+
+    POSITION posVert = pStart->GetVertListPos();
+    m_pGame->GetObjectArray()->ReleaseShare(startObject, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    if (posVert == NULL) {
+        return CGameObjectArray::INVALID_INDEX;
+    }
+
+    if (checkLOS) {
+        BOOLEAN bSeen;
+        if (m_pGame->GetCharacterPortraitNum(startObject) == -1) {
+            bSeen = m_visibility.IsTileExplored(m_visibility.PointToTile(posStart));
+        } else {
+            bSeen = m_visibility.IsTileVisible(m_visibility.PointToTile(posStart));
+        }
+        if (!bSeen) {
+            return CGameObjectArray::INVALID_INDEX;
+        }
+    }
+
+    LONG nBestDist;
+    if (nNearest == 0) {
+        nBestDist = static_cast<LONG>(range) * static_cast<LONG>(range) + 1;
+    } else {
+        nBestDist = 0;
+    }
+
+    // The front vert list is y-sorted: scan outwards from the start object's
+    // own node, alternating backward/forward, and stop a direction as soon as
+    // its perspective-y distance alone exceeds the best squared distance.
+    POSITION posBack = posVert;
+    m_lVertSort.GetPrev(posBack);
+    POSITION posFwd = posVert;
+    m_lVertSort.GetNext(posFwd);
+
+    BOOL bPreferBackward = TRUE;
+    while (posBack != NULL || posFwd != NULL) {
+        BOOL bBackward = bPreferBackward ? posBack != NULL : posFwd == NULL;
+        bPreferBackward = !bBackward;
+        LONG nCandidateId;
+        if (bBackward) {
+            nCandidateId = reinterpret_cast<LONG>(m_lVertSort.GetPrev(posBack));
+        } else {
+            nCandidateId = reinterpret_cast<LONG>(m_lVertSort.GetNext(posFwd));
+        }
+
+        CGameObject* pObject;
+        if (m_pGame->GetObjectArray()->GetShare(nCandidateId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE)
+            != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        if (pObject->GetVertListPos() == NULL) {
+            if (bBackward) {
+                posBack = NULL;
+            } else {
+                posFwd = NULL;
+            }
+        } else {
+            CPoint posCand = pObject->GetPos();
+            LONG dy = nStartYPersp - (posCand.y * 4) / 3;
+            LONG nDistSq = dy * dy;
+            if (nDistSq < nBestDist) {
+                if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                    CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+                    BYTE nRace = pSprite->GetAIType().m_nRace;
+                    if ((pSprite->m_derivedStats.m_generalState & nStateMask) == 0
+                        && pSprite->CheckInvisibility(seeInvisible)
+                        && pSprite->m_animation.GetAboveGround()
+                        && !pSprite->m_derivedStats.m_cImmunitiesAIType.OnList(cSearcherType)
+                        && pSprite->m_baseStats.m_bStealthMode != 1
+                        && (ignoreDead != 1
+                            || (pSprite->m_derivedStats.m_generalState & 0x10000000) != 0)
+                        && (nRace != 0xBE || bWantsRaceBE)
+                        && (pSprite->GetObjectType() != CGameObject::TYPE_SPRITE
+                            || (pSprite->m_active
+                                && pSprite->m_activeAI
+                                && pSprite->m_activeImprisonment))) {
+                        if (pSprite->GetAIType().OfType(type, FALSE, FALSE)) {
+                            BOOL bInSight = TRUE;
+                            if (checkLOS) {
+                                bInSight = CheckLOS(posStart, pObject->GetPos(), terrainTable, TRUE);
+                            }
+                            if (bInSight) {
+                                nDistSq += (nStartX - posCand.x) * (nStartX - posCand.x);
+                                if (nNearest == 0) {
+                                    if (nDistSq < nBestDist) {
+                                        nBestId = nCandidateId;
+                                        nBestDist = nDistSq;
+                                    }
+                                } else if (nNearest == 1 && nBestDist < nDistSq) {
+                                    nBestId = nCandidateId;
+                                    nBestDist = nDistSq;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                if (bBackward) {
+                    posBack = NULL;
+                } else {
+                    posFwd = NULL;
+                }
+            }
+        }
+
+        m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    return nBestId;
 }
 
 // 0x46CD20
@@ -3556,7 +3725,6 @@ void CGameArea::OnActionButtonDown(const CPoint& pt)
             && m_iPicked == CGameObjectArray::INVALID_INDEX
             && !m_visibility.IsTileExplored(m_visibility.PointToTile(ptWorld))
             && m_search.GetLOSCost(mouseSearchSquare, m_terrainTable, searchSquareCode, FALSE) == CPathSearch::COST_IMPASSABLE) {
-            Iwd2DebugLog("CGameArea::OnActionButtonDown fog gate pt=%ld,%ld", ptWorld.x, ptWorld.y);
             return;
         }
 
@@ -3568,8 +3736,6 @@ void CGameArea::OnActionButtonDown(const CPoint& pt)
         m_moveDest = ptWorld;
         field_241 = CTimerWorld::TIMESCALE_MSEC_PER_SEC;
 
-        Iwd2DebugLog("CGameArea::OnActionButtonDown state=%d ptWorld=%ld,%ld picked=%d",
-            m_pGame->GetState(), ptWorld.x, ptWorld.y, (int)m_iPickedOnDown);
 
         if (g_pBaldurChitin->GetObjectCursor()->m_nCurrentCursor == 4) {
             m_pGame->GetGroup()->GroupDrawMove(ptWorld,
@@ -3583,12 +3749,7 @@ void CGameArea::OnActionButtonDown(const CPoint& pt)
                 m_pGame->GetButtonArray()->ResetState();
             }
         }
-    } else {
-        Iwd2DebugLog("CGameArea::OnActionButtonDown viewport gate pt=%ld,%ld view=%ld,%ld,%ld,%ld",
-            pt.x, pt.y, m_cInfinity.rViewPort.left, m_cInfinity.rViewPort.top,
-            m_cInfinity.rViewPort.right, m_cInfinity.rViewPort.bottom);
-    }
-}
+    }}
 
 // 0x475DC0
 void CGameArea::OnActionButtonUp(const CPoint& pt)
@@ -3597,9 +3758,6 @@ void CGameArea::OnActionButtonUp(const CPoint& pt)
     SHORT gameState = m_pGame->GetState();
     BOOL firstSelect = TRUE;
 
-    Iwd2DebugLog("CGameArea::OnActionButtonUp state=%d selectSq=(%ld,%ld,%ld,%ld) w=%d h=%d pickedDown=%d",
-        gameState, m_selectSquare.left, m_selectSquare.top, m_selectSquare.right, m_selectSquare.bottom,
-        (int)m_selectSquare.Width(), (int)m_selectSquare.Height(), (int)m_iPickedOnDown);
 
     if (m_selectSquare.left != -1) {
         m_selectSquare.NormalizeRect();
@@ -3813,9 +3971,6 @@ void CGameArea::OnActionButtonClickGround(const CPoint& pt)
     CAIGroup* pGroup = pGame->GetGroup();
     SHORT nTableIndex;
 
-    Iwd2DebugLog("CGameArea::OnActionButtonClickGround state=%d icon=%d groupCount=%d groupMove=%d travel=%d pt=%ld,%ld",
-        pGame->GetState(), pGame->GetIconIndex(), pGroup->GetCount(),
-        (int)m_groupMove, (int)m_bTravelSquare, pt.x, pt.y);
 
     switch (pGame->GetState()) {
     case 0:
@@ -3826,8 +3981,6 @@ void CGameArea::OnActionButtonClickGround(const CPoint& pt)
             pGame->SetLastClick(pt);
 
             if (pGroup->GetCount() > 0) {
-                Iwd2DebugLog("CGameArea::OnActionButtonClickGround groupCount=%d groupChanged=%d lastClick=%ld,%ld pt=%ld,%ld",
-                    pGroup->GetCount(), (int)pGroup->m_groupChanged, pGame->m_lastClick.x, pGame->m_lastClick.y, pt.x, pt.y);
                 BOOL bShift = g_pBaldurChitin->GetScreenWorld()->GetShiftKey();
                 if (!bShift) {
                     pGroup->ClearActions();
@@ -3857,10 +4010,7 @@ void CGameArea::OnActionButtonClickGround(const CPoint& pt)
                     }
                 }
             }
-        } else {
-            Iwd2DebugLog("CGameArea::OnActionButtonClickGround SKIP same-click pt=%ld,%ld", pt.x, pt.y);
-        }
-        break;
+        }        break;
     case 1:
         // NOTE: Uninline.
         pGame->SetLastClick(CPoint(-1, -1));
@@ -4702,7 +4852,7 @@ void CGameArea::SetDawn(BYTE nIntensity, BOOLEAN bPlayDayNightMovie)
     }
 
     if ((m_cInfinity.m_areaType & 0x2) != 0) {
-        m_cInfinity.SetDusk(nIntensity, bPlayDayNightMovie);
+        m_cInfinity.SetDawn(nIntensity, bPlayDayNightMovie);
     }
 }
 

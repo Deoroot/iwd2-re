@@ -55,6 +55,8 @@ def main() -> int:
     ap.add_argument("--party", default="Lady's Lament", help="party index or Party.ini name for --new-game")
     ap.add_argument("--timeout", type=float, default=120.0, help="seconds to wait for world activation")
     ap.add_argument("--no-wait", action="store_true", help="launch and return without waiting for the result")
+    ap.add_argument("--exe", default=str(EXE), help="iwd2-re.exe to launch (default: build/Debug; lets the scratch build+smoke gate point at an isolated exe)")
+    ap.add_argument("--kill-after", action="store_true", help="terminate the launched process before returning (build+smoke gate use; interactive launches omit it to keep the window open)")
     args = ap.parse_args()
 
     if args.no_launch:
@@ -79,36 +81,50 @@ def main() -> int:
             env["IWD2_RE_AUTO_SLOT"] = str(args.slot)
             description = f"visible save slot {args.slot}"
 
-    proc = subprocess.Popen([str(EXE)], cwd=str(GAME_DIR), env=env)
+    proc = subprocess.Popen([args.exe], cwd=str(GAME_DIR), env=env)
     print(f"pid={proc.pid}; auto {description}")
 
     if args.no_wait:
         print(f"result={result_path}")
         return 0
 
-    deadline = time.time() + args.timeout
-    while time.time() < deadline:
+    try:
+        deadline = time.time() + args.timeout
+        while time.time() < deadline:
+            if result_path.exists():
+                result = read_result(result_path)
+                status = result.get("status", "unknown")
+                detail = result.get("detail", "")
+                print(f"{status}: {detail}")
+                return 0 if status == "loaded" else 1
+            if proc.poll() is not None:
+                break
+            time.sleep(0.25)
+
         if result_path.exists():
             result = read_result(result_path)
-            status = result.get("status", "unknown")
-            detail = result.get("detail", "")
-            print(f"{status}: {detail}")
-            return 0 if status == "loaded" else 1
-        if proc.poll() is not None:
-            break
-        time.sleep(0.25)
+            print(f"{result.get('status', 'unknown')}: {result.get('detail', '')}")
+            return 0 if result.get("status") == "loaded" else 1
 
-    if result_path.exists():
-        result = read_result(result_path)
-        print(f"{result.get('status', 'unknown')}: {result.get('detail', '')}")
-        return 0 if result.get("status") == "loaded" else 1
+        if proc.poll() is None:
+            print(f"timeout: no world activation after {args.timeout:.1f}s")
+        else:
+            print(f"failed: process exited with code {proc.returncode} before world activation")
 
-    if proc.poll() is None:
-        print(f"timeout: no world activation after {args.timeout:.1f}s")
-    else:
-        print(f"failed: process exited with code {proc.returncode} before world activation")
-
-    return 1
+        return 1
+    finally:
+        # The build+smoke gate runs candidates back-to-back in one scratch worktree; a
+        # leaked game keeps build/Debug/iwd2-re.exe open and fails the NEXT link. With
+        # --kill-after we terminate the process we spawned -- by handle, so only this
+        # exe, never a canonical game the user is playing -- on every exit path, which
+        # also clears a load-time RTC/assert modal that would otherwise block forever.
+        if args.kill_after and proc.poll() is None:
+            try:
+                proc.kill()
+                proc.wait(timeout=10)
+                print(f"killed pid={proc.pid} (--kill-after)")
+            except Exception as exc:
+                print(f"kill failed: {exc}")
 
 
 if __name__ == "__main__":

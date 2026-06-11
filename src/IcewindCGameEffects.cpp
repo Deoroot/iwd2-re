@@ -11,7 +11,6 @@
 #include "CInfGame.h"
 #include "CTimerWorld.h"
 #include "CUtil.h"
-#include "DebugLog.h"
 #include "Icewind586B70.h"
 #include "IcewindMisc.h"
 
@@ -130,10 +129,6 @@ BOOL IcewindCGameEffectCastingGlow::ApplyEffect(CGameSprite* pSprite)
 {
     WORD projectileType;
     CResRef visualResRef;
-
-    Iwd2DebugLog("CAST_GLOW_APPLY spriteId=%ld dwFlags=%d duration=%d gameTime=%d",
-        pSprite->m_id, (int)m_dwFlags, (int)m_duration,
-        (int)g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime);
 
     switch (m_dwFlags) {
     case 1:
@@ -749,18 +744,6 @@ BOOL IcewindCGameEffectSummon::ApplyEffect(CGameSprite* pSprite)
         m_pSprite = pSprite;
     }
 
-    Iwd2DebugLog("SUMMON_APPLY casterId=%ld target=%d,%d res=%s amount=%ld dice=%lu/%lu field190=%d durationType=%lu duration=%lu",
-        m_pSprite != NULL ? m_pSprite->m_id : -1,
-        m_target.x,
-        m_target.y,
-        static_cast<LPCSTR>(m_res.GetResRefStr()),
-        m_effectAmount,
-        m_numDice,
-        m_diceSize,
-        field_190,
-        m_durationType,
-        m_duration);
-
     int total = static_cast<int>(m_effectAmount);
     for (DWORD i = 0; i < m_numDice; ++i) {
         int roll = (m_diceSize == 0) ? 0 : (rand() % static_cast<int>(m_diceSize));
@@ -770,17 +753,12 @@ BOOL IcewindCGameEffectSummon::ApplyEffect(CGameSprite* pSprite)
     CGameSprite* pCaster = m_pSprite;
     for (int i = 0; i < total; ++i) {
         if (!Icewind586B70::Instance()->CanJoinParty(pCaster)) {
-            Iwd2DebugLog("SUMMON_BLOCKED_LIMIT casterId=%ld", pCaster != NULL ? pCaster->m_id : -1);
             pCaster->FeedBack(50, 0, 0, 0, -1, 0, 0);
             break;
         }
 
         CString resRef = m_res.GetResRefStr();
         CGameSprite* pSpawned = SpawnFromResRef(resRef, &m_target);
-        Iwd2DebugLog("SUMMON_SPAWN_RESULT casterId=%ld res=%s spawnedId=%ld",
-            pCaster != NULL ? pCaster->m_id : -1,
-            static_cast<LPCSTR>(resRef),
-            pSpawned != NULL ? pSpawned->m_id : -1);
 
         if ((m_durationType == 0 || m_durationType == 0x1000 || m_durationType == 3)
             && pSpawned != NULL && m_durationType != 1) {
@@ -827,16 +805,11 @@ CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const CString& resRef, co
     BYTE rc;
 
     if (resRef.IsEmpty() || m_pSprite == NULL || pTarget == NULL) {
-        Iwd2DebugLog("SUMMON_SPAWN_ABORT bad_args res=%s sprite=%p target=%p",
-            static_cast<LPCSTR>(resRef),
-            m_pSprite,
-            pTarget);
         return NULL;
     }
 
     pArea = m_pSprite->GetArea();
     if (pArea == NULL) {
-        Iwd2DebugLog("SUMMON_SPAWN_ABORT no_area casterId=%ld", m_pSprite->m_id);
         return NULL;
     }
 
@@ -857,10 +830,6 @@ CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const CString& resRef, co
     creatureSize = creature.GetDataSize();
     pCreatureData = creature.GetData();
     if (pCreatureData == NULL || creatureSize == 0) {
-        Iwd2DebugLog("SUMMON_SPAWN_ABORT cre_load res=%s size=%lu data=%p",
-            static_cast<LPCSTR>(resRef),
-            creatureSize,
-            pCreatureData);
         creature.ReleaseData();
         return NULL;
     }
@@ -909,10 +878,6 @@ CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const CString& resRef, co
     } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
     if (rc != CGameObjectArray::SUCCESS) {
-        Iwd2DebugLog("SUMMON_SPAWN_ABORT deny res=%s id=%ld rc=%u",
-            static_cast<LPCSTR>(resRef),
-            pSpawned->m_id,
-            rc);
         return NULL;
     }
 
@@ -920,7 +885,11 @@ CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const CString& resRef, co
         spawnPos,
         0,
         pSpawned->GetAnimation()->GetListType());
-    pSpawned->SetFacing(pSpawned->GetDirection(m_pSprite->GetPos()));
+    // 0x55FE40: dir = caster->GetDirection(caster->GetPos()).  m_pos == target
+    // takes GetDirection's early-out, so this yields the CASTER's current
+    // facing -- the summoned creature spawns looking the same way as its
+    // summoner, not toward it.
+    pSpawned->SetFacing(m_pSprite->GetDirection(m_pSprite->GetPos()));
     pSpawned->m_posStart = pSpawned->m_pos;
 
     Icewind586B70::Instance()->AddSummoned(m_pSprite, pSpawned);
@@ -929,13 +898,6 @@ CGameSprite* IcewindCGameEffectSummon::SpawnFromResRef(const CString& resRef, co
         CGameObjectArray::THREAD_ASYNCH,
         INFINITE);
 
-    Iwd2DebugLog("SUMMON_SPAWN_DONE res=%s id=%ld pos=%d,%d grid=%ld,%ld",
-        static_cast<LPCSTR>(resRef),
-        pSpawned->m_id,
-        spawnPos.x,
-        spawnPos.y,
-        spawnGrid.x,
-        spawnGrid.y);
 
     return pSpawned;
 }

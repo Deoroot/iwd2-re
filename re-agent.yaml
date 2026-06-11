@@ -1,0 +1,55 @@
+# re-agent configuration
+# See: https://github.com/dryxio/auto-re-agent for documentation.
+
+project_profile:
+  hook_patterns:
+    - "RH_ScopedInstall\\s*\\(\\s*(\\w+)\\s*,\\s*(0x[0-9A-Fa-f]+)"
+    - "RH_ScopedVirtualInstall\\s*\\(\\s*(\\w+)\\s*,\\s*(0x[0-9A-Fa-f]+)"
+  stub_patterns:
+    - "plugin::Call"
+  stub_markers:
+    - "NOTSA_UNREACHABLE"
+  stub_call_prefix: "plugin::Call"
+  class_macro: "RH_ScopedClass"
+  source_root: 'C:\iwd2-re\src'
+  source_extensions:
+    - ".cpp"
+    - ".h"
+    - ".hpp"
+  hooks_csv: 'C:\iwd2-re\.ghidra-exports\hooks.csv'
+
+llm:
+  provider: "openai-compat"  # OpenCode Go sub — direct OpenAI-compatible endpoint (no ocgo/codex/opencode)
+  model: "deepseek-v4-pro"
+  base_url: "https://opencode.ai/zen/go/v1"
+  # api_key via env (never commit it):  $env:RE_AGENT_LLM_API_KEY = "sk-opencode-..."
+  # prev (Ollama Cloud local proxy): model "deepseek-v4-pro:cloud", base_url http://127.0.0.1:11434/v1
+  max_tokens: 32768   # deepseek-v4-pro reasons in the content field -> needs room for thinking + the final code, else the reply truncates mid-thought before emitting code. 16384 was an OUR-side ceiling: probe 2026-06-09 showed the provider emits >=41015 completion tokens in one reply (finish=stop, not length) and does not clamp the param. 32768 = ~2x headroom for reasoning + code, well under the proven cap.
+  temperature: 0.0
+  timeout_s: 1800
+
+backend:
+  type: "ghidra-bridge"
+  cli_path: 'C:\iwd2-re\.venv-reagent\Scripts\ghidra-bridge.exe'
+  timeout_s: 180          # dump-asm boots PyGhidra headless (~1 min cold)
+
+parity:
+  enabled: true
+  call_count_warn_diff: 3
+  inline_wrapper_autoskip: false
+  # semantic_rules_file: null
+  # manual_checks_file: null
+  cache_dir: ".cache/re-agent-parity"
+
+orchestrator:
+  max_review_rounds: 5
+  max_functions_per_class: 10
+  objective_verifier_enabled: true
+  objective_call_count_tolerance: 3
+  objective_control_flow_tolerance: 2
+
+output:
+  report_dir: "reports/re-agent"
+  log_dir: "reports/re-agent/logs"
+  session_file: "re-agent-progress.json"
+  format: "json"

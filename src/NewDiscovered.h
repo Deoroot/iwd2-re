@@ -1,5 +1,5 @@
 // Newly discovered functions — not yet categorized
-// 1162 functions
+// 1161 functions
 // Group by address proximity to determine which source file they belong to
 
 // === 0x520000 range ===
@@ -1047,7 +1047,6 @@ void FUN_007fcb82(); // 0x7FCB82
 void FUN_007fcba5(); // 0x7FCBA5
 void FUN_007fcbc3(); // 0x7FCBC3
 void FUN_007fcbf1(); // 0x7FCBF1
-void FUN_007fcc1a(); // 0x7FCC1A
 void FUN_007fcc44(); // 0x7FCC44
 void FUN_007fcc88(); // 0x7FCC88
 void FUN_007fccda(); // 0x7FCCDA
@@ -1179,4 +1178,3 @@ void FUN_007fff31(); // 0x7FFF31
 void FUN_007fff52(); // 0x7FFF52
 void FUN_007fff9c(); // 0x7FFF9C
 void FUN_007fffc3(); // 0x7FFFC3
-

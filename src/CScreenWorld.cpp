@@ -24,7 +24,6 @@
 #include "CMessage.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
-#include "DebugLog.h"
 // 0x85A1EC
 const LONG CScreenWorld::BORED_TIME = 3000;
 
@@ -708,19 +707,10 @@ void CScreenWorld::OnLButtonDown(CPoint pt)
     if ((g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode & 0x1) != 0) {
         CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetVisibleArea();
         if (pArea != NULL) {
-            Iwd2DebugLog("CScreenWorld::OnLButtonDown mode=0x%lx area=%p pt=%ld,%ld",
-                g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode, pArea, pt.x, pt.y);
             pArea->OnActionButtonDown(pt);
-        } else {
-            Iwd2DebugLog("CScreenWorld::OnLButtonDown area=NULL pt=%ld,%ld", pt.x, pt.y);
         }
-
         g_pBaldurChitin->GetObjectCursor()->m_nState = 1;
-    } else {
-        Iwd2DebugLog("CScreenWorld::OnLButtonDown GATED mode=0x%lx pt=%ld,%ld",
-            g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_mode, pt.x, pt.y);
-    }
-}
+    }}
 
 // 0x68C100
 void CScreenWorld::OnLButtonUp(CPoint pt)
@@ -735,12 +725,8 @@ void CScreenWorld::OnLButtonUp(CPoint pt)
 
         CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetVisibleArea();
         if (pArea != NULL) {
-            Iwd2DebugLog("CScreenWorld::OnLButtonUp area=%p pt=%ld,%ld", pArea, pt.x, pt.y);
             pArea->OnActionButtonUp(pt);
-        } else {
-            Iwd2DebugLog("CScreenWorld::OnLButtonUp area=NULL pt=%ld,%ld", pt.x, pt.y);
         }
-
         g_pBaldurChitin->GetObjectCursor()->m_nState = 0;
     }
 }
@@ -1803,7 +1789,6 @@ BOOLEAN CScreenWorld::ReadyEndCredits(BOOLEAN bForcedFromServer)
 BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BYTE bPlayerInitiated, BYTE a5)
 {
     if (pCharacter == NULL || pTalker == NULL) {
-        Iwd2DebugLog("CScreenWorld::StartDialog NULL character=%p talker=%p", pCharacter, pTalker);
         return FALSE;
     }
 
@@ -1833,8 +1818,6 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
 
     char dlg[16];
     pTalker->m_dialog.CopyToString(dlg);
-    Iwd2DebugLog("CScreenWorld::StartDialog charId=%ld talkerId=%ld dialog='%s' playerInit=%d",
-        pCharacter->m_id, pTalker->m_id, dlg, bPlayerInitiated);
 
     SetDialogTokens(pCharacter);
     m_bDialogButtonClicked = 0;
@@ -1996,7 +1979,6 @@ BOOL CScreenWorld::StartDialog(CGameSprite* pCharacter, CGameSprite* pTalker, BY
     }
 
     BOOL started = m_internalLoadedDialog.StartDialog(pTalker);
-    Iwd2DebugLog("CScreenWorld::StartDialog talkerId=%ld started=%d", pTalker->m_id, started);
 
     if (started) {
         if (g_pBaldurChitin->GetActiveEngine() != this) {
@@ -2163,8 +2145,6 @@ void CScreenWorld::EndDialog(BOOLEAN bForceExecution, BOOLEAN fullEnd)
     m_nPopupState = -1;
     m_bInControlOfDialog = FALSE;
 
-    Iwd2DebugLog("CScreenWorld::EndDialog done mode=0x%lx comingOut=%d",
-        pGame->GetGameSave()->m_mode, m_comingOutOfDialog);
 }
 
 // FIXME: `areaName` should be reference.

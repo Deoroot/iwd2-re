@@ -5,7 +5,6 @@
 #include "CInfGame.h"
 #include "CInfinity.h"
 #include "CUtil.h"
-#include "DebugLog.h"
 
 #define ITEM_FLAGS_TWOHANDED 0x2
 #define MELEE_1HLR_MASK 0x10
@@ -2152,7 +2151,7 @@ void CGameAnimationTypeCharacter::Render(CInfinity* pInfinity, CVidMode* pVidMod
         if (bFadeOut) {
             pInfinity->FXUnlock(dwRenderFlags, &rFXRect, ptPos + ptReference);
         } else {
-            pInfinity->FXUnlock(dwRenderFlags, &rFXRect, CPoint(0, 0));
+            pInfinity->FXUnlock(dwRenderFlags, NULL, CPoint(0, 0));
         }
 
         pInfinity->FXBltFrom(nSurface,
@@ -2197,8 +2196,6 @@ SHORT CGameAnimationTypeCharacter::SetSequence(SHORT nSequence)
         }
         break;
     case 2:
-        Iwd2DebugLog("ANIM_SET_SEQ seq=2(CAST) animId=0x%x resRef='%s' armorCode=%c caVidCell=%p field_1448=%d",
-            m_animationID, static_cast<LPCSTR>(m_resRef), m_armorCode, &m_caVidCellBase, (int)field_1448);
         m_currentVidCellBase = &m_caVidCellBase;
         m_renderWeapons = FALSE;
 
@@ -2242,8 +2239,6 @@ SHORT CGameAnimationTypeCharacter::SetSequence(SHORT nSequence)
         }
         break;
     case 3:
-        Iwd2DebugLog("ANIM_SET_SEQ seq=3(CONJURE) animId=0x%x resRef='%s' armorCode=%c caVidCell=%p field_1448=%d",
-            m_animationID, static_cast<LPCSTR>(m_resRef), m_armorCode, &m_caVidCellBase, (int)field_1448);
         m_currentVidCellBase = &m_caVidCellBase;
         m_renderWeapons = FALSE;
 

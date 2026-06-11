@@ -11,6 +11,7 @@
 #include "CGameSprite.h"
 #include "CInfinity.h"
 #include "CInfGame.h"
+#include "CPathSearch.h"
 #include "CUtil.h"
 #include "IcewindMisc.h"
 
@@ -274,6 +275,22 @@ SHORT CProjectile::GetDirection(CPoint target)
     return CGameSprite::GetDirection(ptStart, ptTarget);
 }
 
+// 0x536FC0
+// TRUE when the target is immune to this projectile: the projectile type is
+// on the target's projectile-immunity list, or m_casterClass (when <= 8)
+// indexes a set slot of the spell-level immunity table (the table
+// CGameEffectImmunityToSpellLevel writes).
+BOOL CProjectile::IsTargetImmune(CGameSprite* pSprite)
+{
+    if (pSprite->GetDerivedStats()->m_cImmunitiesProjectile.OnList(m_projectileType) == 0
+        && ((m_casterClass & 0xFF) > 8
+            || pSprite->GetDerivedStats()->m_cImmunitiesSpellLevel.m_levels[m_casterClass & 0xFF] == 0)) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 // 0x52A4E0
 void CProjectile::PlaySound(CResRef resRef, BOOL loop, BOOL fireAndForget)
 {
@@ -413,14 +430,27 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    case 0x131:
+        // The wandering tornado (Whirlwind / Wing Buffet).
+        pProjectile = new CProjectileWhirlwind();
+        break;
+
     case 0x169:
         // Gate VFX overlay: no copy-from-back tint, no arrival sound.
         pProjectile = new CProjectileSummonVFX(CResRef("GateX"), visualEffect);
         break;
 
     default:
-        // ~80 hardcoded projectile classes not yet recovered.
-        return NULL;
+        // 0x528DEF: unknown / unrecovered type.  The binary asserts FALSE
+        // (CProjectile.cpp:3127) and then builds a plain CProjectile, so the
+        // factory never returns NULL for an in-range type.  ~80 hardcoded
+        // projectile classes still fall through here.
+        // HACK: the assert is omitted -- the binary's UtilAssert (0x780C00)
+        // shows a continueable "Run Debugger?" dialog, ours suspends and
+        // shuts the game down, so asserting would kill every cast with an
+        // unrecovered projectile class -- replaces 0x528DEF.
+        pProjectile = new CProjectile();
+        break;
     }
 
     // Common tail (0x528E1C): the factory stamps the 0-based projectile type on
@@ -435,6 +465,38 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
 // INCOMPLETE: only CProjectileBAM subclass recovered; the global projectile
 // dispatch switch (0x57B0C0) and remaining projectile types are not yet
 // implemented. Fire/AIUpdate/Render mapped from Ghidra.
+
+// 0x530790
+//
+// Default constructor, used by DecodeProjectile's default case (every
+// subclass constructor inlines this same body before its own overrides, so
+// subclasses run it implicitly here too).  The binary's store of the MFC
+// nil-string sentinel (0x8C1758) into field_17E is the inlined CString
+// default constructor -- our implicit member init.  Not transcribed: the
+// re-zeroing of four undeclared CGameEffectList tail fields
+// (+0x46/+0x62/+0x64/+0x68 inside the list) right after the list
+// constructor has run.
+CProjectile::CProjectile()
+{
+    m_casterClass = 0;
+    m_projectileType = 0;
+    field_70 = 0;
+    m_sourceId = 0;
+    m_targetId = 0;
+    m_effectList.m_posNext = NULL;
+    m_pArea = NULL;
+    m_nDeltaZ = 0;
+    m_nDeltaZLast = 0;
+    m_nOrigDistance = 0;
+    field_17C = 0;
+    m_callBackProjectile = -1;
+    m_bHasHeight = FALSE;
+    m_fireSoundRef = "";
+    m_loopFireSound = FALSE;
+    m_arrivalSoundRef = "";
+    m_loopArrivalSound = FALSE;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
 
 // 0x57CAC0
 CProjectileBAM::CProjectileBAM(const CResRef& visualResRef, const CResRef& arrivalSoundRef, BYTE sequenceDelay, BYTE initialDelay, const IcewindCVisualEffect& visualEffect)
@@ -778,8 +840,8 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
 {
     CProjectileSummonVFX* p = NULL;
     switch (typeIndex) {
-    case 0:  // base CProjectile (0x530790); base-projectile ctor not recovered
-        return NULL;
+    case 0:  // plain base CProjectile (ctor 0x530790)
+        return new CProjectile();
     case 1: {
         p = new CProjectileSummonVFX(CResRef("AbjurH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
@@ -2271,4 +2333,412 @@ void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSu
         pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
         pInfinity->FXBltFrom(nSurface, rFX, newPos.x, newPos.y, ptRef.x, ptRef.y, flags);
     }
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x578110
+//
+// The shared CProjectileTravelling state (heap cell from the resref, range
+// palette, velocity 0x14, lifetime 0x7FFF, render flags 0x20000, zeroed
+// motion fields) is identical in the binary and comes from the base ctor;
+// only the differences are written here. field_17E = "" transcribes the
+// binary's explicit CString assignment of the nil string.
+IcewindCProjectileTravellingVFX::IcewindCProjectileTravellingVFX(const CResRef& resRef)
+    : CProjectileTravelling(resRef)
+{
+    // Default projectile terrain-cost table (.data 0x8A8154): terrain types
+    // 0, 10 and 13 are impassable, everything else costs 5.
+    m_terrainTable[0] = CPathSearch::COST_IMPASSABLE;
+    m_terrainTable[1] = 5;
+    m_terrainTable[2] = 5;
+    m_terrainTable[3] = 5;
+    m_terrainTable[4] = 5;
+    m_terrainTable[5] = 5;
+    m_terrainTable[6] = 5;
+    m_terrainTable[7] = 5;
+    m_terrainTable[8] = 5;
+    m_terrainTable[9] = 5;
+    m_terrainTable[10] = CPathSearch::COST_IMPASSABLE;
+    m_terrainTable[11] = 5;
+    m_terrainTable[12] = 5;
+    m_terrainTable[13] = CPathSearch::COST_IMPASSABLE;
+    m_terrainTable[14] = 5;
+    m_terrainTable[15] = 5;
+    field_17E = "";
+    m_useHeightOffset = 1;
+    m_bHasHeight = TRUE;
+    field_2A0 = 1;
+    field_2A1 = 1;
+}
+
+// 0x578AB0 (vtable slot 3)
+// The family's flight tick is a verbatim copy of CProjectileTravelling::
+// AIUpdate (0x52B900): cell frame advance, 16x12-cell then radius
+// (velocity+1, y weighted 16/9) arrival tests into the OnArrival virtual,
+// lifetime countdown into RemoveSelf, AimAtPoint homing (point target when
+// m_targetId is INVALID_INDEX), trailing sub-projectile, sound follow.
+// Delegating shares that recovered body and its documented partial stubs
+// (pause-gate, live-target height interpolation, trailing factory).
+void IcewindCProjectileTravellingVFX::AIUpdate()
+{
+    CProjectileTravelling::AIUpdate();
+}
+
+// 0x5791D0 (vtable slot 27)
+// UNIMPLEMENTED: the family's own launch; delegate to the recovered
+// CProjectileTravelling launch until it is recovered.
+void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    CProjectileTravelling::Fire(pArea, source, target, targetPos, nHeight, nType);
+}
+
+// 0x578ED0 (vtable slot 33)
+// UNIMPLEMENTED: the family's own flight aiming; delegate to the recovered
+// CProjectileTravelling integrator until it is recovered.
+void IcewindCProjectileTravellingVFX::AimAtPoint(int x, int y)
+{
+    CProjectileTravelling::AimAtPoint(x, y);
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x57F640
+// The base ctor runs with "WhirlwX" and the strike tracker / leaf sound
+// members construct implicitly; this body sets the leaf state, points the
+// tracker at this projectile (the tornado: scan every 3rd service within
+// radius 70, re-strike after 33 in-range passes, 8 strikes total, never the
+// caster), turns height handling back off, and loops the EFF_P105 fire
+// sound.
+CProjectileWhirlwind::CProjectileWhirlwind()
+    : IcewindCProjectileTravellingVFX(CResRef("WhirlwX"))
+{
+    m_nLifetime = 1000;
+    m_nLegBudget = 1000;
+    field_2B6 = 0;
+    m_bFinishing = 0;
+    m_wanderSeed = 0;
+    m_dirCount = 1;
+    m_velocity = 5;
+    m_targetMap.m_pOwner = this;
+    m_targetMap.m_maxStrikesTotal = 8;
+    m_targetMap.m_nRange = 70;
+    m_targetMap.m_strikeInterval = 33;
+    m_targetMap.m_servicePeriod = 3;
+    m_targetMap.m_bSkipSource = TRUE;
+    m_visualEffect.SetCopyFromBack(TRUE);
+    m_bHasHeight = FALSE;
+    m_useHeightOffset = 0;
+    m_fireSoundRef = "EFF_P105";
+    m_loopFireSound = TRUE;
+}
+
+// 0x57F760 (vtable slot 0)
+// The members (strike tracker map, leaf sound, heap cell through the base
+// chain) destruct implicitly.
+CProjectileWhirlwind::~CProjectileWhirlwind()
+{
+}
+
+// 0x57F8D0 (vtable slot 3)
+// The wander tick. The original opens with the engine single-step gate
+// (game +0x4B40/+0x4B44: skip unless this object is the stepped one) --
+// omitted like the same documented stub in CProjectileTravelling::AIUpdate.
+void CProjectileWhirlwind::AIUpdate()
+{
+    // Dissipating: wait for the aftermath sound, then remove and free.
+    if (m_bFinishing == 1) {
+        if (m_loopSound.IsSoundPlaying()) {
+            return;
+        }
+
+        RemoveFromArea();
+        if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(
+                m_id, CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+            == CGameObjectArray::SUCCESS) {
+            delete this;
+        }
+        return;
+    }
+
+    // Wander leg bookkeeping: out of budget picks the next wander point.
+    if (m_nLegBudget < 1) {
+        POINT nextPoint;
+        PickWanderPoint(&nextPoint, FALSE);
+        m_targetX = nextPoint.x;
+        m_targetY = nextPoint.y;
+        m_nLegBudget = rand() % 50 + 50;
+    } else {
+        m_nLegBudget--;
+    }
+
+    // Expired (or the strike tracker hit its total cap): go invisible, play
+    // the aftermath sound and dissipate once it ends.
+    if (m_nLifetime < 1 || m_targetMap.m_bDone == 1) {
+        m_loopSound.SetResRef(CResRef("AFT_P23"), TRUE, TRUE);
+        m_loopSound.SetFireForget(TRUE);
+        m_loopSound.SetChannel(15, reinterpret_cast<DWORD>(m_pArea));
+        m_loopSound.Play(m_pos.x, m_pos.y, 0, FALSE);
+        m_bFinishing = 1;
+        m_visible = 0;
+        return;
+    }
+    m_nLifetime--;
+
+    // Advance the subpixel integrator (y carries the 3/4 isometric scale).
+    m_posAccumX += m_stepX;
+    m_posAccumY += m_stepY;
+    m_pos.x = m_posAccumX >> CGameSprite::EXACT_SCALE;
+    m_pos.y = ((m_posAccumY * 3) / 4) >> CGameSprite::EXACT_SCALE;
+
+    // Off the area: remove and free.
+    if (m_pos.x < 0 || m_pos.y < 0
+        || m_pArea->GetInfinity()->nAreaX <= m_pos.x
+        || m_pArea->GetInfinity()->nAreaY <= m_pos.y) {
+        RemoveFromArea();
+        if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(
+                m_id, CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+            == CGameObjectArray::SUCCESS) {
+            delete this;
+        }
+        return;
+    }
+
+    // Wall collision: reflect the step off impassable squares (terrain cost
+    // table FF, or structure-height code 8), preferring to flip the dominant
+    // axis last, and re-aim a few ticks ahead after any bounce.
+    SHORT nTableIndex;
+    CPoint gridPt(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX, m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    if (m_pArea->m_search.GetLOSCost(gridPt, m_terrainTable, nTableIndex, FALSE) == CPathSearch::COST_IMPASSABLE
+        || nTableIndex == 8) {
+        int stepX = m_stepX;
+        int stepY = m_stepY;
+        int absX = stepX < 0 ? -stepX : stepX;
+        int absY = stepY < 0 ? -stepY : stepY;
+
+        if (absX < absY) {
+            // Would flipping y alone clear the square?
+            gridPt.x = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
+            gridPt.y = ((((m_posAccumY - 2 * stepY) * 3) / 4) >> CGameSprite::EXACT_SCALE)
+                / CPathSearch::GRID_SQUARE_SIZEY;
+            if (m_pArea->m_search.GetLOSCost(gridPt, m_terrainTable, nTableIndex, FALSE) == CPathSearch::COST_IMPASSABLE
+                || nTableIndex == 8) {
+                // No: flip x first ...
+                m_stepX = -stepX;
+                m_posAccumX -= 2 * stepX;
+                m_pos.x = m_posAccumX >> CGameSprite::EXACT_SCALE;
+                gridPt.x = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
+                gridPt.y = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
+                if (m_pArea->m_search.GetLOSCost(gridPt, m_terrainTable, nTableIndex, FALSE) != CPathSearch::COST_IMPASSABLE
+                    && nTableIndex != 8) {
+                    goto reaim;
+                }
+                // ... and y as well.
+                m_stepY = -stepY;
+                m_posAccumY -= 2 * stepY;
+                m_pos.y = ((m_posAccumY * 3) / 4) >> CGameSprite::EXACT_SCALE;
+            } else {
+                // Yes: flip y alone.
+                m_stepY = -stepY;
+                m_posAccumY -= 2 * stepY;
+                m_pos.y = ((m_posAccumY * 3) / 4) >> CGameSprite::EXACT_SCALE;
+            }
+        } else {
+            // Would flipping x alone clear the square?
+            gridPt.x = ((m_posAccumX - 2 * stepX) >> CGameSprite::EXACT_SCALE)
+                / CPathSearch::GRID_SQUARE_SIZEX;
+            gridPt.y = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
+            if (m_pArea->m_search.GetLOSCost(gridPt, m_terrainTable, nTableIndex, FALSE) == CPathSearch::COST_IMPASSABLE
+                || nTableIndex == 8) {
+                // No: flip y first ...
+                m_stepY = -stepY;
+                m_posAccumY -= 2 * stepY;
+                m_pos.y = ((m_posAccumY * 3) / 4) >> CGameSprite::EXACT_SCALE;
+                gridPt.x = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
+                gridPt.y = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
+                if (m_pArea->m_search.GetLOSCost(gridPt, m_terrainTable, nTableIndex, FALSE) == CPathSearch::COST_IMPASSABLE) {
+                    // ... and x as well.
+                    m_posAccumX -= 2 * stepX;
+                    m_stepX = -stepX;
+                    m_pos.x = m_posAccumX >> CGameSprite::EXACT_SCALE;
+                }
+            } else {
+                // Yes: flip x alone.
+                m_posAccumX -= 2 * stepX;
+                m_stepX = -stepX;
+                m_pos.x = m_posAccumX >> CGameSprite::EXACT_SCALE;
+            }
+        }
+
+    reaim:
+        // Re-aim a few steps ahead along the reflected heading and start a
+        // fresh leg.
+        int aheadX = (m_posAccumX + 3 * m_stepX) >> CGameSprite::EXACT_SCALE;
+        int aheadY = (((m_posAccumY + 3 * m_stepY) * 3) / 4) >> CGameSprite::EXACT_SCALE;
+        m_facing = GetDirection(CPoint(aheadX, aheadY));
+        m_targetX = aheadX;
+        m_targetY = aheadY;
+        m_nLegBudget = rand() % 50 + 50;
+    }
+
+    // Service the strike tracker, keep the looping sound on the tornado, and
+    // start a new leg once the current wander point is reached (+/-32 x,
+    // +/-24 y).
+    m_targetMap.Service();
+    m_loopSound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+    if (m_targetX < m_pos.x + 0x20 && m_pos.x - 0x20 < m_targetX
+        && m_targetY < m_pos.y + 0x18 && m_pos.y - 0x18 < m_targetY) {
+        POINT nextPoint;
+        PickWanderPoint(&nextPoint, FALSE);
+        m_targetX = nextPoint.x;
+        m_targetY = nextPoint.y;
+        m_nLegBudget = rand() % 50 + 50;
+    }
+
+    IcewindCProjectileTravellingVFX::AIUpdate();
+}
+
+// 0x57FF80 (vtable slot 27)
+// Launch: start the looping ambience that follows the tornado, then fire
+// through the base with the target object dropped (the tornado wanders; it
+// never homes on an object).
+void CProjectileWhirlwind::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)target;
+
+    m_loopSound.SetResRef(CResRef("ARE_P23"), TRUE, TRUE);
+    m_loopSound.SetFireForget(TRUE);
+    m_loopSound.SetChannel(15, reinterpret_cast<DWORD>(m_pArea));
+    m_loopSound.Play(m_pos.x, m_pos.y, 0, FALSE);
+
+    IcewindCProjectileTravellingVFX::Fire(pArea, source, CGameObjectArray::INVALID_INDEX, targetPos, nHeight, nType);
+}
+
+// 0x5847B0
+// Free helper shared by the wander pickers: step `distance` units from `src`
+// along the (dx, dy) heading -- the heading vector is rescaled to the
+// requested length on the float path (sqrt + chop), zero heading copies the
+// source point.
+static POINT* StepAlongHeading(POINT* pResult, const POINT* pSrc, int dx, int dy, int distance)
+{
+    if (dx == 0 && dy == 0) {
+        *pResult = *pSrc;
+        return pResult;
+    }
+
+    double scale = sqrt(static_cast<double>(distance * distance)
+        / static_cast<double>(dx * dx + dy * dy));
+    pResult->x = static_cast<LONG>(dx * scale + pSrc->x);
+    pResult->y = static_cast<LONG>(dy * scale + pSrc->y);
+    return pResult;
+}
+
+// 0x5800E0
+// Pick the next wander point ~100 units away. The random path reseeds the
+// CRT generator from m_wanderSeed and stores the fresh roll back, so every
+// pick advances the same deterministic chain on all machines (the seed is
+// what CMessageFireProjectile +0x20 replicates); bReverseFacing instead
+// turns the current heading around (+8 of 16 directions). The 16-entry step
+// table is the isometric direction rose.
+POINT* CProjectileWhirlwind::PickWanderPoint(POINT* pResult, BOOL bReverseFacing)
+{
+    int direction;
+    if (bReverseFacing) {
+        direction = (GetDirection(CPoint(m_targetX, m_targetY)) + 8) % 16;
+    } else {
+        srand(m_wanderSeed);
+        m_wanderSeed = rand();
+        direction = m_wanderSeed % 16;
+    }
+
+    int dx, dy;
+    switch (direction) {
+    case 0:
+        dx = 20;
+        dy = 0;
+        break;
+    case 1:
+        dx = 25;
+        dy = -8;
+        break;
+    case 2:
+        dx = 19;
+        dy = -14;
+        break;
+    case 3:
+        dx = 10;
+        dy = -18;
+        break;
+    case 4:
+        dx = 0;
+        dy = -27;
+        break;
+    case 5:
+        dx = -10;
+        dy = -18;
+        break;
+    case 6:
+        dx = -19;
+        dy = -14;
+        break;
+    case 7:
+        dx = -25;
+        dy = -8;
+        break;
+    case 8:
+        dx = -20;
+        dy = 0;
+        break;
+    case 9:
+        dx = -25;
+        dy = 8;
+        break;
+    case 10:
+        dx = -19;
+        dy = 14;
+        break;
+    case 11:
+        dx = -10;
+        dy = 18;
+        break;
+    case 12:
+        dx = 0;
+        dy = 27;
+        break;
+    case 13:
+        dx = 10;
+        dy = 18;
+        break;
+    case 14:
+        dx = 19;
+        dy = 14;
+        break;
+    case 15:
+        dx = 25;
+        dy = 8;
+        break;
+    default:
+        // Unreachable: direction is always 0..15 (the binary's default arm
+        // feeds the out-pointer value as the step).
+        dx = 0;
+        dy = 0;
+        break;
+    }
+
+    POINT pos;
+    pos.x = m_pos.x;
+    pos.y = m_pos.y;
+    return StepAlongHeading(pResult, &pos, dx, dy, 100);
+}
+
+// 0x580270 (vtable slot 28)
+// A wander leg arrived: pick the next wander point and roll the next leg
+// budget.
+void CProjectileWhirlwind::OnArrival()
+{
+    POINT nextPoint;
+    PickWanderPoint(&nextPoint, FALSE);
+    m_targetX = nextPoint.x;
+    m_targetY = nextPoint.y;
+    m_nLegBudget = rand() % 50 + 50;
 }

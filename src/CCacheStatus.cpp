@@ -7,7 +7,6 @@
 #include "CScreenWorld.h"
 #include "CUtil.h"
 #include "CVidInf.h"
-#include "DebugLog.h"
 
 // 0x8A7BA8
 int CCacheStatus::PARCHMENT_TEXT_START_X = 400;
@@ -437,40 +436,24 @@ void CCacheStatus::Update(BOOLEAN bEnabled, LONG nProgressBarCaption, INT nBytes
                 RGB(245, 245, 150),
                 -1,
                 FALSE);
-            Iwd2DebugLog("CCacheStatus::Update disable after hint text activeEngine=%p activate=%d",
-                g_pBaldurChitin->GetActiveEngine(),
-                m_bActivateEngine);
             g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""), CString(""), -1, FALSE);
-            Iwd2DebugLog("CCacheStatus::Update disable after blank text activeEngine=%p activate=%d",
-                g_pBaldurChitin->GetActiveEngine(),
-                m_bActivateEngine);
 
             if (m_bActivateEngine) {
                 m_bActivateEngine = FALSE;
 
                 CBaldurEngine* pEngine = g_pBaldurChitin->GetActiveEngine();
                 if (pEngine != NULL) {
-                    Iwd2DebugLog("CCacheStatus::Update disable before EngineActivated engine=%p", pEngine);
                     pEngine->EngineActivated();
-                    Iwd2DebugLog("CCacheStatus::Update disable after EngineActivated engine=%p", pEngine);
                 }
 
-                Iwd2DebugLog("CCacheStatus::Update disable before Resume");
                 g_pChitin->Resume();
-                Iwd2DebugLog("CCacheStatus::Update disable after Resume");
             }
 
-            Iwd2DebugLog("CCacheStatus::Update disable before cursor activeEngine=%p",
-                g_pBaldurChitin->GetActiveEngine());
             g_pBaldurChitin->GetObjectCursor()->SetCursor(0, TRUE);
             g_pBaldurChitin->GetObjectCursor()->m_bVisible = TRUE;
             g_pBaldurChitin->GetObjectCursor()->CursorUpdate(g_pBaldurChitin->GetActiveEngine()->pVidMode);
-            Iwd2DebugLog("CCacheStatus::Update disable after cursor activeEngine=%p",
-                g_pBaldurChitin->GetActiveEngine());
 
             g_pBaldurChitin->GetActiveEngine()->GetManager()->InvalidateRect(NULL);
-            Iwd2DebugLog("CCacheStatus::Update disable after invalidate activeEngine=%p",
-                g_pBaldurChitin->GetActiveEngine());
 
             m_nScreensDrawn = 0;
             m_bTravelScreen = FALSE;
@@ -480,24 +463,17 @@ void CCacheStatus::Update(BOOLEAN bEnabled, LONG nProgressBarCaption, INT nBytes
             while (g_pBaldurChitin->m_bReInitializing) {
                 SleepEx(25, FALSE);
             }
-            Iwd2DebugLog("CCacheStatus::Update disable after reinit wait visibleArea=%p",
-                g_pBaldurChitin->GetObjectGame()->GetVisibleArea());
 
             if (g_pBaldurChitin->GetObjectGame()->GetVisibleArea() != NULL) {
                 g_pBaldurChitin->cSoundMixer.m_nActiveArea = reinterpret_cast<DWORD>(g_pBaldurChitin->GetObjectGame()->GetVisibleArea());
-                Iwd2DebugLog("CCacheStatus::Update disable before sound update area=%p",
-                    g_pBaldurChitin->GetObjectGame()->GetVisibleArea());
                 g_pBaldurChitin->cSoundMixer.UpdateSoundList();
-                Iwd2DebugLog("CCacheStatus::Update disable after sound update");
                 g_pBaldurChitin->m_pEngineWorld->m_weather.OnAreaChange(FALSE);
-                Iwd2DebugLog("CCacheStatus::Update disable after weather");
                 if (g_pBaldurChitin->cSoundMixer.IsSongLoading()) {
                     CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetVisibleArea();
                     pArea->m_startedMusicCounter = 10;
                     pArea->m_startedMusic = FALSE;
                 }
             }
-            Iwd2DebugLog("CCacheStatus::Update disable end");
         }
     } else {
         if (bDisplayMinibars == TRUE) {

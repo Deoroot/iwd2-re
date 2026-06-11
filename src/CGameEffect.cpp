@@ -1,5 +1,6 @@
 #include "CGameEffect.h"
 
+
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
@@ -1124,6 +1125,20 @@ CGameEffect::CGameEffect(ITEM_EFFECT* effect, const CPoint& source, LONG sourceI
     m_source = source;
     m_sourceID = sourceID;
     m_target = target;
+
+    // 0x48C310 ctor tail: the CGameEffect-level state is initialized here, not
+    // by the (separate) default ctor.  field_118 latches the raw duration --
+    // the delayed-effect state machine (ResolveEffect case 6) reads it back as
+    // the post-delay duration after m_duration is converted to an absolute
+    // deadline.  Missing m_done/m_forceRepass left uninitialized heap garbage
+    // (0xCDCDCDCD) that made AddEffect delete freshly decoded effects.
+    m_done = FALSE;
+    m_compareIdOnly = FALSE;
+    m_compareIdAndFlagsOnly = FALSE;
+    m_forceRepass = FALSE;
+    field_188 = 0;
+    field_118 = m_duration;
+    m_secondaryType = 1;
 }
 
 // 0x499B10
@@ -1150,29 +1165,89 @@ BOOL CGameEffect::ApplyEffect(CGameSprite* pSprite)
 }
 
 // 0x4A3030
+//
+// Duration-type state machine.  Types 3/4/5 are "apply after delay": the first
+// resolve converts them to the waiting types 6/7/8 with m_duration holding the
+// absolute game-time deadline, WITHOUT applying.  Once the deadline passes,
+// they convert to their post-delay form (6 -> 0x1000 with the real duration
+// taken from field_118, 7 -> 1, 8 -> 2) and apply.  Type 0 converts to an
+// absolute-expiry 0x1000 on first resolve and applies; 0x1000 re-applies every
+// pass until expiry, then fires OnRemove.  Types 1/2 apply straight through.
 BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
 {
-    // TODO INCOMPLETE: Original also handles saves, target modes,
-    // dispel/resistance, duration bookkeeping, and feedback.
-    if (m_durationType != 0 && CheckExpiration()) {
-        m_done = TRUE;
-        return TRUE;
+    if (pSprite->GetAIType().Equal(CAIObjectType::NOT_SPRITE)) {
+        return FALSE;
     }
 
-    if (m_probabilityLower != 0 || m_probabilityUpper != 100) {
-        int roll = (field_118 >= 1 && field_118 <= 100) ? field_118 : rand() % 100 + 1;
-        field_118 = 0;
-        if (roll < m_probabilityLower || roll > m_probabilityUpper) {
+    switch (m_durationType) {
+    case 0:
+        m_durationType = 0x1000;
+        m_duration = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + m_duration * 15;
+        break;
+    case 0x1000:
+        if (CheckExpiration()) {
             m_done = TRUE;
-            return FALSE;
+            OnRemove(pSprite);
+            return TRUE;
         }
+        break;
+    case 3:
+        m_durationType = 6;
+        m_duration = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + m_duration * 15;
+        return TRUE;
+    case 4:
+        m_durationType = 7;
+        m_duration = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + m_duration * 15;
+        return TRUE;
+    case 5:
+        m_durationType = 8;
+        m_duration = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + m_duration * 15;
+        return TRUE;
+    case 6:
+        if (!CheckExpiration()) {
+            return TRUE;
+        }
+        m_durationType = 0x1000;
+        m_duration = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + field_118 * 15;
+        FireSpell(pSprite);
+        DisplayString(pSprite);
+        break;
+    case 7:
+        if (!CheckExpiration()) {
+            return TRUE;
+        }
+        m_durationType = 1;
+        FireSpell(pSprite);
+        DisplayString(pSprite);
+        break;
+    case 8:
+        if (!CheckExpiration()) {
+            return TRUE;
+        }
+        m_durationType = 2;
+        FireSpell(pSprite);
+        DisplayString(pSprite);
+        break;
+    default:
+        break;
     }
 
     BOOL bResult = ApplyEffect(pSprite);
-    if (m_durationType == 0 || m_durationType == 1) {
-        m_done = TRUE;
-    }
+    m_secondaryType = 0;
     return bResult;
+}
+
+// 0x4A3FF0
+//
+// Fired when a delayed effect's deadline elapses (waiting types 6/7/8 in
+// ResolveEffect).  When the effect carries source flag 0x400 and a valid
+// m_sourceID, the original takes a share on the source object and posts
+// CMessage feedback back to it.  Name from the BG2 PDB CGameEffect method
+// list (FireSpell).
+void CGameEffect::FireSpell(CGameSprite* pSprite)
+{
+    // TODO: Unrecovered (CMessage feedback to the effect source, 0x4A3FF0).
+    // No-op keeps delayed effects applying without the source feedback.
 }
 
 // 0x4A3310
@@ -1239,7 +1314,29 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
         }
     }
 
-    // UNIMPLEMENTED: the normal immunity path (0x4A35EC..0x4A3BD0).  Defaults to
+    // Main path (0x4A35EC): effects with negative m_effectAmount and opcode
+    // 0x12/0x17, or positive m_effectAmount and opcode 0x5D/0x5E, take the
+    // source-message branch at 0x4A3619 (UNIMPLEMENTED, defaults to pass)
+    // and skip the probability gate.  Everything else reaches it.
+    LONG nAmount = static_cast<LONG>(m_effectAmount);
+    BOOL bSourceBranch = (nAmount < 0 && (m_effectID == 0x12 || m_effectID == 0x17))
+        || (nAmount > 0 && (m_effectID == 0x5d || m_effectID == 0x5e));
+
+    if (!bSourceBranch) {
+        // Probability gate (0x4A38A6): the roll is the target's per-AI-tick
+        // d100 scratch byte (field_70FA), shared by every effect added on the
+        // same tick -- this is what makes exclusive probability ranges (e.g.
+        // the four Summon Monster creature choices) pick exactly one.  The
+        // original calls rand() here and discards the result.
+        rand();
+        WORD roll = *pField70FA;
+        if (roll > m_probabilityUpper || roll < m_probabilityLower) {
+            return 0;
+        }
+    }
+
+    // UNIMPLEMENTED: the remaining immunity path (resref/spell-school/spell-level
+    // immunities, CSevenEyes, dispel feedback; 0x4A38CA..0x4A3BD0).  Defaults to
     // "effect applies"; see the dedicated-arc note above.
     return 1;
 }
@@ -5221,7 +5318,8 @@ BOOL CGameEffectSkillUnsummon::ApplyEffect(CGameSprite* pSprite)
 {
     // Party members (portrait != -1) are never unsummoned; only summoned
     // creatures are.
-    if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId()) == -1) {
+    LONG portraitNum = g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId());
+    if (portraitNum == -1) {
         // The binary also dismisses the creature through Icewind586B70 (0x586DC0:
         // clears the summon-registry entry and fires the poof VFX) and posts a
         // removal message (vtable 0x84C3A8); neither helper is recovered yet.
@@ -8824,6 +8922,8 @@ BOOL CGameEffectCastSpell::ApplyEffect(CGameSprite* pSprite)
         m_sourceID);
     g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
 
+    m_done = TRUE;
+
     return TRUE;
 }
 
@@ -8882,6 +8982,8 @@ BOOL CGameEffectCastSpellPoint::ApplyEffect(CGameSprite* pSprite)
         pSprite->GetId(),
         m_sourceID);
     g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+
+    m_done = TRUE;
 
     return TRUE;
 }
@@ -9668,6 +9770,7 @@ CGameEffect* CGameEffectRemoveInnateAbility::Copy()
 BOOL CGameEffectRemoveInnateAbility::ApplyEffect(CGameSprite* pSprite)
 {
     pSprite->RemoveSpecialAbility(m_res);
+    m_done = TRUE;
 
     return TRUE;
 }

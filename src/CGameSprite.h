@@ -459,7 +459,9 @@ public:
     BOOL CheckInvisibility(BOOL bSeesInvisible);
     void ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st* pAbility);
     void ApplyCastingEffect(CSpell* pSpell, const Spell_ability_st* pAbility, const CPoint& targetPos);
+    SHORT Spell(CGameAIBase* target);
     SHORT SpellPointSequence();
+    SHORT UseItemPoint();
     void DropPath();
     void DropSearchRequest();
     BOOL MoveToBack();
@@ -602,6 +604,8 @@ public:
     SHORT JumpToPoint(CPoint dest, BOOL spriteUpdate);
     SHORT Face();
     SHORT FaceObject(CGameAIBase* pObject);
+    SHORT RandomWalk();
+    SHORT ReturnToSavedLocation();
     SHORT LeaveParty();
     void MoveGlobal(const CString& sArea, const CPoint& ptStart);
     SHORT GroupAttack(CGameSprite* pTarget);
@@ -616,6 +620,7 @@ public:
     SHORT EquipMostDamagingMelee();
     const CAIObjectType& GetLiveAIType();
     SHORT GetCasterLevel(CSpell* pSpell, BYTE nClass, DWORD nSpecialization);
+    BOOL CheckCastingRange(CSpell* pSpell, const CPoint& targetPos, BYTE nClass, DWORD nSpecialization);
     SHORT SavePositionToBaseStats();
     SHORT SetStealthState(int a1);
     SHORT SetAtOffset(DWORD stat, DWORD value, BOOL modify);
@@ -679,6 +684,8 @@ public:
     CVariableHash* GetLocalVariables();
 
     INT GetMaxDexterityBonus(INT a1);
+    INT GetSkillModifier(INT iSkillNumber);
+    void UpdateQuickButtons(const CAbilityId& cAbility, SHORT nDelta, BOOL bRemove, BOOL bRemoveOnEmpty);
     INT GetArmorCheckPenalty();
     INT GetShieldCheckPenalty();
     INT GetShieldSpellFailure();

@@ -230,6 +230,7 @@ public:
     static const SHORT HEARD;
     static const SHORT ONCREATION;
     static const SHORT RECEIVEDORDER;
+    static const SHORT UNUSABLE;
     static const SHORT TIMEREXPIRED;
     static const SHORT TRIGGER;
     static const SHORT OPENED;

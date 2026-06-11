@@ -7,14 +7,18 @@
 #include "CVidPalette.h"
 #include "CVidBitmap.h"
 #include "CSound.h"
+#include "IcewindCProjectileTargetMap.h"
 #include "IcewindCVisualEffect.h"
 
 class CGameAIBase;
 class CGameArea;
+class CGameSprite;
 
 class CProjectile : public CGameObject {
 public:
     static CProjectile* DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay);
+
+    CProjectile();
 
     /* 0068 */ BOOLEAN IsProjectile() override;
     /* 006C */ virtual void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType);
@@ -27,9 +31,11 @@ public:
     void ClearEffects();
     LONG DetermineHeight(CGameSprite* pSprite);
     SHORT GetDirection(CPoint target);
+    BOOL IsTargetImmune(CGameSprite* pSprite);
     void PlaySound(CResRef resRef, BOOL loop, BOOL fireAndForget);
 
     /* 006E */ WORD m_projectileType;
+    /* 0070 */ WORD field_70;
     /* 0072 */ LONG m_sourceId;
     /* 0076 */ LONG m_targetId;
     /* 007A */ LONG m_callBackProjectile;
@@ -37,9 +43,15 @@ public:
     /* 00EA */ CGameArea* m_pArea;
     /* 00EE */ CSound m_sound;
     /* 0152 */ CResRef m_fireSoundRef;
+    /* 015A */ BOOL m_loopFireSound;
     /* 015E */ CResRef m_arrivalSoundRef;
     /* 0166 */ BOOL m_loopArrivalSound;
     /* 016A */ BOOLEAN m_bHasHeight;
+    /* 016C */ SHORT m_nDeltaZ;
+    /* 016E */ SHORT m_nDeltaZLast;
+    /* 0170 */ LONG m_nOrigDistance;
+    /* 017C */ BYTE field_17C;
+    /* 017E */ CString field_17E;
     /* 0182 */ LONG m_nTargetId;
     /* 0186 */ LONG m_casterClass;
     /* 018A */ CResRef m_casterResRef;
@@ -189,6 +201,76 @@ private:
     // Per sub-missile prep inlined twice inside Fire (0x530C90).
     void PrimeAndFireSubMissile(CProjectileTravelling* pMissile, CGameArea* pArea,
         LONG source, LONG target, CPoint targetPos, SHORT nType);
+};
+
+// Intermediate base of the IWD2-only spell projectiles that fly a heap BAM
+// cell with an attached IcewindCVisualEffect. DecodeProjectile builds it
+// directly for the travelling spell bolts (types 0x18/0xFB IcelanT/0x10C
+// DisintT/0x10F OFSpheT/0x11D MSporeT/0x12A ALanceT/0x13C/0x158 MFMissT), and
+// its ctor (0x578110, 21 callers) is chained by CProjectileSummonVFX
+// (0x57E490), the 68-case spell-hit class (0x56EDD0), the wandering family
+// (Whirlwind 0x57F640, 0x57D390, 0x57F390, 0x5806C0, 0x580C00, WoMoonX
+// 0x5802B0) and 0x57AEB0/0x57C510/0x57E370/0x581060/0x581CA0. vtable
+// 0x850CAC; binary sizeof 0x2AE.
+//
+// In the binary it derives CProjectile directly and duplicates
+// CProjectileTravelling's layout verbatim (same offsets: heap cell +0x192,
+// shadow cell, palette +0x19A, bitmap +0x1E2, motion fields, lifetime trio
+// +0x29C); we derive CProjectileTravelling instead so those members and the
+// recovered flight virtuals are shared (same modelling licence as
+// CProjectileMagicMissileMulti). Differences from the travelling ctor, per
+// the 0x578110 asm: height handling on by default (m_bHasHeight,
+// m_useHeightOffset), the four +0xD0 colors seeded, the +0x2A0/+0x2A1 flags,
+// and the visual-effect member. The already-recovered chainers
+// (CProjectileSummonVFX) keep their independent minimal models for now.
+class IcewindCProjectileTravellingVFX : public CProjectileTravelling {
+    // The strike tracker's gather pass reads m_terrainTable off its owner.
+    friend class IcewindCProjectileTargetMap;
+
+public:
+    IcewindCProjectileTravellingVFX(const CResRef& resRef);   // 0x578110
+
+    void AIUpdate() override;                 // 0x578AB0 (vtable slot 3)
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x5791D0 (slot 27)
+    void AimAtPoint(int x, int y) override;   // 0x578ED0 (slot 33)
+
+protected:
+    // BG2 PDB: CProjectile::m_terrainTable. The wandering leaves pass it to
+    // CSearchBitmap::GetLOSCost to bounce off walls.
+    /* 00D0 */ BYTE m_terrainTable[16];
+    /* 02A0 */ BYTE field_2A0;
+    /* 02A1 */ BYTE field_2A1;
+    /* 02A2 */ IcewindCVisualEffect m_visualEffect;
+};
+
+// Leaf 0x57F640 -- the wandering tornado (WhirlwX BAM; DecodeProjectile
+// type 0x131, m_projectileType 0x130). Used by Whirlwind (SPPR613) and Wing
+// Buffet (SPIN159); Wall of Moonlight (WoMoonX, ctor 0x5802B0, factory type
+// 0x130) is the sibling family. vtable 0x851444 (34 slots; Render and
+// GetRenderFlags are inherited -- slot 19 = 0x578480, the family Render
+// currently recovered as CProjectileSummonVFX::Render). Wanders the area
+// from its wander seed (MP-replicated through CMessageFireProjectile +0x20)
+// and strikes everything it touches through the embedded
+// IcewindCProjectileTargetMap (period 3, re-strike interval 33, max 8 total
+// strikes, spares the caster, gather radius 70).
+class CProjectileWhirlwind : public IcewindCProjectileTravellingVFX {
+public:
+    CProjectileWhirlwind();        // 0x57F640
+    ~CProjectileWhirlwind() override;   // 0x57F760 (vtable slot 0)
+
+    void AIUpdate() override;      // 0x57F8D0 (slot 3)
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x57FF80 (slot 27)
+    void OnArrival() override;     // 0x580270 (slot 28)
+
+    POINT* PickWanderPoint(POINT* pResult, BOOL bReverseFacing);   // 0x5800E0
+
+    /* 02AE */ LONG m_nLifetime;
+    /* 02B2 */ LONG m_nLegBudget;
+    /* 02B6 */ LONG field_2B6;
+    /* 02BA */ IcewindCProjectileTargetMap m_targetMap;
+    /* 02F0 */ CSound m_loopSound;
+    /* 0354 */ BYTE m_bFinishing;
+    /* 0356 */ LONG m_wanderSeed;
 };
 
 #endif /* CPROJECTILE_H_ */

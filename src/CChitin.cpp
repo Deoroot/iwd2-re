@@ -179,6 +179,20 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lPara
             return 0;
         }
         break;
+    case WM_SYSKEYUP:
+        // Swallow the Alt (and F10) key-up so DefWindowProc never posts
+        // WM_SYSCOMMAND/SC_KEYMENU, which enters the modal menu loop and freezes
+        // the game. Alt-held highlighting depends on the loop staying live. 0x78DD5C.
+        if (wParam == VK_MENU) {
+            return 0;
+        } else if (wParam == VK_F10) {
+            return 0;
+        }
+        break;
+    case WM_SYSCHAR:
+        // The window has no menu bar, so swallow Alt+key system chars to kill the
+        // menu-activation beep instead of letting DefWindowProc handle them. 0x78DEE6.
+        return 0;
     case WM_IME_STARTCOMPOSITION:
         if (g_pChitin->field_1A4) {
             g_pChitin->cImm.OnStartComposition();
