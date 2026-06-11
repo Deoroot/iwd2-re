@@ -459,6 +459,7 @@ public:
     BOOL CheckInvisibility(BOOL bSeesInvisible);
     void ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st* pAbility);
     void ApplyCastingEffect(CSpell* pSpell, const Spell_ability_st* pAbility, const CPoint& targetPos);
+    SHORT Spell(CGameAIBase* target);
     SHORT SpellPointSequence();
     void DropPath();
     void DropSearchRequest();

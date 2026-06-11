@@ -673,21 +673,11 @@ SHORT CGameAIBase::ExecuteAction()
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
-    } else if (m_curAction.m_actionID == CAIAction::SPELL
-        || m_curAction.m_actionID == CAIAction::FORCESPELL
+    } else if (m_curAction.m_actionID == CAIAction::FORCESPELL
         || m_curAction.m_actionID == CAIAction::REALLYFORCESPELL
-        || m_curAction.m_actionID == CAIAction::SPELLNODEC) {
-        // 0x1F = Spell, 0x71 = ForceSpell, 0xB5 = ReallyForceSpell,
-        // 0xBF = SpellNoDec.
-        // 0x1F is aliased to ForceSpellAction as a stopgap: binary
-        // FUN_00461190 (the real 0x1F handler) shares the resref-load /
-        // ability-pick / ApplyCastingEffect spine with FUN_00461660
-        // (ForceSpellAction).  Self-cast buffs from the action bar
-        // (e.g. Armor of Faith via UseButtonAction queueing CAIAction::SPELL)
-        // were silently dropped before this alias because 0x1F had no case.
-        // Full recovery of FUN_00461190 (cast-time gate, FUN_00727720
-        // target-point extraction, FUN_0054A510 + CMessageFireProjectile
-        // for non-self targets) is still TODO.
+        ) {
+        // 0x71 = ForceSpell, 0xB5 = ReallyForceSpell. Normal Spell and
+        // SpellNoDec actions are dispatched by CGameSprite::ExecuteAction.
         CGameObject* pObj = ResolveActionTarget();
         actionReturn = ForceSpellAction(pObj);
         if (pObj != NULL) {
