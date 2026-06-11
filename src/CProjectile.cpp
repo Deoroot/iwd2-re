@@ -448,9 +448,10 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
 //
 // Default constructor, used by DecodeProjectile's default case (every
 // subclass constructor inlines this same body before its own overrides, so
-// subclasses run it implicitly here too).  Not transcribed: the binary
-// stamps the MSVC /GS security-cookie value into field_17E (no portable
-// equivalent) and re-zeroes four undeclared CGameEffectList tail fields
+// subclasses run it implicitly here too).  The binary's store of the MFC
+// nil-string sentinel (0x8C1758) into field_17E is the inlined CString
+// default constructor -- our implicit member init.  Not transcribed: the
+// re-zeroing of four undeclared CGameEffectList tail fields
 // (+0x46/+0x62/+0x64/+0x68 inside the list) right after the list
 // constructor has run.
 CProjectile::CProjectile()
@@ -462,14 +463,14 @@ CProjectile::CProjectile()
     m_targetId = 0;
     m_effectList.m_posNext = NULL;
     m_pArea = NULL;
-    field_16C = 0;
-    field_16E = 0;
-    field_170 = 0;
+    m_nDeltaZ = 0;
+    m_nDeltaZLast = 0;
+    m_nOrigDistance = 0;
     field_17C = 0;
     m_callBackProjectile = -1;
     m_bHasHeight = FALSE;
     m_fireSoundRef = "";
-    field_15A = 0;
+    m_loopFireSound = FALSE;
     m_arrivalSoundRef = "";
     m_loopArrivalSound = FALSE;
     m_nTargetId = CGameObjectArray::INVALID_INDEX;
@@ -2310,4 +2311,27 @@ void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSu
         pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
         pInfinity->FXBltFrom(nSurface, rFX, newPos.x, newPos.y, ptRef.x, ptRef.y, flags);
     }
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x578110
+//
+// The shared CProjectileTravelling state (heap cell from the resref, range
+// palette, velocity 0x14, lifetime 0x7FFF, render flags 0x20000, zeroed
+// motion fields) is identical in the binary and comes from the base ctor;
+// only the differences are written here. field_17E = "" transcribes the
+// binary's explicit CString assignment of the nil string.
+IcewindCProjectileTravellingVFX::IcewindCProjectileTravellingVFX(const CResRef& resRef)
+    : CProjectileTravelling(resRef)
+{
+    m_trailColors[0] = 0x050505FF;
+    m_trailColors[1] = 0x05050505;
+    m_trailColors[2] = 0x05FF0505;
+    m_trailColors[3] = 0x0505FF05;
+    field_17E = "";
+    m_useHeightOffset = 1;
+    m_bHasHeight = TRUE;
+    field_2A0 = 1;
+    field_2A1 = 1;
 }

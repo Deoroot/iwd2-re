@@ -40,15 +40,15 @@ public:
     /* 00EA */ CGameArea* m_pArea;
     /* 00EE */ CSound m_sound;
     /* 0152 */ CResRef m_fireSoundRef;
-    /* 015A */ DWORD field_15A;
+    /* 015A */ BOOL m_loopFireSound;
     /* 015E */ CResRef m_arrivalSoundRef;
     /* 0166 */ BOOL m_loopArrivalSound;
     /* 016A */ BOOLEAN m_bHasHeight;
-    /* 016C */ WORD field_16C;
-    /* 016E */ WORD field_16E;
-    /* 0170 */ DWORD field_170;
+    /* 016C */ SHORT m_nDeltaZ;
+    /* 016E */ SHORT m_nDeltaZLast;
+    /* 0170 */ LONG m_nOrigDistance;
     /* 017C */ BYTE field_17C;
-    /* 017E */ DWORD field_17E;
+    /* 017E */ CString field_17E;
     /* 0182 */ LONG m_nTargetId;
     /* 0186 */ LONG m_casterClass;
     /* 018A */ CResRef m_casterResRef;
@@ -198,6 +198,37 @@ private:
     // Per sub-missile prep inlined twice inside Fire (0x530C90).
     void PrimeAndFireSubMissile(CProjectileTravelling* pMissile, CGameArea* pArea,
         LONG source, LONG target, CPoint targetPos, SHORT nType);
+};
+
+// Intermediate base of the IWD2-only spell projectiles that fly a heap BAM
+// cell with an attached IcewindCVisualEffect. DecodeProjectile builds it
+// directly for the travelling spell bolts (types 0x18/0xFB IcelanT/0x10C
+// DisintT/0x10F OFSpheT/0x11D MSporeT/0x12A ALanceT/0x13C/0x158 MFMissT), and
+// its ctor (0x578110, 21 callers) is chained by CProjectileSummonVFX
+// (0x57E490), the 68-case spell-hit class (0x56EDD0), the wandering family
+// (Whirlwind 0x57F640, 0x57D390, 0x57F390, 0x5806C0, 0x580C00, WoMoonX
+// 0x5802B0) and 0x57AEB0/0x57C510/0x57E370/0x581060/0x581CA0. vtable
+// 0x850CAC; binary sizeof 0x2AE.
+//
+// In the binary it derives CProjectile directly and duplicates
+// CProjectileTravelling's layout verbatim (same offsets: heap cell +0x192,
+// shadow cell, palette +0x19A, bitmap +0x1E2, motion fields, lifetime trio
+// +0x29C); we derive CProjectileTravelling instead so those members and the
+// recovered flight virtuals are shared (same modelling licence as
+// CProjectileMagicMissileMulti). Differences from the travelling ctor, per
+// the 0x578110 asm: height handling on by default (m_bHasHeight,
+// m_useHeightOffset), the four +0xD0 colors seeded, the +0x2A0/+0x2A1 flags,
+// and the visual-effect member. The already-recovered chainers
+// (CProjectileSummonVFX) keep their independent minimal models for now.
+class IcewindCProjectileTravellingVFX : public CProjectileTravelling {
+public:
+    IcewindCProjectileTravellingVFX(const CResRef& resRef);   // 0x578110
+
+protected:
+    /* 00D0 */ DWORD m_trailColors[4];
+    /* 02A0 */ BYTE field_2A0;
+    /* 02A1 */ BYTE field_2A1;
+    /* 02A2 */ IcewindCVisualEffect m_visualEffect;
 };
 
 #endif /* CPROJECTILE_H_ */
