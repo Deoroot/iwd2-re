@@ -2299,6 +2299,16 @@ BOOL CVidCell::sub_7D0C60(BYTE* pSurface, LONG lPitch, DWORD dwFlags)
 }
 
 // 0x7D1190
+//
+// 32bpp "translucent blt" (the FX path taken for dwFlags & 0x200, e.g. the
+// wandering tornado overlays): not a flat 50% mix but a luminance-keyed glow
+// blend. The palette color's brightness sum R+G+B (0..765) drives each pixel:
+//   <= 0x81: dropped entirely -- the BAM's dark anti-aliasing fringe and its
+//            black shadow ring never reach the surface;
+//   >= 0x28C: the pure palette color is written (the bright core is opaque);
+//   between: alpha = sum * 42 >> 7 (~sum / 3), skipped when alpha is below
+//            the background's (R+G+B) >> 3 (a bright background swallows
+//            faint glow), else per-channel pal * alpha + back * (255 - alpha).
 BOOL CVidCell::sub_7D1190(DWORD* pSurface, LONG lPitch, DWORD dwFlags)
 {
     int nWidth = m_pFrame->nWidth;
@@ -2361,7 +2371,31 @@ BOOL CVidCell::sub_7D1190(DWORD* pSurface, LONG lPitch, DWORD dwFlags)
                     }
                 } else {
                     pos++;
-                    *pSurface = BlendTranslucentSurfacePixel(*pSurface, CVidImage::rgbTempPal[nColor]);
+                    DWORD rgbColor = CVidImage::rgbTempPal[nColor];
+                    UINT nSum = ((rgbColor >> 16) & 0xFF)
+                        + ((rgbColor >> 8) & 0xFF)
+                        + (rgbColor & 0xFF);
+                    if (nSum > 0x81) {
+                        if (nSum < 0x28C) {
+                            UINT nAlpha = nSum * 0x2A >> 7;
+                            DWORD rgbBack = *pSurface;
+                            DWORD nEighths = rgbBack >> 3 & 0x1F1F1F;
+                            BYTE nBackLuma = static_cast<BYTE>(
+                                (nEighths >> 16) + (nEighths >> 8) + nEighths);
+                            if (nAlpha >= nBackLuma) {
+                                UINT nInv = nAlpha ^ 0xFF;
+                                DWORD r = (((rgbColor >> 16) & 0xFF) * nAlpha
+                                    + ((rgbBack >> 16) & 0xFF) * nInv) >> 8;
+                                DWORD g = (((rgbColor >> 8) & 0xFF) * nAlpha
+                                    + ((rgbBack >> 8) & 0xFF) * nInv) >> 8;
+                                DWORD b = ((rgbColor & 0xFF) * nAlpha
+                                    + (rgbBack & 0xFF) * nInv) >> 8;
+                                *pSurface = (r << 16) | (g << 8) | b;
+                            }
+                        } else {
+                            *pSurface = rgbColor;
+                        }
+                    }
                     pSurface++;
                     nRemainingWidth--;
                 }
@@ -2369,11 +2403,28 @@ BOOL CVidCell::sub_7D1190(DWORD* pSurface, LONG lPitch, DWORD dwFlags)
             pSurface += lPitch / 4 - nWidth;
         }
     } else {
+        // The uncompressed path keys alpha on the palette color's average
+        // channel and, faithfully, never tests the transparent color.
         for (int y = 0; y < nHeight; y++) {
             for (int x = 0; x < nWidth; x++) {
                 BYTE nColor = *pFrameData;
-                if (nColor != nTransparentColor) {
-                    *pSurface = BlendTranslucentSurfacePixel(*pSurface, CVidImage::rgbTempPal[nColor]);
+                DWORD rgbColor = CVidImage::rgbTempPal[nColor];
+                DWORD rgbBack = *pSurface;
+                UINT nBackLuma = (((rgbBack >> 16) & 0xFF)
+                    + ((rgbBack >> 8) & 0xFF)
+                    + (rgbBack & 0xFF)) >> 3;
+                UINT nAlpha = (((rgbColor >> 16) & 0xFF)
+                    + ((rgbColor >> 8) & 0xFF)
+                    + (rgbColor & 0xFF)) / 3;
+                if (nBackLuma <= nAlpha) {
+                    UINT nInv = 0xFF - nAlpha;
+                    DWORD r = (((rgbColor >> 16) & 0xFF) * nAlpha
+                        + ((rgbBack >> 16) & 0xFF) * nInv) >> 8;
+                    DWORD g = (((rgbColor >> 8) & 0xFF) * nAlpha
+                        + ((rgbBack >> 8) & 0xFF) * nInv) >> 8;
+                    DWORD b = ((rgbColor & 0xFF) * nAlpha
+                        + (rgbBack & 0xFF) * nInv) >> 8;
+                    *pSurface = (r << 16) | (g << 8) | b;
                 }
                 pFrameData++;
                 pSurface++;
