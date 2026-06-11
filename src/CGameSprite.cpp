@@ -1345,12 +1345,6 @@ void CGameSprite::AddToArea(CGameArea* pNewArea, const CPoint& pos, LONG posZ, B
         m_removeFromArea = TRUE;
     }
 
-    // TEMP instrumentation (00AMVW wander debugging; remove after)
-    Iwd2DebugLog("AddToArea id=%ld f2E2=%d saved=(%d,%d) pos=(%ld,%ld)",
-        m_id, m_baseStats.field_2E2,
-        m_baseStats.m_savedLocationX, m_baseStats.m_savedLocationY,
-        pos.x, pos.y);
-
     if (!m_baseStats.field_2E2) {
         SavePositionToBaseStats();
         m_baseStats.field_2E2 = TRUE;
@@ -12462,12 +12456,6 @@ BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
     // This recovers the NumTimesTalkedTo block at 0x731F9F..0x731FCD, needed by
     // the prologue 10HEDRON dialog entry condition, and the TimerActive case
     // (gates the ambient RandomWalk loop in 00AMVW*.BCS).
-    // TEMP instrumentation (00AMVW wander debugging; remove after)
-    if (m_id == 1048592 || m_id == 1114129) {
-        Iwd2DebugLog("WalkerTrig id=%ld trig=0x%X spec=%ld spec2=%ld",
-            m_id, trigger.m_triggerID, trigger.m_specificID, trigger.m_specific2);
-    }
-
     switch (trigger.m_triggerID) {
     case CAITRIGGER_TIMERACTIVE: {
         BOOL bActive = FALSE;
@@ -12493,10 +12481,6 @@ BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
                 bNear = TRUE;
             }
         }
-        // TEMP instrumentation (00AMVW wander debugging; remove after)
-        Iwd2DebugLog("NearSavedLoc id=%ld saved=(%d,%d) pos=(%ld,%ld) range=%ld -> %d",
-            m_id, m_baseStats.m_savedLocationX, m_baseStats.m_savedLocationY,
-            m_pos.x, m_pos.y, trigger.m_specificID, bNear);
         return bNear;
     }
 
@@ -14737,6 +14721,20 @@ SHORT CGameSprite::ExecuteAction()
     // direction on arrival.
     if (m_curAction.m_actionID == 0xED || m_curAction.m_actionID == 0x106) {
         return ReturnToSavedLocation();
+    }
+
+    // 0x729A3C (jumptable case 0x136). SetTeamBit(I:TeamFlag*TeamBit,I:Value*BOOLEAN):
+    // sets/clears the team-allegiance bit in field_58C; IsTeamBitOn (0x40E4) reads
+    // it back. 10ONBOAT re-runs its SetTeamBit block every AI round until the bit
+    // sticks, and each re-run's script-instant restore resets m_curDest, which
+    // kept re-issuing the wander path search forever.
+    if (m_curAction.m_actionID == 0x136) {
+        if (m_curAction.m_specificID2 != 0) {
+            field_58C |= m_curAction.m_specificID;
+        } else {
+            field_58C &= ~m_curAction.m_specificID;
+        }
+        return ACTION_DONE;
     }
 
     // 0x72AD26 (jumptable case 0x10D). SetStartPos(P:Point*): re-anchor

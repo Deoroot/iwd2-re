@@ -261,12 +261,6 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         CVariable* pVar = pHash != NULL ? pHash->FindKey(sName) : NULL;
         LONG nValue = pVar != NULL ? pVar->m_intValue : 0;
 
-        // TEMP instrumentation (00AMVW wander debugging; remove after)
-        if (strncmp(sName, "RW_", 3) == 0) {
-            Iwd2DebugLog("GlobalTrig id=%ld name=%s hash=%p var=%p val=%ld want=%ld",
-                m_id, (LPCSTR)sName, pHash, pVar, nValue, nTriggerValue);
-        }
-
         if (trigger.m_triggerID == CAITRIGGER_GLOBAL) {
             return nValue == nTriggerValue;
         }
@@ -367,14 +361,6 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
 
         CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
         if (pObject == NULL) {
-            // TEMP instrumentation (00AMVW wander debugging; remove after)
-            if (cause.GetSpecifics() == 40) {
-                const CAIObjectType& t = cause.GetCause();
-                Iwd2DebugLog("Range id=%ld unresolved cause ea=%d gen=%d race=%d cls=%d spec=%d inst=%ld loc=%ld name='%s'",
-                    m_id, t.m_nEnemyAlly, t.m_nGeneral, t.m_nRace, t.m_nClass,
-                    t.m_nSpecific, t.m_nInstance, t.m_nLocationType,
-                    (const char*)t.m_sName);
-            }
             return FALSE;
         }
 
@@ -408,12 +394,6 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
             break;
         }
 
-        // TEMP instrumentation (00AMVW wander debugging; remove after)
-        if (cause.GetSpecifics() == 40) {
-            Iwd2DebugLog("Range id=%ld distSq=%ld rangeSq=%ld mode=%ld -> %d",
-                m_id, nDistSq, nRangeSq, cause.GetInt1(), bHolds);
-        }
-
         if (bHolds) {
             field_342.Set(pObject->GetAIType());
         }
@@ -423,6 +403,11 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
             INFINITE);
         return bHolds;
     }
+
+    // 0x455E40: IsTeamBitOn(I:TeamFlag*TeamBit) -- mask test against the
+    // team-allegiance bits written by SetTeamBit (0x729A3C).
+    case CAITRIGGER_ISTEAMBITON:
+        return trigger.GetSpecifics() & GetAICounter58C();
 
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);

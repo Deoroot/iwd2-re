@@ -48,6 +48,9 @@ SYMBOLS = {
     "addAction": "?AddAction@CGameAIBase@@",
     "insertResponse": "?InsertResponse@CGameAIBase@@",
     "setCurrAction": "?SetCurrAction@CGameAIBase@@",
+    "msgInsertActionRun": "?Run@CMessageInsertAction@@",
+    "insertAction": "?InsertAction@CGameAIBase@@",
+    "getNextAction": "?GetNextAction@CGameAIBase@@",
 }
 
 JS = r"""
@@ -115,9 +118,35 @@ tryAttach('setCurrAction', CFG.setCurrAction, {
   }
 });
 
+tryAttach('msgInsertActionRun', CFG.msgInsertActionRun, { onEnter() { bump('msgInsertActionRun'); } });
+
+const insertActionIds = {};
+tryAttach('insertAction', CFG.insertAction, {
+  onEnter(args) {
+    bump('insertAction');
+    try {
+      const id = args[0].readS16();
+      insertActionIds[id] = (insertActionIds[id] || 0) + 1;
+    } catch (e) {}
+  }
+});
+
+// CAIAction& GetNextAction(CAIAction& out): read the returned action's id.
+const nextActionIds = {};
+tryAttach('getNextAction', CFG.getNextAction, {
+  onLeave(rv) {
+    bump('getNextAction');
+    try {
+      const id = rv.readS16();
+      nextActionIds[id] = (nextActionIds[id] || 0) + 1;
+    } catch (e) {}
+  }
+});
+
 setInterval(function () {
   send({ tag: 'snapshot', t: Date.now(), counts: counts, trigIds: trigIds,
-         addActionIds: addActionIds, currActionIds: currActionIds });
+         addActionIds: addActionIds, currActionIds: currActionIds,
+         insertActionIds: insertActionIds, nextActionIds: nextActionIds });
 }, 5000);
 
 send({ tag: 'ready' });
