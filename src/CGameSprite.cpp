@@ -12435,8 +12435,9 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
             // DEFERRED: 0x74272C also stores this same roll into the
             // projectile at +0x356 -- the wander seed of the unrecovered
             // whirlwind projectile (factory type 0x131, WhirlwX BAM, ctor
-            // 0x57F640, sizeof 0x35A, spells SPIN159/SPPR613; needs the
-            // CSearchRequest member at 0x55ACC0 first).
+            // 0x57F640, sizeof 0x35A, spells SPIN159/SPPR613; its
+            // IcewindCProjectileTargetMap member is recovered, the projectile
+            // class itself is not).
             message->field_20 = rand() % 1000000;
         }
         g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
@@ -13033,8 +13034,9 @@ SHORT CGameSprite::SpellPointSequence()
                 // DEFERRED: the binary also stores this same roll into the
                 // projectile at +0x356 -- the wander seed of the unrecovered
                 // whirlwind projectile (factory type 0x131, WhirlwX BAM, ctor
-                // 0x57F640, sizeof 0x35A, spells SPIN159/SPPR613; needs the
-                // CSearchRequest member at 0x55ACC0 first).
+                // 0x57F640, sizeof 0x35A, spells SPIN159/SPPR613; its
+                // IcewindCProjectileTargetMap member is recovered, the
+                // projectile class itself is not).
                 message->field_20 = rand() % 1000000;
             }
             g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
@@ -13303,8 +13305,8 @@ SHORT CGameSprite::UseItemPoint()
         // DEFERRED: the binary stores this same roll into the projectile at
         // +0x356 -- the wander seed of the unrecovered whirlwind projectile
         // (factory type 0x131, WhirlwX BAM, ctor 0x57F640, sizeof 0x35A,
-        // spells SPIN159/SPPR613; needs the CSearchRequest member at
-        // 0x55ACC0 first).
+        // spells SPIN159/SPPR613; its IcewindCProjectileTargetMap member is
+        // recovered, the projectile class itself is not).
         message->field_20 = rand() % 1000000;
     }
     g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
