@@ -1317,10 +1317,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         //   0x66 / 0x67           â†’ FUN_005886a0 â†’ UseButtonAction
         //   0x68 / 0x69           â†’ FUN_005884b0 â†’ ReadyOffInternalList
         //   0x70 / 0x71 / 0x7A    â†’ FUN_00588820 (song play, AI action)
-        //   0x6A / 0x6B (default) â†’ FUN_00588760 (innate use)
-        // We don't yet have ports of the song-play / innate-use helpers, so
-        // those states fall back to UseButtonAction which is the underlying
-        // generic dispatcher used by all four wrappers in the binary.
+        //   0x6A / 0x6B (default) -> UseInnateAction
         if (nButtonType >= 0x15 && nButtonType <= 0x20 && g_pButtonArrayPickerList != NULL) {
             INT nListCount = static_cast<INT>(g_pButtonArrayPickerList->GetCount());
             INT nEntry = (nListCount > 12)
@@ -1369,12 +1366,13 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         }
                     } else if (m_nState == 0x68 || m_nState == 0x69) {
                         pSprite->ReadyOffInternalList(*pEntry, 0);
+                    } else if (m_nState == 0x67) {
+                        pSprite->UseSpellAction(pEntry, TRUE);
                     } else if (m_nState == 0x6A || m_nState == 0x6B) {
-                        pSprite->UseButtonItem(*pEntry, 0);
+                        pSprite->UseInnateAction(pEntry, m_nState == 0x6A);
                     } else {
-                        // Spells (0x67), songs (0x70/0x7A) and the 0x7B
-                        // catch-all all funnel into the generic AI action
-                        // dispatcher.
+                        // Songs (0x70/0x7A) and the 0x7B catch-all still use
+                        // the generic dispatcher until UseSongAction is recovered.
                         pSprite->UseButtonAction(*pEntry, 0);
                     }
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
