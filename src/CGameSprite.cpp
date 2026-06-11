@@ -8378,84 +8378,232 @@ CGameButtonList* CGameSprite::GetSongsButtonList()
     return buttons;
 }
 
-// Helper: append every memorised entry of `spellList` to `out`, looking up
-// each entry's resref via CInfGame::m_spells.  Drops the original Ghidra
-// CanCast/caster-level gates — those run at click time.
-static void AppendSpellsToList(CGameSpriteSpellList& spellList, CGameButtonList& out)
+// Build the cast-spell picker list across every memorised level of class
+// nClass.  Used when SetState(0x67) is entered for a regular class spellbook.
+//
+// 0x714F70
+CGameButtonList* CGameSprite::GetSpellsButtonList(const BYTE& nClass)
 {
-    CSpellResRefList& masterSpells = g_pBaldurChitin->GetObjectGame()->m_spells;
-    for (size_t index = 0; index < spellList.m_List.size(); index++) {
-        CGameSpriteSpellListEntry* entry = spellList.Get(static_cast<UINT>(index));
-        if (entry == NULL || entry->m_nMax == 0) {
+    CGameButtonList* pButtons = new CGameButtonList();
+
+    UINT nClassIndex = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(nClass);
+    SPELL_ABILITY* pBestAbility = NULL;
+
+    CGameSpriteGroupedSpellList* pGrouped = m_spells.Get(nClassIndex);
+    if (pGrouped->m_nHighestLevel == 0) {
+        return pButtons;
+    }
+
+    for (UINT nLevel = 0; nLevel < pGrouped->m_nHighestLevel; nLevel++) {
+        CGameSpriteSpellList* pLevelList = pGrouped->GetSpellsAtLevel(nLevel);
+
+        // Spontaneous casters (bard/sorcerer) hide whole levels with no
+        // shared casts left.
+        if ((nClassIndex == 0 || nClassIndex == 5)
+            && pLevelList->m_nSharedTotal == 0) {
             continue;
         }
-        UINT nSpellId = entry->m_nID;
-        if (nSpellId >= masterSpells.m_nCount) {
-            continue;
-        }
-        RESREF resRef;
-        masterSpells.Get(nSpellId).GetResRef(resRef);
-        if (resRef[0] == 0) {
-            continue;
-        }
-        CButtonData* btn = IcewindMisc::CreateButtonData(resRef);
-        if (btn != NULL) {
-            btn->m_count = static_cast<SHORT>(entry->m_nCurrent);
-            btn->m_bDisplayCount = 1;
-            btn->m_bDisabled = (entry->m_nCurrent == 0) ? TRUE : FALSE;
-            out.AddTail(btn);
+
+        for (UINT nIndex = 0; nIndex < pLevelList->m_List.size(); nIndex++) {
+            CGameSpriteSpellListEntry* pEntry = pLevelList->Get(nIndex);
+
+            if ((pEntry->m_nShared & 1) != 0) {
+                continue;
+            }
+
+            // Prepared casters skip exhausted entries entirely; spontaneous
+            // casters keep them (the level-wide shared pool gates them).
+            if (nClassIndex != 0 && nClassIndex != 5
+                && (pEntry->m_nMax == 0 || pEntry->m_nCurrent == 0)) {
+                continue;
+            }
+
+            UINT nSpellId = pEntry->m_nID;
+            const CResRef& spellResRef = g_pBaldurChitin->GetObjectGame()->m_spells.Get(nSpellId);
+
+            CSpell cSpell;
+            cSpell.SetResRef(spellResRef, TRUE, TRUE);
+            if (cSpell.Demand() != NULL) {
+                // Identify is only castable from the inventory screen.
+                if (spellResRef != SPWI110) {
+                    SHORT nCasterLevel = GetCasterLevel(&cSpell, nClass, 0);
+                    if (nCasterLevel < 1) {
+                        nCasterLevel = 1;
+                    }
+
+                    for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+                        if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+                            break;
+                        }
+
+                        // FIXME: Calls `GetAbility` one more time.
+                        pBestAbility = cSpell.GetAbility(nAbility);
+                    }
+
+                    if (pBestAbility != NULL && pBestAbility->quickSlotType == 2) {
+                        CButtonData* pButton = new CButtonData();
+
+                        pButton->m_icon = CString(pBestAbility->quickSlotIcon);
+                        pButton->m_abilityId.m_itemType = 1;
+                        pButton->m_abilityId.m_res = spellResRef;
+                        pButton->m_abilityId.m_targetType = pBestAbility->actionType;
+
+                        SHORT nCasterType = cSpell.GetCasterType();
+                        INT nDisabledType = 0;
+                        if (nCasterType == 1) {
+                            nDisabledType = 0;
+                        } else if (nCasterType == 2) {
+                            nDisabledType = 1;
+                        } else if (nCasterType == 4) {
+                            nDisabledType = 2;
+                        }
+
+                        CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+                        pButton->m_bDisabled = static_cast<BOOLEAN>(stats.m_disabledSpellTypes[nDisabledType]);
+
+                        pButton->m_abilityId.m_strDescription = cSpell.GetGenericName();
+                        pButton->m_name = cSpell.GetGenericName();
+                        pButton->m_abilityId.m_strTooltipDesc = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassSuffixStringRef(nClass);
+                        pButton->m_abilityId.m_nClass = nClass;
+                        pButton->m_abilityId.m_bCanUse = static_cast<unsigned char>(nLevel + 1);
+                        pButton->m_abilityId.m_nTooltip = 0;
+
+                        if (!CanCast(nClass, 0, &cSpell)) {
+                            pButton->m_bDisabled = TRUE;
+                            pButton->m_abilityId.m_strTooltipDesc = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassBeyondCastingAbilityStringRef(nClass);
+                        }
+
+                        SHORT nCount;
+                        if (nClassIndex == 0 || nClassIndex == 5) {
+                            nCount = static_cast<SHORT>(pLevelList->m_nSharedTotal);
+                        } else {
+                            nCount = static_cast<SHORT>(pEntry->m_nCurrent);
+                        }
+
+                        pButton->m_count = nCount;
+                        if (nCount < 1) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+
+                        pButtons->AddTail(pButton);
+                    }
+                }
+
+                cSpell.Release();
+            }
         }
     }
+
+    return pButtons;
 }
 
-// Minimum-viable port of FUN_007155c0 — builds a list for a single level
-// of class nClass.
-// NOTE: Convenience.
-CGameButtonList* CGameSprite::GetSpellsAtLevelButtonList(BYTE nClass, UINT nLevel)
+// Build the cast-spell picker list for the cleric domain pool across every
+// memorised level.  Used when SetState(0x67) is entered with a cleric class
+// and a non-zero domain specialization.
+//
+// 0x7155C0
+CGameButtonList* CGameSprite::GetDomainSpellsButtonList(const BYTE& nClass, DWORD nSpecialization)
 {
-    CGameButtonList* buttons = new CGameButtonList();
-    if (nLevel >= CSPELLLIST_MAX_LEVELS) {
-        return buttons;
-    }
-    CGameSpriteGroupedSpellList* grouped = GetSpells(nClass);
-    if (grouped == NULL || grouped->m_nHighestLevel == 0) {
-        return buttons;
-    }
-    AppendSpellsToList(grouped->m_lists[nLevel], *buttons);
-    return buttons;
-}
+    CGameButtonList* pButtons = new CGameButtonList();
 
-// Minimum-viable port of FUN_00714f70 — builds a list across ALL memorised
-// levels of class nClass.  Used when SetState(0x67) is entered with
-// m_nCurrentSelectedSpellLevel == 0 (regular class spellbook).
-// NOTE: Convenience.
-CGameButtonList* CGameSprite::GetSpellsButtonList(BYTE nClass)
-{
-    CGameButtonList* buttons = new CGameButtonList();
-    CGameSpriteGroupedSpellList* grouped = GetSpells(nClass);
-    if (grouped == NULL || grouped->m_nHighestLevel == 0) {
-        return buttons;
-    }
-    for (UINT level = 0; level < CSPELLLIST_MAX_LEVELS && level <= grouped->m_nHighestLevel; level++) {
-        AppendSpellsToList(grouped->m_lists[level], *buttons);
-    }
-    return buttons;
-}
+    UINT nClassIndex = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(nClass);
+    SPELL_ABILITY* pBestAbility = NULL;
 
-// Minimum-viable port of FUN_007155c0 domain branch — iterates m_domainSpells
-// (cleric domain pool) across every memorised level.  Used when entering
-// SetState(0x67) via picker class button 0x39 (Domain).
-// NOTE: Convenience.
-CGameButtonList* CGameSprite::GetDomainSpellsButtonList()
-{
-    CGameButtonList* buttons = new CGameButtonList();
     if (m_domainSpells.m_nHighestLevel == 0) {
-        return buttons;
+        return pButtons;
     }
-    for (UINT level = 0; level < CSPELLLIST_MAX_LEVELS && level <= m_domainSpells.m_nHighestLevel; level++) {
-        AppendSpellsToList(m_domainSpells.m_lists[level], *buttons);
+
+    for (UINT nLevel = 0; nLevel < m_domainSpells.m_nHighestLevel; nLevel++) {
+        CGameSpriteSpellList* pLevelList = m_domainSpells.GetSpellsAtLevel(nLevel);
+
+        // Spontaneous casters (bard/sorcerer) hide whole levels with no
+        // shared casts left.  Dead path for the cleric-only domain pool,
+        // but present in the binary.
+        if ((nClassIndex == 0 || nClassIndex == 5)
+            && pLevelList->m_nSharedTotal == 0) {
+            continue;
+        }
+
+        for (UINT nIndex = 0; nIndex < pLevelList->m_List.size(); nIndex++) {
+            CGameSpriteSpellListEntry* pEntry = pLevelList->Get(nIndex);
+
+            if ((pEntry->m_nShared & 1) != 0
+                || pEntry->m_nMax == 0
+                || pEntry->m_nCurrent == 0) {
+                continue;
+            }
+
+            UINT nSpellId = pEntry->m_nID;
+            const CResRef& spellResRef = g_pBaldurChitin->GetObjectGame()->m_spells.Get(nSpellId);
+
+            CSpell cSpell;
+            cSpell.SetResRef(spellResRef, TRUE, TRUE);
+            if (cSpell.Demand() != NULL) {
+                // Identify is only castable from the inventory screen.
+                if (spellResRef != SPWI110) {
+                    SHORT nCasterLevel = GetCasterLevel(&cSpell, nClass, nSpecialization);
+                    if (nCasterLevel < 1) {
+                        nCasterLevel = 1;
+                    }
+
+                    for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+                        if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+                            break;
+                        }
+
+                        // FIXME: Calls `GetAbility` one more time.
+                        pBestAbility = cSpell.GetAbility(nAbility);
+                    }
+
+                    if (pBestAbility != NULL && pBestAbility->quickSlotType == 2) {
+                        CButtonData* pButton = new CButtonData();
+
+                        pButton->m_icon = CString(pBestAbility->quickSlotIcon);
+                        pButton->m_abilityId.m_itemType = 1;
+                        pButton->m_abilityId.m_res = spellResRef;
+                        pButton->m_abilityId.m_targetType = pBestAbility->actionType;
+
+                        SHORT nCasterType = cSpell.GetCasterType();
+                        INT nDisabledType = 0;
+                        if (nCasterType == 1) {
+                            nDisabledType = 0;
+                        } else if (nCasterType == 2) {
+                            nDisabledType = 1;
+                        } else if (nCasterType == 4) {
+                            nDisabledType = 2;
+                        }
+
+                        CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+                        pButton->m_bDisabled = static_cast<BOOLEAN>(stats.m_disabledSpellTypes[nDisabledType]);
+
+                        pButton->m_abilityId.m_strDescription = cSpell.GetGenericName();
+                        pButton->m_name = cSpell.GetGenericName();
+                        pButton->m_abilityId.m_strTooltipDesc = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassSuffixStringRef(nClass);
+                        pButton->m_abilityId.m_bCanUse = static_cast<unsigned char>(nLevel + 1);
+                        pButton->m_abilityId.m_nClass = nClass;
+                        pButton->m_abilityId.m_nTooltip = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetSpecializationIndex(nClass, nSpecialization);
+
+                        if (!CanCast(nClass, nSpecialization, &cSpell)) {
+                            pButton->m_bDisabled = TRUE;
+                            pButton->m_abilityId.m_strTooltipDesc = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassBeyondCastingAbilityStringRef(nClass);
+                        }
+
+                        SHORT nCount = static_cast<SHORT>(pEntry->m_nCurrent);
+                        pButton->m_count = nCount;
+                        if (nCount < 1) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+
+                        pButtons->AddTail(pButton);
+                    }
+                }
+
+                cSpell.Release();
+            }
+        }
     }
-    return buttons;
+
+    return pButtons;
 }
 
 // Count classes that have any memorised spells.  Used by the Cast Spell

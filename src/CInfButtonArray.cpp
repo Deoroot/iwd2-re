@@ -131,10 +131,13 @@ void CInfButtonArray::RebuildPickerList()
     case 0x66:
     case 0x67:
         // Spellbook.  Matches Ghidra FUN_00587c20 case 2 dispatch:
-        //   class == 3 && level != 0 â†’ domain spells (FUN_007155c0)
-        //   otherwise              â†’ regular class spells (FUN_00714f70)
-        if (m_nCurrentSelectedSpellClass == 3 && m_nCurrentSelectedSpellLevel != 0) {
-            g_pButtonArrayPickerList = pSprite->GetDomainSpellsButtonList();
+        //   cleric with a domain specialization -> domain spells (0x7155C0)
+        //   otherwise -> regular class spells (0x714F70)
+        if (m_nCurrentSelectedSpellClass == CAIOBJECTTYPE_C_CLERIC
+            && m_nCurrentSelectedSpellLevel != 0) {
+            g_pButtonArrayPickerList = pSprite->GetDomainSpellsButtonList(
+                m_nCurrentSelectedSpellClass,
+                static_cast<DWORD>(m_nCurrentSelectedSpellLevel));
         } else {
             g_pButtonArrayPickerList = pSprite->GetSpellsButtonList(m_nCurrentSelectedSpellClass);
         }
