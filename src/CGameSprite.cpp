@@ -15906,23 +15906,13 @@ SHORT CGameSprite::ExecuteAction()
         SetCurrAction(GetNextAction(m_aiAction));
     }
 
-    // 0x729A84 (jumptable case 0x19). Spell(31) / SpellNoDec(191).  The binary
-    // resolver takes TYPE_AIBASE and filters non-AIBASE targets itself; ours
-    // does not (its type-byte filter is a coverage TODO), so the same filter
-    // runs here before the call.  Spell() is then called unconditionally --
-    // a NULL target still runs its prologue (projectile cleanup, aura-
-    // cleansing feedback) before its own NULL exit, like the binary.
+    // 0x729A84 (jumptable case 0x19). Spell(31) / SpellNoDec(191).  Spell()
+    // is called unconditionally -- a NULL target still runs its prologue
+    // (projectile cleanup, aura-cleansing feedback) before its own NULL
+    // exit, like the binary.
     if (m_curAction.m_actionID == CAIAction::SPELL
         || m_curAction.m_actionID == CAIAction::SPELLNODEC) {
-        CGameObject* object = ResolveActionTarget();
-        if (object != NULL
-            && (object->GetObjectType() & CGameObject::TYPE_AIBASE) == 0) {
-            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                object->m_id,
-                CGameObjectArray::THREAD_ASYNCH,
-                INFINITE);
-            object = NULL;
-        }
+        CGameObject* object = ResolveActionTarget(CGameObject::TYPE_AIBASE);
         SHORT actionReturn = Spell(static_cast<CGameAIBase*>(object));
         if (object != NULL) {
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
@@ -15944,7 +15934,7 @@ SHORT CGameSprite::ExecuteAction()
     if (m_curAction.m_actionID == 8) {
         // Dialogue(O:Object*): approach the target sprite and start talking.
         SHORT actionReturn = ACTION_DONE;
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if (pObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
                 CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
@@ -15968,7 +15958,7 @@ SHORT CGameSprite::ExecuteAction()
         // queued when the player clicks an NPC with the talk cursor). Binary
         // dispatch block 0x72A3AB.
         SHORT actionReturn = ACTION_DONE;
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if (pObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
                 actionReturn = PlayerDialog(static_cast<CGameSprite*>(pObj));
@@ -15982,7 +15972,7 @@ SHORT CGameSprite::ExecuteAction()
     if (m_curAction.m_actionID == 0xE5) {
         // FaceObject(O:Object*) used by cutscenes.
         SHORT actionReturn = ACTION_ERROR;
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_AIBASE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
                 actionReturn = FaceObject(static_cast<CGameAIBase*>(pObj));

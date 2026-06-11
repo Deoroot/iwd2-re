@@ -97,6 +97,7 @@ public:
     SHORT HideCreature();
     SHORT FloatMessage();
     CGameObject* ResolveActionTarget();
+    CGameObject* ResolveActionTarget(BYTE nObjectType);
     void SpellIdToResRef(int spellId, CString& outResRef);
     SHORT ForceSpellAction(CGameObject* target);
     SHORT ForceSpellPointAction();

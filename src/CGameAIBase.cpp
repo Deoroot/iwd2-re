@@ -2,6 +2,7 @@
 
 #include "CAIConditionResponse.h"
 #include "CAIResponse.h"
+#include "CAIUtil.h"
 #include "CAIScript.h"
 #include "CAITrigger.h"
 #include "CBaldurChitin.h"
@@ -639,7 +640,7 @@ SHORT CGameAIBase::ExecuteAction()
         actionReturn = ChangeAIScript();
     } else if (m_curAction.m_actionID == 0xAC) {
         // 0xAC = ChangeTileState (ACTION.IDS).  Target is a CGameTiledObject.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_TILED_OBJECT);
         if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_TILED_OBJECT) {
             actionReturn = ChangeTileState(static_cast<CGameTiledObject*>(pObj));
         }
@@ -649,7 +650,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0xB1) {
         // 0xB1 = TriggerActivation (ACTION.IDS).  Target is a CGameTrigger.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_TRIGGER);
         if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_TRIGGER) {
             actionReturn = TriggerActivation(static_cast<CGameTrigger*>(pObj));
         }
@@ -659,7 +660,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0xC3) {
         // 0xC3 = Lock (ACTION.IDS).  Target is door or container.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_AIBASE);
         if (pObj != NULL) {
             actionReturn = Lock(static_cast<CGameAIBase*>(pObj));
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
@@ -667,7 +668,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0xC4) {
         // 0xC4 = Unlock (ACTION.IDS).  Target is door or container.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_AIBASE);
         if (pObj != NULL) {
             actionReturn = Unlock(static_cast<CGameAIBase*>(pObj));
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
@@ -678,7 +679,7 @@ SHORT CGameAIBase::ExecuteAction()
         ) {
         // 0x71 = ForceSpell, 0xB5 = ReallyForceSpell. Normal Spell and
         // SpellNoDec actions are dispatched by CGameSprite::ExecuteAction.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_AIBASE);
         actionReturn = ForceSpellAction(pObj);
         if (pObj != NULL) {
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
@@ -695,7 +696,7 @@ SHORT CGameAIBase::ExecuteAction()
         actionReturn = ForceSpellPointAction();
     } else if (m_curAction.m_actionID == 0x10) {
         // 0x10 = GiveOrder (ACTION.IDS).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_AIBASE);
         if (pObj != NULL && (pObj->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
             actionReturn = GiveOrder(static_cast<CGameAIBase*>(pObj));
         }
@@ -715,7 +716,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0x97) {
         // 0x97 = DisplayString (ACTION.IDS).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_AIBASE);
         if (pObj != NULL && (pObj->GetObjectType() & CGameObject::TYPE_AIBASE) != 0) {
             actionReturn = DisplayString(static_cast<CGameAIBase*>(pObj));
         }
@@ -725,7 +726,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0xC9) {
         // 0xC9 = DetectSecretDoor (ACTION.IDS).  Target is CGameDoor.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_DOOR);
         if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_DOOR) {
             actionReturn = DetectSecretDoor(static_cast<CGameDoor*>(pObj));
         }
@@ -735,7 +736,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0xD1) {
         // 0xD1 = SpawnPtActivate (ACTION.IDS).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPAWNING);
         if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_SPAWNING) {
             actionReturn = SpawnPtActivate(static_cast<CGameSpawning*>(pObj));
         }
@@ -745,7 +746,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0xD2) {
         // 0xD2 = SpawnPtDeactivate (ACTION.IDS).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPAWNING);
         if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_SPAWNING) {
             actionReturn = SpawnPtDeactivate(static_cast<CGameSpawning*>(pObj));
         }
@@ -755,7 +756,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0xD3) {
         // 0xD3 = SpawnPtSpawn (ACTION.IDS).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPAWNING);
         if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_SPAWNING) {
             actionReturn = SpawnPtSpawn(static_cast<CGameSpawning*>(pObj));
         }
@@ -766,7 +767,7 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0xD5 || m_curAction.m_actionID == 0xD6) {
         // 0xD5 = StartStatic, 0xD6 = StopStatic.  Binary pushes bStart = 1
         // for 0xD5 and bStart = 0 for 0xD6 (0x450171 vs 0x45019C).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_STATIC);
         if (pObj != NULL && pObj->GetObjectType() == CGameObject::TYPE_STATIC) {
             actionReturn = StaticStart(static_cast<CGameStatic*>(pObj),
                 m_curAction.m_actionID == 0xD5 ? TRUE : FALSE);
@@ -777,7 +778,7 @@ SHORT CGameAIBase::ExecuteAction()
         }
     } else if (m_curAction.m_actionID == 0xC5) {
         // 0xC5 = MoveGlobal (ACTION.IDS).  Target is a CGameSprite.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL && (pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
             actionReturn = MoveGlobal(static_cast<CGameSprite*>(pObj));
         }
@@ -789,7 +790,7 @@ SHORT CGameAIBase::ExecuteAction()
         // 0x84 = VerbalConstant (ACTION.IDS).  Resolves m_acteeID and
         // broadcasts CMessageVerbalConstant so the target plays the named
         // voice line (m_specificID).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             CMessage* msg = new CMessageVerbalConstant(
                 m_curAction.m_specificID,
@@ -980,7 +981,7 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0x104) {
         // 0x104 = JumpToPointInstant (ACTION.IDS 260).  Binary case 0x104
         // resolves the target sprite and calls JumpToPoint(dest).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 static_cast<CGameSprite*>(pObj)->JumpToPoint(
@@ -1008,7 +1009,7 @@ SHORT CGameAIBase::ExecuteAction()
         // the target itself (the binary writes target.m_id, not caster's,
         // into the source slot -- preserved as-is), then queues a
         // CMessageAddEffect on the target.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
             if ((pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0) {
@@ -1081,7 +1082,7 @@ SHORT CGameAIBase::ExecuteAction()
         // the target and calls ReapplyEquipmentEffects on it -- counter-
         // intuitive name but the action's job is to drop transient effects
         // and rebuild from equipment.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 static_cast<CGameSprite*>(pObj)->ReapplyEquipmentEffects();
@@ -1121,7 +1122,7 @@ SHORT CGameAIBase::ExecuteAction()
         // CMessageSpriteUpdate (gated on SP or host-matches-target in
         // the binary; we always broadcast since observers expect the
         // update).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
@@ -1149,7 +1150,7 @@ SHORT CGameAIBase::ExecuteAction()
         // without any field write or SetAIType call -- the IWD2 build
         // shipped this action as an effective no-op.  Preserve that
         // behaviour (returns ACTION_DONE without mutating the target).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
@@ -1170,7 +1171,7 @@ SHORT CGameAIBase::ExecuteAction()
         // target isn't already marked dead (state bit 0x800).  We need to
         // operate on the target sprite's m_baseStats.m_hitPoints
         // (offset 0x1c into CCreatureFileHeader == sprite + 0x5C0).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
@@ -1277,7 +1278,7 @@ SHORT CGameAIBase::ExecuteAction()
         //   specifics2 != 0: scale curHP by frac.
         // Dead targets (derivedStats.generalState bit 0x800 OR
         // baseStats.m_generalState bit 0x800) are skipped.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
@@ -1312,7 +1313,7 @@ SHORT CGameAIBase::ExecuteAction()
         // 0x130 = AddHP (binary case 0x130).  Resolves the target and,
         // unless flagged dead (state bit 0x800), adds m_specificID to
         // target.m_baseStats.m_hitPoints capped at m_nMaxHitPoints.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
@@ -1337,7 +1338,7 @@ SHORT CGameAIBase::ExecuteAction()
         // STRREF (m_specificID) into target.m_baseStats.m_apparentName
         // when it differs from the current value, then broadcasts
         // CMessageSpriteUpdate so observers refresh the displayed name.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
@@ -1357,7 +1358,7 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == 0x139) {
         // 0x139 = SetName (binary case 0x139).  Same shape as 0x138 but
         // writes target.m_baseStats.m_name (the canonical STRREF).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
@@ -1380,7 +1381,7 @@ SHORT CGameAIBase::ExecuteAction()
         // OR-set (specifics2 != 0) of mask m_specificID to its
         // m_baseStats.m_flags.  Returns ACTION_INTERRUPTABLE when the
         // target is unresolved (binary path LAB_00451451 -> sVar7 = -2).
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj == NULL) {
             actionReturn = ACTION_INTERRUPTABLE;
         } else {
@@ -1470,7 +1471,7 @@ SHORT CGameAIBase::ExecuteAction()
         // sets), then posts CMessageSpriteUpdate in SP or matching-host
         // mode.  We perform the bit toggle; the SpriteUpdate broadcast
         // is a TODO until the MP-host comparison helper is recovered.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
                 CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
@@ -1489,7 +1490,7 @@ SHORT CGameAIBase::ExecuteAction()
         // the resolved door's flags, OR-merges (when specifics2!=0) or
         // AND-NOT-clears (when 0) bit-mask specifics1, then writes back
         // and posts CMessageDoorStatus.
-        CGameObject* pObj = ResolveActionTarget();
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_DOOR);
         if (pObj != NULL) {
             if (pObj->GetObjectType() == CGameObject::TYPE_DOOR) {
                 CGameDoor* pDoor = static_cast<CGameDoor*>(pObj);
@@ -3388,32 +3389,99 @@ SHORT CGameAIBase::ForceSpellPointAction()
     return ACTION_DONE;
 }
 
-// 0x45BDD0 - resolves m_acteeID, then filters sprites whose immunity list
-// names the caller's CAIObjectType (e.g. spell-immune creature scripted
-// against by a matching caster type).  Returns the target with an ACTIVE
-// GetObjectArray share -- caller must ReleaseShare on the returned id.
-// Skips two filters from the binary helper: (1) the per-case type byte
-// argument that gates "sprite vs. any" (caller-level checks cover this);
-// (2) the PC-distance cutoff that only fires when this is a non-PC
-// sprite with bit 0x40000 set in field_248.  Both are coverage TODOs.
+// 0x45C290 - resolves m_acteeID, dropping sprites whose immunity list names
+// this object's CAIObjectType (e.g. spell-immune creature scripted against
+// by a matching caster type), and publishes the result through UpdateTarget.
+// Returns the target with an ACTIVE GetObjectArray share -- caller must
+// ReleaseShare on the returned id.  The dispatcher inlines this body in
+// several CGameAIBase::ExecuteAction cases (0x32-0x3A, 0x3E, 0x7D, 0x7E,
+// 0x85); src calls the helper there instead.
 CGameObject* CGameAIBase::ResolveActionTarget()
 {
     CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
-    if (pObj == NULL) {
-        return NULL;
+    if (pObj != NULL
+        && pObj->GetObjectType() == CGameObject::TYPE_SPRITE
+        && static_cast<CGameSprite*>(pObj)->GetDerivedStats()->m_cImmunitiesAIType.OnList(m_typeAI)) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            pObj->m_id,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        pObj = NULL;
     }
 
-    if ((pObj->GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
-        CGameSprite* pSprite = static_cast<CGameSprite*>(pObj);
-        CDerivedStats* pDeriv = pSprite->GetDerivedStats();
-        if (pDeriv != NULL && pDeriv->m_cImmunitiesAIType.OnList(m_typeAI)) {
+    UpdateTarget(pObj);
+
+    return pObj;
+}
+
+// 0x45BDD0 - typed resolver used by most dispatcher cases: same resolve +
+// immunity drop as the untyped overload, then filters by nObjectType
+// (TYPE_NONE accepts anything, TYPE_AIBASE requires only the AIBASE bit,
+// any other value must equal GetObjectType exactly) and caps the targeting
+// range of blinded non-party sprites at GetPersonalSpace() / 2 + 4 grid
+// squares.  Rejected targets are released and re-published as NULL.
+CGameObject* CGameAIBase::ResolveActionTarget(BYTE nObjectType)
+{
+    CGameObject* pObj = m_curAction.m_acteeID.GetObject(this, FALSE);
+    if (pObj != NULL
+        && pObj->GetObjectType() == CGameObject::TYPE_SPRITE
+        && static_cast<CGameSprite*>(pObj)->GetDerivedStats()->m_cImmunitiesAIType.OnList(m_typeAI)) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            pObj->m_id,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        pObj = NULL;
+    }
+
+    UpdateTarget(pObj);
+
+    if (pObj != NULL) {
+        if (pObj->GetObjectType() != nObjectType
+            && nObjectType != CGameObject::TYPE_AIBASE
+            && nObjectType != CGameObject::TYPE_NONE) {
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id,
                 CGameObjectArray::THREAD_ASYNCH,
                 INFINITE);
+            UpdateTarget(NULL);
             return NULL;
         }
+
+        if (nObjectType == CGameObject::TYPE_AIBASE
+            && (pObj->GetObjectType() & CGameObject::TYPE_AIBASE) == 0) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            UpdateTarget(NULL);
+            return NULL;
+        }
+
+        if (GetObjectType() == CGameObject::TYPE_SPRITE
+            && g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) == -1
+            && (static_cast<CGameSprite*>(this)->GetDerivedStats()->m_generalState & STATE_BLIND) != 0
+            && pObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            const CPoint& targetPos = pObj->GetPos();
+            CPoint ptTarget(
+                targetPos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                targetPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+            CPoint ptThis(
+                m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+            LONG nSquares = CAIUtil::CountSquares(ptThis, ptTarget);
+
+            if (nSquares > (static_cast<CGameSprite*>(this)->m_animation.GetPersonalSpace() >> 1) + 4) {
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    pObj->m_id,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+                UpdateTarget(NULL);
+                return NULL;
+            }
+        }
     }
+
+    UpdateTarget(pObj);
 
     return pObj;
 }
@@ -3547,7 +3615,7 @@ SHORT CGameAIBase::StartCutScene()
 // reaches the same display routine on both SP and MP.
 SHORT CGameAIBase::FloatMessage()
 {
-    CGameObject* pObj = ResolveActionTarget();
+    CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
     if (pObj == NULL) {
         return ACTION_DONE;
     }
@@ -3572,7 +3640,7 @@ SHORT CGameAIBase::FloatMessage()
 // broadcast (CMessage90) -- SP semantics are preserved.
 SHORT CGameAIBase::HideCreature()
 {
-    CGameObject* pObj = ResolveActionTarget();
+    CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
     if (pObj == NULL) {
         return ACTION_DONE;
     }
@@ -3597,7 +3665,7 @@ SHORT CGameAIBase::HideCreature()
 // are filters; the core semantics match.
 SHORT CGameAIBase::WaitAnimation()
 {
-    CGameObject* pObj = ResolveActionTarget();
+    CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
     if (pObj == NULL) {
         return ACTION_DONE;
     }
