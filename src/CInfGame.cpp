@@ -1862,7 +1862,19 @@ CGameArea* CInfGame::LoadArea(CString areaName, BYTE nTravelScreenImageToUse, BO
 
                 int v5 = g_pChitin->cDimm.RequestsPendingCount() - v1;
                 if (v5 != v3) {
-                    g_pChitin->cProgressBar.m_nActionProgress += (v3 - v5) * (5000000 / v2);
+                    // HACK: cap this phase's credit at its 5M budget — with
+                    // CacheResFileWithResource (0x5A0950) still a stub, caching
+                    // trickles in DURING this drain loop, so the positive
+                    // deltas sum past v2 and the bar overshoots its end (cap
+                    // mosaic ghosts past the bar) — replaces nothing; remove
+                    // when 0x5A0950 is recovered.
+                    DWORD nCredit = (v3 - v5) * (5000000 / v2);
+                    DWORD nProgress = g_pChitin->cProgressBar.m_nActionProgress;
+                    DWORD nTarget = g_pChitin->cProgressBar.m_nActionTarget;
+                    if (nProgress + nCredit > nTarget) {
+                        nCredit = nTarget > nProgress ? nTarget - nProgress : 0;
+                    }
+                    g_pChitin->cProgressBar.m_nActionProgress += nCredit;
                     v3 = v5;
                     g_pChitin->m_bDisplayStale = TRUE;
                 }
