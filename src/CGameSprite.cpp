@@ -6306,7 +6306,7 @@ void CGameSprite::StartSpriteEffect(BYTE spriteEffect, BYTE intensityLevel, BYTE
         m_spriteEffectSequenceLength = m_spriteEffectVidCell.GetSequenceLength(m_spriteEffectVidCell.m_nCurrentSequence, FALSE);
         m_effectExtendDirection = 1;
         m_spriteEffectBaseIntensity = 0;
-        m_spriteEffectBaseIntensity = 1;
+        m_spriteEffectRandomIntensity = 1;
         break;
     case 4:
         if (a4 == TRUE) {
@@ -6428,9 +6428,209 @@ void CGameSprite::RenderDamageArrow(CGameArea* pArea, CVidMode* pVidMode, INT nS
 }
 
 // 0x7093E0
+//
+// Draws whatever StartSpriteEffect armed: while the blood splash cell still
+// has frames left it renders as a single cell pinned to the sprite; after
+// that the elemental overlay renders as a grid of particle cells (one row
+// per animation frame, base+random-1 particles per row, 0xFFFF = end of
+// row), clipped to the sprite's FX rect.
 void CGameSprite::RenderSpriteEffect(CVidMode* pVidMode, INT nSurface)
 {
-    // TODO: Incomplete.
+    CPoint ptCenter;
+    CSize frameSize;
+    CRect rFXRect;
+    CRect rGCBounds;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 10675
+    UTIL_ASSERT(pVidMode != NULL);
+
+    DWORD dwFlags = m_spriteEffectFlags;
+    if (m_animation.IsMirroring()) {
+        dwFlags |= CInfinity::MIRROR_FX;
+    }
+
+    if (m_spriteEffectDuration == 0) {
+        return;
+    }
+
+    BOOL bDithered = m_id == m_pArea->m_iPicked
+        || g_pBaldurChitin->GetObjectGame()->GetOptions()->m_bAlwaysDither
+        || g_pBaldurChitin->GetObjectGame()->m_bForceDither;
+
+    if (!m_spriteSplashVidCell.IsEndOfSequence(FALSE)) {
+        m_spriteSplashVidCell.GetCurrentCenterPoint(ptCenter, FALSE);
+        m_spriteSplashVidCell.GetCurrentFrameSize(frameSize, FALSE);
+        SetRect(&rFXRect, 0, 0, frameSize.cx, frameSize.cy);
+
+        INT x = m_pos.x;
+        INT nY = m_pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y;
+
+        rGCBounds.left = x - ptCenter.x;
+        rGCBounds.right = rFXRect.Width() + rGCBounds.left;
+
+        dwFlags |= CInfinity::FXPREP_COPYFROMBACK;
+
+        CPoint ptPos(x, (m_posZ - m_ptSpriteEffectReference.y / 2) + nY);
+        INT nRenderY = (m_posZ - ptCenter.y) + nY;
+
+        m_pArea->GetInfinity()->FXPrep(rFXRect, dwFlags, nSurface, ptPos, ptCenter);
+        if (!m_pArea->GetInfinity()->FXLock(rFXRect, dwFlags)) {
+            return;
+        }
+
+        m_pArea->GetInfinity()->FXRender(&m_spriteSplashVidCell,
+            ptCenter.x,
+            ptCenter.y,
+            dwFlags,
+            0);
+
+        INT nHalfRefY = m_ptSpriteEffectReference.y / 2;
+        rGCBounds.top = (nRenderY - nHalfRefY) - m_posZ;
+        rGCBounds.bottom = ((rFXRect.Height() + nRenderY) - nHalfRefY) - m_posZ;
+        m_pArea->GetInfinity()->FXRenderClippingPolys(x,
+            (nY - nHalfRefY) - m_posZ,
+            m_posZ,
+            CPoint(ptCenter.x, (m_posZ - nHalfRefY) + ptCenter.y),
+            rGCBounds,
+            bDithered,
+            dwFlags);
+
+        m_pArea->GetInfinity()->FXUnlock(dwFlags, NULL, CPoint(0, 0));
+
+        m_pArea->GetInfinity()->FXBltFrom(nSurface,
+            rFXRect,
+            x,
+            (m_posZ - nHalfRefY) + nY,
+            ptCenter.x,
+            ptCenter.y,
+            dwFlags);
+        return;
+    }
+
+    if (m_pSpriteEffectArray == NULL) {
+        return;
+    }
+
+    BOOL bRendered = FALSE;
+    CPoint ptOffset;
+    CSize fxSize;
+
+    pVidMode->GetFXSize(fxSize);
+
+    switch (m_effectExtendDirection) {
+    case 0:
+        ptOffset.x = 0;
+        ptOffset.y = 0;
+        SetRect(&rFXRect, 0, 0, m_rSpriteEffectFX.right, m_rSpriteEffectFX.bottom);
+        break;
+    case 1:
+        ptOffset.x = 0;
+        ptOffset.y = (m_rSpriteEffectFX.bottom - fxSize.cy) + 1;
+        SetRect(&rFXRect, 0, 0, m_rSpriteEffectFX.right, fxSize.cy - 1);
+        break;
+    case 2:
+        ptOffset.x = 0;
+        ptOffset.y = 0;
+        SetRect(&rFXRect, 0, 0, m_rSpriteEffectFX.right, fxSize.cy - 1);
+        break;
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+        // __LINE__: 10799
+        UTIL_ASSERT(FALSE);
+    }
+
+    if (fxSize.cx < rFXRect.right) {
+        rFXRect.right = fxSize.cx;
+    }
+    if (fxSize.cy < rFXRect.bottom) {
+        rFXRect.bottom = fxSize.cy;
+    }
+
+    INT nHeightOffset = m_pArea->GetHeightOffset(m_pos, m_listType);
+    INT nLeft = (m_pos.x - m_ptSpriteEffectReference.x) + ptOffset.x;
+    INT nTop = (m_posZ - m_ptSpriteEffectReference.y) + m_pos.y + nHeightOffset + ptOffset.y;
+    INT nRight = rFXRect.Width() + nLeft;
+    INT nBottom = rFXRect.Height() + nTop;
+
+    if ((m_spriteEffectFlags & 0x208) == 0) {
+        dwFlags |= CInfinity::FXPREP_CLEARFILL | 0x1;
+    } else {
+        dwFlags |= CInfinity::FXPREP_COPYFROMBACK;
+    }
+
+    CPoint ptPos(m_pos.x + ptOffset.x, m_posZ + m_pos.y + nHeightOffset + ptOffset.y);
+
+    m_pArea->GetInfinity()->FXPrep(rFXRect, dwFlags, nSurface, ptPos, m_ptSpriteEffectReference);
+    if (!m_pArea->GetInfinity()->FXLock(rFXRect, dwFlags)) {
+        return;
+    }
+
+    for (BYTE nFrame = 0; nFrame < m_spriteEffectSequenceLength; nFrame++) {
+        // The base intensity is stored negative for the weakest levels.
+        INT nParticles = static_cast<char>(m_spriteEffectBaseIntensity) - 1 + m_spriteEffectRandomIntensity;
+        for (BYTE nParticle = 0; static_cast<INT>(nParticle) < nParticles; nParticle++) {
+            INT nIndex = nParticles * nFrame + nParticle;
+
+            USHORT entry = m_pSpriteEffectArray[nIndex];
+            if (entry == 0xFFFF) {
+                break;
+            }
+
+            m_spriteEffectVidCell.SequenceSet(static_cast<SHORT>(entry >> 8));
+            m_spriteEffectVidCell.FrameSet(static_cast<SHORT>(entry & 0xFF));
+            m_spriteEffectVidCell.GetCurrentCenterPoint(ptCenter, FALSE);
+            m_spriteEffectVidCell.GetCurrentFrameSize(frameSize, FALSE);
+
+            POINT* pt = &m_pSpriteEffectArrayPosition[nIndex];
+
+            INT x;
+            if ((dwFlags & CInfinity::MIRROR_FX) == 0) {
+                x = ((pt->x - ptOffset.x) - ptCenter.x) + m_ptSpriteEffectReference.x;
+            } else {
+                x = ((rFXRect.right - pt->x) - m_ptSpriteEffectReference.x) + ptOffset.x + ptCenter.x;
+            }
+            INT y = ((pt->y - ptOffset.y) - ptCenter.y) + m_ptSpriteEffectReference.y;
+
+            if (frameSize.cx / 4 <= x && x <= rFXRect.right - frameSize.cx / 4
+                && frameSize.cy / 4 <= y && y <= rFXRect.bottom - frameSize.cy / 4
+                && x - ptCenter.x > -1
+                && (x - ptCenter.x) + frameSize.cx < rFXRect.Width()
+                && y - ptCenter.y > -1
+                && (y - ptCenter.y) + frameSize.cy < rFXRect.Height()) {
+                m_pArea->GetInfinity()->FXRender(&m_spriteEffectVidCell, x, y, dwFlags, 0);
+                bRendered = TRUE;
+            }
+        }
+    }
+
+    if (bRendered) {
+        rGCBounds.left = nLeft;
+        rGCBounds.top = nTop;
+        rGCBounds.right = nRight;
+        rGCBounds.bottom = nBottom - m_posZ;
+        m_pArea->GetInfinity()->FXRenderClippingPolys(m_pos.x,
+            m_pos.y,
+            0,
+            m_ptSpriteEffectReference,
+            rGCBounds,
+            bDithered,
+            dwFlags);
+    }
+
+    m_pArea->GetInfinity()->FXUnlock(dwFlags, NULL, CPoint(0, 0));
+
+    if (!bRendered) {
+        return;
+    }
+
+    m_pArea->GetInfinity()->FXBltFrom(nSurface,
+        rFXRect,
+        m_pos.x + ptOffset.x,
+        m_posZ + m_pos.y + nHeightOffset + ptOffset.y,
+        m_ptSpriteEffectReference.x,
+        m_ptSpriteEffectReference.y,
+        dwFlags);
 }
 
 // 0x709B60
@@ -6588,17 +6788,82 @@ void CGameSprite::UpdateSpriteEffect()
                 CPoint ptReference;
                 m_animation.CalculateFxRect(rFx, ptReference, m_posZ);
 
-                for (BYTE nIndex = 0; nIndex < m_spriteEffectSequenceLength; nIndex++) {
-                    if ((g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime / 2) % m_spriteEffectSequenceLength == nIndex) {
-                        BYTE intensity = m_spriteEffectBaseIntensity + m_spriteEffectRandomIntensity - 1;
-                        memset(&(m_pSpriteEffectArray[intensity]),
-                            -1,
-                            sizeof(USHORT) * (intensity));
-                        // TODO: Incomplete.
-                    } else {
-                        BYTE intensity = m_spriteEffectBaseIntensity + m_spriteEffectRandomIntensity - 1;
+                BOOL bFxRectSaved = FALSE;
 
-                        // TODO: Incomplete.
+                for (BYTE nRow = 0; nRow < m_spriteEffectSequenceLength; nRow++) {
+                    // The base intensity is stored negative for the weakest levels.
+                    INT nParticles = static_cast<char>(m_spriteEffectBaseIntensity) - 1 + m_spriteEffectRandomIntensity;
+
+                    if ((g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime / 2) % m_spriteEffectSequenceLength == nRow) {
+                        // This row's turn to respawn: wipe it, then (unless the
+                        // effect is already fading out) seed a random batch of
+                        // particles in the middle third of the FX rect.
+                        memset(&m_pSpriteEffectArray[nParticles * nRow],
+                            -1,
+                            sizeof(USHORT) * nParticles);
+
+                        if (m_spriteEffectDuration >= m_spriteEffectSequenceLength) {
+                            INT nCount = static_cast<char>(m_spriteEffectBaseIntensity);
+                            if (m_spriteEffectRandomIntensity != 0) {
+                                nCount += rand() % m_spriteEffectRandomIntensity;
+                            }
+
+                            for (BYTE nParticle = 0; static_cast<INT>(nParticle) < nCount; nParticle++) {
+                                BYTE nSequence = 0;
+                                if (m_spriteEffectSequenceNumber != 0) {
+                                    nSequence = static_cast<BYTE>(rand() % m_spriteEffectSequenceNumber);
+                                }
+
+                                INT nIndex = nParticles * nRow + nParticle;
+                                m_pSpriteEffectArray[nIndex] = static_cast<USHORT>(nSequence) << 8;
+
+                                INT nRange = rFx.right / 3 + 1;
+                                m_pSpriteEffectArrayPosition[nIndex].x =
+                                    (rFx.right / 3 - ptReference.x) + (nRange != 0 ? rand() % nRange : 0);
+
+                                nRange = (rFx.bottom * 4) / 5 + 1;
+                                m_pSpriteEffectArrayPosition[nIndex].y =
+                                    (rFx.bottom - (nRange != 0 ? rand() % nRange : 0)) - ptReference.y;
+                            }
+                        }
+                    } else {
+                        // Other rows: advance each particle one frame and pull
+                        // strays back inside the FX rect (which moves with the
+                        // sprite's animation).
+                        for (BYTE nParticle = 0; static_cast<INT>(nParticle) < nParticles; nParticle++) {
+                            INT nIndex = nParticles * nRow + nParticle;
+                            if (m_pSpriteEffectArray[nIndex] == 0xFFFF) {
+                                break;
+                            }
+
+                            LONG x = m_pSpriteEffectArrayPosition[nIndex].x;
+                            if (x < rFx.right / 3 - ptReference.x
+                                || (rFx.right * 2) / 3 - ptReference.x < x) {
+                                INT nRange = rFx.right / 3 + 1;
+                                m_pSpriteEffectArrayPosition[nIndex].x =
+                                    (rFx.right / 3 - ptReference.x) + (nRange != 0 ? rand() % nRange : 0);
+                                if (!bFxRectSaved) {
+                                    m_rSpriteEffectFX = rFx;
+                                    m_ptSpriteEffectReference = ptReference;
+                                    bFxRectSaved = TRUE;
+                                }
+                            }
+
+                            LONG y = m_pSpriteEffectArrayPosition[nIndex].y;
+                            if (rFx.bottom - ptReference.y < y
+                                || y < ((rFx.bottom - (rFx.bottom * 4) / 5) - ptReference.y) - 1) {
+                                INT nRange = (rFx.bottom * 4) / 5 + 1;
+                                m_pSpriteEffectArrayPosition[nIndex].y =
+                                    (rFx.bottom - (nRange != 0 ? rand() % nRange : 0)) - ptReference.y;
+                                if (!bFxRectSaved) {
+                                    m_rSpriteEffectFX = rFx;
+                                    m_ptSpriteEffectReference = ptReference;
+                                    bFxRectSaved = TRUE;
+                                }
+                            }
+
+                            m_pSpriteEffectArray[nIndex]++;
+                        }
                     }
                 }
             }
