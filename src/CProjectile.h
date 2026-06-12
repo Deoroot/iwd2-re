@@ -188,14 +188,38 @@ protected:
 };
 
 // Leaf 0x5324A0 -- the canonical travelling arrow (DecodeProjectile types
-// 0x2/0x5/0x6; vtable 0x84E58C). The arrow-specific virtual overrides (its
-// destructor 0x5325E0, slot34 0x532860, and the slot37 impact/effect delivery
-// 0x5329A0) are deferred -- the leaf inherits CProjectileTravelling's flight and
-// render virtuals, so it flies and draws but does not yet deliver its on-hit
-// effects.
+// 0x2/0x5/0x6; vtable 0x84E58C). Its only own virtual is the destructor
+// (0x5325E0, base dtor inlined, deferred); everything else is inherited from
+// CProjectileTravelling. (The family vtables are 34 slots: 0x532860/0x5329A0,
+// once mistaken for arrow slots 34/37, are slots 0/3 of the next vtable,
+// CProjectileSPFLMARR's 0x84E614.)
 class CProjectileArrow : public CProjectileTravelling {
 public:
     CProjectileArrow();   // 0x5324A0
+};
+
+// Leaf 0x532720 -- the generic travelling weapon missile with a flame trail
+// (vtable 0x84E614, binary sizeof 0x2A8). DecodeProjectile builds it for the
+// flaming arrow (type 0x4, flying its default SPFLMARR cell), the thrown axe
+// (0x9, AXE cell), crossbow bolt (0xE, BOLT), throwing dagger (0x1D, DAGGER),
+// dart (0x22, DART) and the palette-tinted variants (0x66/0x67/0xBC, ranges
+// 0x45/0x44/0x47). Each AI tick it drops three CGameTemporal trail puffs
+// (animation set 0x301, colour ranges m_trailColorRanges) behind itself at
+// 4/3, 1 and 2/3 of a velocity step. Its destructor (0x532860, scalar
+// 0x532880, base dtor inlined) is the compiler-generated empty leaf part.
+class CProjectileSPFLMARR : public CProjectileTravelling {
+    // DecodeProjectile's tinted cases re-range the missile palette and stamp
+    // the trail colour ranges on the freshly built leaf.
+    friend class CProjectile;
+
+public:
+    CProjectileSPFLMARR();   // 0x532720
+
+    void AIUpdate() override;   // 0x5329A0 (vtable slot 3)
+
+private:
+    /* 02A0 */ BYTE m_trailColorRanges[7];
+    /* 02A7 */ BYTE m_trailTick;
 };
 
 // Leaf 0x57E030 -- the Magic Missile homing sub-missile (DecodeProjectile type

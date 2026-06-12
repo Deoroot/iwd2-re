@@ -9,6 +9,7 @@
 #include "CMessage.h"
 #include "CGameObjectArray.h"
 #include "CGameSprite.h"
+#include "CGameTemporal.h"
 #include "CInfinity.h"
 #include "CInfGame.h"
 #include "CPathSearch.h"
@@ -344,6 +345,61 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         // ARARROW -- the canonical travelling arrow.
         pProjectile = new CProjectileArrow();
         break;
+
+    case 0x4: {
+        // The flaming arrow: the flame-trailed leaf flying its default
+        // SPFLMARR cell, launch sound TRA_24.
+        CProjectileSPFLMARR* pMissile = new CProjectileSPFLMARR();
+        pMissile->m_bHasHeight = TRUE;
+        pMissile->m_fireSoundRef = CResRef("TRA_24");
+        pMissile->m_arrivalSoundRef = CResRef("");
+        pProjectile = pMissile;
+        break;
+    }
+
+    case 0x9:    // thrown axe ("AXE")
+    case 0xE:    // crossbow bolt ("BOLT")
+    case 0x1D:   // throwing dagger ("DAGGER")
+    case 0x22: { // dart ("DART")
+        // The thrown/launched weapon missiles: the flame-trailed leaf with
+        // its cell swapped to the weapon BAM, launch sound TRA_10.
+        CProjectileSPFLMARR* pMissile = new CProjectileSPFLMARR();
+        switch (projectileType) {
+        case 0x9: pMissile->SetVidCell(CResRef("AXE")); break;
+        case 0xE: pMissile->SetVidCell(CResRef("BOLT")); break;
+        case 0x1D: pMissile->SetVidCell(CResRef("DAGGER")); break;
+        case 0x22: pMissile->SetVidCell(CResRef("DART")); break;
+        }
+        pMissile->m_bHasHeight = TRUE;
+        pMissile->m_fireSoundRef = CResRef("TRA_10");
+        pMissile->m_arrivalSoundRef = CResRef("");
+        pProjectile = pMissile;
+        break;
+    }
+
+    case 0x66:   // palette range 0x45
+    case 0x67:   // palette range 0x44
+    case 0xBC: { // palette range 0x47
+        // The palette-tinted weapon-missile variants: the flame-trailed leaf
+        // flying its SPFLMARR cell with the palette re-ranged and the trail
+        // colour ranges stamped to match, launch sound TRA_10. (The original
+        // hands the palette to the cell before re-ranging it, in this order.)
+        CProjectileSPFLMARR* pMissile = new CProjectileSPFLMARR();
+        BYTE rangeValue = 0;
+        switch (projectileType) {
+        case 0x66: rangeValue = 0x45; break;
+        case 0x67: rangeValue = 0x44; break;
+        case 0xBC: rangeValue = 0x47; break;
+        }
+        pMissile->m_pVidCell->SetPalette(pMissile->m_palette);
+        pMissile->m_palette.SetRange(0, rangeValue, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+        memset(pMissile->m_trailColorRanges, rangeValue, sizeof(pMissile->m_trailColorRanges));
+        pMissile->m_bHasHeight = TRUE;
+        pMissile->m_fireSoundRef = CResRef("TRA_10");
+        pMissile->m_arrivalSoundRef = CResRef("");
+        pProjectile = pMissile;
+        break;
+    }
 
     case 0xDA:
         // MMissiT -- Magic Missile homing sub-missile (spawned by the launcher).
@@ -2112,6 +2168,100 @@ CProjectileArrow::CProjectileArrow()
 
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
     m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x532720
+//
+// CProjectileSPFLMARR -- the generic flame-trailed weapon missile. Builds the
+// "SPFLMARR" travelling base, then configures it: first animation sequence, a
+// two-range palette recolour (0x43/0x2E) from the game master bitmap, an
+// untinted unmirrored 16-direction cell at 5x the base velocity, and the
+// default 'A' trail colour ranges (the tinted DecodeProjectile cases restamp
+// them).
+//
+// As with the other leaves, the empty fire-sound resref (+0x152) and +0x17E
+// field the original seeds are deferred (both default-construct empty).
+CProjectileSPFLMARR::CProjectileSPFLMARR()
+    : CProjectileTravelling(CResRef("SPFLMARR"))
+{
+    m_pVidCell->SequenceSet(0);
+
+    m_palette.SetRange(0, 0x43, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_palette.SetRange(1, 0x2E, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_pVidCell->SetPalette(m_palette);
+
+    m_tinted = 0;
+    m_useHeightOffset = 0;
+    m_mirror = 0;
+    m_hasShadowCell = 0;
+    m_dirCount = 0x10;
+    m_velocity = static_cast<SHORT>(m_velocity * 5);
+
+    m_trailTick = 0;
+    memset(m_trailColorRanges, 0x41, sizeof(m_trailColorRanges));
+
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x5329A0
+void CProjectileSPFLMARR::AIUpdate()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    CString sSoundName("");
+
+    m_trailTick++;
+    if (m_trailTick == 1) {
+        m_trailTick = 0;
+
+        int nJitterY = rand() % 5;
+        int nJitterX = rand() % 5;
+        new CGameTemporal(0x301,
+            m_trailColorRanges,
+            sSoundName,
+            m_pArea,
+            CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 4 / 3,
+                ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 4 / 3),
+            -m_posZ,
+            CPoint(0, 0),
+            0,
+            0,
+            CGameTemporal::COLLISION_DESTROY);
+
+        nJitterY = rand() % 5;
+        nJitterX = rand() % 5;
+        new CGameTemporal(0x301,
+            m_trailColorRanges,
+            sSoundName,
+            m_pArea,
+            CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX,
+                ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY),
+            -m_posZ,
+            CPoint(0, 0),
+            0,
+            0,
+            CGameTemporal::COLLISION_DESTROY);
+
+        nJitterY = rand() % 5;
+        nJitterX = rand() % 5;
+        new CGameTemporal(0x301,
+            m_trailColorRanges,
+            sSoundName,
+            m_pArea,
+            CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 2 / 3,
+                ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 2 / 3),
+            -m_posZ,
+            CPoint(0, 0),
+            0,
+            0,
+            CGameTemporal::COLLISION_DESTROY);
+    }
+
+    CProjectileTravelling::AIUpdate();
 }
 
 // 0x57E030
