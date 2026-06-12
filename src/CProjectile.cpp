@@ -12,6 +12,7 @@
 #include "CInfinity.h"
 #include "CInfGame.h"
 #include "CPathSearch.h"
+#include "CResBitmap.h"
 #include "CUtil.h"
 #include "IcewindMisc.h"
 
@@ -796,7 +797,10 @@ void CProjectileSummonVFX::AIUpdate()
     m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
 }
 
-// 0x578480 (virtual)
+// Models the inherited family Render (0x578480, recovered as
+// IcewindCProjectileTravellingVFX::Render) under this class's divergent
+// local layout; in the binary CProjectileSummonVFX is a family child
+// (vtable 0x851234 slot 19 = 0x578480) -- re-parenting is pending.
 void CProjectileSummonVFX::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
     CRect rFX;
@@ -2181,7 +2185,7 @@ void CProjectileTravelling::SetTravelPalette(CString bitmapName)
             } else {
                 CRes* pRes = g_pChitin->cDimm.GetResObject(resRef, 1, TRUE);
                 if (pRes != NULL) {
-                    m_pTravelPaletteRes = pRes;
+                    m_pTravelPaletteRes = static_cast<CResBitmap*>(pRes);
                     m_travelPaletteRequested = TRUE;
                     pRes->Request();
                     m_travelPaletteRef = resRef;
@@ -2558,8 +2562,8 @@ IcewindCProjectileTravellingVFX::IcewindCProjectileTravellingVFX(const CResRef& 
     field_17E = "";
     m_useHeightOffset = 1;
     m_bHasHeight = TRUE;
-    field_2A0 = 1;
-    field_2A1 = 1;
+    m_bMirrorNorth = 1;
+    m_bMirrorEast = 1;
 }
 
 // 0x578AB0 (vtable slot 3)
@@ -2589,6 +2593,303 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
 void IcewindCProjectileTravellingVFX::AimAtPoint(int x, int y)
 {
     CProjectileTravelling::AimAtPoint(x, y);
+}
+
+// 0x578480 (vtable slot 19)
+//
+// The family draw: unlike CProjectileTravelling::Render the blit flags come
+// from the attached visual effect (copy-from-back arms the translucent 0x200
+// path), the area tint is applied when tinting or copy-from-back is on, and
+// the east/north facings mirror through the m_bMirror* gates.
+void IcewindCProjectileTravellingVFX::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    (void)pArea;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\IcewindCProjectileBAM.cpp
+    // __LINE__: 140
+    UTIL_ASSERT(pVidMode != NULL);
+
+    DWORD flags = m_visualEffect.m_dwFlags;
+    COLORREF tintColor = RGB(0xFF, 0xFF, 0xFF);
+
+    // Tile-visibility gate (32x32 visibility tiles).
+    LONG tileIndex = (m_pos.y / 32) * m_pArea->m_visibility.m_nWidth + (m_pos.x / 32);
+    if (!m_pArea->m_visibility.IsTileVisible(tileIndex)) {
+        return;
+    }
+
+    // Passability gate via the seeded terrain table (16x12 search cells).
+    CPoint searchPos(m_pos.x / 16, m_pos.y / 12);
+    if (m_pArea->m_search.GetMobileCost(searchPos, m_terrainTable, 3, TRUE) == CPathSearch::COST_IMPASSABLE) {
+        return;
+    }
+    if (m_visible == 0) {
+        return;
+    }
+
+    if (m_hasShadowCell != 0) {
+        flags |= 0x4;
+    }
+
+    if (m_dirCount > 1) {
+        UpdateDirectionSequence(NULL);
+    }
+
+    // Viewport from the area's embedded CInfinity, accessed by name (see
+    // CProjectileTravelling::Render).
+    CInfinity* pInfinity = m_pArea->GetInfinity();
+    CRect rViewport;
+    rViewport.left = pInfinity->nCurrentX;
+    rViewport.top = pInfinity->nCurrentY;
+    rViewport.right = (pInfinity->rViewPort.right - pInfinity->rViewPort.left)
+                      + pInfinity->nCurrentX;
+    rViewport.bottom = (pInfinity->rViewPort.bottom - pInfinity->rViewPort.top)
+                       + pInfinity->nCurrentY;
+
+    CRect rFX;
+    CPoint ptRef;
+    GetCellBounds(rFX, ptRef, NULL);
+
+    CPoint newPos;
+    newPos.x = m_pos.x;
+    newPos.y = m_pos.y;
+    LONG zOffset;
+    if (m_hasShadowCell == 0) {
+        newPos.y -= m_posZ;
+        zOffset = 0;
+    } else {
+        zOffset = m_posZ;
+    }
+    if (m_useHeightOffset != 0 || m_bHasHeight) {
+        newPos.y += m_pArea->GetHeightOffset(m_pos, m_listType);
+    }
+
+    CRect rGCBounds(0, 0, 0, 0);
+    if (CGameSprite::DIR_N < m_direction) {
+        rGCBounds.left = (ptRef.x - rFX.right) + newPos.x + rFX.left;
+    } else {
+        rGCBounds.left = newPos.x - ptRef.x;
+    }
+    if (CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E) {
+        rGCBounds.top = newPos.y;
+        if (m_hasShadowCell != 0) {
+            ptRef.y = (rFX.bottom - rFX.top) - ptRef.y;
+            rGCBounds.top = newPos.y - m_posZ;
+        }
+        rGCBounds.top -= ptRef.y;
+        zOffset = -zOffset;
+    } else {
+        rGCBounds.top = newPos.y - ptRef.y;
+    }
+    rGCBounds.bottom = (rFX.bottom - rFX.top) + rGCBounds.top;
+    rGCBounds.right = (rFX.right - rFX.left) + rGCBounds.left;
+
+    if (!IntersectRect(&rViewport, &rGCBounds, &rViewport)) {
+        return;
+    }
+
+    if (m_visualEffect.m_bTintEnabled == TRUE || m_visualEffect.m_bCopyFromBack == TRUE) {
+        tintColor = m_pArea->GetTintColor(newPos, m_listType);
+    }
+
+    if (CGameSprite::DIR_N < m_direction && m_bMirrorEast == TRUE) {
+        flags |= CInfinity::MIRROR_FX;
+    }
+    if (CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E
+        && m_bMirrorNorth == TRUE) {
+        flags ^= CInfinity::MIRROR_FX;
+    }
+
+    pInfinity->FXPrep(rFX, CInfinity::FXPREP_COPYFROMBACK | flags, nSurface, newPos, ptRef);
+    if (pInfinity->FXLock(rFX, flags)) {
+        if (m_visualEffect.m_bTintEnabled == TRUE) {
+            m_pVidCell->SetTintColor(tintColor);
+        }
+        if (m_hasShadowCell != 0) {
+            pInfinity->FXRender(m_pShadowCell, ptRef.x, ptRef.y, flags, 0);
+        }
+        if (m_paletteSwap == 0) {
+            pInfinity->FXRender(m_pVidCell,
+                ptRef.x,
+                ptRef.y - zOffset,
+                flags,
+                m_visualEffect.m_nTransValue);
+        } else {
+            m_pTravelPaletteRes->Demand();
+            int nColorCount = m_pTravelPaletteRes->GetColorCount();
+            RGBQUAD* pColorTable = m_pTravelPaletteRes->GetColorTable();
+            m_pVidCell->SetPalette(pColorTable, nColorCount, CVidPalette::TYPE_RESOURCE);
+            pInfinity->FXRender(m_pVidCell,
+                ptRef.x,
+                ptRef.y - zOffset,
+                flags,
+                m_visualEffect.m_nTransValue);
+            m_pTravelPaletteRes->Release();
+        }
+        pInfinity->FXRenderClippingPolys(newPos.x, newPos.y, 0, ptRef, rGCBounds, FALSE, flags);
+        pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
+        pInfinity->FXBltFrom(nSurface, rFX, newPos.x, newPos.y, ptRef.x, ptRef.y, flags);
+    }
+}
+
+// 0x578970
+//
+// Bounding box and reference point for the draw: the cell alone, or, with a
+// shadow cell, the union of the flying cell (lifted by m_posZ) and the
+// ground shadow.
+void IcewindCProjectileTravellingVFX::GetCellBounds(CRect& rBounds, CPoint& ptRef, CVidCell* pCell)
+{
+    CSize size;
+
+    if (pCell == NULL) {
+        pCell = m_pVidCell;
+    }
+
+    if (m_hasShadowCell == 0) {
+        pCell->GetCurrentCenterPoint(ptRef, FALSE);
+        pCell->GetCurrentFrameSize(size, FALSE);
+        rBounds.SetRect(0, 0, size.cx, size.cy);
+    }
+
+    if (m_hasShadowCell != 0) {
+        CPoint cellCenter;
+        CPoint shadowCenter;
+
+        pCell->GetCurrentCenterPoint(cellCenter, FALSE);
+        cellCenter.y += m_posZ;
+        m_pShadowCell->GetCurrentCenterPoint(shadowCenter, FALSE);
+
+        ptRef.x = cellCenter.x;
+        ptRef.y = cellCenter.y;
+        if (ptRef.x < shadowCenter.x) {
+            ptRef.x = shadowCenter.x;
+        }
+        if (ptRef.y < shadowCenter.y) {
+            ptRef.y = shadowCenter.y;
+        }
+
+        pCell->GetCurrentFrameSize(size, FALSE);
+        rBounds.SetRect(0,
+            0,
+            size.cx + (ptRef.x - cellCenter.x),
+            size.cy + (ptRef.y - cellCenter.y));
+
+        m_pShadowCell->GetCurrentFrameSize(size, FALSE);
+        if (rBounds.right < size.cx + (ptRef.x - shadowCenter.x)) {
+            rBounds.right = size.cx + (ptRef.x - shadowCenter.x);
+        }
+        if (rBounds.bottom < size.cy + (ptRef.y - shadowCenter.y)) {
+            rBounds.bottom = size.cy + (ptRef.y - shadowCenter.y);
+        }
+    }
+}
+
+// 0x579860
+//
+// Facing -> animation sequence. Like CProjectileTravelling::
+// UpdateDirectionSequence but mirror-aware: with m_bMirrorNorth the BAM has
+// no north-half sequences (5..8), so those facings fold onto the south ones
+// (3..0) and Render flips the blit vertically through the MIRROR_FX toggle.
+void IcewindCProjectileTravellingVFX::UpdateDirectionSequence(CVidCell* pCell)
+{
+    if (pCell == NULL) {
+        pCell = m_pVidCell;
+    }
+
+    SHORT dirCount = m_dirCount;
+    if (dirCount == 1) {
+        return;
+    }
+    SHORT facing = m_facing;
+    if (m_direction == facing) {
+        return;
+    }
+
+    if (dirCount == 0x10) {
+        switch (facing) {
+        case 4: case 0xC:
+            pCell->SequenceSet(4);
+            break;
+        case 5: case 0xB:
+            if (m_bMirrorNorth == 0) {
+                pCell->SequenceSet(5);
+            } else {
+                pCell->SequenceSet(3);
+            }
+            break;
+        case 3: case 0xD:
+            pCell->SequenceSet(3);
+            break;
+        case 6: case 0xA:
+            if (m_bMirrorNorth == 0) {
+                pCell->SequenceSet(6);
+            } else {
+                pCell->SequenceSet(2);
+            }
+            break;
+        case 2: case 0xE:
+            pCell->SequenceSet(2);
+            break;
+        case 7: case 9:
+            if (m_bMirrorNorth == 0) {
+                pCell->SequenceSet(7);
+            } else {
+                pCell->SequenceSet(1);
+            }
+            break;
+        case 1: case 0xF:
+            pCell->SequenceSet(1);
+            break;
+        case 8:
+            if (m_bMirrorNorth == 0) {
+                pCell->SequenceSet(8);
+            } else {
+                pCell->SequenceSet(0);
+            }
+            break;
+        case 0:
+            pCell->SequenceSet(0);
+            break;
+        default:
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\IcewindCProjectileBAM.cpp
+            // __LINE__: 907
+            UTIL_ASSERT(FALSE);
+        }
+    } else if (dirCount == 8) {
+        switch ((facing / 2) * 2) {
+        case 0: case 8:
+            pCell->SequenceSet(0);
+            break;
+        case 2: case 6: case 0xA: case 0xE:
+            pCell->SequenceSet(2);
+            break;
+        case 4: case 0xC:
+            pCell->SequenceSet(4);
+            break;
+        default:
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\IcewindCProjectileBAM.cpp
+            // __LINE__: 942
+            UTIL_ASSERT(FALSE);
+        }
+    } else if (dirCount == 2) {
+        switch (facing) {
+        case 0: case 4: case 8: case 0xC:
+            pCell->SequenceSet(0);
+            break;
+        case 1: case 2: case 3: case 5: case 6: case 7:
+        case 9: case 0xA: case 0xB: case 0xD: case 0xE: case 0xF:
+            pCell->SequenceSet(1);
+            break;
+        default:
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\IcewindCProjectileBAM.cpp
+            // __LINE__: 974
+            UTIL_ASSERT(FALSE);
+        }
+    }
+
+    if (pCell == m_pVidCell) {
+        m_direction = m_facing;
+    }
 }
 
 // -----------------------------------------------------------------------------

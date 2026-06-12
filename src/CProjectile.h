@@ -14,6 +14,7 @@ class CGameAIBase;
 class CGameArea;
 class CGameSprite;
 class CRes;
+class CResBitmap;
 
 class CProjectile : public CGameObject {
 public:
@@ -173,7 +174,7 @@ protected:
     SHORT m_facing;             // +0x1DC -- movement facing (0..15, CGameSprite::GetDirection)
     int m_visible;              // +0x1DE -- Frida-confirmed (render gate)
     BOOL m_travelPaletteRequested/*#guess*/;  // +0x282 -- a CRes::Request is outstanding
-    CRes* m_pTravelPaletteRes/*#guess*/;      // +0x286 -- the sparkle colour-table bitmap (CResBitmap)
+    CResBitmap* m_pTravelPaletteRes/*#guess*/; // +0x286 -- the sparkle colour-table bitmap
     CResRef m_travelPaletteRef/*#guess*/;     // +0x28A -- its resref ("STTRAVL1")
     int field_298;              // +0x298 -- zeroed by SetTravelPalette
     BYTE m_paletteSwap;         // +0x29C (param[0xa7]) -- Frida-confirmed; set by SetTravelPalette, Render swaps the cell palette from the bitmap
@@ -276,15 +277,21 @@ public:
     IcewindCProjectileTravellingVFX(const CResRef& resRef);   // 0x578110
 
     void AIUpdate() override;                 // 0x578AB0 (vtable slot 3)
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x578480 (slot 19)
     void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x5791D0 (slot 27)
     void AimAtPoint(int x, int y) override;   // 0x578ED0 (slot 33)
 
 protected:
+    void GetCellBounds(CRect& rBounds, CPoint& ptRef, CVidCell* pCell);   // 0x578970 -- union of the cell (z-lifted) and shadow-cell bounds
+    void UpdateDirectionSequence(CVidCell* pCell);   // 0x579860 -- facing -> sequence, folding mirrored facings per the flags below
+
     // BG2 PDB: CProjectile::m_terrainTable. The wandering leaves pass it to
     // CSearchBitmap::GetLOSCost to bounce off walls.
     /* 00D0 */ BYTE m_terrainTable[16];
-    /* 02A0 */ BYTE field_2A0;
-    /* 02A1 */ BYTE field_2A1;
+    // The BAM has no north/east-half sequences: fold those facings onto the
+    // south/west ones and blit with CInfinity::MIRROR_FX.
+    /* 02A0 */ BYTE m_bMirrorNorth/*#guess*/;
+    /* 02A1 */ BYTE m_bMirrorEast/*#guess*/;
     /* 02A2 */ IcewindCVisualEffect m_visualEffect;
 };
 
@@ -292,8 +299,8 @@ protected:
 // type 0x131, m_projectileType 0x130). Used by Whirlwind (SPPR613) and Wing
 // Buffet (SPIN159); Wall of Moonlight (WoMoonX, ctor 0x5802B0, factory type
 // 0x130) is the sibling family. vtable 0x851444 (34 slots; Render and
-// GetRenderFlags are inherited -- slot 19 = 0x578480, the family Render
-// currently recovered as CProjectileSummonVFX::Render). Wanders the area
+// GetRenderFlags are inherited -- slot 19 = 0x578480, the family
+// IcewindCProjectileTravellingVFX::Render). Wanders the area
 // from its wander seed (MP-replicated through CMessageFireProjectile +0x20)
 // and strikes everything it touches through the embedded
 // IcewindCProjectileTargetMap (period 3, re-strike interval 33, max 8 total
