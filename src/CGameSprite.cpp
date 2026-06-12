@@ -14304,6 +14304,36 @@ void CGameSprite::ResolveTargetPoint(const CAIAction* curAction, POSITION pos)
     }
 }
 
+// 0x733200
+//
+// Walk the sprite's persistant effects (colour glows, burning death, ...):
+// purge entries already marked deleted, tick the rest, purge the ones that
+// finish, then hand the regenerated list its tick.
+BOOL CGameSprite::ProcessPersistantEffects(LONG deltaT)
+{
+    POSITION pos = m_persistantEffects.GetHeadPosition();
+    while (pos != NULL) {
+        POSITION posCurrent = pos;
+        CPersistantEffect* pEffect = m_persistantEffects.GetNext(pos);
+
+        if (pEffect->m_deleted) {
+            m_persistantEffects.RemoveAt(posCurrent);
+            delete pEffect;
+            continue;
+        }
+
+        pEffect->AIUpdate(this, deltaT);
+
+        if (pEffect->m_deleted || pEffect->m_done) {
+            m_persistantEffects.RemoveAt(posCurrent);
+            delete pEffect;
+        }
+    }
+
+    m_derivedStats.m_cRegeneratedPersistantEffectList.AIUpdate(this, deltaT);
+    return TRUE;
+}
+
 // 0x72DE60
 BOOL CGameSprite::ProcessEffectList()
 {
@@ -14345,6 +14375,12 @@ BOOL CGameSprite::ProcessEffectList()
     }
 
     m_derivedStats.CheckLimits();
+
+    // Tail of the original (0x72FBC3): the persistant-effect tick only runs
+    // while world time advances (not on pause).
+    if (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active) {
+        ProcessPersistantEffects(1);
+    }
 
     return bResult;
 }

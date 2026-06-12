@@ -12072,6 +12072,48 @@ void CPersistantEffectColorEffect::AIUpdate(CGameSprite* pSprite, LONG deltaT)
 
 // -----------------------------------------------------------------------------
 
+// NOTE: Inlined.
+CPersistantEffectListRegenerated::CPersistantEffectListRegenerated()
+{
+    m_nCounter = 0;
+}
+
+// 0x51E8B0
+//
+// Tick every live regenerated persistant effect, purging deleted and
+// finished entries along the way.  m_nCounter advances on each completed
+// pass (empty list included) -- it cadences regeneration; a tick that
+// leaves the owner dead aborts the walk without counting.
+void CPersistantEffectListRegenerated::AIUpdate(CGameSprite* pSprite, LONG deltaT)
+{
+    POSITION pos = GetHeadPosition();
+    while (pos != NULL) {
+        POSITION posCurrent = pos;
+        CPersistantEffect* pEffect = GetNext(pos);
+
+        if (pEffect->m_deleted) {
+            RemoveAt(posCurrent);
+            delete pEffect;
+            continue;
+        }
+
+        pEffect->AIUpdate(pSprite, deltaT);
+
+        if ((pSprite->GetBaseStats()->m_generalState & STATE_DEAD) != 0) {
+            return;
+        }
+
+        if (pEffect->m_deleted || pEffect->m_done) {
+            RemoveAt(posCurrent);
+            delete pEffect;
+        }
+    }
+
+    m_nCounter++;
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x4C18A0
 CPersistantEffect84C4A4::CPersistantEffect84C4A4(int a1, int a2, int a3)
 {

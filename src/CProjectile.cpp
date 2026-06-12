@@ -1437,25 +1437,42 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     case 63: {
         p = new CProjectileSummonVFX(CResRef("FireH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
+        // Fire alone routes its glow through the message queue; the other
+        // elemental hits below AddEffect directly.
         if (pCaster != NULL) {
-            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0xFF, 0x00, 0x00, 0x1E),
-                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+            CMessage* message = new CMessageAddEffect(
+                IcewindMisc::CreateEffectColorGlowDissipate(0xFF, 0x00, 0x00, 0x1E),
+                pCaster->m_id,
+                pCaster->m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
         }
         break;
     }
     case 64: {
         p = new CProjectileSummonVFX(CResRef("ColdH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x00, 0x00, 0xFF, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         break;
     }
     case 65: {
         p = new CProjectileSummonVFX(CResRef("ElectrH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0xFF, 0x4B, 0xFF, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         break;
     }
     case 66: {
         p = new CProjectileSummonVFX(CResRef("AcidH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
+        if (pCaster != NULL) {
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x00, 0xFF, 0x00, 0x1E),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        }
         break;
     }
     case 67: {

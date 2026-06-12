@@ -188,6 +188,31 @@ def cmd_findptr(value):
         sys.exit(1)
 
 
+def cmd_scan(hexbytes, sect=b".text"):
+    """List code addresses containing a raw byte pattern (e.g. a field disp:
+    'scan 38560000' finds [reg+0x5638] accesses), mapped to containing fns."""
+    pat = bytes.fromhex(hexbytes)
+    hits = 0
+    for sec in pe().sections:
+        if not sec.Name.startswith(sect):
+            continue
+        data = sec.get_data()
+        base = image_base() + sec.VirtualAddress
+        off = data.find(pat)
+        while off != -1:
+            va = base + off
+            nm = addr2name(va) or "?"
+            print(f"0x{va:08x}  {nm}")
+            hits += 1
+            if hits > 96:
+                print("... (>96 hits, stopping)")
+                return
+            off = data.find(pat, off + 1)
+    if not hits:
+        print("no hit")
+        sys.exit(1)
+
+
 def cmd_callsites(target):
     for sec in pe().sections:
         if not sec.Name.startswith(b".text"):
@@ -287,6 +312,8 @@ def main():
             cmd_findptr(parse_addr(rest[0]))
         elif cmd == "callsites":
             cmd_callsites(parse_addr(rest[0]))
+        elif cmd == "scan":
+            cmd_scan(rest[0])
         elif cmd == "vtable":
             cmd_vtable(parse_addr(rest[0]), int(rest[1]) if len(rest) > 1 else 16)
         elif cmd == "addr2fn":

@@ -586,6 +586,7 @@ public:
     void ResolvePausedAction(const CAIAction* curAction, POSITION pos);
     void ResolveTargetPoint(const CAIAction* curAction, POSITION pos);
     BOOL ProcessEffectList();
+    BOOL ProcessPersistantEffects(LONG deltaT);
     void ClearStoredPaths();
     void ClearDialogActions();
     BOOL HandleEffects();
