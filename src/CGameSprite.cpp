@@ -83,6 +83,24 @@ const BYTE CGameSprite::DIR_SSE = 15;
 // 0x85BB48
 const BYTE CGameSprite::NUM_DIR = 16;
 
+// 0x85BB4A
+const BYTE CGameSprite::SPRITE_EFFECT_FIRE = 1;
+
+// 0x85BB4B
+const BYTE CGameSprite::SPRITE_EFFECT_ELECTRICITY = 2;
+
+// 0x85BB4C
+const BYTE CGameSprite::SPRITE_EFFECT_COLD = 3;
+
+// 0x85BB4D
+const BYTE CGameSprite::SPRITE_EFFECT_ACID = 4;
+
+// 0x85BB4E
+const BYTE CGameSprite::SPRITE_EFFECT_INTENSITY_LOW = 0;
+
+// 0x85BB69
+const BYTE CGameSprite::SOUND_DAMAGE = 6;
+
 // 0x85BB6A
 const BYTE CGameSprite::SOUND_DYING = 7;
 
@@ -815,7 +833,7 @@ CGameSprite::CGameSprite(BYTE* pCreature, LONG creatureSize, int a3, WORD type, 
     m_bAllowEffectListCall = TRUE;
     field_72AA = 0;
     m_bForceVisualEffects = FALSE;
-    field_5582 = 0;
+    m_nDamageTaken = 0;
     field_9D14 = 0;
     field_9D15 = 0;
     m_hasColorEffects = FALSE;
@@ -1084,7 +1102,7 @@ CGameSprite::CGameSprite(BYTE* pCreature, LONG creatureSize, int a3, WORD type, 
         field_728E = -1;
         m_bPlayedEncumberedStopped = 0;
         m_bPlayedEncumberedSlowed = 0;
-        field_72A0 = 0;
+        m_poisonSoundTimer = 0;
         m_nBounceCounter = 0;
         field_7106 = 0;
 
@@ -12403,7 +12421,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
 
     if (m_castCounter < castTime) {
         if (!field_9D15
-            && (field_5582 == 0 || m_curSpell->GetCasterType() == 4)) {
+            && (m_nDamageTaken == 0 || m_curSpell->GetCasterType() == 4)) {
             if (initialSequence != SEQ_CONJURE && m_castCounter < castTime - 4) {
                 CMessage* message = new CMessageSetSequence(SEQ_CONJURE, m_id, m_id);
                 g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
@@ -12434,9 +12452,9 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
                     skill - featBonus,
                     featBonus,
                     0x9BA2,
-                    field_5582,
+                    m_nDamageTaken,
                     m_curSpell->GetLevel());
-                field_9D15 = skill + roll < field_5582 + m_curSpell->GetLevel() + 10;
+                field_9D15 = skill + roll < m_nDamageTaken + m_curSpell->GetLevel() + 10;
             }
             if (!field_9D15) {
                 m_curSpell->Release();
@@ -12477,7 +12495,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
         spellFailed = TRUE;
     }
 
-    if (field_9D15 || (field_5582 != 0 && m_curSpell->GetCasterType() != 4)) {
+    if (field_9D15 || (m_nDamageTaken != 0 && m_curSpell->GetCasterType() != 4)) {
         if (!field_9D15 && !field_9D14) {
             field_9D14 = TRUE;
             INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
@@ -12492,9 +12510,9 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
                 skill - featBonus,
                 featBonus,
                 0x9BA2,
-                field_5582,
+                m_nDamageTaken,
                 m_curSpell->GetLevel());
-            field_9D15 = skill + roll < field_5582 + m_curSpell->GetLevel() + 10;
+            field_9D15 = skill + roll < m_nDamageTaken + m_curSpell->GetLevel() + 10;
         }
         if (field_9D15) {
             FeedBack(FEEDBACK_SPELLFAILED_DISRUPTED, 0, 0, 0, -1, 0, 0);
@@ -12521,13 +12539,13 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
             skill - featBonus,
             featBonus,
             0x9BA2,
-            field_5582,
+            m_nDamageTaken,
             m_curSpell->GetLevel());
         // Original bug preserved: 0x7423C7 `CMP EBX,EAX; JL 0x7423F0` jumps
         // PAST the disrupted exit when skill+roll < DC, so PASSING the
         // webbed-concentration check disrupts the spell and failing it lets
         // the cast continue.
-        if (skill + roll >= field_5582 + m_curSpell->GetLevel() + 10) {
+        if (skill + roll >= m_nDamageTaken + m_curSpell->GetLevel() + 10) {
             FeedBack(FEEDBACK_SPELLFAILED_DISRUPTED, 0, 0, 0, -1, 0, 0);
             m_curSpell->Release();
             return ACTION_DONE;
@@ -13007,7 +13025,7 @@ SHORT CGameSprite::SpellPointSequence()
 
     if (m_castCounter < castTime) {
         if (field_9D15
-            || (field_5582 != 0 && m_curSpell->GetCasterType() != 4)) {
+            || (m_nDamageTaken != 0 && m_curSpell->GetCasterType() != 4)) {
             // Damage taken mid-cast: this tick goes to the concentration
             // roll -- no sequence transition happens even when the roll
             // succeeds (same shape as Spell).
@@ -13026,9 +13044,9 @@ SHORT CGameSprite::SpellPointSequence()
                         skill - featBonus,
                         featBonus,
                         0x9BA2,
-                        field_5582,
+                        m_nDamageTaken,
                         m_curSpell->GetLevel());
-                    field_9D15 = skill + roll < field_5582 + m_curSpell->GetLevel() + 10;
+                    field_9D15 = skill + roll < m_nDamageTaken + m_curSpell->GetLevel() + 10;
                 }
                 if (!field_9D15) {
                     m_curSpell->Release();
@@ -13082,7 +13100,7 @@ SHORT CGameSprite::SpellPointSequence()
         spellFailed = TRUE;
     }
 
-    if (field_9D15 || (field_5582 != 0 && m_curSpell->GetCasterType() != 4)) {
+    if (field_9D15 || (m_nDamageTaken != 0 && m_curSpell->GetCasterType() != 4)) {
         if (!field_9D15 && !field_9D14) {
             field_9D14 = TRUE;
             INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
@@ -13097,9 +13115,9 @@ SHORT CGameSprite::SpellPointSequence()
                 skill - featBonus,
                 featBonus,
                 0x9BA2,
-                field_5582,
+                m_nDamageTaken,
                 m_curSpell->GetLevel());
-            field_9D15 = skill + roll < field_5582 + m_curSpell->GetLevel() + 10;
+            field_9D15 = skill + roll < m_nDamageTaken + m_curSpell->GetLevel() + 10;
         }
         if (field_9D15) {
             FeedBack(FEEDBACK_SPELLFAILED_DISRUPTED, 0, 0, 0, -1, 0, 0);
@@ -13126,12 +13144,12 @@ SHORT CGameSprite::SpellPointSequence()
             skill - featBonus,
             featBonus,
             0x9BA2,
-            field_5582,
+            m_nDamageTaken,
             m_curSpell->GetLevel());
         // Original bug preserved (same inverted comparison as Spell's
         // 0x7423C7): PASSING the webbed-concentration check disrupts the
         // spell and failing it lets the cast continue.
-        if (skill + roll >= field_5582 + m_curSpell->GetLevel() + 10) {
+        if (skill + roll >= m_nDamageTaken + m_curSpell->GetLevel() + 10) {
             FeedBack(FEEDBACK_SPELLFAILED_DISRUPTED, 0, 0, 0, -1, 0, 0);
             m_curSpell->Release();
             return ACTION_ERROR;
@@ -13907,7 +13925,7 @@ void CGameSprite::ResolveInstants(BOOL dropNonInstants)
             }
         }
 
-        field_5582 = 0;
+        m_nDamageTaken = 0;
         field_9D14 = 0;
         field_9D15 = 0;
     }

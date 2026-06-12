@@ -4,6 +4,7 @@
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
+#include "CBlood.h"
 #include "CGameAnimationType.h"
 #include "CGameArea.h"
 #include "CGameSprite.h"
@@ -2456,16 +2457,19 @@ void CGameEffectDamage::WakeOnDamage(CGameSprite* pSprite)
 // wound a creature.
 //
 // CORE RECOVERY.  The faithful spine (dice roll -> mode-switch HP subtract ->
-// death effect) is recovered; the surrounding original sub-systems are documented
-// stubs pending their own arcs, each marked HACK below:
+// death effect) and the on-hit feedback (pain vocal, per-type hit cue, the
+// elemental flash overlay with its spell-hit VFX, blood, the damage-locator
+// markers, the GETHIT flinch) are recovered; the surrounding original
+// sub-systems are documented stubs pending their own arcs, each marked HACK
+// below:
 //   * entry gates (0x4A7913..0x4A7F1E): magic-class immunity, the animation-busy
 //     check, the global no-damage flag, the creature-state pre-gates at +0x5BC,
 //     and the "HP < -9 already pulped" short-circuit.
 //   * damage scaling + reduction (0x4A8038..0x4A8200): party difficulty scale,
 //     the +0xA14 "absorb to pool" special, the per-type resistance switch, the
 //     near-death party clamp, and the FUN_00448250 saving-throw pass.
-//   * cosmetic feedback (0x4A83A8..0x4A8636): the floating damage number, hit
-//     sound, blood spatter, sequence change, and the damage-flash markers.
+//   * the armor hit-thud resolver (0x4A8DF0) and the combat-log damage line
+//     (the vtable +0x28 virtual, 0x4AA6D0).
 //   * the type-specific death-animation kind switch (0x4A8742..0x4A89BF): the
 //     gib / burnt / frozen / disintegrate variants.  We set the normal kind (4),
 //     which is what magic damage uses.
@@ -2473,8 +2477,38 @@ void CGameEffectDamage::WakeOnDamage(CGameSprite* pSprite)
 BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 {
     // m_dwFlags packs the damage descriptor: low word = how to apply it
-    // (0/3 = subtract, 1 = set, 2 = percent), high word = damage-type bitmask.
+    // (0/3 = subtract, 1 = set, 2 = percent), high word = damage-type bitmask
+    // (DAMAGES.IDS << 16).
     DWORD mode = m_dwFlags & 0xFFFF;
+    DWORD damageType = m_dwFlags & 0xFFFF0000;
+
+    SHORT nOldHitPoints = pSprite->GetBaseStats()->m_hitPoints;
+
+    // Blood and splatter fly away from the damage source: face the source
+    // object if it still exists, the effect's source point otherwise.
+    SHORT nBloodDirection;
+    if (m_sourceID == CGameObjectArray::INVALID_INDEX) {
+        nBloodDirection = pSprite->GetDirection(m_source);
+    } else {
+        CGameObject* pSource;
+
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pSource,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            nBloodDirection = pSprite->GetDirection(pSource->GetPos());
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        } else {
+            nBloodDirection = 0;
+        }
+    }
 
     // --- roll the dice: total = base amount + sum of m_numDice d(m_diceSize) ---
     int total = 0;
@@ -2497,6 +2531,8 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         m_effectAmount = total;
     }
 
+    SHORT nSequenceBefore = pSprite->m_nSequence;
+
     // HACK: difficulty scaling, the per-type resistance switch, and the
     // saving-throw pass are unrecovered -- the target takes the full rolled
     // total with no reduction -- replaces 0x4A8038..0x4A8200.  The clamp below
@@ -2505,9 +2541,38 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         m_effectAmount = 0;
     }
 
-    // --- subtract from hit points (HACK: the per-effect vtable[0x28] damage-
-    // accounting hook is omitted; it records the resisted amount for triggers
-    // and does not change HP -- replaces the calls at 0x4A8398 / 0x4A83D1). ---
+    // The damage just taken is remembered on the target; the casting
+    // Concentration check reads it back (DC 10 + damage + spell level).
+    if (m_effectAmount > 0) {
+        pSprite->m_nDamageTaken = m_effectAmount;
+    }
+
+    // Pain vocal (sound slot 6).  Per-tick poison damage only grunts once
+    // every 100 AI updates so the bark does not spam.
+    if (damageType == 0x200000) {
+        if (pSprite->m_poisonSoundTimer < 1) {
+            pSprite->m_poisonSoundTimer = 100;
+
+            CMessagePlaySound* pPlaySound = new CMessagePlaySound(CGameSprite::SOUND_DAMAGE,
+                TRUE,
+                TRUE,
+                pSprite->GetId(),
+                pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pPlaySound, FALSE);
+        }
+    } else {
+        CMessagePlaySound* pPlaySound = new CMessagePlaySound(CGameSprite::SOUND_DAMAGE,
+            TRUE,
+            TRUE,
+            pSprite->GetId(),
+            pSprite->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pPlaySound, FALSE);
+    }
+
+    // --- subtract from hit points (HACK: the per-effect vtable[0x28] virtual
+    // is omitted; it prints the combat-log damage line with the resisted
+    // amount (0x4AA6D0) and does not change HP -- replaces the calls at
+    // 0x4A8398 / 0x4A83D1). ---
     switch (mode) {
     case 0:
     case 3:
@@ -2525,32 +2590,74 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         break;
     }
 
-    // Impact sound (0x4A8432..0x4A8636): the original keys the hit cue on the
-    // damage-type bitmask (the high word of m_dwFlags). Each type that has a fixed
-    // cue plays it on the target; the remaining types feed only the blood pipeline.
-    // Magic Missile (type 0x400000) plays "HIT_07". Recovered here via
-    // CGameEffect::PlaySound. The interleaved VISUAL feedback -- the colour
-    // hit-markers (CGameSprite::StartSpriteEffect), the blood spatter (AddBlood for
-    // types 0/0x100000/0x1000000/0x2000000/0x4000000), the floating damage number,
-    // and the FUN_004A8DF0 post-damage hook -- stays stubbed.
-    switch (m_dwFlags & 0xFFFF0000) {
-    case 0x10000:
+    // Damage-locator feedback: the portrait blood flash and the on-sprite
+    // damage marker both get armed for 0x80 ticks.
+    pSprite->m_bBloodFlashOn = TRUE;
+    pSprite->m_nBloodFlashAmount = 0x80;
+    pSprite->m_nDamageLocatorTime = 0x80;
+
+    // HACK: the armor hit-thud is unrecovered -- it picks a HIT_0xx variant
+    // from the target's armor animation type -- replaces the call at 0x4A8420
+    // (0x4A8DF0).
+
+    // On-hit feedback keyed on the damage type: the elemental types pair a
+    // fixed cue with the matching flash overlay (which also queues the
+    // spell-hit VFX), the physical types splatter blood away from the source
+    // instead, magic only clinks, everything else stays silent.  The overlay
+    // burns for 3 ticks per hit point lost.
+    switch (damageType) {
+    case 0x10000: // ACID
         PlaySound(CResRef("EFF_M47"), pSprite);
+        pSprite->StartSpriteEffect(CGameSprite::SPRITE_EFFECT_ACID,
+            CGameSprite::SPRITE_EFFECT_INTENSITY_LOW,
+            static_cast<BYTE>(3 * (nOldHitPoints - pSprite->GetBaseStats()->m_hitPoints)),
+            TRUE);
         break;
-    case 0x20000:
+    case 0x20000: // COLD
         PlaySound(CResRef("EFF_M46"), pSprite);
+        pSprite->StartSpriteEffect(CGameSprite::SPRITE_EFFECT_COLD,
+            CGameSprite::SPRITE_EFFECT_INTENSITY_LOW,
+            static_cast<BYTE>(3 * (nOldHitPoints - pSprite->GetBaseStats()->m_hitPoints)),
+            TRUE);
         break;
-    case 0x40000:
+    case 0x40000: // ELECTRICITY
         PlaySound(CResRef("MISC_02C"), pSprite);
+        pSprite->StartSpriteEffect(CGameSprite::SPRITE_EFFECT_ELECTRICITY,
+            CGameSprite::SPRITE_EFFECT_INTENSITY_LOW,
+            static_cast<BYTE>(3 * (nOldHitPoints - pSprite->GetBaseStats()->m_hitPoints)),
+            TRUE);
         break;
-    case 0x80000:
+    case 0x80000: // FIRE
         PlaySound(CResRef("MISC_01C"), pSprite);
+        pSprite->StartSpriteEffect(CGameSprite::SPRITE_EFFECT_FIRE,
+            CGameSprite::SPRITE_EFFECT_INTENSITY_LOW,
+            static_cast<BYTE>(3 * (nOldHitPoints - pSprite->GetBaseStats()->m_hitPoints)),
+            TRUE);
         break;
-    case 0x400000:
+    case 0x400000: // MAGIC
         PlaySound(CResRef("HIT_07"), pSprite);
+        break;
+    case 0x0:       // CRUSHING
+    case 0x100000:  // PIERCING
+    case 0x1000000: // SLASHING
+    case 0x2000000: // MAGICFIRE (sic -- the original bleeds these two)
+    case 0x4000000: // MAGICCOLD (sic)
+        pSprite->AddBlood(0,
+            nBloodDirection,
+            nOldHitPoints - pSprite->GetBaseStats()->m_hitPoints < 6
+                ? CBlood::GUSH_LOW
+                : CBlood::GUSH_MEDIUM);
         break;
     default:
         break;
+    }
+
+    // Flinch unless the pre-damage animation already shows pain or worse.
+    if (nSequenceBefore != CGameSprite::SEQ_DAMAGE
+        && nSequenceBefore != CGameSprite::SEQ_DIE
+        && nSequenceBefore != CGameSprite::SEQ_SLEEP
+        && nSequenceBefore != CGameSprite::SEQ_TWITCH) {
+        pSprite->SetSequence(CGameSprite::SEQ_DAMAGE);
     }
 
     if (pSprite->GetBaseStats()->m_hitPoints > 0) {

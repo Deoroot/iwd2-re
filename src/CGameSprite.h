@@ -198,6 +198,13 @@ public:
     static const BYTE DIR_SSE;
     static const BYTE NUM_DIR;
 
+    static const BYTE SPRITE_EFFECT_FIRE;
+    static const BYTE SPRITE_EFFECT_ELECTRICITY;
+    static const BYTE SPRITE_EFFECT_COLD;
+    static const BYTE SPRITE_EFFECT_ACID;
+    static const BYTE SPRITE_EFFECT_INTENSITY_LOW;
+
+    static const BYTE SOUND_DAMAGE;
     static const BYTE SOUND_DYING;
     static const BYTE SOUND_SELECT;
     static const BYTE SOUND_SELECT_ACTION;
@@ -895,7 +902,7 @@ public:
     /* 5578 */ SHORT m_nCommandPause;
     /* 557A */ int field_557A;
     /* 557E */ int field_557E;
-    /* 5582 */ int field_5582;
+    /* 5582 */ int m_nDamageTaken;
     /* 5586 */ POSITION m_groupPosition;
     /* 558A */ BOOL m_groupMove;
     /* 558E */ int field_558E;
@@ -1001,7 +1008,7 @@ public:
     /* 7296 */ SHORT m_currentActionId;
     /* 7298 */ BOOL m_bPlayedEncumberedStopped;
     /* 729C */ BOOL m_bPlayedEncumberedSlowed;
-    /* 72A0 */ short field_72A0;
+    /* 72A0 */ short m_poisonSoundTimer;
     /* 72A2 */ short field_72A2;
     /* 72A4 */ BOOL m_bAllowEffectListCall;
     /* 72A8 */ unsigned char field_72A8;
