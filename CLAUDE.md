@@ -10,203 +10,127 @@ Host (CachyOS, `/home/wills/iwd2-re`) = edit/CC/graph/re-agent/Ghidra(`/opt/ghid
 VM (Win11, SSH `win11vm`) = build (VS2019/MFC) + game + Frida only.
 Paths: `/home/wills/iwd2-re/...` = host; `C:\iwd2-re\...`, `C:\GOG Games\...` = VM.
 
-## code-review-graph MCP — use before Grep/Glob/Read
-
-**RULE: searching `src/` or `refs/gemrb/` → graph tools first.**
-
-- iwd2-re graph (`src/`): default `repo_root`. Alias `iwd2`.
-- GemRB graph: `repo_root="/home/wills/iwd2-re/refs/gemrb"`. Alias `gemrb`.
-- Both: `cross_repo_search_tool` searches both simultaneously.
-
-Allowed without graph: `tmp_*.txt`, `data/`, `scripts/`, `.ghidra-exports/`, raw binaries.
+## Lookup routing — cheapest tool first
 
 | Want | Tool |
 |------|------|
-| Find fn/class by name | `semantic_search_nodes` |
-| Callers of X | `query_graph pattern=callers_of target=X` |
-| Callees of X | `query_graph pattern=callees_of target=X` |
-| File contents tree | `query_graph pattern=file_summary target=path` |
-| Blast radius | `get_impact_radius` |
-| Exec paths hit | `get_affected_flows` |
-| Free traversal | `traverse_graph` |
-| Quick repo stats | `get_minimal_context` |
-| Review diff | `detect_changes` → `get_affected_flows` |
-| GemRB lookup | same tools + `repo_root="/home/wills/iwd2-re/refs/gemrb"` |
-| Cross-repo search | `cross_repo_search_tool` |
+| Find fn/class/global in src (file:line, 0xADDR, exact body) | `python3 scripts/src_find.py NAME` / `Class::Method --body` / `0xADDR` / `Class:: -l` / `--file f.cpp` |
+| Quick look at a binary fn (sig, callees, callers, strings) | `python3 scripts/fn_digest.py 0xADDR\|Name` (`--full` → tmp file path) |
+| PE bytes / dwords / strings / disasm / vtable / ptr-scan / crash dump | `scripts/sym.py bytes\|u32\|str\|disasm\|findptr\|vtable\|addr2fn\|crash` |
+| Callers/callees graph, blast radius, exec flows, review diff | graph MCP: `query_graph` (callers_of/callees_of/file_summary), `get_impact_radius`, `get_affected_flows`, `detect_changes` |
+| GemRB lookup / cross-repo | same graph tools + `repo_root="/home/wills/iwd2-re/refs/gemrb"`; `cross_repo_search_tool` |
+| Anything VM (build/run/logs/processes/files/frida) | `scripts/vm.sh` (below) |
+| Simple Frida probe (log args + fields at fn entries) | `scripts/frida_probe.py --hooks h.json` then `--summary` |
+| Mechanical batch analysis (parity triage, `#guess` sweep) | `scripts/ds_batch.py parity_triage\|rename_sweep\|free` (DeepSeek via OpenCode Go, key in `.env`) |
+| Token-cost check of recent sessions | `python3 scripts/token_audit.py` |
 
-Workflow: `semantic_search_nodes` → `query_graph callers/callees` → Read only specific lines from result.
-
-**Query:** one bare identifier token. Retry shorter before Grep.
+- **No ad-hoc python heredocs** for pefile/capstone/minidump/map work the CLIs cover — extend the CLI instead.
+- Raw `gb decompile` only when the digest is insufficient. Recovery = full bundle (below), unchanged.
+- Grep/Read on `src/` only after `src_find.py` misses. Graph query = one bare identifier token.
+- Exploration estimated >5 tool calls or >3 files → spawn `caveman:cavecrew-investigator` (compressed output). Mechanical 1-2-file edit late in a long session → `caveman:cavecrew-builder`. Else inline.
+- Batch independent tool calls in one message. `/clear` between recovery arcs. Memory arc files ≤4K.
 
 ## Build & run (host → VM over SSH)
 
 ```bash
-scripts/remote_build.sh          # sync src -> VM, build (VsDevCmd x86 + cmake --build Debug)
-scripts/remote_build.sh --run    # + launch in session 1, wait for "world engine activated"
+scripts/vm.sh build [--run]   # remote_build.sh wrapped: prints ONLY errors/warnings + status (full log tmp_vm_build.log)
+scripts/vm.sh run [slot]      # kill OUR iwd2-re.exe + launch session 1 (default combat slot 2)
+scripts/vm.sh log <regex> [-n 50] [-f path]   # Select-String VM-side (UTF-16 safe); also: tail/status/ps/pull/push
+scripts/vm.sh frida script.py # ship + run as session-1 payload, ready-to-log
 ```
-- `.cmd` batches drive the VM (default SSH shell is PowerShell; cmake/msbuild via `VsDevCmd`).
-- GUI over SSH = session 0 (no desktop, never renders). `vm_s1.cmd` relaunches in the interactive
-  console session (1) — required for render/input/Frida. Smoke timeout there = no desktop, not a crash.
-- `--new-game` / save slot: edit `scripts/vm_s1_payload.cmd` (default = combat slot 2).
-
-Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one commit. Build fail → stop.
+- Kill policy: `build` never kills; `run` kills our exe only; original `IWD2.exe` only via explicit `vm.sh kill orig` (Frida sessions survive builds).
+- GUI over SSH = session 0 (never renders); session 1 via `vm_s1.cmd` required for render/input/Frida. Smoke timeout there = no desktop, not a crash.
+- Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one commit. Build fail → stop.
 
 ## Ghidra = truth
 
 Don't invent code. Check Ghidra first. `// 0xADDR` can be stale. Ghidra wins.
-Address not in funcs table → check vtable DATA xref (virtual method).
+Address not in funcs table → check vtable DATA xref (virtual method): `scripts/sym.py findptr 0xMETHOD` → `sym.py vtable 0xBASE`.
 
 ## Ghidra access — ghidra-bridge
 
-Ghidra data now comes from **ghidra-ai-bridge** (vendored at `vendor/ghidra-ai-bridge`):
-a PyGhidra **headless export** into `.ghidra-exports/` (not a live server). Runs **on the host** —
-Linux venv `.venv-reagent/bin/{re-agent,ghidra-bridge}`, Ghidra 12.1.2 at `/opt/ghidra`, project at
-`~/ghidra_projects/IWD2/IWD2`. Config = `ghidra-bridge.host.yaml` + `re-agent.host.yaml` (repo root,
-gitignored, Linux paths). Branch: `re-agent-workflow`. re-agent's backend reaches the bridge via
-`scripts/ghidra-bridge-host` (its `cli_path`), which injects `--config ghidra-bridge.host.yaml` —
-without it the bridge auto-loads the VM config and every lookup returns "Function not found".
+**ghidra-ai-bridge** (vendored `vendor/ghidra-ai-bridge`) = PyGhidra **headless export** into `.ghidra-exports/` (not a live server). Host-side: venv `.venv-reagent/bin/{re-agent,ghidra-bridge}`, project `~/ghidra_projects/IWD2/IWD2`. Config `ghidra-bridge.host.yaml` + `re-agent.host.yaml` (repo root, gitignored). re-agent's backend goes through `scripts/ghidra-bridge-host` (injects `--config`) — without it every lookup returns "Function not found".
 
 **Query** (`gb` = `.venv-reagent/bin/ghidra-bridge --config ghidra-bridge.host.yaml`):
 
 | Want | Cmd |
 |---|---|
-| Decompile + caller/callee counts | `gb decompile 0xADDR` |
+| Full decompile (prefer `fn_digest.py` for a look) | `gb decompile 0xADDR` |
 | Callers / callees | `gb xrefs-to 0xADDR` / `gb xrefs-from 0xADDR` |
-| Disassembly (boots PyGhidra, ~1 min) | `gb dump-asm 0xADDR out.asm` (writes a file; not `asm`) |
-| Struct / vtable | `gb struct CClass` / `gb vtable CClass` |
-| Crash addr → containing fn | `gb containing 0xADDR` |
-| Unrecovered (by caller count) | `gb unimplemented CClass` |
+| Disassembly (boots PyGhidra ~1 min; `sym.py disasm` = instant) | `gb dump-asm 0xADDR out.asm` |
+| Struct / vtable / containing fn / unrecovered list | `gb struct CClass` / `gb vtable CClass` / `gb containing 0xADDR` / `gb unimplemented CClass` |
 
-**"Function not found" / "no export for 0xADDR" on a VALID addr** = Ghidra never defined a function
-there (vtable-only callee, no direct `call`; `gb containing` shows the bytes swallowed by the previous
-fn). Fix: ensure a `// 0xADDR` exists in source (stub the method if new), then
-`python scripts/reagent_address_map.py --out .ghidra-exports/address_map.json` +
-`gb export create-functions` (~10 min: batch-creates from the map, re-exports all).
-⚠️ NEVER `gb build-map` — it can't parse our `// 0xADDR` convention and overwrites the map with an EMPTY one.
-Unknown virtual's addr: find the class vtable in `.rdata` via pefile (search a known method's ptr,
-subtract its header slot offset), read the wanted slot.
+**"Function not found" / "no export" on a VALID addr** = no fn defined there (vtable-only callee). Fix: ensure `// 0xADDR` in source (stub if new) → `python scripts/reagent_address_map.py --out .ghidra-exports/address_map.json` → `gb export create-functions` (~10 min, re-exports all).
+⚠️ NEVER `gb build-map` — overwrites the map with an EMPTY one.
 
-**Parity** = faithfulness lint of recovered C++ vs Ghidra (11 signals + call-count/control-flow
-objective verifier). Run from the repo root (`/home/wills/iwd2-re`) so the bridge finds the yaml via cwd:
+**Parity** = faithfulness lint (11 signals + objective verifier). Run from repo root:
 
 ```bash
 .venv-reagent/bin/re-agent --config re-agent.host.yaml parity --address 0xADDR
 .venv-reagent/bin/re-agent --config re-agent.host.yaml parity --filter "CClass::" --output tmp_parity.json
 ```
 
-GREEN/YELLOW/RED per fn. `asm`-based signals (fp_sensitivity, large-asm-tiny-source) read
-`dump-asm`, which boots PyGhidra headless (~1 min/call) — heavier than the cache-read signals.
+GREEN/YELLOW/RED. asm signals boot PyGhidra (~1 min/call). STL-inline call-count YELLOW/RED = classic false positives.
+⚠️ `re-agent reverse` = lint/oracle at best, NEVER author (regresses clean code). Don't commit its output unverified; gate behavioral claims with a Frida diff.
 
-⚠️ `re-agent reverse` (LLM whole-file codegen loop) is **NOT validated here** and fights
-minimal-diff + faithfulness. Never commit its output unverified. Use `parity` as a lint, not
-`reverse` as an author; gate any behavioral claim with a Frida diff.
-
-**Read PE bytes (pefile, on host):** host IWD2.exe = same bytes as VM. ImageBase `0x400000`, no ASLR.
-```python
-import pefile
-pe = pefile.PE(r"/home/wills/Games/Heroic/Icewind Dale 2/IWD2.exe", fast_load=True)
-ib = pe.OPTIONAL_HEADER.ImageBase
-print(pe.get_data(0x8ABCA4 - ib, 16))
-```
+PE facts: host IWD2.exe = same bytes as VM, ImageBase `0x400000`, no ASLR → `scripts/sym.py`.
 
 ## Frida tracing
 
-Don't hesitate to write a throwaway Frida trace to confirm/investigate field semantics live in-game before a recover — ground truth beats guessing.
-
-Hook original `IWD2.exe` at runtime, diff against `Iwd2DebugLog`.
-Docs: `docs/frida-differential-tracing.md`. Template: `scripts/frida_formation_trace.py`.
-- Game must run in VM **session 1** (`scripts/vm_s1.cmd`); attach from host over SSH (cross-session OK). Spawn-time hooks → run the frida driver as the session-1 payload.
-- `ptr(0xADDR)` absolute (no ASLR, ImageBase `0x400000`). `__thiscall`: `this` = `this.context.ecx`, stack args = `args[0..]`.
-- Hook function ENTRIES only. Mid-function hooks crash.
-- Runtime wins when `__thiscall` args disagree with decompiler.
-- Read PE constants with `pefile`, not memory endpoint.
-- Preferred input-driving order: Frida-RPC into the engine fn > keyboard > `PostMessage` > polite physical hijack (`BlockInput`+restore cursor, unattended only). IWD2 polls the mouse from the engine tick, so synthetic clicks can drop — physical is sometimes the only thing that registers. No cursor hijack while the user is at the machine.
-- Hedron revisit trace: kill old `iwd2-re/IWD2` first; 800x600 client click is `[500,250]` (world around `[2513,906]`, obj `524296`).
-- For mouse automation, hover first and prove `CGameSprite::IsOver` or `CGameArea::OnActionButtonDown picked=524296`; raw screenshots alone misled upward.
-- RE dialog replies are flaky with marker-only RPC; use `responseMarker` plus a real/post click on the visible reply line.
+Throwaway traces to confirm field semantics live BEFORE a recover — ground truth beats guessing. Simple probes (args+fields at entries) = `frida_probe.py` hook-table JSON; complex logic (call-origin filters, list walks) = bespoke script, template `scripts/frida_formation_trace.py`, docs `docs/frida-differential-tracing.md`.
+- Game in VM session 1; spawn-time hooks → driver as session-1 payload (`vm.sh frida`).
+- `ptr(0xADDR)` absolute. `__thiscall`: `this` = `this.context.ecx`, stack args = `args[0..]`. Hook fn ENTRIES only.
+- Runtime wins when `__thiscall` args disagree with decompiler; decompiler wins for counts (high-word garbage in int32 reads of 16-bit values).
+- Read PE constants with `sym.py`, not the memory endpoint.
+- Input-driving order: Frida-RPC into the engine fn > keyboard > `PostMessage` > polite physical hijack (unattended only; IWD2 polls mouse from the engine tick). Hover first and prove `CGameSprite::IsOver`/`OnActionButtonDown picked=...`; screenshots alone mislead. Dialog replies: `responseMarker` + real/post click.
 
 ## Game assets (`data/near_infinity_export/`)
 
-Extracted via NearInfinity. Use for game content questions (action IDs, spell IDs, scripts, UI layouts).
-
-```
-data/near_infinity_export/
-├── 2DA/         rule tables (QSLOTS, XPLEVEL, ANIMATE, etc.)
-├── ARE/         areas — actors, doors, triggers, spawns
-├── BAM_DECOMP/  decompressed BAMv1 (read frames with struct.unpack)
-├── BCS/         creature scripts (exported as .BAF)
-├── BS/          player scripts (.BAF)
-├── CHU/         UI panels (button frames, control ids)
-├── CRE/         creature templates
-├── DLG/         dialogue trees
-├── EFF/         standalone effects
-├── IDS/         symbol→id maps (ACTION, TRIGGER, OBJECT, STATS, SPLSTATE)
-├── ITM/         items
-├── SPL/         spells
-├── STO/         stores
-├── WED/         tile maps
-└── WMP/         world map
-```
+NearInfinity export. Use for game content (action IDs, spell IDs, scripts, UI layouts).
+Dirs: `2DA/` rule tables · `ARE/` areas · `BAM_DECOMP/` decompressed BAMv1 · `BCS/`+`BS/` scripts (.BAF) · `CHU/` UI panels · `CRE/` creatures · `DLG/` dialogs · `EFF/` effects · `IDS/` symbol→id maps · `ITM/` `SPL/` `STO/` `WED/` `WMP/`.
 
 | Question | File |
 |---|---|
-| Action id N? | `IDS/ACTION.IDS` |
-| Trigger id N? | `IDS/TRIGGER.IDS` |
+| Action/trigger id N? | `IDS/ACTION.IDS`, `IDS/TRIGGER.IDS` |
 | Stat/state name? | `IDS/STATS.IDS`, `IDS/SPLSTATE.IDS` |
-| Spell SPxxx? | `SPL/SPxxx.SPL` |
-| Button slot? | `CHU/<panel>.CHU` |
-| QSlot layout? | `2DA/QSLOTS.2DA` |
-| Area edges? | `WMP/WORLDMAP.WMP` |
-| Script usage? | grep `BCS/*.BAF` + `BS/*.BAF` |
+| Spell SPxxx? / button slot? / qslot layout? | `SPL/SPxxx.SPL` / `CHU/<panel>.CHU` / `2DA/QSLOTS.2DA` |
+| Area edges? / script usage? | `WMP/WORLDMAP.WMP` / grep `BCS/*.BAF` + `BS/*.BAF` |
 
 ### Asset names / StringRefs
 
-Resolve the canonical TLK name before naming an asset in recovered-code comments or
-commit messages. Do not infer names from resrefs:
-
-```bash
-python scripts/reagent_asset_names.py SPWI304 AR1000 60SPELLS
-python scripts/reagent_asset_names.py SPWI304 --verbose
-python scripts/reagent_asset_names.py SPWI304 --json
-python scripts/reagent_asset_names.py --strref 6618
-```
-
-Compact output is comment-ready: `Fireball (SPWI304.SPL, strref 6618)`. Supported
-named resources: SPL, ITM, CRE, STO, and ARE.
+Resolve the canonical TLK name before naming an asset in comments or commit messages (never infer from resref):
+`python scripts/reagent_asset_names.py SPWI304 AR1000 60SPELLS` (`--strref 6618`, `--json`). Output comment-ready: `Fireball (SPWI304.SPL, strref 6618)`. Supports SPL, ITM, CRE, STO, ARE.
 
 ## External refs
 
 | Path | Use |
 |-----|-----|
 | `data/pdb/bg2_pdb_types.txt` | BG2EE PDB layouts (field names match, offsets differ) |
-| `refs/gemrb/` | GemRB source  → use CRG graph (`repo_root="/home/wills/iwd2-re/refs/gemrb"`) |
+| `refs/gemrb/` | GemRB source → CRG graph (`repo_root=".../refs/gemrb"`) |
 | `refs/NearInfinity/` | File formats (.CRE/.ARE/.ITM) |
 | `refs/iesdp/` | Effects, opcodes, STATS.IDS |
-| `~/ghidra_projects/IWD2/IWD2` | Ghidra project (host, 12.1.2 at `/opt/ghidra`). CLOSE the GUI before `ghidra-bridge export`. |
+| `~/ghidra_projects/IWD2/IWD2` | Ghidra project. CLOSE the GUI before `ghidra-bridge export`. |
 
 ## Temp files
 
 `tmp_*.txt`, `tmp_*.json`, `chunk_*.sql` = RE session noise. Not tracked. Delete freely.
-`.venv-reagent/`, `.ghidra-exports/` = re-agent toolchain + export cache. Gitignored.
+`.venv-reagent/`, `.ghidra-exports/` = toolchain + export cache. Gitignored.
 
 ## Recover a function: assemble context FIRST
 
-Before recovering ANY function, build its offline context bundle (fast, no PyGhidra boot):
+Quick look = `fn_digest.py`. Recovering = full offline bundle (fast, no PyGhidra boot):
 
     python scripts/reagent_assemble_context.py --address 0xADDR --out tmp_ctx.md
 
-Bundle = resolved decompile (our names, vtable-slot-annotated vcalls) + REQUIRED CALL SET
-(binary ground truth — reproduce exactly) + BG2 PDB layout + IDS constants + class header.
-Read it, then write idiomatic C++. Don't hand-recover from a bare decompile.
+Bundle = resolved decompile (our names, vtable-slot-annotated vcalls) + REQUIRED CALL SET (binary ground truth — reproduce exactly) + BG2 PDB layout + IDS constants + class header. Read it, then write idiomatic C++. Don't hand-recover from a bare decompile.
 
 ## Code changes
 
-- Recover → assemble its context bundle first (`reagent_assemble_context.py`, above).
-- Verify `// 0xADDR` against Ghidra before touching.
+- Recover → context bundle first (above). Verify `// 0xADDR` against Ghidra before touching.
 - Prefer named constants over magic numbers when defined in file.
 - `python scripts/vtable_audit.py ClassName` — catches missing virtual overrides.
-- After a recover, `re-agent parity --address 0xADDR` should be GREEN/YELLOW (RED = under-implemented vs Ghidra).
-- End every recover session by recommending the next function(s) to recover (callee gaps hit, `gb unimplemented`, caller counts).
+- After a recover: `re-agent parity --address 0xADDR` should be GREEN/YELLOW.
+- End every recover session by recommending the next function(s) (callee gaps, `gb unimplemented`, caller counts).
 
 ## No hacks
 
