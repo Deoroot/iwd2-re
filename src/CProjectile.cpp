@@ -2353,12 +2353,122 @@ CProjectileExploding::CProjectileExploding(const CResRef& resRef)
     m_strikeRange = 0x100;
     m_preCheckRange = 0x100;
     m_bPreScan = 0;
-    field_2F0 = 0;
+    m_bBurstPending = 0;
     m_tinted = 0;
-    field_2F6 = 0;
-    field_3D4 = 0;
+    m_bExplodeCell1Active = 0;
+    m_bExplodeCell2Active = 0;
     m_bCheckNonSprites = 0;
-    field_2F1 = 0xFF;
+    m_burstType = 0xFF;
+}
+
+// 0x52DD60 (vtable slot 3)
+//
+// The base flying/linger tick -- the leaves override it with their
+// flame-trail variants. Flying: advance the cell, re-aim at the recorded
+// target point and track the sound. Lingering: animate the explosion cells,
+// run the strike pass every m_lingerPeriod ticks, and while charges remain
+// fire the pending delayed burst (one-shot) with the colour ranges matching
+// m_burstType and a hold of lingerPeriod * strikesLeft.
+void CProjectileExploding::AIUpdate()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    if (m_nState == 0) {
+        m_pVidCell->FrameAdvance();
+
+        LONG nDeltaX = m_targetX - m_pos.x;
+        LONG nDeltaY = m_targetY - m_pos.y;
+        LONG nRadius = m_velocity + 1;
+        if ((nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX <= nRadius * nRadius) {
+            OnArrival();
+            return;
+        }
+
+        AimAtPoint(m_targetX, m_targetY);
+
+        // Trailing sub-projectile (m_bSparkleTrail != 0) via the unrecovered
+        // factory 0x51AE40 -- omitted like the same documented stub in
+        // CProjectileTravelling::AIUpdate. (The original builds the 0xCA
+        // object from m_sparkleColor and adds it to the area, LIST_FRONT.)
+
+        m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+        return;
+    }
+
+    if (m_bExplodeCell1Active) {
+        m_explodeCell1.FrameAdvance();
+    }
+
+    if (m_bExplodeCell2Active) {
+        m_explodeCell2.FrameAdvance();
+    }
+
+    if (m_lingerCountdown != 0) {
+        m_lingerCountdown = m_lingerCountdown - 1;
+        return;
+    }
+
+    m_lingerCountdown = static_cast<SHORT>(m_lingerPeriod);
+    if (AreaEffect(0) != 0) {
+        m_strikesLeft = m_strikesLeft - 1;
+    }
+
+    if (m_strikesLeft < 1) {
+        RemoveFromArea();
+        if (g_pBaldurChitin->GetObjectGame()->m_cObjectArray.Delete(m_id,
+                CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+            == CGameObjectArray::SUCCESS) {
+            delete this;
+        }
+
+        return;
+    }
+
+    if (m_bBurstPending == 0) {
+        return;
+    }
+
+    BYTE colorRangeValues[7];
+    switch (m_burstType) {
+    case 0:
+        memset(colorRangeValues, 0x43, sizeof(colorRangeValues));
+        m_bBurstPending = 0;
+        break;
+    case 1:
+        memset(colorRangeValues, 0x35, sizeof(colorRangeValues));
+        m_bBurstPending = 0;
+        break;
+    case 2:
+        memset(colorRangeValues, 0x31, sizeof(colorRangeValues));
+        m_bBurstPending = 0;
+        break;
+    case 3:
+        memset(colorRangeValues, 0x47, sizeof(colorRangeValues));
+        m_bBurstPending = 0;
+        break;
+    case 4:
+        memset(colorRangeValues, 0x42, sizeof(colorRangeValues));
+        m_bBurstPending = 0;
+        break;
+    case 5:
+        memset(colorRangeValues, 0x41, sizeof(colorRangeValues));
+        m_bBurstPending = 0;
+        break;
+    case 0xFF:
+        m_bBurstPending = 0;
+        return;
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CProjectile.cpp
+        // __LINE__: 5675
+        UTIL_ASSERT(FALSE);
+    }
+
+    new CGameFireball3d(m_burstType, colorRangeValues, m_pArea, m_pos, m_strikeRange,
+        static_cast<BYTE>(m_velocity), CGameTemporal::COLLISION_DESTROY,
+        static_cast<USHORT>(m_lingerPeriod * m_strikesLeft));
 }
 
 // 0x78E730 (vtable slot 34; COMDAT-folded with CProjectile::CallBack)
