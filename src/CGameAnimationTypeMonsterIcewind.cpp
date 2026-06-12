@@ -660,7 +660,12 @@ CGameAnimationTypeMonsterIcewind::CGameAnimationTypeMonsterIcewind(USHORT animat
         case 0x30:
         case 0x40:
         case 0x50:
-            m_resRef = "MOR" + (((animationID >> 4) & 0xF) + '0');
+            // "MOR1".."MOR5" (orc warrior/archer/chief/..): the binary
+            // (0x6E1670) concatenates CString("MOR") with the digit
+            // character. A bare `"MOR" + int` is pointer arithmetic and
+            // produced a garbage resref -- no BAM, invisible orcs.
+            m_resRef = CString("MOR")
+                + static_cast<char>(((animationID >> 4) & 0xF) + '0');
             m_colorBlood = 47;
             field_1CDA = 21;
             m_nSndFreq = 9;
