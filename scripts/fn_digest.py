@@ -75,6 +75,10 @@ def main() -> int:
     exp = json.loads(path.read_text(encoding="utf-8"))
     decomp = exp.get("decompiled") or ""
     name = exp.get("name") or f"FUN_{addr:08x}"
+    if name.startswith(("FUN_", "SUB_")):
+        info = json.loads(ADDR_MAP.read_text()).get(f"{addr:08x}")
+        if isinstance(info, dict) and info.get("full_name"):
+            name = info["full_name"] + " (export stale)"
 
     names = load_names(ADDR_MAP, EXPORTS / "_index.json", EXPORTS / "_globals.json")
     rewritten, _res, unres = resolve(decomp, names)
