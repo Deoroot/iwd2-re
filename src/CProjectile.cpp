@@ -2152,8 +2152,8 @@ void CProjectileTravelling::SetVidCell(CResRef resRef)
 // Request the sparkle colour-table bitmap ("STTRAVL1"; resource type 1 =
 // bitmap) and arm the render-time palette swap (m_paletteSwap; Render picks
 // the row given by m_sparkleColor). Cancels the previous request when the
-// resref actually changes; an empty name is ignored.
-void CProjectileTravelling::SetTravelPalette/*#guess*/(CString bitmapName)
+// resref actually changes; an empty name is ignored. (Name is a #guess.)
+void CProjectileTravelling::SetTravelPalette(CString bitmapName)
 {
     if (bitmapName.GetLength() != 0) {
         CResRef resRef(bitmapName);

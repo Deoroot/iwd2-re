@@ -133,8 +133,8 @@ public:
     virtual void AimAtPoint(int x, int y);     // vtable slot 33 (0x52BD20)
     virtual DWORD GetRenderFlags();            // vtable slot 32 (0x5297D0)
 
-    void SetVidCell(CResRef resRef);                      // 0x5295D0 -- replace the animation cell
-    void SetTravelPalette/*#guess*/(CString bitmapName);  // 0x529660 -- request the sparkle colour-table bitmap
+    void SetVidCell(CResRef resRef);            // 0x5295D0 -- replace the animation cell
+    void SetTravelPalette(CString bitmapName);  // 0x529660 -- request the sparkle colour-table bitmap (#guess name)
 
 protected:
     void GetCellBounds(CRect& rBounds, CPoint& ptRef);   // 0x52B6B0 -- cell draw rect + ref point
