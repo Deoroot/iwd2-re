@@ -17,8 +17,7 @@ class CVidMode;
 // four-quadrant particle table along the explosion ellipse arc
 // (CVidMode::GetEllipseArcPixelList) and spawns the center CGameTemporal
 // (except type 0). Render only asserts -- the visuals are the temporals the
-// particle tick spawns. The particle tick itself (AIUpdate 0x711D90) is not
-// yet recovered.
+// particle tick (AIUpdate) spawns along the expanding ring front.
 class CGameFireball3d : public CGameObject {
 public:
     static const BYTE TYPE_FIREBALL;   // 0x85BD70 (= 0; types 1-5 live at 0x85BD71-75)
@@ -36,8 +35,8 @@ private:
     // toward the ellipse-arc slot (1/1024 fixed point), in four mirrored
     // quadrant blocks of (m_arcLengthX + m_arcLengthY) entries.
     struct SParticle/*#guess*/ {
-        /* 00 */ int x;
-        /* 04 */ int y;
+        /* 00 */ int y;   // 4/3 y-scaled subpixel
+        /* 04 */ int x;
         /* 08 */ int stepY;
         /* 0C */ int stepX;
     };
