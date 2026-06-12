@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/wills/iwd2-re/.venv-reagent/bin/python
 """ds_batch.py - offload mechanical, verifiable batch analysis to DeepSeek.
 
 Preserves Claude quota for actual recovery work; DeepSeek output lands in a file
@@ -12,44 +12,52 @@ against the repo, so a weaker model is acceptable.
   scripts/ds_batch.py free --prompt-file p.md [--files a,b,c] [--out tmp_ds.md]
         freeform: prompt file + optional attached files
 
-Env: DEEPSEEK_API_KEY (required), DEEPSEEK_MODEL (default deepseek-chat),
-DEEPSEEK_URL (default https://api.deepseek.com/chat/completions).
+Backend = the same OpenCode Go subscription re-agent uses (re-agent.host.yaml):
+base_url https://opencode.ai/zen/go/v1, model deepseek-v4-pro, key
+RE_AGENT_LLM_API_KEY from the repo-root .env (gitignored; shell var wins).
+Overrides: DEEPSEEK_URL / DEEPSEEK_MODEL / DEEPSEEK_API_KEY.
 """
 import argparse
-import json
 import os
-import re
 import sys
-import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-URL = os.environ.get("DEEPSEEK_URL", "https://api.deepseek.com/chat/completions")
-MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+URL = os.environ.get("DEEPSEEK_URL", "https://opencode.ai/zen/go/v1")
+MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
 MAX_INPUT_CHARS = 300_000
 
 
+def load_env():
+    env = REPO / ".env"
+    if env.is_file():
+        for line in env.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip())
+
+
 def call(prompt, system="You are a precise reverse-engineering assistant. Answer with the requested table/format only, no preamble."):
-    key = os.environ.get("DEEPSEEK_API_KEY")
+    load_env()
+    key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("RE_AGENT_LLM_API_KEY")
     if not key:
-        sys.exit("DEEPSEEK_API_KEY not set")
+        sys.exit("no key: set DEEPSEEK_API_KEY or RE_AGENT_LLM_API_KEY (repo .env)")
     if len(prompt) > MAX_INPUT_CHARS:
         sys.exit(f"input too large ({len(prompt)} chars > {MAX_INPUT_CHARS}); split it")
-    body = json.dumps({
-        "model": MODEL,
-        "messages": [{"role": "system", "content": system},
-                     {"role": "user", "content": prompt}],
-        "temperature": 0,
-        "max_tokens": 8000,
-    }).encode()
-    req = urllib.request.Request(URL, data=body, headers={
-        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=300) as r:
-        resp = json.load(r)
-    u = resp.get("usage", {})
-    print(f"deepseek {MODEL}: in={u.get('prompt_tokens', '?')} out={u.get('completion_tokens', '?')}",
+    from openai import OpenAI  # same client re-agent's openai-compat provider uses
+    client = OpenAI(api_key=key, base_url=URL, timeout=300)
+    resp = client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "system", "content": system},
+                  {"role": "user", "content": prompt}],
+        temperature=0,
+        max_tokens=8000,
+    )
+    u = resp.usage
+    print(f"deepseek {MODEL}: in={getattr(u, 'prompt_tokens', '?')} out={getattr(u, 'completion_tokens', '?')}",
           file=sys.stderr)
-    return resp["choices"][0]["message"]["content"]
+    return resp.choices[0].message.content
 
 
 def t_parity_triage(args):
