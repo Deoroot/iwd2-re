@@ -6,6 +6,7 @@
 #include "CBaldurChitin.h"
 #include "CGameEffect.h"
 #include "CGameArea.h"
+#include "CGameFireball3d.h"
 #include "CMessage.h"
 #include "CGameObjectArray.h"
 #include "CParticle.h"
@@ -2857,6 +2858,32 @@ void CProjectileExplodingWeapon::AIUpdate()
             m_lingerCountdown = m_lingerCountdown - 1;
         }
     }
+}
+
+// 0x52F1C0 (vtable slot 34)
+//
+// The flame missile's explosion: one fireball burst at the missile position,
+// radius = the strike range, expansion speed = half the flight velocity,
+// colour ranges hardwired to 0x43.
+void CProjectileExplodingFlame::Explode()
+{
+    BYTE colorRangeValues[7];
+    memset(colorRangeValues, 0x43, sizeof(colorRangeValues));
+    new CGameFireball3d(CGameFireball3d::TYPE_FIREBALL, colorRangeValues, m_pArea, m_pos,
+        m_strikeRange, static_cast<BYTE>(m_velocity) >> 1, CGameTemporal::COLLISION_DESTROY, 0);
+}
+
+// 0x52E940 (vtable slot 34)
+//
+// The weapon missile's explosion: the same fireball burst, coloured by the
+// leaf's explosion colour range (the tinted DecodeProjectile cases restamp
+// it).
+void CProjectileExplodingWeapon::Explode()
+{
+    BYTE colorRangeValues[7];
+    memset(colorRangeValues, m_explodeColorRange, sizeof(colorRangeValues));
+    new CGameFireball3d(CGameFireball3d::TYPE_FIREBALL, colorRangeValues, m_pArea, m_pos,
+        m_strikeRange, static_cast<BYTE>(m_velocity) >> 1, CGameTemporal::COLLISION_DESTROY, 0);
 }
 
 // 0x5300E0

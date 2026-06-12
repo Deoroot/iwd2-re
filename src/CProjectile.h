@@ -274,13 +274,14 @@ protected:
 // Leaf 0x52E9F0 -- the exploding flame missile (DecodeProjectile type 0x3;
 // vtable 0x84DCF4, binary sizeof 0x4BA): the SPFLMARR cell at 3x the base
 // velocity with the flame-trail puffs (CGameTemporal, animation set 0x300).
-// Its own deferred virtuals: the destructor 0x52EB10/0x52EB30 (inline-base
-// empty leaf part) and Explode 0x52F1C0 (slot 34).
+// Its only own deferred virtual is the destructor 0x52EB10/0x52EB30
+// (inline-base empty leaf part).
 class CProjectileExplodingFlame : public CProjectileExploding {
 public:
     CProjectileExplodingFlame();   // 0x52E9F0
 
     void AIUpdate() override;   // 0x52EC80 (vtable slot 3)
+    void Explode() override;    // 0x52F1C0 (vtable slot 34)
 
 private:
     /* 04B2 */ BYTE m_trailColorRanges[7];
@@ -294,8 +295,8 @@ private:
 // flying the SPFIREBL cell until the case swaps in the weapon BAM. Drops the
 // same CGameTemporal flame trail as CProjectileExplodingFlame (animation set
 // 0x300) but aims only at the recorded target point (no live re-aim), and
-// carries the explosion colour range the tinted cases restamp. Its own
-// deferred virtuals: the destructor 0x52E360 and Explode 0x52E940 (slot 34).
+// carries the explosion colour range the tinted cases restamp. Its only own
+// deferred virtual is the destructor 0x52E360.
 class CProjectileExplodingWeapon : public CProjectileExploding {
     // DecodeProjectile's tinted cases re-range the palette and stamp the
     // trail and explosion colour ranges on the freshly built leaf.
@@ -305,6 +306,7 @@ public:
     CProjectileExplodingWeapon();   // 0x52E230
 
     void AIUpdate() override;   // 0x52E4D0 (vtable slot 3)
+    void Explode() override;    // 0x52E940 (vtable slot 34)
 
 private:
     /* 04B2 */ BYTE m_trailColorRanges[7];
