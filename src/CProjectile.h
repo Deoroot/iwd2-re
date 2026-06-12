@@ -230,13 +230,15 @@ private:
 // m_childProjectileType + 1) at every creature in strike range, cloning this
 // missile's effect list onto each child.
 //
-// Its own flight virtuals are deferred: the destructor 0x52CE10/0x52CE30,
-// AIUpdate 0x52DD60 (slot 3), Render 0x52CF80 (slot 19), Fire 0x52D9F0
-// (slot 27) and OnArrival 0x52D7F0 (slot 28, arms the linger state). This
-// branch's vtables are 35 slots -- Explode is the only added virtual.
+// Its own deferred virtuals: the destructor 0x52CE10/0x52CE30, AIUpdate
+// 0x52DD60 (slot 3) and Render 0x52CF80 (slot 19). This branch's vtables are
+// 35 slots -- Explode is the only added virtual.
 class CProjectileExploding : public CProjectileTravelling {
 public:
     CProjectileExploding(const CResRef& resRef);   // 0x52CCE0
+
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x52D9F0 (slot 27)
+    void OnArrival() override;   // 0x52D7F0 (slot 28, arms the linger state)
 
     // 0x78E730 (vtable slot 34; the binary impl is COMDAT-folded with the
     // no-op CProjectile::CallBack). AreaEffect fires it once any child went

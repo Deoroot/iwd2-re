@@ -8,6 +8,7 @@
 #include "CGameArea.h"
 #include "CMessage.h"
 #include "CGameObjectArray.h"
+#include "CParticle.h"
 #include "CGameSprite.h"
 #include "CGameTemporal.h"
 #include "CInfinity.h"
@@ -2460,6 +2461,120 @@ int CProjectileExploding::AreaEffect(BYTE bCheckRange)
     }
 
     return nResult;
+}
+
+// 0x52D9F0 (vtable slot 27 -- Fire; the launch)
+//
+// The exploding missile's launch. Shares the source for the whole call (spin
+// on SHARED/DENIED like the source-position helper), resolves the
+// facing-adjusted launch origin, registers in the object array and the area
+// (launch height = the source sprite's cast height when m_bHasHeight, 0x20
+// for a non-sprite source), plays the launch sound (the inlined
+// CProjectile::PlaySound, one-shot unless m_loopFireSound), seeds the
+// subpixel position and per-tick steps toward the target and the initial
+// facing. A zero-distance launch arrives immediately.
+void CProjectileExploding::Fire(CGameArea* pArea, LONG source, LONG target,
+    CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)nHeight;
+    (void)nType;
+
+    m_sourceId = source;
+    m_targetId = target;
+    m_pArea = pArea;
+
+    CGameObject* pSource;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
+            CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    CPoint ptSource;
+    GetProjectileSourcePosition(m_sourceId, ptSource);
+
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        // The original frees itself first and reads the source id back off
+        // the freed object for the release.
+        LONG sourceId = m_sourceId;
+        delete this;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(sourceId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return;
+    }
+
+    LONG nLaunchZ;
+    if (m_bHasHeight) {
+        if (pSource->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            nLaunchZ = static_cast<CGameSprite*>(pSource)->GetAnimation()->GetCastHeight();
+        } else {
+            nLaunchZ = 0x20;
+        }
+    } else {
+        nLaunchZ = 0;
+    }
+
+    AddToArea(pArea, ptSource, nLaunchZ, CGameObject::LIST_FRONT);
+
+    PlaySound(m_fireSoundRef, m_loopFireSound, FALSE);
+
+    m_targetX = targetPos.x;
+    m_targetY = targetPos.y;
+    m_pos.x = ptSource.x;
+    m_pos.y = ptSource.y;
+    m_posAccumX = ptSource.x << CParticle::RESOLUTION_INC;
+    m_posAccumY = ((ptSource.y << CParticle::RESOLUTION_INC) * 4) / 3;
+
+    LONG nDeltaX = m_targetX - m_pos.x;
+    LONG nDeltaY = (m_targetY * 4) / 3 - (m_pos.y * 4) / 3;
+    LONG nDist = static_cast<LONG>(
+        sqrt(static_cast<double>(nDeltaX * nDeltaX + nDeltaY * nDeltaY)) + 0.5);
+    if (nDist == 0) {
+        OnArrival();
+    } else {
+        m_stepX = (nDeltaX << CParticle::RESOLUTION_INC) * m_velocity / nDist;
+        m_stepY = (nDeltaY << CParticle::RESOLUTION_INC) * m_velocity / nDist;
+
+        CPoint ptStartScaled(m_pos.x, (m_pos.y * 4) / 3);
+        CPoint ptTargetScaled(m_targetX, (m_targetY * 4) / 3);
+        m_facing = CGameSprite::GetDirection(ptStartScaled, ptTargetScaled);
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceId,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+}
+
+// 0x52D7F0 (vtable slot 28 -- OnArrival)
+//
+// Arrival: notify the callback projectile (its CallBack virtual, under an
+// exclusive deny grab), switch to the linger state so AIUpdate runs the
+// strike pass, hide the missile and play the arrival sound (the inlined
+// CProjectile::PlaySound, fire-and-forget).
+void CProjectileExploding::OnArrival()
+{
+    if (m_callBackProjectile != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pObject;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+                m_callBackProjectile, CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+
+        static_cast<CProjectile*>(pObject)->CallBack();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_callBackProjectile,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    m_nState = 1;
+    m_visible = 0;
+    PlaySound(m_arrivalSoundRef, m_loopArrivalSound, TRUE);
 }
 
 // 0x52E9F0
