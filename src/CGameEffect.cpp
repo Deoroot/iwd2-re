@@ -12040,7 +12040,7 @@ void CPersistantEffectColorEffect::AIUpdate(CGameSprite* pSprite, LONG deltaT)
             break;
         }
     } else {
-        if (m_counter + 1 < m_period) {
+        if (m_counter < m_period) {
             pSprite->GetAnimation()->SetColorEffectAll(m_colorEffect,
                 RGB(m_effectDegreeRed, m_effectDegreeGreen, m_effectDegreeBlue),
                 1);

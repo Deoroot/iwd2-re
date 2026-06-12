@@ -1144,18 +1144,18 @@ void CVidPalette::RealizeResource(DWORD* pDestPalette, INT nBpp, DWORD dwFlags, 
     if (pAffectArgs != NULL) {
         if (pAffectArgs->pRangeAdds[0] != NULL) {
             if (pAffectArgs->aRangeAddPeriods[0] == 1 || pAffectArgs->aRangeAddPeriods[0] == 0) {
-                rgbInv.rgbRed *= ~GetRValue(*pAffectArgs->pRangeAdds[0]);
-                rgbInv.rgbGreen *= ~GetGValue(*pAffectArgs->pRangeAdds[0]);
-                rgbInv.rgbBlue *= ~GetBValue(*pAffectArgs->pRangeAdds[0]);
+                rgbInv.rgbRed *= static_cast<BYTE>(~GetRValue(*pAffectArgs->pRangeAdds[0]));
+                rgbInv.rgbGreen *= static_cast<BYTE>(~GetGValue(*pAffectArgs->pRangeAdds[0]));
+                rgbInv.rgbBlue *= static_cast<BYTE>(~GetBValue(*pAffectArgs->pRangeAdds[0]));
             } else {
                 nAddPercentage = m_nAUCounter % (2 * pAffectArgs->aRangeAddPeriods[0]);
                 if (nAddPercentage > pAffectArgs->aRangeAddPeriods[0]) {
                     nAddPercentage = 2 * pAffectArgs->aRangeAddPeriods[0] - nAddPercentage;
                 }
 
-                rgbInv.rgbRed *= ~(nAddPercentage * GetRValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]);
-                rgbInv.rgbGreen *= ~(nAddPercentage * GetGValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]);
-                rgbInv.rgbBlue *= ~(nAddPercentage * GetBValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]);
+                rgbInv.rgbRed *= static_cast<BYTE>(~static_cast<BYTE>(nAddPercentage * GetRValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]));
+                rgbInv.rgbGreen *= static_cast<BYTE>(~static_cast<BYTE>(nAddPercentage * GetGValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]));
+                rgbInv.rgbBlue *= static_cast<BYTE>(~static_cast<BYTE>(nAddPercentage * GetBValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]));
             }
 
             bAdd = TRUE;
@@ -1377,18 +1377,18 @@ void CVidPalette::RealizeResource3d(DWORD* pDestPalette, DWORD dwFlags, CVIDIMG_
     if (pAffectArgs != NULL) {
         if (pAffectArgs->pRangeAdds[0] != NULL) {
             if (pAffectArgs->aRangeAddPeriods[0] == 1 || pAffectArgs->aRangeAddPeriods[0] == 0) {
-                rgbInv.rgbRed *= ~GetRValue(*pAffectArgs->pRangeAdds[0]);
-                rgbInv.rgbGreen *= ~GetGValue(*pAffectArgs->pRangeAdds[0]);
-                rgbInv.rgbBlue *= ~GetBValue(*pAffectArgs->pRangeAdds[0]);
+                rgbInv.rgbRed *= static_cast<BYTE>(~GetRValue(*pAffectArgs->pRangeAdds[0]));
+                rgbInv.rgbGreen *= static_cast<BYTE>(~GetGValue(*pAffectArgs->pRangeAdds[0]));
+                rgbInv.rgbBlue *= static_cast<BYTE>(~GetBValue(*pAffectArgs->pRangeAdds[0]));
             } else {
                 nAddPercentage = m_nAUCounter % (2 * pAffectArgs->aRangeAddPeriods[0]);
                 if (nAddPercentage > pAffectArgs->aRangeAddPeriods[0]) {
                     nAddPercentage = 2 * pAffectArgs->aRangeAddPeriods[0] - nAddPercentage;
                 }
 
-                rgbInv.rgbRed *= ~(nAddPercentage * GetRValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]);
-                rgbInv.rgbGreen *= ~(nAddPercentage * GetGValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]);
-                rgbInv.rgbBlue *= ~(nAddPercentage * GetBValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]);
+                rgbInv.rgbRed *= static_cast<BYTE>(~static_cast<BYTE>(nAddPercentage * GetRValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]));
+                rgbInv.rgbGreen *= static_cast<BYTE>(~static_cast<BYTE>(nAddPercentage * GetGValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]));
+                rgbInv.rgbBlue *= static_cast<BYTE>(~static_cast<BYTE>(nAddPercentage * GetBValue(*pAffectArgs->pRangeAdds[0]) / pAffectArgs->aRangeAddPeriods[0]));
             }
 
             bAdd = TRUE;
