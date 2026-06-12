@@ -356,6 +356,18 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile->m_fireSoundRef = CResRef("TRA_02");
         break;
 
+    case 0x18: {
+        // CHROMORB -- Chromatic Orb's travelling orb ("COrbT" BAM): the
+        // copy-from-back tinted travelling VFX, launch sound TRA_23.
+        IcewindCProjectileTravellingVFX* pOrb = new IcewindCProjectileTravellingVFX(CResRef("COrbT"));
+        pOrb->m_visualEffect.SetCopyFromBack(TRUE);
+        pOrb->m_fireSoundRef = CResRef("TRA_23");
+        pOrb->m_bHasHeight = TRUE;
+        pOrb->m_arrivalSoundRef = CResRef("");
+        pProjectile = pOrb;
+        break;
+    }
+
     case 0x25: {
         // MAGICMIS -- the plain single Magic Missile bolt (SPMAGMIS BAM, no
         // sparkle trail), launch whoosh TRA_02 like the launcher's

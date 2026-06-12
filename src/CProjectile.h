@@ -268,6 +268,9 @@ private:
 class IcewindCProjectileTravellingVFX : public CProjectileTravelling {
     // The strike tracker's gather pass reads m_terrainTable off its owner.
     friend class IcewindCProjectileTargetMap;
+    // DecodeProjectile's CHROMORB case (0x18) arms copy-from-back on the
+    // freshly built projectile's visual effect.
+    friend class CProjectile;
 
 public:
     IcewindCProjectileTravellingVFX(const CResRef& resRef);   // 0x578110
