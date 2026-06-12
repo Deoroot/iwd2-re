@@ -357,6 +357,58 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    case 0x8:    // exploding thrown axe ("AXE")
+    case 0xD:    // exploding crossbow bolt ("BOLT")
+    case 0x12:   // exploding sling stone ("MAGICSTN")
+    case 0x1C:   // exploding throwing dagger ("DAGGER")
+    case 0x21:   // exploding dart ("DART")
+    case 0x39: { // exploding spear ("SPEAR")
+        // The exploding thrown-weapon missiles: the strike-pass leaf with its
+        // cell swapped to the weapon BAM. Only the bolt has a launch sound.
+        CProjectileExplodingWeapon* pMissile = new CProjectileExplodingWeapon();
+        CResRef fireSoundRef("");
+        switch (projectileType) {
+        case 0x8: pMissile->SetVidCell(CResRef("AXE")); break;
+        case 0xD:
+            pMissile->SetVidCell(CResRef("BOLT"));
+            fireSoundRef = "TRA_10";
+            break;
+        case 0x12: pMissile->SetVidCell(CResRef("MAGICSTN")); break;
+        case 0x1C: pMissile->SetVidCell(CResRef("DAGGER")); break;
+        case 0x21: pMissile->SetVidCell(CResRef("DART")); break;
+        case 0x39: pMissile->SetVidCell(CResRef("SPEAR")); break;
+        }
+        pMissile->m_bHasHeight = TRUE;
+        pMissile->m_fireSoundRef = fireSoundRef;
+        pMissile->m_arrivalSoundRef = CResRef("");
+        pProjectile = pMissile;
+        break;
+    }
+
+    case 0x68:   // palette range 0x45
+    case 0xCC: { // palette range 0x47
+        // The palette-tinted exploding-missile variants: the strike-pass leaf
+        // flying its SPFIREBL cell with the palette re-ranged and the trail
+        // and explosion colour ranges stamped to match, launch sound TRA_06.
+        // (The original hands the palette to the cell before re-ranging it.)
+        CProjectileExplodingWeapon* pMissile = new CProjectileExplodingWeapon();
+        BYTE rangeValue = projectileType == 0x68 ? 0x45 : 0x47;
+        pMissile->m_pVidCell->SetPalette(pMissile->m_palette);
+        pMissile->m_palette.SetRange(0, rangeValue, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+        memset(pMissile->m_trailColorRanges, rangeValue, sizeof(pMissile->m_trailColorRanges));
+        pMissile->m_explodeColorRange = rangeValue;
+        pMissile->m_bHasHeight = TRUE;
+        pMissile->m_fireSoundRef = CResRef("TRA_06");
+        pMissile->m_arrivalSoundRef = CResRef("");
+        pProjectile = pMissile;
+        break;
+    }
+
+    case 0x4F:
+        // The invisible per-target strike bolt the exploding missiles fire.
+        pProjectile = new CProjectileStrike();
+        break;
+
     case 0x4: {
         // The flaming arrow: the flame-trailed leaf flying its default
         // SPFLMARR cell, launch sound TRA_24.
@@ -2560,6 +2612,159 @@ void CProjectileExplodingFlame::AIUpdate()
             m_lingerCountdown = m_lingerCountdown - 1;
         }
     }
+}
+
+// 0x52E230
+//
+// CProjectileExplodingWeapon -- the exploding thrown-weapon missile. Builds
+// the "SPFIREBL" exploding base, then configures a mirrored 16-direction
+// missile at 2x the base velocity (the MMissiT mirror geometry), a one-range
+// palette recolour (0x43) from the game master bitmap, an empty fire-sound
+// resref and the default 'A' trail colour ranges.
+CProjectileExplodingWeapon::CProjectileExplodingWeapon()
+    : CProjectileExploding(CResRef("SPFIREBL"))
+{
+    m_pVidCell->SequenceSet(0);
+
+    m_palette.SetRange(0, 0x43, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_pVidCell->SetPalette(m_palette);
+
+    m_mirrorMinX = 0xF;
+    m_mirrorMinY = 0xB;
+    m_explodeColorRange = 0x43;
+    m_tinted = 0;
+    m_useHeightOffset = 0;
+    m_mirror = 1;
+    m_leafRenderParam = 0x80;
+    m_hasShadowCell = 0;
+    m_dirCount = 0x10;
+    m_velocity = static_cast<SHORT>(m_velocity << 1);
+    m_fireSoundRef = CResRef("");
+
+    memset(m_trailColorRanges, 0x41, sizeof(m_trailColorRanges));
+    m_trailTick = 0;
+    m_childProjectileType = 0x4E;
+}
+
+// 0x52E4D0
+//
+// Same tick as CProjectileExplodingFlame::AIUpdate minus the live-target
+// homing: the missile only ever re-aims at the recorded target point.
+void CProjectileExplodingWeapon::AIUpdate()
+{
+    CString sSoundName("");
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop == 0 || pGame->m_nTimeStopCaster == m_id) {
+        if (m_nState == 0) {
+            m_pVidCell->FrameAdvance();
+
+            LONG nDeltaX = m_targetX - m_pos.x;
+            LONG nDeltaY = m_targetY - m_pos.y;
+            LONG nRadius = m_velocity + 1;
+            if (nRadius * nRadius < (nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX) {
+                AimAtPoint(m_targetX, m_targetY);
+
+                m_trailTick = m_trailTick + 1;
+                if (m_trailTick == 1) {
+                    m_trailTick = 0;
+
+                    int nJitterY = rand() % 5;
+                    int nJitterX = rand() % 5;
+                    new CGameTemporal(0x300,
+                        m_trailColorRanges,
+                        sSoundName,
+                        m_pArea,
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 4 / 3,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 4 / 3),
+                        -m_posZ,
+                        CPoint(0, 0),
+                        0,
+                        0,
+                        CGameTemporal::COLLISION_DESTROY);
+
+                    nJitterY = rand() % 5;
+                    nJitterX = rand() % 5;
+                    new CGameTemporal(0x300,
+                        m_trailColorRanges,
+                        sSoundName,
+                        m_pArea,
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY),
+                        -m_posZ,
+                        CPoint(0, 0),
+                        0,
+                        0,
+                        CGameTemporal::COLLISION_DESTROY);
+
+                    nJitterY = rand() % 5;
+                    nJitterX = rand() % 5;
+                    new CGameTemporal(0x300,
+                        m_trailColorRanges,
+                        sSoundName,
+                        m_pArea,
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 2 / 3,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 2 / 3),
+                        -m_posZ,
+                        CPoint(0, 0),
+                        0,
+                        0,
+                        CGameTemporal::COLLISION_DESTROY);
+                }
+
+                // Trailing sub-projectile (+0xE2 != 0) via the unrecovered
+                // factory 0x51AE40 -- omitted like the same documented stub in
+                // CProjectileTravelling::AIUpdate.
+
+                m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+            } else {
+                OnArrival();
+            }
+        } else {
+            if (m_lingerCountdown == 0) {
+                m_lingerCountdown = static_cast<SHORT>(m_lingerPeriod);
+                if (AreaEffect(0) != 0) {
+                    m_strikesLeft = m_strikesLeft - 1;
+                }
+
+                if (m_strikesLeft < 1) {
+                    RemoveFromArea();
+                    if (pGame->m_cObjectArray.Delete(m_id, CGameObjectArray::THREAD_ASYNCH,
+                            NULL, INFINITE)
+                        == CGameObjectArray::SUCCESS) {
+                        delete this;
+                    }
+
+                    return;
+                }
+            }
+
+            m_lingerCountdown = m_lingerCountdown - 1;
+        }
+    }
+}
+
+// 0x5300E0
+//
+// CProjectileStrike -- the invisible per-target strike bolt. Builds the
+// "SPFIREBL" travelling base, then hides it and arms the distance-derived
+// flight lifetime; the strike pass clones the parent's effect list onto it
+// before firing, so it is a pure effect carrier.
+CProjectileStrike::CProjectileStrike()
+    : CProjectileTravelling(CResRef("SPFIREBL"))
+{
+    m_pVidCell->SequenceSet(0);
+
+    m_palette.SetRange(0, 0x43, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_pVidCell->SetPalette(m_palette);
+
+    m_visible = 0;
+    m_dirCount = 0x10;
+
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    field_17E = "";
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+    m_distLifetime = 1;
 }
 
 // 0x57E030

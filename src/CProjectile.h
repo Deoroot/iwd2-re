@@ -230,9 +230,10 @@ private:
 // m_childProjectileType + 1) at every creature in strike range, cloning this
 // missile's effect list onto each child.
 //
-// Its own flight virtuals are deferred: AIUpdate 0x52E4D0 (slot 3), Render
-// 0x52CF80 (slot 19), Fire 0x52D9F0 (slot 27), OnArrival 0x52D7F0 (slot 28,
-// arms the linger state), and the second added virtual 0x52E360 (slot 35).
+// Its own flight virtuals are deferred: the destructor 0x52CE10/0x52CE30,
+// AIUpdate 0x52DD60 (slot 3), Render 0x52CF80 (slot 19), Fire 0x52D9F0
+// (slot 27) and OnArrival 0x52D7F0 (slot 28, arms the linger state). This
+// branch's vtables are 35 slots -- Explode is the only added virtual.
 class CProjectileExploding : public CProjectileTravelling {
 public:
     CProjectileExploding(const CResRef& resRef);   // 0x52CCE0
@@ -272,7 +273,7 @@ protected:
 // vtable 0x84DCF4, binary sizeof 0x4BA): the SPFLMARR cell at 3x the base
 // velocity with the flame-trail puffs (CGameTemporal, animation set 0x300).
 // Its own deferred virtuals: the destructor 0x52EB10/0x52EB30 (inline-base
-// empty leaf part), Explode 0x52F1C0 and slot 35 0x52F5E0.
+// empty leaf part) and Explode 0x52F1C0 (slot 34).
 class CProjectileExplodingFlame : public CProjectileExploding {
 public:
     CProjectileExplodingFlame();   // 0x52E9F0
@@ -282,6 +283,42 @@ public:
 private:
     /* 04B2 */ BYTE m_trailColorRanges[7];
     /* 04B9 */ BYTE m_trailTick;
+};
+
+// Leaf 0x52E230 -- the exploding thrown-weapon missile (DecodeProjectile
+// types 0x8 AXE / 0xD BOLT / 0x12 MAGICSTN / 0x1C DAGGER / 0x21 DART /
+// 0x39 SPEAR and the palette-tinted 0x68/0xCC; vtable 0x84DC68, binary
+// sizeof 0x4BC): a mirrored 16-direction missile at 2x the base velocity
+// flying the SPFIREBL cell until the case swaps in the weapon BAM. Drops the
+// same CGameTemporal flame trail as CProjectileExplodingFlame (animation set
+// 0x300) but aims only at the recorded target point (no live re-aim), and
+// carries the explosion colour range the tinted cases restamp. Its own
+// deferred virtuals: the destructor 0x52E360 and Explode 0x52E940 (slot 34).
+class CProjectileExplodingWeapon : public CProjectileExploding {
+    // DecodeProjectile's tinted cases re-range the palette and stamp the
+    // trail and explosion colour ranges on the freshly built leaf.
+    friend class CProjectile;
+
+public:
+    CProjectileExplodingWeapon();   // 0x52E230
+
+    void AIUpdate() override;   // 0x52E4D0 (vtable slot 3)
+
+private:
+    /* 04B2 */ BYTE m_trailColorRanges[7];
+    /* 04B9 */ BYTE m_trailTick;
+    /* 04BA */ BYTE m_explodeColorRange/*#guess*/;
+};
+
+// Leaf 0x5300E0 -- the strike bolt (DecodeProjectile type 0x4F; vtable
+// 0x84DF1C): the invisible effect carrier the exploding missiles' strike
+// pass (CProjectileExploding::AreaEffect) fires at each target. The SPFIREBL
+// cell never draws (m_visible = 0) and the flight lifetime derives from the
+// launch distance (m_distLifetime). Its only own virtual is the destructor
+// (0x5301C0, inline-base empty leaf part, deferred).
+class CProjectileStrike : public CProjectileTravelling {
+public:
+    CProjectileStrike();   // 0x5300E0
 };
 
 // Leaf 0x57E030 -- the Magic Missile homing sub-missile (DecodeProjectile type
@@ -298,11 +335,11 @@ public:
 // and, with the cell swapped to "TRAVEL" and a colour stamped, the coloured
 // sparkle streams (types 0x2F-0x37/0xB8/0xB9) plus the invisible gaze carrier
 // (0x41). A mirrored missile at double the base velocity, like CProjectileMMissiT,
-// with the directional fields explicitly cleared. Its own virtual overrides
-// (destructor 0x52CBC0 -- empty leaf part, base dtor inlined -- and the
-// slot34/slot37 impact pair 0x52CE10/0x52DD60) are deferred like
-// CProjectileArrow's; it flies, renders and delivers effects through the
-// CProjectileTravelling/CProjectile base path.
+// with the directional fields explicitly cleared. Its only own virtual is the
+// destructor (0x52CBC0 -- empty leaf part, base dtor inlined, deferred); it
+// flies, renders and delivers effects through the CProjectileTravelling/
+// CProjectile base path. (0x52CE10/0x52DD60, once mistaken for sparkle slots
+// 34/37, are slots 0/3 of the next vtable, CProjectileExploding's 0x84DBDC.)
 class CProjectileSparkle : public CProjectileTravelling {
 public:
     CProjectileSparkle(SHORT nPaletteType);   // 0x52CA10
