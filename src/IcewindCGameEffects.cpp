@@ -2906,7 +2906,7 @@ BOOL IcewindCGameEffectTortoiseShell::ApplyEffect(CGameSprite* pSprite)
         pSprite->field_9D15 = 1;
         pSprite->GetDerivedStats()->m_spellStates[SPLSTATE_HELD] = true;
         pSprite->GetDerivedStats()->m_generalState |= STATE_HELPLESS;
-        pSprite->GetDerivedStats()->field_124 = m_effectAmount;
+        pSprite->GetDerivedStats()->m_nTortoiseShellPoints = m_effectAmount;
     } else {
         m_done = TRUE;
     }

@@ -206,6 +206,7 @@ public:
 
     static const BYTE SOUND_DAMAGE;
     static const BYTE SOUND_DYING;
+    static const BYTE SOUND_BADLY_WOUNDED;
     static const BYTE SOUND_SELECT;
     static const BYTE SOUND_SELECT_ACTION;
     static const BYTE SOUND_REACT_TO_DEATH;

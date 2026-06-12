@@ -163,7 +163,7 @@ void CDerivedStats::Reload(CGameSprite* pSprite, CCreatureFileHeader* pCreature,
     m_nDamageModPiercing = 0;
     m_nDamageModCrushing = 0;
     m_nDamageModMissile = 0;
-    field_124 = 0;
+    m_nTortoiseShellPoints = 0;
     field_128 = 0;
     field_12C = 0;
     field_130 = 0;
@@ -515,7 +515,7 @@ void CDerivedStats::BonusInit()
     m_nDamageModPiercing = 0;
     m_nDamageModCrushing = 0;
     m_nDamageModMissile = 0;
-    field_124 = 0;
+    m_nTortoiseShellPoints = 0;
     field_128 = 0;
     field_12C = 0;
     field_130 = 0;
@@ -621,7 +621,7 @@ CDerivedStats& CDerivedStats::operator+=(const CDerivedStats& other)
     m_nDamageModPiercing += other.m_nDamageModPiercing;
     m_nDamageModCrushing += other.m_nDamageModCrushing;
     m_nDamageModMissile += other.m_nDamageModMissile;
-    field_124 += other.field_124;
+    m_nTortoiseShellPoints += other.m_nTortoiseShellPoints;
     field_128 += other.field_128;
     field_12C += other.field_12C;
     field_130 += other.field_130;
@@ -1034,7 +1034,7 @@ void CDerivedStats::Unmarshal(BYTE* pStats, LONG nStats)
     m_nDamageModPiercing = pTemplate->m_nDamageModPiercing;
     m_nDamageModCrushing = pTemplate->m_nDamageModCrushing;
     m_nDamageModMissile = pTemplate->m_nDamageModMissile;
-    field_124 = pTemplate->field_124;
+    m_nTortoiseShellPoints = pTemplate->m_nTortoiseShellPoints;
     field_128 = pTemplate->field_128;
     field_12C = pTemplate->field_12C;
     field_130 = pTemplate->field_130;

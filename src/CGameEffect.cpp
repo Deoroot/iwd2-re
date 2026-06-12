@@ -8,6 +8,7 @@
 #include "CGameAnimationType.h"
 #include "CGameArea.h"
 #include "CGameSprite.h"
+#include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CScreenWorld.h"
 #include "CSpell.h"
@@ -2451,38 +2452,46 @@ void CGameEffectDamage::WakeOnDamage(CGameSprite* pSprite)
 // 0x4A7900
 //
 // CGameEffectDamage::ApplyEffect -- opcode #12, the core combat-damage handler.
-// Rolls the effect's dice, subtracts the total from the target's hit points, and
-// on a lethal result builds + applies a CGameEffectDeath.  This is what makes
-// every weapon hit and every damaging spell (Magic Missile included) actually
-// wound a creature.
+// Rolls the effect's dice, scales and reduces the total (difficulty, Tortoise
+// Shell absorption, per-type resistances with the caster's +20% elemental
+// feats), subtracts it from the target's hit points, and on a lethal result
+// builds + applies the type-specific CGameEffectDeath.
 //
-// CORE RECOVERY.  The faithful spine (dice roll -> mode-switch HP subtract ->
-// death effect) and the on-hit feedback (pain vocal, per-type hit cue, the
-// elemental flash overlay with its spell-hit VFX, blood, the damage-locator
-// markers, the GETHIT flinch) are recovered; the surrounding original
-// sub-systems are documented stubs pending their own arcs, each marked HACK
-// below:
-//   * entry gates (0x4A7913..0x4A7F1E): magic-class immunity, the animation-busy
-//     check, the global no-damage flag, the creature-state pre-gates at +0x5BC,
-//     and the "HP < -9 already pulped" short-circuit.
-//   * damage scaling + reduction (0x4A8038..0x4A8200): party difficulty scale,
-//     the +0xA14 "absorb to pool" special, the per-type resistance switch, the
-//     near-death party clamp, and the FUN_00448250 saving-throw pass.
-//   * the armor hit-thud resolver (0x4A8DF0) and the combat-log damage line
-//     (the vtable +0x28 virtual, 0x4AA6D0).
-//   * the type-specific death-animation kind switch (0x4A8742..0x4A89BF): the
-//     gib / burnt / frozen / disintegrate variants.  We set the normal kind (4),
-//     which is what magic damage uses.
-// Replaces 0x4A7900.
+// Remaining HACK stubs (each marked below): the saving-throw pass (0x448250),
+// the armor hit-thud resolver (0x4A8DF0), the combat-log damage line (vtable
+// +0x28, 0x4AA6D0), the Tortoise-Shell hit feedback (0x4AB0A0) and its
+// "shell destroyed" log line, the stunning add-immunity check, and the
+// chunked-death debris spawner (0x586220).
 BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 {
+    pSprite->m_hasColorEffects = TRUE;
+
     // m_dwFlags packs the damage descriptor: low word = how to apply it
     // (0/3 = subtract, 1 = set, 2 = percent), high word = damage-type bitmask
     // (DAMAGES.IDS << 16).
     DWORD mode = m_dwFlags & 0xFFFF;
     DWORD damageType = m_dwFlags & 0xFFFF0000;
 
+    // Venom Immunity: druids of level 9 and up shrug off poison damage.
+    if (damageType == 0x200000
+        && pSprite->GetDerivedStats()->GetClassLevel(CAIOBJECTTYPE_C_DRUID) > 8) {
+        m_done = TRUE;
+        return TRUE;
+    }
+
     SHORT nOldHitPoints = pSprite->GetBaseStats()->m_hitPoints;
+
+    // Invulnerable animations (doors, statues, ...) take no damage at all.
+    if (pSprite->GetAnimation()->IsInvulnerable()) {
+        m_done = TRUE;
+        return TRUE;
+    }
+
+    // No damage while a cutscene is running.
+    if (g_pBaldurChitin->GetObjectGame()->m_gameSave.m_cutScene == TRUE) {
+        m_done = TRUE;
+        return TRUE;
+    }
 
     // Blood and splatter fly away from the damage source: face the source
     // object if it still exists, the effect's source point otherwise.
@@ -2510,6 +2519,31 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         }
     }
 
+    // Damaging a frozen or petrified corpse shatters it: queue the matching
+    // death effect and stop -- the hit itself does nothing else.
+    DWORD nGeneralState = pSprite->GetBaseStats()->m_generalState;
+    if ((nGeneralState & STATE_FROZEN_DEATH) != 0
+        || (nGeneralState & STATE_STONE_DEATH) != 0) {
+        CGameEffectDeath* pDeath = new CGameEffectDeath();
+        pDeath->m_deathType = 0;
+        pDeath->m_source = m_source;
+        pDeath->m_sourceID = m_sourceID;
+        pDeath->m_dwFlags = (nGeneralState & STATE_FROZEN_DEATH) != 0 ? 0x40 : 0x80;
+        pDeath->m_casterLevel = m_casterLevel;
+        pSprite->AddEffect(pDeath, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+
+        m_done = TRUE;
+        return TRUE;
+    }
+
+    // An ordinary corpse (or one already pulped below -9 HP) takes no further
+    // damage -- this is what keeps area spells from re-killing the dead.
+    if (pSprite->GetBaseStats()->m_hitPoints < -9
+        || (nGeneralState & STATE_DEAD) != 0) {
+        m_done = TRUE;
+        return TRUE;
+    }
+
     // --- roll the dice: total = base amount + sum of m_numDice d(m_diceSize) ---
     int total = 0;
     for (DWORD i = 0; i < m_numDice; i++) {
@@ -2522,6 +2556,8 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         return TRUE;
     }
 
+    SHORT nSequenceBefore = pSprite->m_nSequence;
+
     // mode 3 deals half (rounded down, floored at 1).
     if (mode == 3) {
         total /= 2;
@@ -2531,14 +2567,218 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         m_effectAmount = total;
     }
 
-    SHORT nSequenceBefore = pSprite->m_nSequence;
+    // --- scaling and reduction (subtractive modes only) ---
+    if (mode == 0 || mode == 3) {
+        // Party members take difficulty-scaled damage.  The extra-damage part
+        // is skipped for friendly fire between two good-aligned sprites and
+        // when the matching gameplay option is on; an easy-mode reduction
+        // (negative multiplier) always applies.
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId()) != -1) {
+            BOOL bExtraDamage = TRUE;
 
-    // HACK: difficulty scaling, the per-type resistance switch, and the
-    // saving-throw pass are unrecovered -- the target takes the full rolled
-    // total with no reduction -- replaces 0x4A8038..0x4A8200.  The clamp below
-    // is where that reduction would bottom out.
-    if (m_effectAmount < 0) {
-        m_effectAmount = 0;
+            CGameObject* pSource;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pSource,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                if (pSource->GetObjectType() == CGameObject::TYPE_SPRITE
+                    && IcewindMisc::IsGoodByEA(pSprite) == TRUE
+                    && IcewindMisc::IsGoodByEA(static_cast<CGameSprite*>(pSource)) == TRUE) {
+                    bExtraDamage = FALSE;
+                }
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+
+            LONG nMultiplier;
+            if (g_pChitin->cNetwork.m_nServiceProvider == 0) {
+                nMultiplier = g_pBaldurChitin->GetObjectGame()->m_cOptions.m_nDifficultyMultiplier;
+            } else {
+                nMultiplier = g_pBaldurChitin->GetObjectGame()->m_cOptions.m_nMPDifficultyMultiplier;
+            }
+
+            if (g_pBaldurChitin->GetObjectGame()->m_cOptions.m_bSuppressExtraDifficultyDamage == TRUE) {
+                bExtraDamage = FALSE;
+            }
+
+            if (nMultiplier < 1 || bExtraDamage) {
+                m_effectAmount += m_effectAmount * nMultiplier / 100;
+            }
+        }
+
+        // Tortoise Shell soaks the whole hit into its hit-point pool; the
+        // lingering shell effects mirror the remaining pool so it survives a
+        // save/load.
+        if (pSprite->GetDerivedStats()->m_spellStates.test(SPLSTATE_TORTOISE_SHELL)) {
+            CDerivedStats* pDStats = pSprite->GetDerivedStats();
+            pDStats->m_nTortoiseShellPoints -= m_effectAmount;
+
+            POSITION pos = pSprite->GetTimedEffectList()->GetHeadPosition();
+            while (pos != NULL) {
+                CGameEffect* pEffect = pSprite->GetTimedEffectList()->GetNext(pos);
+                if (pEffect->m_effectID == CGAMEEFFECT_TORTOISE_SHELL) {
+                    pEffect->m_effectAmount = pDStats->m_nTortoiseShellPoints;
+                }
+            }
+
+            pos = pSprite->GetEquipedEffectList()->GetHeadPosition();
+            while (pos != NULL) {
+                CGameEffect* pEffect = pSprite->GetEquipedEffectList()->GetNext(pos);
+                if (pEffect->m_effectID == CGAMEEFFECT_TORTOISE_SHELL) {
+                    pEffect->m_effectAmount = pDStats->m_nTortoiseShellPoints;
+                }
+            }
+
+            // HACK: the shell-hit feedback (flash + sound, 0x4AB0A0) is
+            // unrecovered -- replaces the call at 0x4A7FF1.
+
+            if (pDStats->m_nTortoiseShellPoints < 1) {
+                pSprite->GetTimedEffectList()->RemoveAllOfType(pSprite,
+                    CGAMEEFFECT_TORTOISE_SHELL,
+                    pSprite->GetTimedEffectList()->GetPosCurrent(),
+                    -1);
+                pSprite->GetEquipedEffectList()->RemoveAllOfType(pSprite,
+                    CGAMEEFFECT_TORTOISE_SHELL,
+                    pSprite->GetEquipedEffectList()->GetPosCurrent(),
+                    -1);
+
+                // HACK: the "shell destroyed" combat-log line (GetNameRef
+                // strref 0x42C8 + DisplayTextRef, gated on the effect-text
+                // option) is unrecovered -- replaces 0x4A8C8A..0x4A8D4B.
+            }
+
+            WakeOnDamage(pSprite);
+
+            m_done = TRUE;
+            return TRUE;
+        }
+
+        LONG nAmountBeforeReduction = m_effectAmount;
+
+        // Per-type resistance.  The elemental types first reward the caster's
+        // +20% damage feat, then subtract the target's resistance, then apply
+        // the defensive spell-state halvings.
+        CGameObject* pFeatSource = NULL;
+        BYTE rcSource;
+        do {
+            rcSource = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pFeatSource,
+                INFINITE);
+        } while (rcSource == CGameObjectArray::SHARED || rcSource == CGameObjectArray::DENIED);
+
+        switch (damageType) {
+        case 0x0: // CRUSHING
+            m_effectAmount -= pSprite->m_tempStats.m_nResistCrushing;
+            break;
+        case 0x10000: // ACID
+            if (rcSource == CGameObjectArray::SUCCESS
+                && pFeatSource->GetObjectType() == CGameObject::TYPE_SPRITE
+                && static_cast<CGameSprite*>(pFeatSource)->HasFeat(CGAMESPRITE_FEAT_AQUA_MORTIS) == 1) {
+                m_effectAmount = static_cast<LONG>(m_effectAmount * 1.2);
+            }
+            m_effectAmount -= pSprite->m_tempStats.m_nResistAcid;
+            if (pSprite->GetDerivedStats()->m_spellStates.test(SPLSTATE_IRON_BODY)) {
+                m_effectAmount /= 2;
+            }
+            break;
+        case 0x20000: // COLD
+            if (rcSource == CGameObjectArray::SUCCESS
+                && pFeatSource->GetObjectType() == CGameObject::TYPE_SPRITE
+                && static_cast<CGameSprite*>(pFeatSource)->HasFeat(CGAMESPRITE_FEAT_AEGIS_OF_RIME) == 1) {
+                m_effectAmount = static_cast<LONG>(m_effectAmount * 1.2);
+            }
+            m_effectAmount -= pSprite->m_tempStats.m_nResistCold;
+            if (pSprite->GetDerivedStats()->m_spellStates.test(SPLSTATE_RED_FIRESHIELD)) {
+                m_effectAmount /= 2;
+            }
+            break;
+        case 0x40000: // ELECTRICITY
+            if (rcSource == CGameObjectArray::SUCCESS
+                && pFeatSource->GetObjectType() == CGameObject::TYPE_SPRITE
+                && static_cast<CGameSprite*>(pFeatSource)->HasFeat(CGAMESPRITE_FEAT_SCION_OF_STORMS) == 1) {
+                m_effectAmount = static_cast<LONG>(m_effectAmount * 1.2);
+            }
+            m_effectAmount -= pSprite->m_tempStats.m_nResistElectricity;
+            if (pSprite->GetDerivedStats()->m_spellStates.test(SPLSTATE_IRON_BODY)) {
+                m_effectAmount = 0;
+            }
+            break;
+        case 0x80000: // FIRE
+            if (rcSource == CGameObjectArray::SUCCESS
+                && pFeatSource->GetObjectType() == CGameObject::TYPE_SPRITE
+                && static_cast<CGameSprite*>(pFeatSource)->HasFeat(CGAMESPRITE_FEAT_SPIRIT_OF_FLAME) == 1) {
+                m_effectAmount = static_cast<LONG>(m_effectAmount * 1.2);
+            }
+            m_effectAmount -= pSprite->m_tempStats.m_nResistFire;
+            if (pSprite->GetDerivedStats()->m_spellStates.test(SPLSTATE_BLUE_FIRESHIELD)) {
+                m_effectAmount /= 2;
+            }
+            if (pSprite->GetDerivedStats()->m_spellStates.test(SPLSTATE_IRON_BODY)) {
+                m_effectAmount /= 2;
+            }
+            break;
+        case 0x100000: // PIERCING
+            m_effectAmount -= pSprite->m_tempStats.m_nResistPiercing;
+            break;
+        case 0x200000: // POISON
+            m_effectAmount -= pSprite->m_tempStats.m_nResistPoison;
+            break;
+        case 0x400000: // MAGIC
+            m_effectAmount -= pSprite->m_tempStats.m_nMagicDamageResistance;
+            break;
+        case 0x1000000: // SLASHING
+            m_effectAmount -= pSprite->m_tempStats.m_nResistSlashing;
+            break;
+        case 0x2000000: // MAGICFIRE (sic: the binary subtracts the missile and
+                        // piercing resistances, not the magic-fire one)
+            m_effectAmount -= pSprite->m_tempStats.m_nResistMissile;
+            m_effectAmount -= pSprite->m_tempStats.m_nResistPiercing;
+            break;
+        case 0x4000000: // MAGICCOLD (sic: missile + crushing, as above)
+            m_effectAmount -= pSprite->m_tempStats.m_nResistMissile;
+            m_effectAmount -= pSprite->m_tempStats.m_nResistCrushing;
+            break;
+        default: // MISSILE and everything else: no reduction
+            break;
+        }
+
+        if (rcSource == CGameObjectArray::SUCCESS) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        if (m_effectAmount < 0) {
+            m_effectAmount = 0;
+        }
+
+        // Frail party members (max HP below 14) are never one-shot from full:
+        // the hit is capped to max - 1.
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId()) != -1) {
+            SHORT nMaxHitPoints = pSprite->m_tempStats.m_nMaxHitPoints;
+            if (nMaxHitPoints < m_effectAmount && nMaxHitPoints < 14) {
+                m_effectAmount = nMaxHitPoints - 1;
+            }
+        }
+
+        // HACK: the saving-throw pass is unrecovered -- when m_savingThrow is
+        // set the binary lets the target save for a reduced total -- replaces
+        // the call to 0x448250 at 0x4A8245.
+
+        if (m_effectAmount < 0) {
+            m_effectAmount = 0;
+        }
+
+        (void)nAmountBeforeReduction; // resisted-amount feed for the HACKed
+                                      // combat-log line (vtable +0x28)
     }
 
     // The damage just taken is remembered on the target; the casting
@@ -2660,21 +2900,198 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
         pSprite->SetSequence(CGameSprite::SEQ_DAMAGE);
     }
 
+    // A minimum-hit-points effect (e.g. scripted plot armor) floors the result.
+    if (pSprite->GetDerivedStats()->m_nMinHitPoints > 0
+        && pSprite->GetBaseStats()->m_hitPoints < 1) {
+        pSprite->GetBaseStats()->m_hitPoints =
+            static_cast<SHORT>(pSprite->GetDerivedStats()->m_nMinHitPoints);
+    }
+
+    BOOL bSurvived = TRUE;
     if (pSprite->GetBaseStats()->m_hitPoints > 0) {
-        // Survived.  HACK: the Hardiness regeneration feat is unrecovered --
-        // replaces 0x4A864C..0x4A85F4.
-        WakeOnDamage(pSprite);
+        // Survived.  Heroic Inspiration kicks in below half base hit points:
+        // grant the lingering bonus effect once, with feedback on re-trigger.
+        if (pSprite->HasFeat(CGAMESPRITE_FEAT_HEROIC_INSPIRATION) == 1
+            && pSprite->GetBaseStats()->m_hitPoints
+                <= static_cast<SHORT>(pSprite->GetBaseStats()->m_maxHitPointsBase >> 1)) {
+            BOOL bFound = FALSE;
+            POSITION pos = pSprite->GetTimedEffectList()->GetHeadPosition();
+            while (pos != NULL) {
+                CGameEffect* pEffect = pSprite->GetTimedEffectList()->GetNext(pos);
+                if (pEffect->m_effectID == CGAMEEFFECT_HEROIC_INSPIRATION) {
+                    bFound = TRUE;
+                    break;
+                }
+            }
+
+            if (!bFound) {
+                ITEM_EFFECT heroic;
+                heroic.effectID = CGAMEEFFECT_HEROIC_INSPIRATION;
+                heroic.targetType = 0;
+                heroic.spellLevel = 0;
+                heroic.effectAmount = 0;
+                heroic.dwFlags = 0;
+                heroic.durationType = 1;
+                heroic.duration = 0;
+                heroic.probabilityUpper = 100;
+                heroic.probabilityLower = 0;
+                heroic.numDice = 0;
+                heroic.diceSize = 0;
+                heroic.savingThrow = 0;
+                heroic.saveMod = 0;
+                heroic.special = 0;
+
+                CGameEffect* pHeroic = DecodeEffect(&heroic,
+                    pSprite->GetPos(),
+                    -1,
+                    CPoint(-1, -1));
+                pHeroic->m_flags &= ~1;
+
+                CMessageAddEffect* pMessage = new CMessageAddEffect(pHeroic,
+                    pSprite->GetId(),
+                    pSprite->GetId());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+            } else {
+                pSprite->FeedBack(80, 0, 0, 0, -1, 0, 0);
+            }
+        }
     } else {
-        // Lethal -- queue the death effect on the target.  (The DEATH opcode
-        // handler is itself still a stub, so the kill is registered but the
-        // death state machine does not yet run.)
+        // Lethal: build the death effect, picking the death-animation kind
+        // from the damage type and how far below zero the target ended up.
+        bSurvived = FALSE;
+
         CGameEffectDeath* pDeath = new CGameEffectDeath();
         pDeath->m_deathType = 0;
-        pDeath->m_dwFlags = 4; // normal death-animation kind; magic damage uses 4
         pDeath->m_source = m_source;
         pDeath->m_sourceID = m_sourceID;
-        pDeath->m_casterLevel = m_casterLevel;
-        pSprite->AddEffect(pDeath, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+        CGameEffect* pEffectToApply = pDeath;
+
+        SHORT nNewHitPoints = pSprite->GetBaseStats()->m_hitPoints;
+        DWORD nKindType = damageType;
+        BOOL bStunned = FALSE;
+
+        if (nKindType == 0x8000000) { // STUNNING
+            if (IcewindMisc::IsUndead(pSprite) == TRUE) {
+                // Undead cannot be knocked out: they die a crushing death.
+                nKindType = 0;
+            } else {
+                // HACK: the binary first runs the sleep effect through the
+                // target's add-immunity check (CheckAdd at 0x4A88A8) and only
+                // knocks out when it passes -- assumed to pass here.
+                delete pDeath;
+
+                ITEM_EFFECT sleep;
+                sleep.effectID = CGAMEEFFECT_SLEEP;
+                sleep.targetType = 0;
+                sleep.spellLevel = 0;
+                sleep.effectAmount = 0;
+                sleep.dwFlags = 0;
+                sleep.durationType = 0;
+                sleep.duration = 15 - 15 * nNewHitPoints;
+                sleep.probabilityUpper = 100;
+                sleep.probabilityLower = 0;
+                sleep.numDice = 0;
+                sleep.diceSize = 0;
+                sleep.savingThrow = 0;
+                sleep.saveMod = 0;
+                sleep.special = 0;
+
+                pEffectToApply = DecodeEffect(&sleep,
+                    CPoint(-1, -1),
+                    -1,
+                    CPoint(-1, -1));
+                pSprite->GetBaseStats()->m_hitPoints = 1;
+                bStunned = TRUE;
+            }
+        }
+
+        if (!bStunned) {
+            switch (nKindType) {
+            case 0x0:       // CRUSHING
+            case 0x100000:  // PIERCING
+            case 0x1000000: // SLASHING
+            {
+                // Gibs below -10; player characters hold together until -30.
+                BOOL bPlayerCharacter = pSprite->GetAIType().m_nEnemyAlly == 2;
+                if ((bPlayerCharacter && nNewHitPoints <= -31)
+                    || (!bPlayerCharacter && nNewHitPoints <= -11)) {
+                    pDeath->m_dwFlags = 8;
+                } else {
+                    pDeath->m_dwFlags = 4;
+                }
+                break;
+            }
+            case 0x10000: // ACID: dissolve below -5
+                pDeath->m_dwFlags = nNewHitPoints > -6 ? 4 : 0;
+                break;
+            case 0x20000: // COLD: freeze-shatter below -5
+                pDeath->m_dwFlags = nNewHitPoints > -6 ? 4 : 0x20;
+                break;
+            case 0x40000: // ELECTRICITY: charred death below -5
+                pDeath->m_dwFlags = nNewHitPoints > -6 ? 4 : 0x100;
+                break;
+            case 0x80000: // FIRE: burnt death below -5
+                pDeath->m_dwFlags = nNewHitPoints < -5 ? 1 : 4;
+                break;
+            case 0x200000:   // POISON
+            case 0x400000:   // MAGIC
+            case 0x2000000:  // MAGICFIRE
+            case 0x4000000:  // MAGICCOLD
+            case 0x20000000:
+            case 0x40000000:
+                pDeath->m_dwFlags = 4;
+                break;
+            case 0x10000000: // always chunked
+                pDeath->m_dwFlags = 8;
+                break;
+            default:
+                UTIL_ASSERT_MSG(FALSE, "WIERD damage");
+            }
+        }
+
+        pEffectToApply->m_casterLevel = m_casterLevel;
+        pSprite->AddEffect(pEffectToApply, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+
+        // HACK: the chunked-death debris pass for damage type 0x10000000 (the
+        // EffSE spawner 0x586220 + per-chunk effect re-targeting) is
+        // unrecovered -- replaces 0x4A89E5..0x4A8C46.
+    }
+
+    // If the cursor tooltip currently points at this creature, refresh it so
+    // the hit-point line updates.
+    if (g_pBaldurChitin->m_pObjectCursor->m_nCurrentCursor == 101
+        && pSprite->m_pArea->m_iPicked == pSprite->GetId()) {
+        pSprite->SetCharacterToolTip(g_pBaldurChitin->m_pObjectCursor->field_A02);
+    }
+
+    // "Badly wounded" vocal + autopause when the hit drops the target through
+    // the 30% mark (always), or while already below it (1-in-10 per hit).
+    SHORT nMaxHitPoints = pSprite->m_tempStats.m_nMaxHitPoints;
+    SHORT nHitPointsNow = pSprite->GetBaseStats()->m_hitPoints;
+    if (30 < (nOldHitPoints * 100) / nMaxHitPoints
+        && (nHitPointsNow * 100) / nMaxHitPoints < 30
+        && 0 < (nHitPointsNow * 100) / nMaxHitPoints) {
+        CMessagePlaySound* pPlaySound = new CMessagePlaySound(CGameSprite::SOUND_BADLY_WOUNDED,
+            TRUE,
+            FALSE,
+            pSprite->GetId(),
+            pSprite->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pPlaySound, FALSE);
+        pSprite->AutoPause(8);
+    } else if ((nHitPointsNow * 100) / nMaxHitPoints < 30
+        && 0 < (nHitPointsNow * 100) / nMaxHitPoints
+        && rand() % 10 == 0) {
+        CMessagePlaySound* pPlaySound = new CMessagePlaySound(CGameSprite::SOUND_BADLY_WOUNDED,
+            TRUE,
+            FALSE,
+            pSprite->GetId(),
+            pSprite->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pPlaySound, FALSE);
+        pSprite->AutoPause(8);
+    }
+
+    if (bSurvived) {
+        WakeOnDamage(pSprite);
     }
 
     m_done = TRUE;

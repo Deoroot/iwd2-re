@@ -513,7 +513,7 @@ public:
     /* 011E */ SHORT m_nDamageModPiercing;
     /* 0120 */ SHORT m_nDamageModCrushing;
     /* 0122 */ SHORT m_nDamageModMissile;
-    /* 0124 */ int field_124;
+    /* 0124 */ int m_nTortoiseShellPoints;
     /* 0128 */ int field_128;
     /* 012C */ int field_12C;
     /* 0130 */ int field_130;
