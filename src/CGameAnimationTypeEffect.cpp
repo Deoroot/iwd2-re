@@ -456,22 +456,15 @@ void CGameAnimationTypeEffect::Render(CInfinity* pInfinity, CVidMode* pVidMode, 
         dwRenderFlags |= 0x8;
     }
 
-    if (m_currentVidCellShadow != NULL
-        || m_translucent
-        || transparency != 0
-        || (dwRenderFlags & 0x8) != 0) {
-        dwRenderFlags |= CInfinity::FXPREP_COPYFROMBACK;
+    // One or the other, never both (FXPrep asserts on the pair): plain
+    // opaque shadowless cells clear-fill, everything else copies from back.
+    if (m_currentVidCellShadow == NULL
+        && !m_translucent
+        && transparency == 0
+        && (dwRenderFlags & 0x8) == 0) {
+        dwRenderFlags |= CInfinity::FXPREP_CLEARFILL | 0x1;
     } else {
-        dwRenderFlags |= CInfinity::FXPREP_CLEARFILL;
-        dwRenderFlags |= 0x1;
-    }
-
-    if (transparency) {
         dwRenderFlags |= CInfinity::FXPREP_COPYFROMBACK;
-        dwRenderFlags |= 0x2;
-    } else {
-        dwRenderFlags |= CInfinity::FXPREP_CLEARFILL;
-        dwRenderFlags |= 0x1;
     }
 
     if (m_currentVidCellShadow != NULL) {
