@@ -439,3 +439,4 @@ FodyWeavers.xsd
 # host (Linux) config variants — local paths, not for the Windows/VM checkout
 /re-agent.host.yaml
 /ghidra-bridge.host.yaml
+/data/pdb/bg2_pdb.sqlite

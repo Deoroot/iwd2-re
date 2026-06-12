@@ -16,6 +16,7 @@ Paths: `/home/wills/iwd2-re/...` = host; `C:\iwd2-re\...`, `C:\GOG Games\...` = 
 |------|------|
 | Find fn/class/global in src (file:line, 0xADDR, exact body) | `python3 scripts/src_find.py NAME` / `Class::Method --body` / `0xADDR` / `Class:: -l` / `--file f.cpp` |
 | Quick look at a binary fn (sig, callees, callers, strings) | `python3 scripts/fn_digest.py 0xADDR\|Name` (`--full` → tmp file path) |
+| BG2 name carry-over (class layout, methods+vft slots, members, globals) | `python3 scripts/bg2_find.py NAME` / `CClass::` / `CClass::sub` — never grep the PDB dumps |
 | PE bytes / dwords / strings / disasm / vtable / ptr-scan / crash dump | `scripts/sym.py bytes\|u32\|str\|disasm\|findptr\|vtable\|addr2fn\|crash` |
 | Callers/callees graph, blast radius, exec flows, review diff | graph MCP: `query_graph` (callers_of/callees_of/file_summary), `get_impact_radius`, `get_affected_flows`, `detect_changes` |
 | GemRB lookup / cross-repo | same graph tools + `repo_root="/home/wills/iwd2-re/refs/gemrb"`; `cross_repo_search_tool` |
@@ -105,7 +106,7 @@ Resolve the canonical TLK name before naming an asset in comments or commit mess
 
 | Path | Use |
 |-----|-----|
-| `data/pdb/bg2_pdb_types.txt` | BG2EE PDB layouts (field names match, offsets differ) |
+| `data/pdb/Baldur.pdb` | BG2EE 2.5 PDB (names carry over, offsets differ). Query via `bg2_find.py`, not the raw dumps |
 | `refs/gemrb/` | GemRB source → CRG graph (`repo_root=".../refs/gemrb"`) |
 | `refs/NearInfinity/` | File formats (.CRE/.ARE/.ITM) |
 | `refs/iesdp/` | Effects, opcodes, STATS.IDS |
