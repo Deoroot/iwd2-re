@@ -222,6 +222,68 @@ private:
     /* 02A7 */ BYTE m_trailTick;
 };
 
+// Intermediate 0x52CCE0 -- the exploding weapon missile (vtable 0x84DBDC,
+// binary sizeof 0x4B2). On top of the travelling flight it carries a target
+// CAIObjectType, strike ranges and charges, a linger state and two extra
+// animation cells, and its strike pass (AreaEffect -- the name carries over
+// from the BG2 PDB's CProjectileArea) fires a child projectile (type
+// m_childProjectileType + 1) at every creature in strike range, cloning this
+// missile's effect list onto each child.
+//
+// Its own flight virtuals are deferred: AIUpdate 0x52E4D0 (slot 3), Render
+// 0x52CF80 (slot 19), Fire 0x52D9F0 (slot 27), OnArrival 0x52D7F0 (slot 28,
+// arms the linger state), and the second added virtual 0x52E360 (slot 35).
+class CProjectileExploding : public CProjectileTravelling {
+public:
+    CProjectileExploding(const CResRef& resRef);   // 0x52CCE0
+
+    // 0x78E730 (vtable slot 34; the binary impl is COMDAT-folded with the
+    // no-op CProjectile::CallBack). AreaEffect fires it once any child went
+    // out; the leaves override it with their explosion VFX (0x52F1C0 --
+    // deferred).
+    virtual void Explode();
+
+protected:
+    int AreaEffect(BYTE bCheckRange);   // 0x52D430
+
+    /* 02A0 */ SHORT m_strikeRange;
+    /* 02A2 */ SHORT m_preCheckRange;
+    /* 02A4 */ SHORT m_childProjectileType;   // the strike fires type + 1
+    /* 02A6 */ SHORT m_strikesLeft;
+    // 0 while flying; OnArrival's linger state otherwise (AIUpdate then runs
+    // the periodic strike pass instead of the flight).
+    /* 02A8 */ int m_nState;
+    /* 02AC */ SHORT m_lingerPeriod;
+    /* 02AE */ SHORT m_lingerCountdown;
+    // Nonzero: AreaEffect first verifies somebody is inside m_preCheckRange
+    // and strikes nobody otherwise.
+    /* 02B0 */ int m_bPreScan/*#guess*/;
+    /* 02B4 */ CAIObjectType m_targetType;
+    /* 02F0 */ BYTE field_2F0;
+    /* 02F1 */ BYTE field_2F1;
+    /* 02F2 */ int m_bCheckNonSprites;
+    /* 02F6 */ int field_2F6;
+    /* 02FA */ CVidCell m_explodeCell1/*#guess*/;
+    /* 03D4 */ int field_3D4;
+    /* 03D8 */ CVidCell m_explodeCell2/*#guess*/;
+};
+
+// Leaf 0x52E9F0 -- the exploding flame missile (DecodeProjectile type 0x3;
+// vtable 0x84DCF4, binary sizeof 0x4BA): the SPFLMARR cell at 3x the base
+// velocity with the flame-trail puffs (CGameTemporal, animation set 0x300).
+// Its own deferred virtuals: the destructor 0x52EB10/0x52EB30 (inline-base
+// empty leaf part), Explode 0x52F1C0 and slot 35 0x52F5E0.
+class CProjectileExplodingFlame : public CProjectileExploding {
+public:
+    CProjectileExplodingFlame();   // 0x52E9F0
+
+    void AIUpdate() override;   // 0x52EC80 (vtable slot 3)
+
+private:
+    /* 04B2 */ BYTE m_trailColorRanges[7];
+    /* 04B9 */ BYTE m_trailTick;
+};
+
 // Leaf 0x57E030 -- the Magic Missile homing sub-missile (DecodeProjectile type
 // 0xDA; vtable 0x8510A4). Spawned in quantity by the Magic Missile launcher
 // (CProjectileMagicMissileMulti), not cast directly. A directional (mirrored)

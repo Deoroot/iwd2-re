@@ -346,6 +346,17 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileArrow();
         break;
 
+    case 0x3: {
+        // The exploding flame missile: flies its default SPFLMARR cell to the
+        // target and runs the strike pass there, launch sound TRA_10.
+        CProjectileExplodingFlame* pMissile = new CProjectileExplodingFlame();
+        pMissile->m_bHasHeight = TRUE;
+        pMissile->m_fireSoundRef = CResRef("TRA_10");
+        pMissile->m_arrivalSoundRef = CResRef("");
+        pProjectile = pMissile;
+        break;
+    }
+
     case 0x4: {
         // The flaming arrow: the flame-trailed leaf flying its default
         // SPFLMARR cell, launch sound TRA_24.
@@ -2262,6 +2273,293 @@ void CProjectileSPFLMARR::AIUpdate()
     }
 
     CProjectileTravelling::AIUpdate();
+}
+
+// 0x52CCE0
+//
+// CProjectileExploding -- the exploding weapon missile base. Builds the
+// travelling base on the caller's cell, then arms the strike machinery: one
+// strike at everyone of any type inside range 256, re-checked every 100 linger
+// ticks. The two explosion cells stay empty here (the deferred leaf Fire and
+// Explode paths load them).
+CProjectileExploding::CProjectileExploding(const CResRef& resRef)
+    : CProjectileTravelling(resRef)
+    , m_targetType(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0)
+{
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    field_17E = "";
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+
+    m_childProjectileType = 0x4E;
+    m_strikesLeft = 1;
+    m_nState = 0;
+    m_lingerPeriod = 100;
+    m_lingerCountdown = 0;
+    m_targetType.Set(CAIObjectType::ANYONE);
+    m_strikeRange = 0x100;
+    m_preCheckRange = 0x100;
+    m_bPreScan = 0;
+    field_2F0 = 0;
+    m_tinted = 0;
+    field_2F6 = 0;
+    field_3D4 = 0;
+    m_bCheckNonSprites = 0;
+    field_2F1 = 0xFF;
+}
+
+// 0x78E730 (vtable slot 34; COMDAT-folded with CProjectile::CallBack)
+void CProjectileExploding::Explode()
+{
+}
+
+// 0x52D430
+//
+// The strike pass (BG2 PDB: CProjectileArea::AreaEffect). Gathers every
+// m_targetType creature in m_strikeRange (front and back area lists), fires a
+// child projectile of type m_childProjectileType + 1 at each one that passes
+// the range/LOS filter, cloning this missile's effect list onto the child,
+// and triggers the Explode hook if anything went out. Returns whether the
+// pre-scan found targets (always 1 when m_bPreScan is off).
+int CProjectileExploding::AreaEffect(BYTE bCheckRange)
+{
+    CTypedPtrList<CPtrList, LONG*> targets;
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    BOOL bStruck = FALSE;
+    int nResult;
+    if (m_bPreScan == 0) {
+        nResult = 1;
+        bStruck = TRUE;
+    } else {
+        m_pArea->GetCloseObjects(m_posVertList, m_pos, m_targetType, m_preCheckRange,
+            m_terrainTable, targets, TRUE, m_bCheckNonSprites);
+        m_pArea->GetAllInRangeBack(m_pos, m_targetType, m_preCheckRange,
+            m_terrainTable, targets, TRUE, FALSE, m_bCheckNonSprites);
+        nResult = targets.GetCount() != 0;
+        if (nResult == 0) {
+            return nResult;
+        }
+    }
+
+    targets.RemoveAll();
+    m_pArea->GetCloseObjects(m_posVertList, m_pos, m_targetType, m_strikeRange,
+        m_terrainTable, targets, TRUE, m_bCheckNonSprites);
+    m_pArea->GetAllInRangeBack(m_pos, m_targetType, m_strikeRange,
+        m_terrainTable, targets, TRUE, FALSE, m_bCheckNonSprites);
+
+    POSITION pos = targets.GetHeadPosition();
+    while (pos != NULL) {
+        LONG nTargetId = reinterpret_cast<LONG>(targets.GetNext(pos));
+
+        CGameObject* pObject;
+        if (pGame->m_cObjectArray.GetShare(nTargetId, CGameObjectArray::THREAD_ASYNCH,
+                &pObject, INFINITE)
+            != CGameObjectArray::SUCCESS) {
+            return nResult;
+        }
+
+        LONG nReleaseId = nTargetId;
+        if (pObject->GetObjectType() & CGameObject::TYPE_AIBASE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+
+            CPoint ptTarget;
+            if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                ptTarget = pSprite->m_posOld;
+            } else {
+                ptTarget = pObject->GetPos();
+            }
+
+            LONG nDeltaX = ptTarget.x - m_pos.x;
+            LONG nDeltaY = ptTarget.y - m_pos.y;
+            if (bCheckRange == 0
+                || (nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX < m_strikeRange * m_strikeRange
+                || m_pArea->CheckLOS(m_pos, ptTarget, m_terrainTable, FALSE)) {
+                if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                    pSprite->m_posOld = pObject->GetPos();
+                }
+
+                bStruck = TRUE;
+                CProjectile* pChild = DecodeProjectile(
+                    static_cast<USHORT>(m_childProjectileType + 1), NULL, 0);
+                pChild->m_nSpellLevel = m_nSpellLevel;
+                pChild->m_casterResRef = m_casterResRef;
+                pChild->m_fireSoundRef = CResRef("");
+
+                POSITION posEffect = m_effectList.GetHeadPosition();
+                while (posEffect != NULL) {
+                    CGameEffect* pCopy = m_effectList.GetNext(posEffect)->Copy();
+                    pCopy->m_slotNum = pChild->m_projectileType;
+                    pChild->m_effectList.AddTail(pCopy);
+                }
+
+                pChild->Fire(m_pArea, m_id, nTargetId, pObject->GetPos(), 0x32, 0);
+            }
+
+            // The original releases m_callBackProjectile here, not the target
+            // it shared above -- the struck target's share is leaked.
+            nReleaseId = m_callBackProjectile;
+        }
+
+        pGame->m_cObjectArray.ReleaseShare(nReleaseId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    if (bStruck) {
+        Explode();
+    }
+
+    return nResult;
+}
+
+// 0x52E9F0
+//
+// CProjectileExplodingFlame -- the exploding flame missile. Builds the
+// "SPFLMARR" exploding base, then configures it like its plain sibling
+// CProjectileSPFLMARR: first animation sequence, a two-range palette recolour
+// (0x43/0x39, ranges 0 and 2) from the game master bitmap, an untinted
+// unmirrored 16-direction cell at 3x the base velocity, an empty fire-sound
+// resref, and the default 'A' trail colour ranges.
+CProjectileExplodingFlame::CProjectileExplodingFlame()
+    : CProjectileExploding(CResRef("SPFLMARR"))
+{
+    m_pVidCell->SequenceSet(0);
+
+    m_palette.SetRange(0, 0x43, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_palette.SetRange(2, 0x39, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_pVidCell->SetPalette(m_palette);
+
+    m_velocity = static_cast<SHORT>(m_velocity * 3);
+    m_tinted = 0;
+    m_useHeightOffset = 0;
+    m_mirror = 0;
+    m_hasShadowCell = 0;
+    m_dirCount = 0x10;
+    m_fireSoundRef = CResRef("");
+
+    memset(m_trailColorRanges, 0x41, sizeof(m_trailColorRanges));
+    m_trailTick = 0;
+    m_childProjectileType = 0x4E;
+}
+
+// 0x52EC80
+void CProjectileExplodingFlame::AIUpdate()
+{
+    CString sSoundName("");
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop == 0 || pGame->m_nTimeStopCaster == m_id) {
+        if (m_nState == 0) {
+            // Flying: advance the cell, chase the (live) target, drop the
+            // flame trail.
+            m_pVidCell->FrameAdvance();
+
+            LONG nDeltaX = m_targetX - m_pos.x;
+            LONG nDeltaY = m_targetY - m_pos.y;
+            LONG nRadius = m_velocity + 1;
+            if (nRadius * nRadius < (nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX) {
+                if (m_targetId == CGameObjectArray::INVALID_INDEX) {
+                    AimAtPoint(m_targetX, m_targetY);
+                } else {
+                    CGameObject* pTarget;
+                    if (pGame->m_cObjectArray.GetShare(m_targetId,
+                            CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE)
+                        != CGameObjectArray::SUCCESS) {
+                        RemoveSelf();
+                        return;
+                    }
+
+                    if (m_pArea != pTarget->m_pArea) {
+                        LONG nTargetId = m_targetId;
+                        RemoveSelf();
+                        pGame->m_cObjectArray.ReleaseShare(nTargetId,
+                            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                        return;
+                    }
+
+                    CPoint ptTarget = pTarget->GetPos();
+                    pGame->m_cObjectArray.ReleaseShare(m_targetId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    AimAtPoint(ptTarget.x, ptTarget.y);
+                }
+
+                m_trailTick = m_trailTick + 1;
+                if (m_trailTick == 1) {
+                    m_trailTick = 0;
+
+                    int nJitterY = rand() % 5;
+                    int nJitterX = rand() % 5;
+                    new CGameTemporal(0x300,
+                        m_trailColorRanges,
+                        sSoundName,
+                        m_pArea,
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 4 / 3,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 4 / 3),
+                        -m_posZ,
+                        CPoint(0, 0),
+                        0,
+                        0,
+                        CGameTemporal::COLLISION_DESTROY);
+
+                    nJitterY = rand() % 5;
+                    nJitterX = rand() % 5;
+                    new CGameTemporal(0x300,
+                        m_trailColorRanges,
+                        sSoundName,
+                        m_pArea,
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY),
+                        -m_posZ,
+                        CPoint(0, 0),
+                        0,
+                        0,
+                        CGameTemporal::COLLISION_DESTROY);
+
+                    nJitterY = rand() % 5;
+                    nJitterX = rand() % 5;
+                    new CGameTemporal(0x300,
+                        m_trailColorRanges,
+                        sSoundName,
+                        m_pArea,
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 2 / 3,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 2 / 3),
+                        -m_posZ,
+                        CPoint(0, 0),
+                        0,
+                        0,
+                        CGameTemporal::COLLISION_DESTROY);
+                }
+
+                // Trailing sub-projectile (+0xE2 != 0) via the unrecovered
+                // factory 0x51AE40 -- omitted like the same documented stub in
+                // CProjectileTravelling::AIUpdate.
+
+                m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+            } else {
+                OnArrival();
+            }
+        } else {
+            // Lingering after arrival: run the strike pass every
+            // m_lingerPeriod ticks until the charges run out.
+            if (m_lingerCountdown == 0) {
+                m_lingerCountdown = static_cast<SHORT>(m_lingerPeriod);
+                if (AreaEffect(0) != 0) {
+                    m_strikesLeft = m_strikesLeft - 1;
+                }
+
+                if (m_strikesLeft < 1) {
+                    RemoveFromArea();
+                    if (pGame->m_cObjectArray.Delete(m_id, CGameObjectArray::THREAD_ASYNCH,
+                            NULL, INFINITE)
+                        == CGameObjectArray::SUCCESS) {
+                        delete this;
+                    }
+
+                    return;
+                }
+            }
+
+            m_lingerCountdown = m_lingerCountdown - 1;
+        }
+    }
 }
 
 // 0x57E030
