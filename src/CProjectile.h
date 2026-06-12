@@ -13,6 +13,7 @@
 class CGameAIBase;
 class CGameArea;
 class CGameSprite;
+class CRes;
 
 class CProjectile : public CGameObject {
 public:
@@ -39,7 +40,17 @@ public:
     /* 0072 */ LONG m_sourceId;
     /* 0076 */ LONG m_targetId;
     /* 007A */ LONG m_callBackProjectile;
-    /* 007E */ CGameEffectList m_effectList;
+    // The projectile's effect list is the plain MFC typed list (0x1C), NOT a
+    // CGameEffectList: the sprite list's cursor tail (+0x1C..+0x2B) would
+    // overlap m_sparkleColor and the travelling flight accumulators at
+    // +0x9C.. (the ctor 0x530790 zeroes a WORD at +0x9A, and the factory's
+    // sparkle cases stamp the colour there).
+    /* 007E */ CTypedPtrList<CPtrList, CGameEffect*> m_effectList;
+    // Sparkle-stream colour (1=black 2=blue 3=chromatic 4=gold 5=green
+    // 6=purple 7=red 9=ice 10=stone 11=magenta 12=orange), row index into the
+    // travel palette bitmap; written by the DecodeProjectile sparkle cases.
+    /* 009A */ SHORT m_sparkleColor;
+    /* 00E2 */ BOOL m_bSparkleTrail;
     /* 00EA */ CGameArea* m_pArea;
     /* 00EE */ CSound m_sound;
     /* 0152 */ CResRef m_fireSoundRef;
@@ -109,6 +120,9 @@ class CProjectileTravelling : public CProjectile {
     // The Magic Missile launcher (0x530C90) writes its sub-missiles' drift
     // fields directly (m_driftX/Y, m_driftDecay, m_hasDrift, m_velocity).
     friend class CProjectileSPMAGMIS;
+    // DecodeProjectile's sparkle cases (0x2F-0x37/0x41/0xB8/0xB9) write
+    // m_velocity and m_visible on the freshly built leaf.
+    friend class CProjectile;
 
 public:
     CProjectileTravelling(const CResRef& resRef);
@@ -118,6 +132,9 @@ public:
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;  // slot 19 (0x52B190)
     virtual void AimAtPoint(int x, int y);     // vtable slot 33 (0x52BD20)
     virtual DWORD GetRenderFlags();            // vtable slot 32 (0x5297D0)
+
+    void SetVidCell(CResRef resRef);                      // 0x5295D0 -- replace the animation cell
+    void SetTravelPalette/*#guess*/(CString bitmapName);  // 0x529660 -- request the sparkle colour-table bitmap
 
 protected:
     void GetCellBounds(CRect& rBounds, CPoint& ptRef);   // 0x52B6B0 -- cell draw rect + ref point
@@ -155,7 +172,11 @@ protected:
     SHORT m_direction;          // +0x1DA -- Frida-confirmed (facing; drives mirror thresholds)
     SHORT m_facing;             // +0x1DC -- movement facing (0..15, CGameSprite::GetDirection)
     int m_visible;              // +0x1DE -- Frida-confirmed (render gate)
-    BYTE m_paletteSwap;         // +0x29C (param[0xa7]) -- Frida-confirmed
+    BOOL m_travelPaletteRequested/*#guess*/;  // +0x282 -- a CRes::Request is outstanding
+    CRes* m_pTravelPaletteRes/*#guess*/;      // +0x286 -- the sparkle colour-table bitmap (CResBitmap)
+    CResRef m_travelPaletteRef/*#guess*/;     // +0x28A -- its resref ("STTRAVL1")
+    int field_298;              // +0x298 -- zeroed by SetTravelPalette
+    BYTE m_paletteSwap;         // +0x29C (param[0xa7]) -- Frida-confirmed; set by SetTravelPalette, Render swaps the cell palette from the bitmap
     BYTE m_distLifetime;        // +0x29D -- gate: when set, compute lifetime from sqrt(dist)/velocity
     SHORT m_lifetime;           // +0x29E -- Frida-confirmed (decrements 1/tick from 0x7FFF)
 };
@@ -178,6 +199,21 @@ public:
 class CProjectileMMissiT : public CProjectileTravelling {
 public:
     CProjectileMMissiT(SHORT nPaletteFlag);   // 0x57E030
+};
+
+// Leaf 0x52CA10 -- the single travelling spell missile ("SPMAGMIS" BAM,
+// vtable 0x84DB54): the plain Magic Missile bolt (DecodeProjectile type 0x25)
+// and, with the cell swapped to "TRAVEL" and a colour stamped, the coloured
+// sparkle streams (types 0x2F-0x37/0xB8/0xB9) plus the invisible gaze carrier
+// (0x41). A mirrored missile at double the base velocity, like CProjectileMMissiT,
+// with the directional fields explicitly cleared. Its own virtual overrides
+// (destructor 0x52CBC0 -- empty leaf part, base dtor inlined -- and the
+// slot34/slot37 impact pair 0x52CE10/0x52DD60) are deferred like
+// CProjectileArrow's; it flies, renders and delivers effects through the
+// CProjectileTravelling/CProjectile base path.
+class CProjectileSparkle : public CProjectileTravelling {
+public:
+    CProjectileSparkle(SHORT nPaletteType);   // 0x52CA10
 };
 
 // Intermediate base for the Magic Missile launcher (ctor 0x5309C0). Pre-spawns a

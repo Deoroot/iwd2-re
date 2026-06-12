@@ -356,6 +356,82 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile->m_fireSoundRef = CResRef("TRA_02");
         break;
 
+    case 0x25: {
+        // MAGICMIS -- the plain single Magic Missile bolt (SPMAGMIS BAM, no
+        // sparkle trail), launch whoosh TRA_02 like the launcher's
+        // sub-missiles.
+        CProjectileSparkle* pSparkle = new CProjectileSparkle(CVidPalette::TYPE_RESOURCE);
+        pSparkle->m_fireSoundRef = CResRef("TRA_02");
+        pSparkle->m_bHasHeight = TRUE;
+        pSparkle->m_arrivalSoundRef = CResRef("");
+        pProjectile = pSparkle;
+        break;
+    }
+
+    case 0x2F:   // SPARKLBL blue
+    case 0x30:   // SPARKLGO gold
+    case 0x31:   // SPARKLPU purple
+    case 0x32:   // SPARKLIC ice
+    case 0x33:   // SPARKLST stone
+    case 0x34:   // SPARKLBK black
+    case 0x35:   // SPARKLCH chromatic
+    case 0x36:   // SPARKLRE red
+    case 0x37:   // SPARKLGR green
+    case 0xB8:   // SPARKLMA magenta
+    case 0xB9: { // SPARKLOR orange
+        // The coloured sparkle streams: a CProjectileSparkle with its cell
+        // swapped to the "TRAVEL" dot and the trail colour stamped
+        // (m_sparkleColor indexes the "STTRAVL1" colour-table bitmap rows).
+        // Stone/black/chromatic skip the palette-bitmap request; the launch
+        // sound varies per colour and is empty for most.
+        CProjectileSparkle* pSparkle = new CProjectileSparkle(CVidPalette::TYPE_RESOURCE);
+        pSparkle->SetVidCell(CResRef("TRAVEL"));
+        SHORT sparkleColor = 0;
+        CResRef fireSoundRef("");
+        BOOL requestPalette = TRUE;
+        switch (projectileType) {
+        case 0x2F: sparkleColor = 2;   fireSoundRef = "TRA_04A"; break;
+        case 0x30: sparkleColor = 4;   fireSoundRef = "TRA_04C"; break;
+        case 0x31: sparkleColor = 6;   break;
+        case 0x32: sparkleColor = 9;   fireSoundRef = "TRA_01";  break;
+        case 0x33: sparkleColor = 0xA; requestPalette = FALSE;   break;
+        case 0x34: sparkleColor = 1;   requestPalette = FALSE;   break;
+        case 0x35: sparkleColor = 3;   requestPalette = FALSE;   break;
+        case 0x36: sparkleColor = 7;   break;
+        case 0x37: sparkleColor = 5;   fireSoundRef = "TRA_04D"; break;
+        case 0xB8: sparkleColor = 0xB; fireSoundRef = "TRA_04A"; break;
+        case 0xB9: sparkleColor = 0xC; fireSoundRef = "TRA_03";  break;
+        }
+        if (requestPalette) {
+            pSparkle->SetTravelPalette(CString("STTRAVL1"));
+        }
+        pSparkle->m_bSparkleTrail = TRUE;
+        pSparkle->m_sparkleColor = sparkleColor;
+        pSparkle->m_fireSoundRef = fireSoundRef;
+        pSparkle->m_bHasHeight = TRUE;
+        pSparkle->m_arrivalSoundRef = CResRef("");
+        pProjectile = pSparkle;
+        break;
+    }
+
+    case 0x41: {
+        // GAZE -- an invisible sparkle carrier at double speed (4x the BAM
+        // base velocity after the constructor's own doubling); delivers its
+        // payload with no visible missile.
+        CProjectileSparkle* pSparkle = new CProjectileSparkle(CVidPalette::TYPE_RESOURCE);
+        pSparkle->SetVidCell(CResRef("TRAVEL"));
+        pSparkle->SetTravelPalette(CString("STTRAVL1"));
+        pSparkle->m_visible = 0;
+        pSparkle->m_bSparkleTrail = TRUE;
+        pSparkle->m_sparkleColor = 0xA;
+        pSparkle->m_bHasHeight = TRUE;
+        pSparkle->m_velocity = static_cast<SHORT>(pSparkle->m_velocity << 1);
+        pSparkle->m_fireSoundRef = CResRef("TRA_04C");
+        pSparkle->m_arrivalSoundRef = CResRef("");
+        pProjectile = pSparkle;
+        break;
+    }
+
     case 0x44:
     case 0x45:
     case 0x46:
@@ -440,6 +516,10 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileSummonVFX(CResRef("GateX"), visualEffect);
         break;
 
+    case 0x2E:
+        // 0x52026A: the unused sparkle slot -- the original asserts FALSE
+        // (CProjectile.cpp:631) and then builds the same plain-CProjectile
+        // fallback as the default case; same omitted-assert rationale.
     default:
         // 0x528DEF: unknown / unrecovered type.  The binary asserts FALSE
         // (CProjectile.cpp:3127) and then builds a plain CProjectile, so the
@@ -472,10 +552,10 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
 // subclass constructor inlines this same body before its own overrides, so
 // subclasses run it implicitly here too).  The binary's store of the MFC
 // nil-string sentinel (0x8C1758) into field_17E is the inlined CString
-// default constructor -- our implicit member init.  Not transcribed: the
-// re-zeroing of four undeclared CGameEffectList tail fields
-// (+0x46/+0x62/+0x64/+0x68 inside the list) right after the list
-// constructor has run.
+// default constructor -- our implicit member init.  The word zeroed at
+// +0x9A is m_sparkleColor (the field right after the plain effect list),
+// and the +0xE0/+0xE6 zeroes are m_driftDecay/m_renderFlags, declared on
+// CProjectileTravelling but cleared by this base constructor.
 CProjectile::CProjectile()
 {
     m_nSpellLevel = 0;
@@ -483,7 +563,7 @@ CProjectile::CProjectile()
     field_70 = 0;
     m_sourceId = 0;
     m_targetId = 0;
-    m_effectList.m_posNext = NULL;
+    m_sparkleColor = 0;
     m_pArea = NULL;
     m_nDeltaZ = 0;
     m_nDeltaZLast = 0;
@@ -2004,6 +2084,104 @@ CProjectileMMissiT::CProjectileMMissiT(SHORT nPaletteFlag)
 
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
     m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x52CA10
+//
+// CProjectileSparkle -- the single travelling spell missile, "SPMAGMIS" BAM
+// (the Magic Missile bolt; the sparkle-stream factory cases swap the cell to
+// "TRAVEL" afterwards). Same shape as CProjectileMMissiT -- a mirrored
+// missile at double the base velocity with the optional TYPE_RANGE palette
+// recolour -- plus an explicit clearing of the shadow-cell, direction and
+// lifetime fields.
+//
+// As with the other leaves, the original's copies of an empty global CResRef
+// into m_fireSoundRef (+0x152) and of an empty 8-byte global into field_17E
+// are deferred -- both members default-construct empty.
+CProjectileSparkle::CProjectileSparkle(SHORT nPaletteType)
+    : CProjectileTravelling(CResRef("SPMAGMIS"))
+{
+    m_pShadowCell = NULL;
+    m_dirCount = 0;
+    m_direction = 0;
+    m_facing = 0;
+    m_visible = 0;
+    m_paletteSwap = 0;
+    m_distLifetime = 0;
+    m_lifetime = 0;
+
+    m_pVidCell->SequenceSet(0);
+
+    m_velocity = static_cast<SHORT>(m_velocity << 1);
+    m_mirrorMinX = 0xF;
+    m_mirrorMinY = 0xB;
+    m_tinted = 0;
+    m_useHeightOffset = 0;
+    m_mirror = 1;
+    m_leafRenderParam = 0x80;
+    m_hasShadowCell = 0;
+    m_renderFlags |= 8;
+
+    if (nPaletteType != 0) {
+        if (nPaletteType == CVidPalette::TYPE_RANGE) {
+            m_palette.SetRange(0, 0x21, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+            m_pVidCell->SetPalette(m_palette);
+        } else {
+            UTIL_ASSERT(FALSE);
+        }
+    }
+
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x5295D0
+//
+// Replace the travelling animation cell built by the base constructor with
+// another BAM (the sparkle cases swap "SPMAGMIS" for the "TRAVEL" dot).
+void CProjectileTravelling::SetVidCell(CResRef resRef)
+{
+    if (m_pVidCell != NULL) {
+        delete m_pVidCell;
+    }
+    m_pVidCell = new CVidCell(resRef, FALSE);
+}
+
+// 0x529660
+//
+// Request the sparkle colour-table bitmap ("STTRAVL1"; resource type 1 =
+// bitmap) and arm the render-time palette swap (m_paletteSwap; Render picks
+// the row given by m_sparkleColor). Cancels the previous request when the
+// resref actually changes; an empty name is ignored.
+void CProjectileTravelling::SetTravelPalette/*#guess*/(CString bitmapName)
+{
+    if (bitmapName.GetLength() != 0) {
+        CResRef resRef(bitmapName);
+        if (resRef != m_travelPaletteRef) {
+            if (m_pTravelPaletteRes != NULL
+                && m_travelPaletteRef != CResRef("")
+                && m_travelPaletteRequested) {
+                m_pTravelPaletteRes->CancelRequest();
+            }
+            if (resRef == CResRef("")) {
+                m_pTravelPaletteRes = NULL;
+                m_travelPaletteRef = CResRef("");
+            } else {
+                CRes* pRes = g_pChitin->cDimm.GetResObject(resRef, 1, TRUE);
+                if (pRes != NULL) {
+                    m_pTravelPaletteRes = pRes;
+                    m_travelPaletteRequested = TRUE;
+                    pRes->Request();
+                    m_travelPaletteRef = resRef;
+                } else {
+                    m_pTravelPaletteRes = NULL;
+                    m_travelPaletteRef = CResRef("");
+                }
+            }
+        }
+        field_298 = 0;
+        m_paletteSwap = 1;
+    }
 }
 
 // 0x5309C0

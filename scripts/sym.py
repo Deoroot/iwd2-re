@@ -6,6 +6,7 @@
   sym.py str    0xADDR [max=256]       NUL-terminated string
   sym.py disasm 0xADDR [count=24]      capstone x86-32, call/jmp targets named
   sym.py findptr 0xVALUE               scan all sections for LE dword (vtable slot discovery)
+  sym.py callsites 0xTARGET            scan .text for E8 rel32 calls to target (factory case wiring)
   sym.py vtable 0xADDR [slots=16]      dump vtable slots resolved to names
   sym.py addr2fn 0xADDR                containing function (address_map bisect) + src file:line
   sym.py crash  dump.dmp [N] [--loose]  minidump: exception + symbolicated stack scan (--loose for our-build dumps)
@@ -187,6 +188,28 @@ def cmd_findptr(value):
         sys.exit(1)
 
 
+def cmd_callsites(target):
+    for sec in pe().sections:
+        if not sec.Name.startswith(b".text"):
+            continue
+        data = sec.get_data()
+        base = image_base() + sec.VirtualAddress
+        hits = 0
+        off = data.find(b"\xe8")
+        while off != -1:
+            if off + 5 <= len(data):
+                (rel,) = struct.unpack_from("<i", data, off + 1)
+                site = base + off
+                if (site + 5 + rel) & 0xFFFFFFFF == target:
+                    nm = addr2name(site) or "?"
+                    print(f"0x{site:08x}  {nm}")
+                    hits += 1
+            off = data.find(b"\xe8", off + 1)
+        if not hits:
+            print("no call site")
+            sys.exit(1)
+
+
 def cmd_vtable(addr, slots=16):
     data = read(addr, 4 * slots)
     for i in range(slots):
@@ -262,6 +285,8 @@ def main():
             cmd_disasm(parse_addr(rest[0]), int(rest[1]) if len(rest) > 1 else 24)
         elif cmd == "findptr":
             cmd_findptr(parse_addr(rest[0]))
+        elif cmd == "callsites":
+            cmd_callsites(parse_addr(rest[0]))
         elif cmd == "vtable":
             cmd_vtable(parse_addr(rest[0]), int(rest[1]) if len(rest) > 1 else 16)
         elif cmd == "addr2fn":
