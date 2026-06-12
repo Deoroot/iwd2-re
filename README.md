@@ -38,7 +38,7 @@ If I could afford a $200/month Claude or ChatGPT subscription, the reverse engin
 |--------|----------|---------|
 | **Functions** | **88%** (24,883 / 28,024) | Ghidra DB sync'd with C++ source |
 | **Code** | ~53% (~2M / ~3.8M lines) | Decompiled and organized |
-| **Unnamed Functions** | 3,141 remaining | Stubs in `NewDiscovered.h`, not yet RE'd |
+| **Unnamed Functions** | 3,141 remaining | 1,146 uncategorized prototypes currently in `NewDiscovered.h` |
 | **Unnamed Fields** | ~1,880 unique | Class-scoped rename in progress |
 | **TODO / FIXME** | 881 in source | 122 files; `CGameSprite`(73), `CMessage`(60), `CInfGame`(49) top |
 | **Main Menu** | **Working** | Boots to CScreenConnection; mouse cursor visible and clickable |

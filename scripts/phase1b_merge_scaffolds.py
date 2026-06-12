@@ -9,7 +9,8 @@ from collections import defaultdict
 
 TOKEN = "iwd2ee-re-tools-2026"
 BASE = "http://127.0.0.1:8089"
-SRC = "/home/wills/projects/IWD2-RE/iwd2-re/src"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(REPO, "src")
 
 def gh_get(path, params=""):
     url = f"{BASE}{path}?{params}"
@@ -177,6 +178,16 @@ with open(uncat_path, 'w') as f:
         f.write('\n')
 
 print(f"Uncategorized saved to {uncat_path}")
+
+# A function may have been categorized since the known-address snapshot was
+# created. Remove those stale declarations before leaving the generated file.
+subprocess.run([
+    sys.executable,
+    os.path.join(REPO, "scripts", "new_discovered_audit.py"),
+    "--header",
+    uncat_path,
+    "--prune",
+], check=True)
 
 # Final count of field_ references
 field_count = 0

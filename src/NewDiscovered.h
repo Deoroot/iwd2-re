@@ -1,5 +1,5 @@
 // Newly discovered functions — not yet categorized
-// 1161 functions
+// 1146 functions
 // Group by address proximity to determine which source file they belong to
 
 // === 0x520000 range ===
@@ -29,13 +29,10 @@ void FUN_005301e0(); // 0x5301E0
 void FUN_00530300(); // 0x530300
 void FUN_005303d0(); // 0x5303D0
 void FUN_005303f0(); // 0x5303F0
-void FUN_00530790(); // 0x530790
 void FUN_005308e0(); // 0x5308E0
 void FUN_00530900(); // 0x530900
-void FUN_005309c0(); // 0x5309C0
 void FUN_00530b40(); // 0x530B40
 void FUN_00530b60(); // 0x530B60
-void FUN_00531120(); // 0x531120
 void FUN_00531210(); // 0x531210
 void FUN_00531230(); // 0x531230
 void FUN_00531360(); // 0x531360
@@ -62,7 +59,6 @@ void FUN_00532140(); // 0x532140
 void FUN_00532260(); // 0x532260
 void FUN_00532360(); // 0x532360
 void FUN_00532380(); // 0x532380
-void FUN_005324a0(); // 0x5324A0
 void FUN_005325e0(); // 0x5325E0
 void FUN_00532600(); // 0x532600
 void FUN_00532720(); // 0x532720
@@ -154,12 +150,8 @@ void FUN_00577d60(); // 0x577D60
 void FUN_00577d90(); // 0x577D90
 void FUN_00577e40(); // 0x577E40
 void FUN_005780f0(); // 0x5780F0
-void FUN_00578110(); // 0x578110
 void FUN_005783e0(); // 0x5783E0
-void FUN_00578480(); // 0x578480
 void FUN_00578970(); // 0x578970
-void FUN_00578ab0(); // 0x578AB0
-void FUN_005791d0(); // 0x5791D0
 void FUN_00579860(); // 0x579860
 void FUN_00579b10(); // 0x579B10
 void FUN_00579b40(); // 0x579B40
@@ -180,19 +172,16 @@ void FUN_0057c510(); // 0x57C510
 void FUN_0057c660(); // 0x57C660
 void FUN_0057c680(); // 0x57C680
 void FUN_0057c7b0(); // 0x57C7B0
-void FUN_0057cac0(); // 0x57CAC0
 void FUN_0057ce60(); // 0x57CE60
 void FUN_0057ce80(); // 0x57CE80
 void FUN_0057d390(); // 0x57D390
 void FUN_0057d4c0(); // 0x57D4C0
 void FUN_0057d4e0(); // 0x57D4E0
 void FUN_0057d5d0(); // 0x57D5D0
-void FUN_0057e030(); // 0x57E030
 void FUN_0057e180(); // 0x57E180
 void thunk_FUN_0052b030(); // 0x57E1A0
 void FUN_0057e1b0(); // 0x57E1B0
 void FUN_0057e370(); // 0x57E370
-void FUN_0057e490(); // 0x57E490
 void thunk_FUN_005783e0(); // 0x57E570
 void FUN_0057e860(); // 0x57E860
 void FUN_0057eab0(); // 0x57EAB0
@@ -201,18 +190,14 @@ void FUN_0057f210(); // 0x57F210
 void FUN_0057f360(); // 0x57F360
 void thunk_FUN_0051e9b0(); // 0x57F380
 void FUN_0057f390(); // 0x57F390
-void FUN_0057f640(); // 0x57F640
-void FUN_0057f760(); // 0x57F760
 void FUN_0057f780(); // 0x57F780
 
 // === 0x580000 range ===
-void FUN_005800e0(); // 0x5800E0
 void FUN_005802b0(); // 0x5802B0
 void FUN_005803c0(); // 0x5803C0
 void FUN_005803e0(); // 0x5803E0
 
 // === 0x740000 range ===
-void FUN_0074a7c0(); // 0x74A7C0
 void FUN_0074b340(); // 0x74B340
 
 // === 0x7D0000 range ===
