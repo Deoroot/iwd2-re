@@ -51,6 +51,11 @@ public:
     // 6=purple 7=red 9=ice 10=stone 11=magenta 12=orange), row index into the
     // travel palette bitmap; written by the DecodeProjectile sparkle cases.
     /* 009A */ SHORT m_sparkleColor;
+    // BG2 PDB: CProjectile::m_terrainTable. Render's passability gate feeds
+    // it to CSearchBitmap::GetMobileCost; the wandering leaves pass it to
+    // GetLOSCost to bounce off walls. Seeded by the CProjectileTravelling and
+    // IcewindCProjectileTravellingVFX ctors (.data 0x8A8154), not here.
+    /* 00D0 */ BYTE m_terrainTable[16];
     /* 00E2 */ BOOL m_bSparkleTrail;
     /* 00EA */ CGameArea* m_pArea;
     /* 00EE */ CSound m_sound;
@@ -138,7 +143,7 @@ public:
     void SetTravelPalette(CString bitmapName);  // 0x529660 -- request the sparkle colour-table bitmap (#guess name)
 
 protected:
-    void GetCellBounds(CRect& rBounds, CPoint& ptRef);   // 0x52B6B0 -- cell draw rect + ref point
+    void GetCellBounds(CRect& rBounds, CPoint& ptRef, CVidCell* pCell);   // 0x52B6B0 -- cell draw rect + ref point (pCell NULL = the main cell)
     void UpdateDirectionSequence(CVidCell* pCell);       // 0x52C8C0 -- pick anim sequence from facing
 
     CVidCell* m_pVidCell;       // +0x192 main animation cell
@@ -285,9 +290,6 @@ protected:
     void GetCellBounds(CRect& rBounds, CPoint& ptRef, CVidCell* pCell);   // 0x578970 -- union of the cell (z-lifted) and shadow-cell bounds
     void UpdateDirectionSequence(CVidCell* pCell);   // 0x579860 -- facing -> sequence, folding mirrored facings per the flags below
 
-    // BG2 PDB: CProjectile::m_terrainTable. The wandering leaves pass it to
-    // CSearchBitmap::GetLOSCost to bounce off walls.
-    /* 00D0 */ BYTE m_terrainTable[16];
     // The BAM has no north/east-half sequences: fold those facings onto the
     // south/west ones and blit with CInfinity::MIRROR_FX.
     /* 02A0 */ BYTE m_bMirrorNorth/*#guess*/;

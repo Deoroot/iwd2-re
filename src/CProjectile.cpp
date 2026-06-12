@@ -1627,6 +1627,25 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     m_targetY = 0;
     m_flightDistSq = 0;
 
+    // Default projectile terrain-cost table (.data 0x8A8154): terrain types
+    // 0, 10 and 13 are impassable, everything else costs 5.
+    m_terrainTable[0] = CPathSearch::COST_IMPASSABLE;
+    m_terrainTable[1] = 5;
+    m_terrainTable[2] = 5;
+    m_terrainTable[3] = 5;
+    m_terrainTable[4] = 5;
+    m_terrainTable[5] = 5;
+    m_terrainTable[6] = 5;
+    m_terrainTable[7] = 5;
+    m_terrainTable[8] = 5;
+    m_terrainTable[9] = 5;
+    m_terrainTable[10] = CPathSearch::COST_IMPASSABLE;
+    m_terrainTable[11] = 5;
+    m_terrainTable[12] = 5;
+    m_terrainTable[13] = CPathSearch::COST_IMPASSABLE;
+    m_terrainTable[14] = 5;
+    m_terrainTable[15] = 5;
+
     m_nSpellLevel = 0;
     m_sourceId = 0;
     m_targetId = 0;
@@ -1992,29 +2011,60 @@ void CProjectileTravelling::UpdateDirectionSequence(CVidCell* pCell)
 
 // 0x52B6B0
 //
-// Cell draw rect + reference point, mirror/shadow aware. Transcribed from the
-// original's base and mirror blocks; the shadow-cell combine (m_hasShadowCell)
-// is not exercised by Magic Missile and the original's cell aliasing there is
-// unresolved, so it falls back to the base cell bounds.
-void CProjectileTravelling::GetCellBounds(CRect& rBounds, CPoint& ptRef)
+// Cell draw rect + reference point, mirror/shadow aware: the cell alone,
+// the union with the ground shadow cell (the flying cell lifted by m_posZ),
+// or the mirror-clamped bounds (flipped about the frame for the north-window
+// facings).
+void CProjectileTravelling::GetCellBounds(CRect& rBounds, CPoint& ptRef, CVidCell* pCell)
 {
     CPoint center;
     CSize size;
 
+    if (pCell == NULL) {
+        pCell = m_pVidCell;
+    }
+
     if (m_mirror == 0 && m_hasShadowCell == 0) {
-        m_pVidCell->GetCurrentCenterPoint(ptRef, FALSE);
-        m_pVidCell->GetCurrentFrameSize(size, FALSE);
-        rBounds.SetRect(0, 0, size.cx, size.cy);
-    } else if (m_hasShadowCell != 0) {
-        m_pVidCell->GetCurrentCenterPoint(ptRef, FALSE);
-        m_pVidCell->GetCurrentFrameSize(size, FALSE);
+        pCell->GetCurrentCenterPoint(ptRef, FALSE);
+        pCell->GetCurrentFrameSize(size, FALSE);
         rBounds.SetRect(0, 0, size.cx, size.cy);
     }
 
+    if (m_hasShadowCell != 0) {
+        CPoint shadowCenter;
+
+        pCell->GetCurrentCenterPoint(center, FALSE);
+        center.y += m_posZ;
+        m_pShadowCell->GetCurrentCenterPoint(shadowCenter, FALSE);
+
+        ptRef.x = center.x;
+        ptRef.y = center.y;
+        if (ptRef.x < shadowCenter.x) {
+            ptRef.x = shadowCenter.x;
+        }
+        if (ptRef.y < shadowCenter.y) {
+            ptRef.y = shadowCenter.y;
+        }
+
+        pCell->GetCurrentFrameSize(size, FALSE);
+        rBounds.SetRect(0,
+            0,
+            size.cx + (ptRef.x - center.x),
+            size.cy + (ptRef.y - center.y));
+
+        m_pShadowCell->GetCurrentFrameSize(size, FALSE);
+        if (rBounds.right < size.cx + (ptRef.x - shadowCenter.x)) {
+            rBounds.right = size.cx + (ptRef.x - shadowCenter.x);
+        }
+        if (rBounds.bottom < size.cy + (ptRef.y - shadowCenter.y)) {
+            rBounds.bottom = size.cy + (ptRef.y - shadowCenter.y);
+        }
+    }
+
     if (m_mirror != 0) {
-        m_pVidCell->GetCurrentCenterPoint(center, FALSE);
-        m_pVidCell->GetCurrentFrameSize(size, FALSE);
-        if (1540 < m_direction && m_direction < 3596) {
+        pCell->GetCurrentCenterPoint(center, FALSE);
+        pCell->GetCurrentFrameSize(size, FALSE);
+        if (CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E) {
             center.y = size.cy - center.y;
         }
         center.y += m_posZ;
@@ -2406,22 +2456,21 @@ void CProjectileSPMAGMIS::PrimeAndFireSubMissile(CProjectileTravelling* pMissile
 
 // 0x52B190 (vtable slot 19 -- Render)
 //
-// Tile-based draw of a travelling projectile. The visibility/passability gates,
-// the field-driven blit flags (mirror/tint/shadow), the tint, and the
-// CInfinity FX pipeline are transcribed from the original; the render-config
-// field semantics were Frida-confirmed (Magic Missile). The draw geometry
-// follows the verified sibling CProjectileBAM::Render pattern -- the original's
-// mirror-rect stack-local aliasing at 0x52B190 is decompile-ambiguous; verify
-// with a render-rect Frida trace if a visual offset shows. The directional-
-// sequence pick (UpdateDirectionSequence when m_dirCount > 1, e.g. arrows) is
-// recovered. Documented stubs: the shadow-cell second pass and the palette-swap
-// path -- both disabled for the traced cast.
+// Tile-based draw of a travelling projectile: visibility/passability gates,
+// field-driven blit flags (mirror/tint/shadow), the directional-sequence
+// pick, then the CInfinity FX pipeline. Facings past CGameSprite::DIR_N
+// mirror the blit horizontally; the DIR_W..DIR_E window mirrors vertically
+// and flips the draw rect. m_paletteSwap swaps the cell palette from the
+// travel-palette bitmap around the main cell draw (sparkle streams).
 void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
-    (void)pVidMode;
-    if (pArea == NULL) {
-        return;
-    }
+    (void)pArea;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CProjectile.cpp
+    // __LINE__: 4190
+    UTIL_ASSERT(pVidMode != NULL);
+
+    COLORREF tintColor = RGB(0xFF, 0xFF, 0xFF);
 
     DWORD flags = GetRenderFlags();
     if (m_mirror != 0) {
@@ -2429,17 +2478,14 @@ void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSu
     }
 
     // Tile-visibility gate (32x32 visibility tiles).
-    LONG tileIndex = (m_pos.y / 32) * pArea->m_visibility.m_nWidth + (m_pos.x / 32);
-    if (!pArea->m_visibility.IsTileVisible(tileIndex)) {
+    LONG tileIndex = (m_pos.y / 32) * m_pArea->m_visibility.m_nWidth + (m_pos.x / 32);
+    if (!m_pArea->m_visibility.IsTileVisible(tileIndex)) {
         return;
     }
 
-    // Passability/occlusion gate via the projectile terrain table (16x16 / 12y
-    // search cells); 0xFF == blocked.
-    static const BYTE TERRAIN[16] = { 0xFF, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05,
-                                      0x05, 0x05, 0xFF, 0x05, 0x05, 0xFF, 0x05, 0x05 };
+    // Passability gate via the projectile terrain table (16x12 search cells).
     CPoint searchPos(m_pos.x / 16, m_pos.y / 12);
-    if (pArea->m_search.GetMobileCost(searchPos, TERRAIN, 3, TRUE) == 0xFF) {
+    if (m_pArea->m_search.GetMobileCost(searchPos, m_terrainTable, 3, TRUE) == CPathSearch::COST_IMPASSABLE) {
         return;
     }
     if (m_visible == 0) {
@@ -2459,71 +2505,93 @@ void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSu
         UpdateDirectionSequence(NULL);
     }
 
-    CRect rFX;
-    CPoint ptRef;
-    GetCellBounds(rFX, ptRef);
-
-    CPoint newPos;
-    newPos.x = m_pos.x;
-    if (m_mirror == 0 && m_hasShadowCell == 0) {
-        newPos.y = m_pos.y - m_posZ;
-    } else {
-        newPos.y = m_pos.y;
-    }
-    if (m_useHeightOffset != 0) {
-        newPos.y += pArea->GetHeightOffset(m_pos, m_listType);
-    }
-
-    CRect rGCBounds;
-    rGCBounds.left = newPos.x - ptRef.x;
-    rGCBounds.top = newPos.y - ptRef.y;
-    rGCBounds.right = rGCBounds.left + rFX.Width();
-    rGCBounds.bottom = rGCBounds.top + rFX.Height();
-
     // Clip to the area viewport. The original reads these as raw CGameArea
     // offsets (+0x514..0x560), but they live in the embedded CInfinity
     // (m_cInfinity at +0x4CC): the scroll origin (nCurrentX/Y) plus the screen
     // rect (rViewPort). Accessed by name so the layout drift does not misread
     // them (a raw +0x514 read gave an inverted viewport -> everything clipped).
-    CInfinity* pInfViewport = pArea->GetInfinity();
+    CInfinity* pInfinity = m_pArea->GetInfinity();
     CRect rViewport;
-    rViewport.left = pInfViewport->nCurrentX;
-    rViewport.top = pInfViewport->nCurrentY;
-    rViewport.right = (pInfViewport->rViewPort.right - pInfViewport->rViewPort.left)
-                      + pInfViewport->nCurrentX;
-    rViewport.bottom = (pInfViewport->rViewPort.bottom - pInfViewport->rViewPort.top)
-                       + pInfViewport->nCurrentY;
+    rViewport.left = pInfinity->nCurrentX;
+    rViewport.top = pInfinity->nCurrentY;
+    rViewport.right = (pInfinity->rViewPort.right - pInfinity->rViewPort.left)
+                      + pInfinity->nCurrentX;
+    rViewport.bottom = (pInfinity->rViewPort.bottom - pInfinity->rViewPort.top)
+                       + pInfinity->nCurrentY;
+
+    CRect rFX;
+    CPoint ptRef;
+    GetCellBounds(rFX, ptRef, NULL);
+
+    CPoint newPos;
+    newPos.x = m_pos.x;
+    LONG zOffset;
+    if (m_mirror == 0 && m_hasShadowCell == 0) {
+        newPos.y = m_pos.y - m_posZ;
+        zOffset = 0;
+    } else {
+        newPos.y = m_pos.y;
+        zOffset = m_posZ;
+    }
+    if (m_useHeightOffset != 0) {
+        newPos.y += m_pArea->GetHeightOffset(m_pos, m_listType);
+    }
+
+    CRect rGCBounds(0, 0, 0, 0);
+    if (CGameSprite::DIR_N < m_direction) {
+        rGCBounds.left = (ptRef.x - rFX.right) + newPos.x + rFX.left;
+    } else {
+        rGCBounds.left = newPos.x - ptRef.x;
+    }
+    if (CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E) {
+        if (m_mirror == 0 && m_hasShadowCell == 0) {
+            rGCBounds.top = (rFX.top - rFX.bottom) + ptRef.y + newPos.y;
+        } else {
+            ptRef.y = (rFX.bottom - rFX.top) - ptRef.y;
+            rGCBounds.top = (newPos.y - m_posZ) - ptRef.y;
+        }
+        zOffset = -zOffset;
+    } else {
+        rGCBounds.top = newPos.y - ptRef.y;
+    }
+    rGCBounds.right = (rFX.right - rFX.left) + rGCBounds.left;
+    rGCBounds.bottom = (rFX.bottom - rFX.top) + rGCBounds.top;
+
     if (!IntersectRect(&rViewport, &rGCBounds, &rViewport)) {
         return;
     }
 
-    // Direction-based mirror flags + base blit flag.
-    if (2568 < m_direction) {
-        flags |= 0x10;
-    }
-    if (1540 < m_direction && m_direction < 3596) {
-        flags |= 0x20;
-    }
-    flags |= 0x80;
-
-    COLORREF tintColor = RGB(0xFF, 0xFF, 0xFF);
     if (m_tinted != 0 || m_mirror != 0) {
-        tintColor = pArea->GetTintColor(m_pos, m_listType);
+        tintColor = m_pArea->GetTintColor(newPos, m_listType);
     }
 
-    CInfinity* pInfinity = pArea->GetInfinity();
+    if (CGameSprite::DIR_N < m_direction) {
+        flags |= CInfinity::MIRROR_FX;
+    }
+    if (CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E) {
+        flags |= CInfinity::MIRROR_FX_UPDOWN;
+    }
+    flags |= CInfinity::FXPREP_COPYFROMBACK;
+
     pInfinity->FXPrep(rFX, flags, nSurface, newPos, ptRef);
     if (pInfinity->FXLock(rFX, flags)) {
         if (m_tinted != 0) {
             m_pVidCell->SetTintColor(tintColor);
         }
-        if (m_hasShadowCell != 0 && m_pShadowCell != NULL) {
+        if (m_hasShadowCell != 0) {
             pInfinity->FXRender(m_pShadowCell, ptRef.x, ptRef.y, flags, 0);
         }
-        // m_paletteSwap != 0 also swaps the cell palette before this draw
-        // (CResBitmap colour table) -- documented; not exercised by the trace.
-        pInfinity->FXRender(m_pVidCell, ptRef.x, ptRef.y, flags, 0x80);
-        pInfinity->FXRenderClippingPolys(newPos.x, newPos.y, 0, ptRef, rViewport, FALSE, flags);
+        if (m_paletteSwap == 0) {
+            pInfinity->FXRender(m_pVidCell, ptRef.x, ptRef.y - zOffset, flags, 0x80);
+        } else {
+            m_pTravelPaletteRes->Demand();
+            int nColorCount = m_pTravelPaletteRes->GetColorCount();
+            RGBQUAD* pColorTable = m_pTravelPaletteRes->GetColorTable();
+            m_pVidCell->SetPalette(pColorTable, nColorCount, CVidPalette::TYPE_RESOURCE);
+            pInfinity->FXRender(m_pVidCell, ptRef.x, ptRef.y - zOffset, flags, 0x80);
+            m_pTravelPaletteRes->Release();
+        }
+        pInfinity->FXRenderClippingPolys(newPos.x, newPos.y, 0, ptRef, rGCBounds, FALSE, flags);
         pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
         pInfinity->FXBltFrom(nSurface, rFX, newPos.x, newPos.y, ptRef.x, ptRef.y, flags);
     }
