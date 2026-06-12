@@ -96,7 +96,7 @@ def main() -> int:
         return 0
 
     lines = rewritten.count("\n") + 1
-    loc = src_line(name)
+    loc = src_line(name.split(" (")[0])
     print(f"{name} @ {addr:#x}  {exp.get('calling_convention', '?')}  {lines} decomp lines"
           + (f"  {loc}" if loc else "  (not in src)"))
     print(f"`{exp.get('signature', '')}`")
