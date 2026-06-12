@@ -411,6 +411,19 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileStrike();
         break;
 
+    case 0x20:
+    case 0x23:
+    case 0x24: {
+        // The thrown dart (standard dart items carry missile type 0x24),
+        // silent launch.
+        CProjectileDart* pDart = new CProjectileDart();
+        pDart->m_bHasHeight = TRUE;
+        pDart->m_fireSoundRef = CResRef("");
+        pDart->m_arrivalSoundRef = CResRef("");
+        pProjectile = pDart;
+        break;
+    }
+
     case 0x4: {
         // The flaming arrow: the flame-trailed leaf flying its default
         // SPFLMARR cell, launch sound TRA_24.
@@ -2232,6 +2245,29 @@ CProjectileArrow::CProjectileArrow()
     m_velocity = static_cast<SHORT>(m_velocity * 5);
 
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x531790
+//
+// CProjectileDart -- the thrown dart. Builds the "DART" travelling base, then
+// configures a tinted unmirrored 16-direction missile at 3x the base
+// velocity with an empty fire-sound resref.
+CProjectileDart::CProjectileDart()
+    : CProjectileTravelling(CResRef("DART"))
+{
+    m_pVidCell->SequenceSet(0);
+
+    m_tinted = 1;
+    m_useHeightOffset = 0;
+    m_mirror = 0;
+    m_hasShadowCell = 0;
+    m_dirCount = 0x10;
+    m_fireSoundRef = CResRef("");
+    m_velocity = static_cast<SHORT>(m_velocity * 3);
+
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    field_17E = "";
     m_nTargetId = CGameObjectArray::INVALID_INDEX;
 }
 

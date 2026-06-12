@@ -222,6 +222,16 @@ private:
     /* 02A7 */ BYTE m_trailTick;
 };
 
+// Leaf 0x531790 -- the thrown dart (DecodeProjectile types 0x20/0x23/0x24;
+// vtable 0x84E25C; standard dart items carry missile type 0x24). A tinted
+// 16-direction missile flying the DART cell at 3x the base velocity; its only
+// own virtual is the destructor (0x531860, deferred), everything else is
+// inherited from CProjectileTravelling.
+class CProjectileDart : public CProjectileTravelling {
+public:
+    CProjectileDart();   // 0x531790
+};
+
 // Intermediate 0x52CCE0 -- the exploding weapon missile (vtable 0x84DBDC,
 // binary sizeof 0x4B2). On top of the travelling flight it carries a target
 // CAIObjectType, strike ranges and charges, a linger state and two extra
