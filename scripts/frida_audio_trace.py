@@ -691,7 +691,7 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=60.0)
     ap.add_argument("--post-load-seconds", type=float, default=18.0)
     ap.add_argument("--output", type=Path, help="jsonl output path; defaults to tmp_audio_trace_<save>.jsonl")
-    ap.add_argument("--no-auto-load", dest="auto_load", action="store_false", help="original mode: wait for manual load instead of clicking slot")
+    ap.add_argument("--no-auto-load", dest="auto_load", action="store_false", help="wait for a manual load instead of auto-loading a slot")
     ap.add_argument("--original-startup-skip-seconds", type=float, default=ORIGINAL_STARTUP_SKIP_SECONDS)
     ap.set_defaults(auto_load=True)
     ns = ap.parse_args()
@@ -710,14 +710,17 @@ def main() -> int:
         target = {"pid": pid}
     elif ns.mode == "re":
         env = os.environ.copy()
-        env["IWD2_RE_AUTO_RESULT"] = str(result_path)
-        env["IWD2_RE_AUTO_ACTION"] = "load"
-        if ns.save_name:
-            env["IWD2_RE_AUTO_SAVE_NAME"] = ns.save_name
-            target = {"saveName": ns.save_name}
+        if ns.auto_load:
+            env["IWD2_RE_AUTO_RESULT"] = str(result_path)
+            env["IWD2_RE_AUTO_ACTION"] = "load"
+            if ns.save_name:
+                env["IWD2_RE_AUTO_SAVE_NAME"] = ns.save_name
+                target = {"saveName": ns.save_name}
+            else:
+                env["IWD2_RE_AUTO_SLOT"] = str(ns.slot)
+                target = {"slot": ns.slot}
         else:
-            env["IWD2_RE_AUTO_SLOT"] = str(ns.slot)
-            target = {"slot": ns.slot}
+            target = {"manualLoad": True}
         pid = frida.spawn(str(RE_EXE), env=env, cwd=str(GAME_DIR))
         spawned = True
     else:
@@ -761,7 +764,7 @@ def main() -> int:
     deadline = time.time() + ns.timeout
     try:
         while time.time() < deadline:
-            if ns.mode == "re" and result_path.exists() and loaded_at == 0.0:
+            if ns.mode == "re" and ns.auto_load and result_path.exists() and loaded_at == 0.0:
                 result = read_result(result_path)
                 emit({"tag": "Driver.loaded-result", "result": result, "window": window_metrics(pid)})
                 if result.get("status") == "loaded":
@@ -774,7 +777,7 @@ def main() -> int:
                         emit({"tag": "Driver.screenshot-error", "err": str(e)})
                 else:
                     return 1
-            elif ns.mode == "original" and state["area_active_at"] and loaded_at == 0.0:
+            elif (ns.mode == "original" or (ns.mode == "re" and not ns.auto_load)) and state["area_active_at"] and loaded_at == 0.0:
                 loaded_at = state["area_active_at"]
                 emit({"tag": "Driver.loaded-result", "result": {"status": "loaded", "detail": "Area.OnActivation"}, "window": window_metrics(pid)})
                 try:

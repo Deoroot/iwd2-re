@@ -693,40 +693,87 @@ int forceSong(int song, int section, int position)
         return 5;
     }
 
-    if (songSound == NULL) {
+    if (songSound != NULL) {
+        currentSong = song;
+        currentSection = section;
+
+        nextSong = song;
+        nextPosition = -1;
+        nextSection = -1;
+        fadeSong = -3;
+
+        if (currentSectionFile != 0) {
+            audioCloseFile(currentSectionFile);
+            currentSectionFile = 0;
+        }
+
         // NOTE: Uninline.
-        return internalMusicPlay(song, section, position);
+        char* fileName = getSectionName(jumpList[currentSong].name, jumpList[currentSong].section[currentSection]);
+
+        // NOTE: Uninline.
+        currentSectionFile = openSectionFile(fileName);
+        if (currentSectionFile == 0) {
+            return 5;
+        }
+
+        currentSongName = jumpList[currentSong].name;
+        currentSectionName = jumpList[currentSong].section[currentSection];
+
+        gSecondSectionSize = 0;
+        if (!musicInited) {
+            return 1;
+        }
+
+        if (jumpList == NULL) {
+            return 2;
+        }
+
+        if (!enabled) {
+            return 5;
+        }
+
+        soundDelete(songSound);
+        songSound = NULL;
+        dword_A0E1D0 = 0;
+    } else {
+        if (jumpList == NULL) {
+            return 2;
+        }
+
+        if (!enabled) {
+            return 5;
+        }
     }
 
+    songSound = soundAllocate(SOUND_TYPE_STREAMING | SOUND_TYPE_FIRE_AND_FORGET | SOUND_TYPE_0x20, SOUND_16BIT | SOUND_CTRL_VOLUME);
+    if (songSound == NULL) {
+        return 5;
+    }
+
+    soundSetChannel(songSound, 3);
+    soundSetBuffers(songSound, 8, 0x8000);
+    soundSetFileIO(songSound,
+        musicSoundOpen,
+        musicSoundClose,
+        musicSoundRead,
+        musicSoundWrite,
+        musicSoundSeek,
+        musicSoundTell,
+        musicSoundFilesize);
+    soundSetCallback(songSound, deleteSound, &songSound);
+
+    nextSong = song;
     currentSong = song;
     currentSection = section;
 
-    nextSong = song;
-    nextPosition = -1;
-    nextSection = 1;
-
-    fadeSong = -3;
-
-    if (currentSectionFile != NULL) {
-        audioCloseFile(currentSectionFile);
-        currentSectionFile = 0;
+    if (soundLoad(songSound, "empty") == SOUND_NO_ERROR) {
+        soundVolume(songSound, currentMusicVolume);
+        soundPlayFromPosition(songSound, position);
+    } else {
+        soundDelete(songSound);
     }
 
-    // NOTE: Uninline.
-    char* fileName = getSectionName(jumpList[currentSong].name, jumpList[currentSong].section[currentSection]);
-
-    // NOTE: Uninline.
-    currentSectionFile = openSectionFile(fileName);
-
-    if (currentSectionFile == NULL) {
-        return 0;
-    }
-
-    currentSongName = jumpList[currentSong].name;
-    currentSectionName = jumpList[currentSong].section[currentSection];
-
-    // NOTE: Uninline.
-    return internalMusicPlay(song, section, position);
+    return 0;
 }
 
 // 0x7D60E0
@@ -881,26 +928,28 @@ char* getSectionName(char* song, char* section)
     // 0xA0E2F0
     static char buf[256];
 
-    if (section != NULL) {
-        if (strnicmp(section, "SPC", 3) == 0) {
-            sprintf(buf,
-                "%s%s.%s",
-                defaultMusicPath,
-                section,
-                defaultMusicExtension);
-        } else if (strnicmp(section, "MX0000A", 7) == 0) {
-            sprintf(buf,
-                "%sMX0000/MX0000A.ACM",
-                defaultMusicPath);
-        } else {
-            sprintf(buf,
-                "%s%s/%s%s.%s",
-                defaultMusicPath,
-                song,
-                song,
-                section,
-                defaultMusicExtension);
-        }
+    if (section == NULL) {
+        return NULL;
+    }
+
+    if (strnicmp(section, "SPC", 3) == 0) {
+        sprintf(buf,
+            "%s%s.%s",
+            defaultMusicPath,
+            section,
+            defaultMusicExtension);
+    } else if (strnicmp(section, "MX0000A", 7) == 0) {
+        sprintf(buf,
+            "%sMX0000/MX0000A.ACM",
+            defaultMusicPath);
+    } else {
+        sprintf(buf,
+            "%s%s/%s%s.%s",
+            defaultMusicPath,
+            song,
+            song,
+            section,
+            defaultMusicExtension);
     }
 
     return buf;
