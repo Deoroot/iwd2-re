@@ -3361,6 +3361,72 @@ CProjectileSkullTrap::CProjectileSkullTrap(const CResRef& cMissileRef, const CRe
     m_bExplodeCell2Active = (cExplodeRef != "");
 }
 
+// 0x52F9E0 (vtable slot 3)
+//
+// Skull Trap tick. While flying (m_nState == 0): advance the cell, and once the
+// trap reaches its target point fire OnArrival; otherwise re-aim and keep the
+// sound positioned. Once armed it advances the explosion cells and, every
+// m_lingerPeriod, runs an AreaEffect strike pass -- each landed strike spends a
+// charge and re-arms the timer; when the charges run out the trap removes
+// itself and is freed.
+void CProjectileSkullTrap::AIUpdate()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    if (m_nState == 0) {
+        m_pVidCell->FrameAdvance();
+
+        LONG nDeltaX = m_targetX - m_pos.x;
+        LONG nDeltaY = m_targetY - m_pos.y;
+        LONG nRadius = m_velocity + 1;
+        if ((nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX <= nRadius * nRadius) {
+            OnArrival();
+            return;
+        }
+
+        AimAtPoint(m_targetX, m_targetY);
+
+        // Trailing sub-projectile (m_bSparkleTrail != 0) via the unrecovered
+        // factory 0x51AE40 -- omitted like the same documented stub in
+        // CProjectileExploding::AIUpdate. (The original builds the 0xCA object
+        // from m_sparkleColor and adds it to the area.)
+
+        m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+        return;
+    }
+
+    if (m_bExplodeCell1Active) {
+        m_explodeCell1.FrameAdvance();
+    }
+
+    if (m_bExplodeCell2Active) {
+        m_explodeCell2.FrameAdvance();
+    }
+
+    if (m_lingerCountdown == 0) {
+        if (AreaEffect(0) != 0) {
+            m_strikesLeft = m_strikesLeft - 1;
+            m_lingerCountdown = static_cast<SHORT>(m_lingerPeriod);
+        }
+
+        if (m_strikesLeft < 1) {
+            RemoveFromArea();
+            if (g_pBaldurChitin->GetObjectGame()->m_cObjectArray.Delete(m_id,
+                    CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+                == CGameObjectArray::SUCCESS) {
+                delete this;
+                return;
+            }
+        }
+    }
+    else {
+        m_lingerCountdown = m_lingerCountdown - 1;
+    }
+}
+
 // 0x5300E0
 //
 // CProjectileStrike -- the invisible per-target strike bolt. Builds the
