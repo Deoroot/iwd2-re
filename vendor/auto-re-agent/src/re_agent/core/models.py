@@ -202,6 +202,7 @@ class GhidraData:
     asm_instruction_count: int = 0
     asm_call_count: int = 0
     asm_has_fp_sensitive: bool = False
+    asm_instructions: str = ""
     refs_call_count: int = 0
     refs_global_rw_count: int = 0
     used_containing_fallback: bool = False

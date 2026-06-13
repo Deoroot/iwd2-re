@@ -22,7 +22,7 @@ from re_agent.parity.rules import (
     read_semantic_rules,
 )
 from re_agent.parity.scoring import score
-from re_agent.parity.signals import ALL_SIGNALS
+from re_agent.parity.signals import ALL_SIGNALS, build_fn_names, build_member_offsets
 from re_agent.parity.source_indexer import SourceIndexer
 from re_agent.utils.address import normalize_address
 from re_agent.utils.text import has_fp_asm
@@ -81,6 +81,8 @@ def score_single(
     ghidra: GhidraData | None,
     config: ParityConfig,
     semantic_rules: list[Any] | None = None,
+    member_offsets: dict[str, dict[str, int]] | None = None,
+    fn_names: dict[str, str] | None = None,
 ) -> tuple[ParityStatus, list[Finding]]:
     """Run all parity signals on a single function and return (status, findings)."""
     inline_skip = config.inline_wrapper_autoskip and source is not None and source.is_inline_internal_forwarder
@@ -92,6 +94,9 @@ def score_single(
             ghidra=ghidra,
             inline_skip=inline_skip,
             call_count_warn_diff=config.call_count_warn_diff,
+            entry=entry,
+            member_offsets=member_offsets,
+            fn_names=fn_names,
         )
         if result is not None:
             findings.append(result)
@@ -134,6 +139,7 @@ def fetch_ghidra_data(address: str, backend: REBackend) -> GhidraData:
                 data.asm_instruction_count = asm.instruction_count
                 data.asm_call_count = asm.call_count
                 data.asm_has_fp_sensitive = has_fp_asm(asm.instructions)
+                data.asm_instructions = asm.instructions
         except Exception as exc:
             data.asm_ok = False
             data.asm_error = str(exc)
@@ -167,6 +173,8 @@ def run_parity(
     parity_cfg = config.parity
 
     indexer = SourceIndexer(source_root, profile)
+    member_offsets = build_member_offsets(source_root)
+    fn_names = build_fn_names(source_root.parent / ".ghidra-exports")
 
     manual_checks: dict[str, Any] = {}
     if parity_cfg.manual_checks_file:
@@ -207,7 +215,10 @@ def run_parity(
             except Exception:
                 logger.warning("Failed to fetch Ghidra data for %s", entry.address, exc_info=True)
 
-        status, findings = score_single(entry, source, ghidra, parity_cfg, semantic_rules)
+        status, findings = score_single(
+            entry, source, ghidra, parity_cfg, semantic_rules,
+            member_offsets=member_offsets, fn_names=fn_names,
+        )
         results.append({
             "hook": entry,
             "status": status,

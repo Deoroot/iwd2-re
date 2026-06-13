@@ -1,7 +1,7 @@
 """Tests for individual parity signals."""
 from __future__ import annotations
 
-from re_agent.core.models import GhidraData, SourceMatch
+from re_agent.core.models import GhidraData, HookEntry, SourceMatch
 from re_agent.parity.signals import (
     check_call_count_mismatch,
     check_fp_sensitivity,
@@ -11,6 +11,7 @@ from re_agent.parity.signals import (
     check_short_body,
     check_stub_markers,
     check_trivial_stub,
+    check_wrong_member,
 )
 
 
@@ -33,6 +34,64 @@ def _make_ghidra(**kwargs: object) -> GhidraData:
     )
     defaults.update(kwargs)
     return GhidraData(**defaults)  # type: ignore[arg-type]
+
+
+def _wm_entry() -> HookEntry:
+    return HookEntry(
+        class_path="Cls", fn_name="ClearColorEffectsAll", address="0x6e6490",
+        reversed=True, locked=False, is_virtual=True,
+    )
+
+
+_WM_OFFSETS = {"Cls": {"m_a1VidCellBase": 0x40E, "m_a1VidCellExtend": 0x4E8}}
+# real Ghidra dump-asm: CALL targets are RAW ADDRESSES, resolved via fn_names.
+_WM_FN_NAMES = {"7ad3a0": "DeleteResPaletteAffect"}
+_WM_ASM = (
+    "006e6490 MOV ESI,ECX\n"
+    "006e64ea LEA ECX,[ESI + 0x40e]\n"
+    "006e64f0 CALL 0x007ad3a0\n"
+    "006e64f6 LEA ECX,[ESI + 0x4e8]\n"
+    "006e64fc CALL 0x007ad3a0\n"
+    "006e6500 RET\n"
+)
+
+
+def test_wrong_member_flagged() -> None:
+    # source clears only the BASE cell -> the extend DeleteResPaletteAffect is the
+    # copy-paste / wrong-member bug (the corpse-tint class).
+    src = _make_source(body="{ m_a1VidCellBase.DeleteResPaletteAffect(); }")
+    ghidra = _make_ghidra(asm_instructions=_WM_ASM)
+    f = check_wrong_member(
+        source=src, ghidra=ghidra, entry=_wm_entry(),
+        member_offsets=_WM_OFFSETS, fn_names=_WM_FN_NAMES,
+    )
+    assert f is not None
+    assert f.level == "red"
+    assert "m_a1VidCellExtend.DeleteResPaletteAffect()" in f.reason
+
+
+def test_wrong_member_clean() -> None:
+    src = _make_source(
+        body="{ m_a1VidCellBase.DeleteResPaletteAffect(); m_a1VidCellExtend.DeleteResPaletteAffect(); }"
+    )
+    ghidra = _make_ghidra(asm_instructions=_WM_ASM)
+    f = check_wrong_member(
+        source=src, ghidra=ghidra, entry=_wm_entry(),
+        member_offsets=_WM_OFFSETS, fn_names=_WM_FN_NAMES,
+    )
+    assert f is None
+
+
+def test_wrong_member_absent_method_not_flagged() -> None:
+    # the method is entirely absent from the source = a stub/incomplete recovery, NOT a
+    # wrong-member bug -> a different signal owns it, so this one stays silent.
+    src = _make_source(body="{ /* unrelated body */ }")
+    ghidra = _make_ghidra(asm_instructions=_WM_ASM)
+    f = check_wrong_member(
+        source=src, ghidra=ghidra, entry=_wm_entry(),
+        member_offsets=_WM_OFFSETS, fn_names=_WM_FN_NAMES,
+    )
+    assert f is None
 
 
 def test_missing_source() -> None:
