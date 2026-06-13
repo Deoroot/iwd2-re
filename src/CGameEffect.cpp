@@ -2449,6 +2449,17 @@ void CGameEffectDamage::WakeOnDamage(CGameSprite* pSprite)
     }
 }
 
+// 0x4A51D0
+//
+// Damage suppresses the generic per-effect text ("Damage Taken" from
+// EFFECTTEXT.2DA): its own combat-log line is printed inside ApplyEffect
+// (the vtable +0x28 virtual), after the corpse/immunity gates.  Without
+// this override the base CGameEffect::DisplayString prints on every
+// damage-over-time tick, including hits absorbed by a corpse.
+void CGameEffectDamage::DisplayString(CGameSprite* pSprite)
+{
+}
+
 // 0x4A7900
 //
 // CGameEffectDamage::ApplyEffect -- opcode #12, the core combat-damage handler.
