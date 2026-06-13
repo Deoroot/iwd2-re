@@ -3332,7 +3332,7 @@ void CProjectileExplodingWeapon::Explode()
 // missile BAM, then adds a shadow animation cell from the explosion BAM and
 // arms both embedded explosion cells. Flies at double the base velocity. As
 // with the other leaves the original's copy of an empty global CResRef into
-// m_fireSoundRef and of the nil-string sentinel into the +0x4B4 CString are
+// m_fireSoundRef and of the nil-string sentinel into m_explodeSound are
 // deferred -- both members default-construct empty.
 CProjectileSkullTrap::CProjectileSkullTrap(const CResRef& cMissileRef, const CResRef& cExplodeRef, SHORT nType)
     : CProjectileExploding(cMissileRef)
@@ -3425,6 +3425,24 @@ void CProjectileSkullTrap::AIUpdate()
     else {
         m_lingerCountdown = m_lingerCountdown - 1;
     }
+}
+
+// 0x52F760 (vtable slot 34)
+//
+// Skull Trap detonation: play the explosion sound (m_explodeSound) as a
+// fire-and-forget one-shot on the area channel at the trap position.
+//
+// The visible burst -- (rand() % 16) + 10 explosion temporals spawned from
+// m_nType at the trap position with a +/-5 random scatter via the unrecovered
+// factory at 0x70F4F0 -- is omitted (as the trail factory at 0x51AE40 is),
+// so it cannot be reproduced faithfully yet.
+void CProjectileSkullTrap::Explode()
+{
+    CSound sound;
+    sound.SetResRef(CResRef(m_explodeSound), TRUE, TRUE);
+    sound.SetFireForget(TRUE);
+    sound.SetChannel(14, reinterpret_cast<DWORD>(m_pArea));
+    sound.Play(m_pos.x, m_pos.y, 0, FALSE);
 }
 
 // 0x5300E0

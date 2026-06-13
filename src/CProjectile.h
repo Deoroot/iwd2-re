@@ -349,10 +349,11 @@ public:
     CProjectileSkullTrap(const CResRef& cMissileRef, const CResRef& cExplodeRef, SHORT nType);   // 0x52F260
 
     void AIUpdate() override;   // 0x52F9E0 (vtable slot 3)
+    void Explode() override;    // 0x52F760 (vtable slot 34)
 
 private:
     /* 04B2 */ SHORT m_nType;
-    /* 04B4 */ CString field_4B4;   // default-empty (the original seeds the nil-string sentinel); use deferred
+    /* 04B4 */ CString m_explodeSound;   // explosion sound resref; default-empty (ctor seeds the nil sentinel)
 };
 
 // Leaf 0x5300E0 -- the strike bolt (DecodeProjectile type 0x4F; vtable
