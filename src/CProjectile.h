@@ -493,6 +493,7 @@ protected:
 class IcewindCProjectileSpellHit /*#guess*/ : public IcewindCProjectileTravellingVFX {
 public:
     IcewindCProjectileSpellHit(SHORT nType);   // 0x56EDD0
+    ~IcewindCProjectileSpellHit() override;     // 0x56F1F0 (deleting thunk 0x56F070, vtable slot 0)
 
 protected:
     // The IE reference-counted string CProjectileCone inlines for its cone-BAM
@@ -505,6 +506,12 @@ protected:
         // derived ctors reach this through the shared IE-string assign 0x537220
         // (the compiler inlines some of the calls).
         void Set(const char* name);
+        // Drop this slot's share of the reference-counted block (binary: the
+        // shared IE-string clear 0x448D50 with release; the dtor inlines half of
+        // the six). Count 0 (sole owner) or the 0xFF sentinel frees it, otherwise
+        // the count is decremented. The owning projectile's dtor calls this for
+        // each slot (the six names are not auto-released).
+        void Release();
 
         /* 00 */ BYTE  m_flags;     // ctor: = (BYTE)nType
         /* 01 */ BYTE  _pad[3];
@@ -718,7 +725,8 @@ public:
 // copy-from-back enabled, doubles the launch velocity and sets m_type 200.
 class CProjectileFireball /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
-    CProjectileFireball();   // 0x571E80
+    CProjectileFireball();    // 0x571E80
+    ~CProjectileFireball() override;   // 0x5768A0 (deleting thunk, slot 0; adds no data, chains to base)
 };
 
 #endif /* CPROJECTILE_H_ */

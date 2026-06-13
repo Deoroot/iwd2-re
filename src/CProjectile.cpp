@@ -4439,14 +4439,12 @@ IcewindCProjectileSpellHit::IcewindCProjectileSpellHit(SHORT nType)
 
 // -----------------------------------------------------------------------------
 
-// 0x537220 (shared IE-string assign; the derived spell-hit ctors reach the
-// reference-counted name slots through it, the compiler inlining some calls).
-// Release any block this slot still holds -- a share count of 0 (sole owner) or
-// the 0xFF sentinel frees it, otherwise the count is dropped -- then copy `name`
-// into a freshly owned block. Same buffer model as CProjectileCone: one heap
-// allocation whose first byte is the share count and whose character data starts
-// one byte in. An empty name allocates nothing.
-void IcewindCProjectileSpellHit::ResName::Set(const char* name)
+// Drop this slot's share of the reference-counted block (the buffer model
+// CProjectileCone uses: a single heap allocation whose first byte is the share
+// count and whose character data begins one byte in). The binary reaches this
+// through the shared IE-string clear 0x448D50 (called with release); a count of 0
+// (sole owner) or the 0xFF sentinel frees the block, otherwise the count drops.
+void IcewindCProjectileSpellHit::ResName::Release()
 {
     if (m_pName != NULL) {
         char* block = m_pName - 1;
@@ -4460,6 +4458,15 @@ void IcewindCProjectileSpellHit::ResName::Set(const char* name)
         m_nameLen = 0;
         m_nameCap = 0;
     }
+}
+
+// 0x537220 (shared IE-string assign; the derived spell-hit ctors reach the
+// reference-counted name slots through it, the compiler inlining some calls).
+// Release any block this slot still holds, then copy `name` into a freshly owned
+// one. An empty name allocates nothing.
+void IcewindCProjectileSpellHit::ResName::Set(const char* name)
+{
+    Release();
 
     LONG nameLen = (LONG)strlen(name);
     if (nameLen != 0) {
@@ -4472,6 +4479,24 @@ void IcewindCProjectileSpellHit::ResName::Set(const char* name)
         m_nameLen = nameLen;
         m_nameCap = nameCap;
     }
+}
+
+// 0x56F1F0 (the spell-hit base destructor; vtable slot 0 is the scalar deleting
+// thunk 0x56F070). Releases the six reference-counted visual-slot names in
+// reverse order (the binary calls the shared clear 0x448D50 for the three "B"
+// names and inlines the three "A" names); the two CSounds, two CVidCells and the
+// CAIObjectType target filter then destroy implicitly, then the base subobject.
+// The two list-bearing sub-objects m_miniB (teardown 0x5370C0) and m_miniA
+// (inlined list release) are constructed by unrecovered ctors, so their teardown
+// is faithfully omitted -- this model never allocates their lists.
+IcewindCProjectileSpellHit::~IcewindCProjectileSpellHit()
+{
+    m_visual3.m_resB.Release();
+    m_visual3.m_resA.Release();
+    m_visual2.m_resB.Release();
+    m_visual2.m_resA.Release();
+    m_visual1.m_resB.Release();
+    m_visual1.m_resA.Release();
 }
 
 // -----------------------------------------------------------------------------
@@ -4523,6 +4548,12 @@ CProjectileFireball::CProjectileFireball()
     field_4C0 = 0x2D;
     m_dirCount = 0x10;
     m_type = 200;
+}
+
+// 0x5768A0 (vtable slot 0; the scalar deleting thunk wraps this). Fireball adds
+// no data of its own, so the destructor just chains to the spell-hit base.
+CProjectileFireball::~CProjectileFireball()
+{
 }
 
 // -----------------------------------------------------------------------------
