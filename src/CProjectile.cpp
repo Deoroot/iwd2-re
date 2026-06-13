@@ -4626,10 +4626,53 @@ void CProjectileCone::OnArrival()
 }
 
 // 0x57A670 (vtable slot 30)
-// UNIMPLEMENTED: the cone hit-test that delivers effects to everything inside
-// the swept arc. Left a no-op until recovered.
+// Strike everything inside the cone. Gather every sprite inside the four-corner
+// cone polygon, then for each one (other than the caster) that is an AI object
+// in line of sight from the caster, queue a copy of each carried effect against
+// it. Finally flag the cone finishing so AIUpdate tears it down.
 void CProjectileCone::DeliverEffects()
 {
+    // Bounding box of the four cone corners (contiguous CPoints from m_edge0).
+    CRect rBounding;
+    rBounding.left = rBounding.right = m_edge0.x;
+    rBounding.top = rBounding.bottom = m_edge0.y;
+    const CPoint* pCorners = &m_edge0;
+    for (int e = 1; e < 4; ++e) {
+        if (pCorners[e].x < rBounding.left) rBounding.left = pCorners[e].x;
+        if (rBounding.right < pCorners[e].x) rBounding.right = pCorners[e].x;
+        if (pCorners[e].y < rBounding.top) rBounding.top = pCorners[e].y;
+        if (rBounding.bottom < pCorners[e].y) rBounding.bottom = pCorners[e].y;
+    }
+
+    CTypedPtrList<CPtrList, LONG*> targets;
+    m_pArea->GetAllInPoly(rBounding, &m_edge0, 4, CAIObjectType::ANYONE,
+        m_pArea->m_visibleTerrainTable, targets, 1);
+
+    POSITION pos = targets.GetHeadPosition();
+    while (pos != NULL) {
+        LONG nTargetId = reinterpret_cast<LONG>(targets.GetNext(pos));
+
+        CGameObject* pObject;
+        if (nTargetId != m_sourceId
+            && g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nTargetId,
+                   CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE)
+               == CGameObjectArray::SUCCESS) {
+            if (pObject->GetObjectType() & CGameObject::TYPE_AIBASE) {
+                if (m_pArea->CheckLOS(m_casterPos, pObject->GetPos(), m_terrainTable, FALSE)) {
+                    POSITION posEffect = m_effectList.GetHeadPosition();
+                    while (posEffect != NULL) {
+                        CGameEffect* pEffect = m_effectList.GetNext(posEffect);
+                        CMessage* msg = new CMessageAddEffect(pEffect->Copy(), m_sourceId, nTargetId);
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
+                    }
+                }
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nTargetId,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+
+    m_bFinishing = 1;
 }
 
 // 0x57A970 (vtable slot 34, new virtual; the BG2 CProjectileConeOfCold::DoLayers)
