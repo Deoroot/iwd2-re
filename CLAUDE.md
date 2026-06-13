@@ -132,6 +132,7 @@ Bundle = resolved decompile (our names, vtable-slot-annotated vcalls) + REQUIRED
 - Prefer named constants over magic numbers when defined in file.
 - `python scripts/vtable_audit.py ClassName` — catches missing virtual overrides.
 - After a recover: `re-agent parity --address 0xADDR` should be GREEN/YELLOW.
+- Member-heavy fn (cell/render/anim, many `m_x.Method()`): `.venv-reagent/bin/python scripts/parity_offsets.py 0xADDR` — catches "right callee, wrong member" (diffs the per-thiscall `this`-offset→member the BINARY uses vs what the source names; the signal re-agent parity's call-counts are blind to — found the 3-yr corpse-tint bug). `scripts/lint_extend_cells.py` = cheap source-only twin for the extend/`*Base`-in-extend-block copy-paste.
 - End every recover session by recommending the next function(s) (callee gaps, `gb unimplemented`, caller counts).
 
 ## No hacks
