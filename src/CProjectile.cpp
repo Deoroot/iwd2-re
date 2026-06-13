@@ -717,6 +717,216 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    // ---- The cone/spray family (CProjectileCone): an empty carrier-cell name
+    // and the cone's own BAM, with per-spell geometry/velocity/lifetime. ----
+
+    case 0x16: {
+        // Burning Hands ("BHandsT").
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("BHandsT"));
+        pCone->m_coneLength = 200;
+        pCone->m_outerRadius = 80;
+        pCone->field_317 = 0;
+        pCone->field_316 = 1;
+        pCone->field_2EE = 16;
+        pCone->m_segmentStep = 50;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_15");
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x19: {
+        // Cone of Cold ("CoColdT"): wide (outer 350), thrice base velocity, a
+        // short fast pulse.
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("CoColdT"));
+        pCone->m_coneLength = 200;
+        pCone->m_outerRadius = 350;
+        pCone->field_316 = 1;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 3);
+        pCone->m_segmentStep = 50;
+        pCone->m_duration = 8;
+        pCone->m_pulsePeriod = 4;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x61: {
+        // Color Spray ("CSprayT").
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("CSprayT"));
+        pCone->m_coneLength = 200;
+        pCone->m_outerRadius = 200;
+        pCone->field_316 = 1;
+        pCone->m_segmentStep = 30;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_16");
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x110: {
+        // Prismatic Spray ("PSprayT").
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("PSprayT"));
+        pCone->m_coneLength = 175;
+        pCone->m_outerRadius = 400;
+        pCone->field_316 = 1;
+        pCone->m_segmentStep = 30;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_21");
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x128: {
+        // Cone of Cold variant ("CoColdT"): narrower (outer 120), twice velocity.
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("CoColdT"));
+        pCone->m_coneLength = 200;
+        pCone->m_outerRadius = 120;
+        pCone->field_316 = 1;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 2);
+        pCone->m_segmentStep = 50;
+        pCone->m_duration = 8;
+        pCone->m_pulsePeriod = 4;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x12F: {
+        // Long spray ("TSprayT"): length 600, thrice velocity.
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("TSprayT"));
+        pCone->m_coneLength = 600;
+        pCone->m_outerRadius = 300;
+        pCone->field_316 = 1;
+        pCone->field_317 = 0;
+        pCone->field_2EE = 16;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 3);
+        pCone->m_segmentStep = 35;
+        pCone->m_duration = 8;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x13B: {
+        // Shout ("ShoutT"): a wide slow sonic cone (no copy-from-back tint).
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("ShoutT"));
+        pCone->m_coneLength = 100;
+        pCone->m_outerRadius = 300;
+        pCone->field_2EE = 16;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 3 / 2);
+        pCone->m_segmentStep = 1000;
+        pCone->field_306 = 75;
+        pCone->field_30A = 0;
+        pCone->m_duration = 12;
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x13F: {
+        // Great Shout ("GShoutT").
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("GShoutT"));
+        pCone->m_coneLength = 100;
+        pCone->m_outerRadius = 300;
+        pCone->field_2EE = 16;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 3 / 2);
+        pCone->m_segmentStep = 1000;
+        pCone->field_306 = 75;
+        pCone->field_30A = 0;
+        pCone->m_duration = 12;
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x157: {
+        // Will-o-Wisp spray ("WOWispT").
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("WOWispT"));
+        pCone->m_coneLength = 200;
+        pCone->m_outerRadius = 200;
+        pCone->field_316 = 1;
+        pCone->m_segmentStep = 30;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x170: {
+        // Frost Fingers ("FFingeT") -- same shape as Burning Hands.
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("FFingeT"));
+        pCone->m_coneLength = 200;
+        pCone->m_outerRadius = 80;
+        pCone->field_317 = 0;
+        pCone->field_316 = 1;
+        pCone->field_2EE = 16;
+        pCone->m_segmentStep = 50;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_15");
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x176: {
+        // Shout ("ShoutT"), longer cone variant.
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("ShoutT"));
+        pCone->m_coneLength = 120;
+        pCone->m_outerRadius = 300;
+        pCone->field_2EE = 16;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 3 / 2);
+        pCone->m_segmentStep = 1000;
+        pCone->field_306 = 75;
+        pCone->field_30A = 0;
+        pCone->m_duration = 12;
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x17B: {
+        // Dragon/breath fire cone ("HDFBreT"): length 300, thrice velocity.
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("HDFBreT"));
+        pCone->m_coneLength = 300;
+        pCone->m_outerRadius = 300;
+        pCone->field_316 = 1;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 3);
+        pCone->m_segmentStep = 50;
+        pCone->m_duration = 8;
+        pCone->m_pulsePeriod = 4;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_08");
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x17E: {
+        // Great Shout ("GShoutT"), longer cone variant.
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("GShoutT"));
+        pCone->m_coneLength = 120;
+        pCone->m_outerRadius = 300;
+        pCone->field_2EE = 16;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 3 / 2);
+        pCone->m_segmentStep = 1000;
+        pCone->field_306 = 75;
+        pCone->field_30A = 0;
+        pCone->m_duration = 12;
+        pProjectile = pCone;
+        break;
+    }
+
+    case 0x182: {
+        // Dragon/breath fire cone ("HDFBreT"), shorter variant (length 150).
+        CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("HDFBreT"));
+        pCone->m_coneLength = 150;
+        pCone->m_outerRadius = 150;
+        pCone->field_316 = 1;
+        pCone->m_velocity = static_cast<SHORT>(pCone->m_velocity * 3);
+        pCone->m_segmentStep = 50;
+        pCone->m_duration = 8;
+        pCone->m_pulsePeriod = 4;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_08");
+        pProjectile = pCone;
+        break;
+    }
+
     case 0x131:
         // The wandering tornado (Whirlwind / Wing Buffet).
         pProjectile = new CProjectileWhirlwind();
