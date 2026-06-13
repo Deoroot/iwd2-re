@@ -4463,10 +4463,6 @@ CProjectileCone::CProjectileCone(const CResRef& cellBam, const CResRef& coneBam)
     m_nameCap = 0;
 
     field_2EE = 1;
-    field_2F2 = coneBam.GetResRef()[0];
-    m_edgePoints = NULL;
-    m_edgeEnd = NULL;
-    m_edgeCap = NULL;
     m_segmentStep = 0x14;
     field_306 = 0x23;
     field_30A = 0x2D;
@@ -4501,13 +4497,9 @@ CProjectileCone::CProjectileCone(const CResRef& cellBam, const CResRef& coneBam)
 // destructor then tears down the carrier cell and visual effect.
 CProjectileCone::~CProjectileCone()
 {
-    delete[] m_edgePoints;
-    m_edgePoints = NULL;
-    m_edgeEnd = NULL;
-    m_edgeCap = NULL;
-
-    // Release the refcounted cone-BAM name. The inlined string class is not yet
-    // recovered and the ctor leaves m_pName NULL, so there is nothing to free.
+    // m_edgePoints (std::vector) releases its buffer automatically (the original
+    // frees it explicitly here). Release the refcounted cone-BAM name; the
+    // inlined string class is not yet recovered and the ctor leaves m_pName NULL.
     m_pName = NULL;
     m_nameLen = 0;
     m_nameCap = 0;
@@ -4602,12 +4594,27 @@ void CProjectileCone::Fire(CGameArea* pArea, LONG source, LONG target, CPoint ta
     m_edge3.x = static_cast<LONG>(static_cast<double>(farBaseX) + static_cast<double>(-dy) * ratioFar);
     m_edge3.y = static_cast<LONG>(static_cast<double>(farBaseY) + static_cast<double>(dx) * ratioFar);
 
-    // PARTIAL: the original now fans m_segCount edge points from m_center into
-    // the m_edgePoints vector (std::vector<CPoint>::insert at 0x57AB70) and
-    // appends m_center. That 16-byte vector container and its insert are not yet
-    // recovered (the insert is only registered, not modelled), so the fan-list
-    // build is deferred -- it is consumed solely by the unrecovered cone
-    // hit-test (DeliverEffects/Pulse).
+    // Fan the cone arc: sweep m_segCount segments either side of the centre,
+    // each offset m_segmentStep*|i| perpendicular to the aim (the edge0 side for
+    // i < 0, the edge1 side for i > 0), then append the centre point itself.
+    for (int i = -m_segCount; i < m_segCount; ++i) {
+        CPoint pt;
+        if (i < 0) {
+            int off = -(m_segmentStep * i);
+            double ratio = sqrt(static_cast<double>(off * off) / distSq);
+            pt.x = static_cast<LONG>(static_cast<double>(m_center.x) + static_cast<double>(-dy) * ratio);
+            pt.y = static_cast<LONG>(static_cast<double>(m_center.y) + static_cast<double>(dx) * ratio);
+        } else if (i == 0) {
+            pt = m_center;
+        } else {
+            int off = m_segmentStep * i;
+            double ratio = sqrt(static_cast<double>(off * off) / distSq);
+            pt.x = static_cast<LONG>(static_cast<double>(m_center.x) + static_cast<double>(dy) * ratio);
+            pt.y = static_cast<LONG>(static_cast<double>(m_center.y) + static_cast<double>(-dx) * ratio);
+        }
+        m_edgePoints.insert(m_edgePoints.end(), 1, pt);
+    }
+    m_edgePoints.insert(m_edgePoints.end(), 1, m_center);
 
     IcewindCProjectileTravellingVFX::Fire(pArea, source, target, targetPos, nHeight, nType);
 }

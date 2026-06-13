@@ -1,6 +1,8 @@
 #ifndef CPROJECTILE_H_
 #define CPROJECTILE_H_
 
+#include <vector>
+
 #include "CGameEffectList.h"
 #include "CGameObject.h"
 #include "CVidCell.h"
@@ -545,11 +547,10 @@ public:
     /* 02E6 */ LONG m_nameLen;
     /* 02EA */ LONG m_nameCap;
     /* 02EE */ LONG field_2EE;                // ctor 1
-    /* 02F2 */ BYTE field_2F2;                // ctor = coneBam[0]
-    /* 02F3 */ BYTE _pad2F3[3];
-    /* 02F6 */ CPoint* m_edgePoints;          // cone edge-point list (Fire builds, dtor frees)
-    /* 02FA */ CPoint* m_edgeEnd;
-    /* 02FE */ CPoint* m_edgeCap;
+    // The cone fan: Fire fills it with the per-segment arc points. A 16-byte
+    // std::vector (this build's debug layout: proxy + first/last/end at +0x2F6/
+    // FA/FE), matching the binary's std::vector<CPoint>.
+    /* 02F2 */ std::vector<CPoint> m_edgePoints;
     /* 0302 */ LONG m_segmentStep/*#guess*/;  // ctor 0x14 (20); Fire divides m_outerRadius by it
     /* 0306 */ LONG field_306;                // ctor 0x23 (35)
     /* 030A */ LONG field_30A;                // ctor 0x2D (45)
