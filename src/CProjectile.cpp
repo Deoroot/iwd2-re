@@ -4620,9 +4620,43 @@ void CProjectileCone::Fire(CGameArea* pArea, LONG source, LONG target, CPoint ta
 }
 
 // 0x57A530 (vtable slot 28)
-// UNIMPLEMENTED: the cone's arrival handling. Left a no-op until recovered.
+// The carrier has reached the target point: notify the callback projectile,
+// play the arrival sound, remove the linked target projectile, then strike
+// (DeliverEffects paints/strikes the cone and flags it finishing).
 void CProjectileCone::OnArrival()
 {
+    if (m_callBackProjectile != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pObject;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+                m_callBackProjectile, CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+        static_cast<CProjectile*>(pObject)->CallBack();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_callBackProjectile,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    PlaySound(m_arrivalSoundRef, m_loopArrivalSound, TRUE);
+
+    if (m_nTargetId != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pTarget;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+                m_nTargetId, CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc == CGameObjectArray::SUCCESS) {
+            static_cast<CProjectile*>(pTarget)->RemoveSelf();
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_nTargetId,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+
+    DeliverEffects();
 }
 
 // 0x57A670 (vtable slot 30)
@@ -4675,9 +4709,48 @@ void CProjectileCone::DeliverEffects()
     m_bFinishing = 1;
 }
 
-// 0x57A970 (vtable slot 34, new virtual; the BG2 CProjectileConeOfCold::DoLayers)
-// UNIMPLEMENTED: emits one cone layer/pulse (the per-tick cone paint + strike).
-// Left a no-op until recovered.
+// (inlined into CProjectileCone::Pulse) -- a plain travelling-VFX leaf carrying
+// the cone BAM; only the vtable distinguishes it from the base.
+CProjectileConePulseVisual::CProjectileConePulseVisual(const CResRef& resRef)
+    : IcewindCProjectileTravellingVFX(resRef)
+{
+}
+
+// 0x579B10 (vtable slot 0)
+CProjectileConePulseVisual::~CProjectileConePulseVisual()
+{
+}
+
+// 0x57A970 (vtable slot 34; the BG2 CProjectileConeOfCold::DoLayers)
+// Emit one cone pulse: fire a spray visual along every fan point. Each visual
+// flies the cone BAM, takes a copy of the cone's visual effect, a random launch
+// frame, and a randomised fraction of the cone velocity, and is launched (no
+// target) toward its fan point. Inert until the cone carries a BAM name.
 void CProjectileCone::Pulse()
 {
+    if (m_nameLen == 0) {
+        return;
+    }
+
+    for (std::vector<CPoint>::iterator it = m_edgePoints.begin(); it != m_edgePoints.end(); ++it) {
+        CProjectileConePulseVisual* pVisual =
+            new CProjectileConePulseVisual(CResRef(m_pName != NULL ? m_pName : ""));
+        if (pVisual != NULL) {
+            pVisual->m_visualEffect = m_visualEffect;
+            pVisual->m_bHasHeight = TRUE;
+            if (field_316 != 1) {
+                BYTE nFrames = pVisual->m_pVidCell->GetSequenceLength(0, FALSE);
+                if (nFrames == 0) {
+                    pVisual->m_pVidCell->FrameSet(0);
+                } else {
+                    pVisual->m_pVidCell->FrameSet(rand() % nFrames);
+                }
+            }
+        }
+        pVisual->m_bMirrorNorth = m_bMirrorNorth;
+        pVisual->m_dirCount = static_cast<SHORT>(field_2EE);
+        int nSpread = field_30A != 0 ? rand() % field_30A : 0;
+        pVisual->m_velocity = static_cast<SHORT>((field_306 + nSpread) * m_velocity / 100);
+        pVisual->Fire(m_pArea, m_sourceId, CGameObjectArray::INVALID_INDEX, *it, m_nHeight, m_nType);
+    }
 }

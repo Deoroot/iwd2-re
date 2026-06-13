@@ -131,6 +131,9 @@ class CProjectileTravelling : public CProjectile {
     // DecodeProjectile's sparkle cases (0x2F-0x37/0x41/0xB8/0xB9) write
     // m_velocity and m_visible on the freshly built leaf.
     friend class CProjectile;
+    // CProjectileCone::Pulse configures the cell/velocity/direction of the
+    // per-pulse spray visuals it spawns.
+    friend class CProjectileCone;
 
 public:
     CProjectileTravelling(const CResRef& resRef);
@@ -421,6 +424,8 @@ class IcewindCProjectileTravellingVFX : public CProjectileTravelling {
     // DecodeProjectile's CHROMORB case (0x18) arms copy-from-back on the
     // freshly built projectile's visual effect.
     friend class CProjectile;
+    // CProjectileCone::Pulse copies its visual effect onto the spray visuals.
+    friend class CProjectileCone;
 
 public:
     IcewindCProjectileTravellingVFX(const CResRef& resRef);   // 0x578110
@@ -564,6 +569,16 @@ public:
     /* 032C */ SHORT m_nType;                 // Fire
     /* 032E */ LONG m_tickCount;              // ctor 0; AIUpdate counter
     /* 0332 */ BYTE m_bFinishing;             // ctor 0
+};
+
+// Leaf (vtable 0x850DDC's sibling 0x850D54) -- the per-pulse cone "spray"
+// visual that CProjectileCone::Pulse fires along each fan point. A trivial
+// IcewindCProjectileTravellingVFX with no own members (it flies the cone BAM
+// and inherits the family flight/render); only its destructor is its own.
+class CProjectileConePulseVisual : public IcewindCProjectileTravellingVFX {
+public:
+    CProjectileConePulseVisual(const CResRef& resRef);   // inlined into CProjectileCone::Pulse
+    ~CProjectileConePulseVisual() override;              // 0x579B10 (vtable slot 0)
 };
 
 #endif /* CPROJECTILE_H_ */
