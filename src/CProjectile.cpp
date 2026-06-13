@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "CBaldurChitin.h"
 #include "CGameEffect.h"
@@ -4664,13 +4665,28 @@ CProjectileCone::CProjectileCone(const CResRef& cellBam, const CResRef& coneBam)
     m_coneRadius = 0x19;
     field_2DE = coneBam.GetResRef()[0];
 
-    // PARTIAL: the original copies coneBam into the refcounted m_pName buffer
-    // here through an inlined string class (init 0x448D50, assign 0x44BC20) that
-    // is not yet recovered. Left empty (dtor-safe); m_pName is only read once
-    // the cone is rendered/pulsed, which is itself unrecovered.
-    m_pName = NULL;
-    m_nameLen = 0;
-    m_nameCap = 0;
+    // Copy coneBam into the reference-counted name buffer the way the original
+    // does: clear (0x448D50), then reserve (0x44BC20 -> grow 0x44BE10/0x44BE90)
+    // with the strlen and memcpy inlined at 0x579BA8/0x579BD1. The buffer is one
+    // heap block whose first byte is a share count (0 == sole owner) and whose
+    // character data starts at block + 1. An empty name allocates nothing (the
+    // reserve early-outs at 0x44BC20 and the copy is skipped at 0x579BBF).
+    const char* coneName = (const char*)coneBam.GetResRef();
+    LONG nameLen = (LONG)strlen(coneName);
+    if (nameLen != 0) {
+        LONG nameCap = nameLen | 0x1F;          // 0x44BE10 rounds capacity up
+        char* block = new char[nameCap + 2];    // share byte + data + terminator
+        block[0] = 0;                           // 0x44BE90: this is the sole owner
+        m_pName = block + 1;
+        memcpy(m_pName, coneName, nameLen);      // 0x579BD1 rep movs
+        m_pName[nameLen] = '\0';                 // 0x579BE4
+        m_nameLen = nameLen;
+        m_nameCap = nameCap;
+    } else {
+        m_pName = NULL;
+        m_nameLen = 0;
+        m_nameCap = 0;
+    }
 
     field_2EE = 1;
     m_segmentStep = 0x14;
@@ -4708,8 +4724,19 @@ CProjectileCone::CProjectileCone(const CResRef& cellBam, const CResRef& coneBam)
 CProjectileCone::~CProjectileCone()
 {
     // m_edgePoints (std::vector) releases its buffer automatically (the original
-    // frees it explicitly here). Release the refcounted cone-BAM name; the
-    // inlined string class is not yet recovered and the ctor leaves m_pName NULL.
+    // frees it explicitly here). Release the reference-counted name the way the
+    // original inlines 0x448D50 at 0x579E09: if this object holds the only share
+    // (count 0, or the 0xFF sentinel) free the block, otherwise drop the share
+    // count by one. The block starts one byte before the character data.
+    if (m_pName != NULL) {
+        char* block = m_pName - 1;
+        char count = block[0];
+        if (count == 0 || count == (char)0xFF) {
+            delete[] block;                     // 0x7FC984: sole owner -> free
+        } else {
+            block[0] = count - 1;               // shared -> drop the count
+        }
+    }
     m_pName = NULL;
     m_nameLen = 0;
     m_nameCap = 0;
