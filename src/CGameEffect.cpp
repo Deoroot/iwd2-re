@@ -2769,9 +2769,11 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
             }
         }
 
-        // HACK: the saving-throw pass is unrecovered -- when m_savingThrow is
-        // set the binary lets the target save for a reduced total -- replaces
-        // the call to 0x448250 at 0x4A8245.
+        // HACK: the conditional damage-reduction pass is unrecovered -- when
+        // m_special != -1 the binary walks the reduction table at
+        // CDerivedStats+0x49C (36-byte entries, helpers 0x448A50 / 0x447C20)
+        // and rewrites the amount -- replaces the call to 0x448250 at
+        // 0x4A82AC.
 
         if (m_effectAmount < 0) {
             m_effectAmount = 0;
@@ -2974,10 +2976,12 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
             if (IcewindMisc::IsUndead(pSprite) == TRUE) {
                 // Undead cannot be knocked out: they die a crushing death.
                 nKindType = 0;
+            } else if (pSprite->GetDerivedStats()->m_naturalImmunities.find(CGAMEEFFECT_SLEEP)
+                != pSprite->GetDerivedStats()->m_naturalImmunities.end()) {
+                // Naturally sleep-immune targets cannot be knocked out either:
+                // they die outright (the death kind stays at the constructor
+                // default, as in the binary).
             } else {
-                // HACK: the binary first runs the sleep effect through the
-                // target's add-immunity check (CheckAdd at 0x4A88A8) and only
-                // knocks out when it passes -- assumed to pass here.
                 delete pDeath;
 
                 ITEM_EFFECT sleep;
