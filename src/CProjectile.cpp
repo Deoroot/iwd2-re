@@ -4344,6 +4344,101 @@ void IcewindCProjectileTravellingVFX::UpdateDirectionSequence(CVidCell* pCell)
 
 // -----------------------------------------------------------------------------
 
+// 0x56EDD0
+// Base ctor for the spell-hit / area-of-effect projectile family. Flies the
+// invisible "SPMAGMIS" carrier, targets anyone, and broadcasts the projectile
+// type byte across the per-slot flag fields. The two embedded list sub-objects
+// (m_miniA via 0x570D50, m_miniB via 0x4C4A90) are constructed by the binary
+// here; that list initialisation is not yet recovered and is faithfully omitted
+// -- only the scalar fields the ctor sets directly are reproduced. The six
+// refcounted resource-name strings start empty, cleared the way 0x448D50 clears
+// fresh storage (zero pointer/length/capacity, no share-count release). The
+// embedded CAIObjectType, two CVidCells, three IcewindCVisualEffects and two
+// CSounds construct implicitly in declaration order.
+IcewindCProjectileSpellHit::IcewindCProjectileSpellHit(SHORT nType)
+    : IcewindCProjectileTravellingVFX(CResRef("SPMAGMIS"))
+{
+    const BYTE typeByte = (BYTE)nType;
+
+    // Base flight state the family overrides.
+    m_callBackProjectile = -1;
+    field_17E = "";
+    m_nTargetId = -1;
+    m_visible = 0;
+
+    // Identity and target filter.
+    m_type = nType;
+    m_objectTag = 0x4E;
+    field_2B4 = 0;
+    field_2B6 = 0;
+    field_2BA = 0;
+    field_2BC = 0;
+    field_2FA = 0;
+    field_2FE = 0;
+    field_2FF = 0;
+    field_300 = 0;
+    field_304 = 0;
+    field_3E2 = 0;
+    m_targetType.Set(CAIObjectType::ANYONE);
+
+    // m_miniA scalar fields and the trailing block before the visual slots.
+    field_4C0 = 0x2D;
+    m_miniA_field0 = typeByte;
+    m_miniA_field1 = typeByte;
+    m_miniA_field8 = 0;
+    field_4D4 = 10000;
+    field_4D8 = 0;
+    field_4DC = 10;
+    field_4E0 = 0;
+
+    // Three visual-emission slots: stamp each resource name's flag with the type
+    // and clear the refcounted string to empty.
+    m_visual1.m_resA.m_flags = typeByte;
+    m_visual1.m_resA.m_pName = NULL;
+    m_visual1.m_resA.m_nameLen = 0;
+    m_visual1.m_resA.m_nameCap = 0;
+    m_visual1.m_resB.m_flags = typeByte;
+    m_visual1.m_resB.m_pName = NULL;
+    m_visual1.m_resB.m_nameLen = 0;
+    m_visual1.m_resB.m_nameCap = 0;
+
+    m_visual2.m_resA.m_flags = typeByte;
+    m_visual2.m_resA.m_pName = NULL;
+    m_visual2.m_resA.m_nameLen = 0;
+    m_visual2.m_resA.m_nameCap = 0;
+    m_visual2.m_resB.m_flags = typeByte;
+    m_visual2.m_resB.m_pName = NULL;
+    m_visual2.m_resB.m_nameLen = 0;
+    m_visual2.m_resB.m_nameCap = 0;
+    field_53A = 0;
+    field_53C = 0x7FFFFFFF;
+
+    m_visual3.m_resA.m_flags = typeByte;
+    m_visual3.m_resA.m_pName = NULL;
+    m_visual3.m_resA.m_nameLen = 0;
+    m_visual3.m_resA.m_nameCap = 0;
+    m_visual3.m_resB.m_flags = typeByte;
+    m_visual3.m_resB.m_pName = NULL;
+    m_visual3.m_resB.m_nameLen = 0;
+    m_visual3.m_resB.m_nameCap = 0;
+    field_56C = 0;
+    field_570 = 0;
+    field_574 = 0;
+    field_575 = 0;
+    field_576 = 0;
+    field_578 = 0xFA;
+    field_57C = 6;
+    field_580 = 0x1E;
+    field_584 = 0;
+
+    // m_miniB scalar fields.
+    m_miniB_field0 = typeByte;
+    m_miniB_field1 = typeByte;
+    m_miniB_field8 = 0;
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x57F640
 // The base ctor runs with "WhirlwX" and the strike tracker / leaf sound
 // members construct implicitly; this body sets the leaf state, points the

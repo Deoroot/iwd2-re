@@ -475,6 +475,100 @@ protected:
     /* 02A2 */ IcewindCVisualEffect m_visualEffect;
 };
 
+// Intermediate base 0x56EDD0 -- the large spell-hit / area-of-effect projectile
+// (vtable 0x84F1C4; : IcewindCProjectileTravellingVFX). Unnamed in the binary
+// (no BG2/RTTI carry-over); the AOE spell-effect family builds through it --
+// Fireball (0x571E80, vtable 0x84F580) and ~110 other derived ctors stamp their
+// own state on top. The ctor seeds the invisible "SPMAGMIS" carrier, builds the
+// target filter (CAIObjectType::ANYONE), two spare animation cells, three
+// visual-emission slots (each two refcounted resource names plus an
+// IcewindCVisualEffect) and two sounds, then broadcasts the projectile type byte
+// across the per-slot flag fields.
+//
+// Two embedded list-bearing sub-objects -- m_miniA (+0x4C4, ctor 0x570D50) and
+// m_miniB (+0x64E, ctor 0x4C4A90; shared with the CPersistantEffect copies) --
+// are not yet recovered: their list initialisation is faithfully omitted and
+// only the scalar fields the ctor stamps directly are reproduced. The opaque
+// bytes around them are explicit padding so the named fields keep their offsets.
+class IcewindCProjectileSpellHit /*#guess*/ : public IcewindCProjectileTravellingVFX {
+public:
+    IcewindCProjectileSpellHit(SHORT nType);   // 0x56EDD0
+
+protected:
+    // The IE reference-counted string CProjectileCone inlines for its cone-BAM
+    // name (share-count byte at block[-1], character data at block + 1); here it
+    // recurs six times, each preceded by a flag byte the ctor stamps with the
+    // projectile type. Cleared to empty (NULL pointer) by the ctor.
+    struct ResName /*#guess*/ {
+        /* 00 */ BYTE  m_flags;     // ctor: = (BYTE)nType
+        /* 01 */ BYTE  _pad[3];
+        /* 04 */ char* m_pName;     // refcounted block + 1 (NULL when empty)
+        /* 08 */ LONG  m_nameLen;
+        /* 0C */ LONG  m_nameCap;
+    };
+    // One visual-emission slot: two named resources and a visual-effect block.
+    struct VisualSlot /*#guess*/ {
+        /* 00 */ ResName              m_resA;
+        /* 10 */ ResName              m_resB;
+        /* 20 */ IcewindCVisualEffect m_fx;
+    };
+
+    /* 02AE */ SHORT         m_type;         // = nType (DecodeProjectile factory type)
+    /* 02B0 */ WORD          field_2B0;
+    /* 02B2 */ WORD          m_objectTag;    // = 0x4E
+    /* 02B4 */ WORD          field_2B4;
+    /* 02B6 */ LONG          field_2B6;
+    /* 02BA */ WORD          field_2BA;
+    /* 02BC */ WORD          field_2BC;
+    /* 02BE */ CAIObjectType m_targetType;   // .Set(CAIObjectType::ANYONE)
+    /* 02FA */ LONG          field_2FA;
+    /* 02FE */ BYTE          field_2FE;
+    /* 02FF */ BYTE          field_2FF;
+    /* 0300 */ LONG          field_300;
+    /* 0304 */ LONG          field_304;
+    /* 0308 */ CVidCell      m_cell1;
+    /* 03E2 */ LONG          field_3E2;
+    /* 03E6 */ CVidCell      m_cell2;
+    /* 04C0 */ LONG          field_4C0;      // = 0x2D
+    // m_miniA -- list-bearing sub-object (ctor 0x570D50 unrecovered); only the
+    // bytes the parent ctor stamps are named, the rest is opaque padding.
+    /* 04C4 */ BYTE          m_miniA_field0; // = (BYTE)nType
+    /* 04C5 */ BYTE          m_miniA_field1; // = (BYTE)nType
+    /* 04C6 */ BYTE          _padA0[6];
+    /* 04CC */ BYTE          m_miniA_field8; // = 0
+    /* 04CD */ BYTE          _padA1[7];
+    /* 04D4 */ LONG          field_4D4;      // = 10000
+    /* 04D8 */ LONG          field_4D8;      // = 0
+    /* 04DC */ LONG          field_4DC;      // = 10
+    /* 04E0 */ BYTE          field_4E0;      // = 0
+    /* 04E1 */ BYTE          _pad4E1;
+    /* 04E2 */ VisualSlot    m_visual1;
+    /* 050E */ VisualSlot    m_visual2;
+    /* 053A */ BYTE          field_53A;      // = 0
+    /* 053B */ BYTE          _pad53B;
+    /* 053C */ LONG          field_53C;      // = 0x7FFFFFFF
+    /* 0540 */ VisualSlot    m_visual3;
+    /* 056C */ LONG          field_56C;      // = 0
+    /* 0570 */ LONG          field_570;      // = 0
+    /* 0574 */ BYTE          field_574;      // = 0
+    /* 0575 */ BYTE          field_575;      // = 0
+    /* 0576 */ BYTE          field_576;      // = 0
+    /* 0577 */ BYTE          _pad577;
+    /* 0578 */ LONG          field_578;      // = 0xFA
+    /* 057C */ LONG          field_57C;      // = 6
+    /* 0580 */ LONG          field_580;      // = 0x1E
+    /* 0584 */ BYTE          field_584;      // = 0
+    /* 0585 */ BYTE          _pad585;
+    /* 0586 */ CSound        m_sound1;
+    /* 05EA */ CSound        m_sound2;
+    // m_miniB -- second list-bearing sub-object (ctor 0x4C4A90 unrecovered).
+    /* 064E */ BYTE          m_miniB_field0; // = (BYTE)nType
+    /* 064F */ BYTE          m_miniB_field1; // = (BYTE)nType
+    /* 0650 */ BYTE          _padB0[6];
+    /* 0656 */ BYTE          m_miniB_field8; // = 0
+    /* 0657 */ BYTE          _padB1;
+};
+
 // Leaf 0x57F640 -- the wandering tornado (WhirlwX BAM; DecodeProjectile
 // type 0x131, m_projectileType 0x130). Used by Whirlwind (SPPR613) and Wing
 // Buffet (SPIN159); Wall of Moonlight (WoMoonX, ctor 0x5802B0, factory type
