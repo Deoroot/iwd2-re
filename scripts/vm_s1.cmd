@@ -10,6 +10,8 @@ setlocal
 set "TN=iwd2_s1"
 schtasks /end    /tn %TN%    >nul 2>&1
 schtasks /delete /tn %TN% /f >nul 2>&1
-schtasks /create /tn %TN% /tr "C:\iwd2-re\scripts\vm_s1_payload.cmd" /sc once /st 23:59 /ru %USERNAME% /it /f || (echo SCHTASKS_CREATE_FAILED & exit /b 1)
+REM /tr routes through a hidden VBS wrapper (vm_s1_hidden.vbs) so the cmd console
+REM never pops to the foreground and steals focus from the game. Still /it = session 1.
+schtasks /create /tn %TN% /tr "wscript //B //Nologo C:\iwd2-re\scripts\vm_s1_hidden.vbs" /sc once /st 23:59 /ru %USERNAME% /it /f || (echo SCHTASKS_CREATE_FAILED & exit /b 1)
 schtasks /run /tn %TN% || (echo SCHTASKS_RUN_FAILED & exit /b 1)
-echo OK: payload launched in session 1 as %USERNAME%
+echo OK: payload launched in session 1 as %USERNAME% (hidden window)
