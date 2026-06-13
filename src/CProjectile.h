@@ -334,6 +334,25 @@ private:
     /* 04BA */ BYTE m_explodeColorRange/*#guess*/;
 };
 
+// Leaf 0x52F260 -- Skull Trap (DecodeProjectile type 0x60; vtable 0x84DD80,
+// binary sizeof 0x4B8). An exploding spell projectile: it flies its missile
+// cell and, on arrival, lingers and strikes via CProjectileExploding. Beyond
+// the base it builds a second (shadow) animation cell from the explosion BAM
+// and arms both embedded explosion cells (m_explodeCell1/m_explodeCell2) with
+// the missile and explosion resrefs, and flies at double the launch velocity.
+// Its AIUpdate (0x52F9E0, slot 3) and Explode (slot 34) overrides are deferred;
+// until they are recovered it ticks with the base exploding behaviour. The
+// compiler-generated destructor matches the binary's 0x52F5E0 (it adds only the
+// +0x4B4 CString to the base members).
+class CProjectileSkullTrap : public CProjectileExploding {
+public:
+    CProjectileSkullTrap(const CResRef& cMissileRef, const CResRef& cExplodeRef, SHORT nType);   // 0x52F260
+
+private:
+    /* 04B2 */ SHORT m_nType;
+    /* 04B4 */ CString field_4B4;   // default-empty (the original seeds the nil-string sentinel); use deferred
+};
+
 // Leaf 0x5300E0 -- the strike bolt (DecodeProjectile type 0x4F; vtable
 // 0x84DF1C): the invisible effect carrier the exploding missiles' strike
 // pass (CProjectileExploding::AreaEffect) fires at each target. The SPFIREBL

@@ -2079,14 +2079,15 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     m_nTargetId = CGameObjectArray::INVALID_INDEX;
 }
 
-// 0x52B010 (vtable slot 0, partial)
+// 0x52B010 (vtable slot 0)
 //
-// Frees the heap CVidCell; the embedded palette and bitmap destruct
-// automatically. The full original destructor (which also releases the cell's
-// requested resources) is recovered with the rest of the virtual interface.
+// Frees both heap animation cells (main and shadow); the embedded palette and
+// bitmap, and the cells' requested resources (released by ~CVidCell), destruct
+// automatically.
 CProjectileTravelling::~CProjectileTravelling()
 {
     delete m_pVidCell;
+    delete m_pShadowCell;
 }
 
 // 0x52B900 (vtable slot 3 -- AIUpdate)
@@ -3322,6 +3323,42 @@ void CProjectileExplodingWeapon::Explode()
     memset(colorRangeValues, m_explodeColorRange, sizeof(colorRangeValues));
     new CGameFireball3d(CGameFireball3d::TYPE_FIREBALL, colorRangeValues, m_pArea, m_pos,
         m_strikeRange, static_cast<BYTE>(m_velocity) >> 1, CGameTemporal::COLLISION_DESTROY, 0);
+}
+
+// 0x52F260
+//
+// CProjectileSkullTrap -- the Skull Trap delayed-explosion projectile
+// (DecodeProjectile type 0x60). Builds the CProjectileExploding base from the
+// missile BAM, then adds a shadow animation cell from the explosion BAM and
+// arms both embedded explosion cells. Flies at double the base velocity. As
+// with the other leaves the original's copy of an empty global CResRef into
+// m_fireSoundRef and of the nil-string sentinel into the +0x4B4 CString are
+// deferred -- both members default-construct empty.
+CProjectileSkullTrap::CProjectileSkullTrap(const CResRef& cMissileRef, const CResRef& cExplodeRef, SHORT nType)
+    : CProjectileExploding(cMissileRef)
+{
+    m_pShadowCell = new CVidCell(cExplodeRef, FALSE);
+    m_pShadowCell->SequenceSet(0);
+    m_pVidCell->SequenceSet(0);
+
+    m_tinted = 0;
+    m_useHeightOffset = 0;
+    m_mirror = 0;
+    m_hasShadowCell = 1;
+    m_dirCount = 1;
+    m_velocity = static_cast<SHORT>(m_velocity << 1);
+
+    m_nType = nType;
+    m_childProjectileType = 0x4E;
+    m_strikesLeft = 1;
+    m_lingerPeriod = 100;
+    m_bPreScan = 1;
+
+    m_explodeCell1.SetResRef(cMissileRef, FALSE, TRUE, TRUE);
+    m_bExplodeCell1Active = (cMissileRef != "");
+
+    m_explodeCell2.SetResRef(cExplodeRef, FALSE, TRUE, TRUE);
+    m_bExplodeCell2Active = (cExplodeRef != "");
 }
 
 // 0x5300E0
