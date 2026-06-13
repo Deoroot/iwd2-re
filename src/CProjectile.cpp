@@ -4539,12 +4539,76 @@ void CProjectileCone::AIUpdate()
 }
 
 // 0x579EF0 (vtable slot 27)
-// UNIMPLEMENTED: the cone launch resolves the caster position, computes the
-// segment count and builds the four cone-edge corner points and the edge-point
-// list, then launches through the base. Delegates to the base launch until
-// recovered (Phase 2).
+// Resolve the caster position, then build the cone's geometry from the caster
+// toward the target point: the segment count, the four corner points and the
+// arc-centre point. Two near corners sit +/- m_coneRadius perpendicular to the
+// aim at the caster; the arc centre sits m_outerRadius along the aim; the two
+// far corners sit +/- (m_coneRadius + m_coneLength/2) perpendicular at the
+// (m_coneRadius + m_outerRadius) point along the aim. Each coordinate scales a
+// direction component by radius/distance (truncated to LONG, like the original
+// __ftol). Then launch the invisible carrier through the base.
 void CProjectileCone::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
 {
+    m_nHeight = nHeight;
+    m_nType = nType;
+    m_sourceId = source;
+    m_pArea = pArea;
+
+    // Caster must exist; GetProjectileSourcePosition re-shares it to read the
+    // facing-adjusted launch point into m_casterPos.
+    CGameObject* pCaster;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
+            CGameObjectArray::THREAD_ASYNCH, &pCaster, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    GetProjectileSourcePosition(m_sourceId, m_casterPos);
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceId,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    m_segCount = (m_coneLength / m_segmentStep) / 2;
+
+    int dx = targetPos.x - m_casterPos.x;
+    int dy = targetPos.y - m_casterPos.y;
+    double distSq = static_cast<double>(dx * dx + dy * dy);
+
+    // Near corners: +/- m_coneRadius perpendicular to the aim, at the caster.
+    double ratioNear = sqrt(static_cast<double>(m_coneRadius * m_coneRadius) / distSq);
+    m_edge0.x = static_cast<LONG>(static_cast<double>(m_casterPos.x) + static_cast<double>(-dy) * ratioNear);
+    m_edge0.y = static_cast<LONG>(static_cast<double>(m_casterPos.y) + static_cast<double>(dx) * ratioNear);
+    m_edge1.x = static_cast<LONG>(static_cast<double>(m_casterPos.x) + static_cast<double>(dy) * ratioNear);
+    m_edge1.y = static_cast<LONG>(static_cast<double>(m_casterPos.y) + static_cast<double>(-dx) * ratioNear);
+
+    // Arc centre: m_outerRadius along the aim.
+    double ratioCentre = sqrt(static_cast<double>(m_outerRadius * m_outerRadius) / distSq);
+    m_center.x = static_cast<LONG>(static_cast<double>(m_casterPos.x) + static_cast<double>(dx) * ratioCentre);
+    m_center.y = static_cast<LONG>(static_cast<double>(m_casterPos.y) + static_cast<double>(dy) * ratioCentre);
+
+    // Far corners: from the (m_coneRadius + m_outerRadius) point along the aim,
+    // +/- (m_coneRadius + m_coneLength/2) perpendicular.
+    LONG farSum = m_coneRadius + m_outerRadius;
+    double ratioFarBase = sqrt(static_cast<double>(farSum * farSum) / distSq);
+    LONG farBaseX = static_cast<LONG>(static_cast<double>(m_casterPos.x) + static_cast<double>(dx) * ratioFarBase);
+    LONG farBaseY = static_cast<LONG>(static_cast<double>(m_casterPos.y) + static_cast<double>(dy) * ratioFarBase);
+
+    LONG farHalf = m_coneRadius + m_coneLength / 2;
+    double ratioFar = sqrt(static_cast<double>(farHalf * farHalf) / distSq);
+    m_edge2.x = static_cast<LONG>(static_cast<double>(farBaseX) + static_cast<double>(dy) * ratioFar);
+    m_edge2.y = static_cast<LONG>(static_cast<double>(farBaseY) + static_cast<double>(-dx) * ratioFar);
+    m_edge3.x = static_cast<LONG>(static_cast<double>(farBaseX) + static_cast<double>(-dy) * ratioFar);
+    m_edge3.y = static_cast<LONG>(static_cast<double>(farBaseY) + static_cast<double>(dx) * ratioFar);
+
+    // PARTIAL: the original now fans m_segCount edge points from m_center into
+    // the m_edgePoints vector (std::vector<CPoint>::insert at 0x57AB70) and
+    // appends m_center. That 16-byte vector container and its insert are not yet
+    // recovered (the insert is only registered, not modelled), so the fan-list
+    // build is deferred -- it is consumed solely by the unrecovered cone
+    // hit-test (DeliverEffects/Pulse).
+
     IcewindCProjectileTravellingVFX::Fire(pArea, source, target, targetPos, nHeight, nType);
 }
 
