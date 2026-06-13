@@ -250,6 +250,10 @@ public:
 // compiler-generated member/base chain. This branch's vtables are 35 slots --
 // Explode is the only added virtual.
 class CProjectileExploding : public CProjectileTravelling {
+    // DecodeProjectile's Skull Trap / Glyph cases (0x60/0x64) stamp the strike
+    // and pre-check ranges on the freshly built leaf.
+    friend class CProjectile;
+
 public:
     CProjectileExploding(const CResRef& resRef);   // 0x52CCE0
 
@@ -345,6 +349,9 @@ private:
 // compiler-generated destructor matches the binary's 0x52F5E0 (it adds only the
 // +0x4B4 CString to the base members).
 class CProjectileSkullTrap : public CProjectileExploding {
+    // DecodeProjectile (types 0x60/0x64) stamps the explosion sound.
+    friend class CProjectile;
+
 public:
     CProjectileSkullTrap(const CResRef& cMissileRef, const CResRef& cExplodeRef, SHORT nType);   // 0x52F260
 

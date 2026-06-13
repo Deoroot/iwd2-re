@@ -752,6 +752,19 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    case 0x60: {
+        // Skull Trap ("sklT" missile, "ShSkull" explosion).
+        CProjectileSkullTrap* pSkull = new CProjectileSkullTrap(CResRef("sklT"), CResRef("ShSkull"), 0x400);
+        pSkull->m_bHasHeight = TRUE;
+        pSkull->m_strikeRange = 0x64;
+        pSkull->m_preCheckRange = 0x32;
+        pSkull->m_arrivalSoundRef = CResRef("ARE_M06");
+        pSkull->m_loopArrivalSound = TRUE;
+        pSkull->m_explodeSound = "EFF_M35";
+        pProjectile = pSkull;
+        break;
+    }
+
     case 0x61: {
         // Color Spray ("CSprayT").
         CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("CSprayT"));
@@ -762,6 +775,21 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pCone->m_visualEffect.SetCopyFromBack(TRUE);
         pCone->m_fireSoundRef = CResRef("TRA_16");
         pProjectile = pCone;
+        break;
+    }
+
+    case 0x64: {
+        // Glyph of Warding ("glphwrdT" missile, "ShGlyph" explosion).
+        CProjectileSkullTrap* pGlyph = new CProjectileSkullTrap(CResRef("glphwrdT"), CResRef("ShGlyph"), 0x410);
+        pGlyph->m_bHasHeight = TRUE;
+        pGlyph->m_strikeRange = 0x50;
+        pGlyph->m_preCheckRange = 0x32;
+        pGlyph->m_fireSoundRef = CResRef("EFF_P22a");
+        pGlyph->m_loopFireSound = TRUE;
+        pGlyph->m_arrivalSoundRef = CResRef("");
+        pGlyph->m_explodeSound = "EFF_P22b";
+        pGlyph->m_mirror = 1;
+        pProjectile = pGlyph;
         break;
     }
 
