@@ -4437,3 +4437,133 @@ void CProjectileLightningBolt::Fire(CGameArea* pArea, LONG source, LONG target, 
         IcewindCProjectileTravellingVFX::Fire(pArea, source, target, endPoint, nHeight, nType);
     }
 }
+
+// 0x579B40
+// Builds the cone carrier: an invisible MMissiT cell plus the cone geometry
+// constants (length 200, radii 350/25, the segment divisors 20/35/45, a 15-tick
+// lifetime that pulses every 5 ticks). The cone's own BAM arrives as coneBam.
+//
+// The base subobject is built through the cone-specific cell-less emission at
+// address 0x577E40 (per the family modelling licence), represented here as the
+// ordinary base ctor, whose carrier cell is then swapped for MMissiT below.
+CProjectileCone::CProjectileCone(const CResRef& cellBam, const CResRef& coneBam)
+    : IcewindCProjectileTravellingVFX(cellBam)
+{
+    m_coneLength = 200;
+    m_outerRadius = 0x15E;
+    m_coneRadius = 0x19;
+    field_2DE = coneBam.GetResRef()[0];
+
+    // PARTIAL: the original copies coneBam into the refcounted m_pName buffer
+    // here through an inlined string class (init 0x448D50, assign 0x44BC20) that
+    // is not yet recovered. Left empty (dtor-safe); m_pName is only read once
+    // the cone is rendered/pulsed, which is itself unrecovered.
+    m_pName = NULL;
+    m_nameLen = 0;
+    m_nameCap = 0;
+
+    field_2EE = 1;
+    field_2F2 = coneBam.GetResRef()[0];
+    m_edgePoints = NULL;
+    m_edgeEnd = NULL;
+    m_edgeCap = NULL;
+    m_segmentStep = 0x14;
+    field_306 = 0x23;
+    field_30A = 0x2D;
+    m_duration = 0xF;
+    m_pulsePeriod = 5;
+    field_316 = 0;
+    field_317 = 1;
+    m_segCount = 0;
+    m_tickCount = 0;
+    m_bFinishing = 0;
+    m_nHeight = 0;
+    m_nType = 0;
+    m_bMirrorNorth = 0;
+    m_bMirrorEast = 1;
+
+    // Carrier cell: an empty cell name selects the invisible MMissiT carrier; a
+    // real name uses that BAM. The cell the base ctor built from cellBam is
+    // replaced either way (the binary's cell-less base build skips it).
+    delete m_pVidCell;
+    if (cellBam.GetResRef()[0] == '\0') {
+        m_pVidCell = new CVidCell(CResRef("MMissiT"), FALSE);
+        m_visible = 0;
+    } else {
+        m_pVidCell = new CVidCell(cellBam, FALSE);
+        m_visible = 1;
+    }
+    m_bHasHeight = TRUE;
+}
+
+// 0x579DE0 (vtable slot 0; the deleting thunk 0x579DC0 wraps this)
+// Frees the cone edge-point buffer and releases the refcounted name; the base
+// destructor then tears down the carrier cell and visual effect.
+CProjectileCone::~CProjectileCone()
+{
+    delete[] m_edgePoints;
+    m_edgePoints = NULL;
+    m_edgeEnd = NULL;
+    m_edgeCap = NULL;
+
+    // Release the refcounted cone-BAM name. The inlined string class is not yet
+    // recovered and the ctor leaves m_pName NULL, so there is nothing to free.
+    m_pName = NULL;
+    m_nameLen = 0;
+    m_nameCap = 0;
+}
+
+// 0x579E50 (vtable slot 3)
+// Cone lifetime tick: count up; once past m_duration a finishing cone removes
+// itself and is freed; otherwise it pulses a fresh layer every m_pulsePeriod
+// ticks. While not finishing it also runs the base flight tick.
+void CProjectileCone::AIUpdate()
+{
+    m_tickCount++;
+    if (m_duration < m_tickCount) {
+        if (m_bFinishing == 1) {
+            RemoveFromArea();
+            if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(
+                    m_id, CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+                == CGameObjectArray::SUCCESS) {
+                delete this;
+            }
+            return;
+        }
+    } else if (m_tickCount % m_pulsePeriod == 1) {
+        Pulse();
+    }
+    if (m_bFinishing == 0) {
+        IcewindCProjectileTravellingVFX::AIUpdate();
+    }
+}
+
+// 0x579EF0 (vtable slot 27)
+// UNIMPLEMENTED: the cone launch resolves the caster position, computes the
+// segment count and builds the four cone-edge corner points and the edge-point
+// list, then launches through the base. Delegates to the base launch until
+// recovered (Phase 2).
+void CProjectileCone::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    IcewindCProjectileTravellingVFX::Fire(pArea, source, target, targetPos, nHeight, nType);
+}
+
+// 0x57A530 (vtable slot 28)
+// UNIMPLEMENTED: the cone's arrival handling. Left a no-op until recovered.
+void CProjectileCone::OnArrival()
+{
+}
+
+// 0x57A670 (vtable slot 30)
+// UNIMPLEMENTED: the cone hit-test that delivers effects to everything inside
+// the swept arc. Left a no-op until recovered.
+void CProjectileCone::DeliverEffects()
+{
+}
+
+// 0x57A970 (vtable slot 34, new virtual; the BG2 CProjectileConeOfCold::DoLayers)
+// UNIMPLEMENTED: emits one cone layer/pulse (the per-tick cone paint + strike).
+// Left a no-op until recovered.
+void CProjectileCone::Pulse()
+{
+}

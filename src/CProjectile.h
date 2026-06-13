@@ -496,4 +496,73 @@ public:
     /* 02B2 */ IcewindCProjectileTargetMap m_targetMap;
 };
 
+// Leaf 0x579B40 -- the cone/spray area effect (vtable 0x850DDC). A single
+// generic class for the whole cone family: DecodeProjectile builds it for
+// Burning Hands, Cone of Cold, Color Spray, Prismatic Spray, the Shout/Great
+// Shout sonic cones, Frost Fingers, the Will-o-Wisp spray and the dragon/breath
+// cones (14 ability-header cases, each passing an empty carrier-cell name and
+// the cone's own BAM as the second argument).
+//
+// BG2 split this into CProjectileConeOfCold and CProjectileColorSpray (both
+// CProjectileBAM leaves, sizeof 0x2A0, with static CLOCK*/ANTICLOCK* edge
+// tables and a DoLayers per-layer emit); IWD2 unified them into this single
+// IcewindCProjectileTravellingVFX leaf. It carries an invisible MMissiT cell
+// and paints the cone by pulsing a new virtual (slot 34, the BG2 DoLayers)
+// every m_pulsePeriod ticks until m_duration expires, building the cone
+// edge-point list in Fire from the caster position.
+//
+// The binary constructs the base subobject through a cone-specific, cell-less
+// emission of the IcewindCProjectileTravellingVFX ctor (0x577E40); per the
+// family modelling licence that is represented here as the ordinary base ctor
+// plus the carrier-cell swap in the body (the throwaway base cell the binary
+// elides).
+class CProjectileCone : public IcewindCProjectileTravellingVFX {
+public:
+    CProjectileCone(const CResRef& cellBam, const CResRef& coneBam);   // 0x579B40
+    ~CProjectileCone() override;              // 0x579DE0 (slot 0; deleting thunk 0x579DC0)
+
+    void AIUpdate() override;                 // 0x579E50 (slot 3)
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x579EF0 (slot 27)
+    void OnArrival() override;                // 0x57A530 (slot 28)
+    void DeliverEffects() override;           // 0x57A670 (slot 30)
+
+    // New virtual (vtable slot 34, the BG2 CProjectileConeOfCold::DoLayers):
+    // emits one cone layer/pulse. AIUpdate calls it every m_pulsePeriod ticks.
+    virtual void Pulse();                     // 0x57A970
+
+    // -- cone geometry, built in Fire from the caster position --
+    /* 02AE */ CPoint m_edge0;                // four cone corner points (Fire trig)
+    /* 02B6 */ CPoint m_edge1;
+    /* 02BE */ CPoint m_edge2;
+    /* 02C6 */ CPoint m_edge3;
+    /* 02CE */ LONG m_coneLength;             // ctor 200
+    /* 02D2 */ LONG m_outerRadius/*#guess*/;  // ctor 0x15E (350); Fire trig radius
+    /* 02D6 */ LONG m_segCount;               // Fire: edge segment count
+    /* 02DA */ LONG m_coneRadius/*#guess*/;   // ctor 0x19 (25)
+    /* 02DE */ BYTE field_2DE;                // ctor = coneBam[0]
+    /* 02DF */ BYTE _pad2DF[3];
+    /* 02E2 */ char* m_pName;                 // refcounted cone-BAM name buffer
+    /* 02E6 */ LONG m_nameLen;
+    /* 02EA */ LONG m_nameCap;
+    /* 02EE */ LONG field_2EE;                // ctor 1
+    /* 02F2 */ BYTE field_2F2;                // ctor = coneBam[0]
+    /* 02F3 */ BYTE _pad2F3[3];
+    /* 02F6 */ CPoint* m_edgePoints;          // cone edge-point list (Fire builds, dtor frees)
+    /* 02FA */ CPoint* m_edgeEnd;
+    /* 02FE */ CPoint* m_edgeCap;
+    /* 0302 */ LONG m_segmentStep/*#guess*/;  // ctor 0x14 (20); Fire divides m_outerRadius by it
+    /* 0306 */ LONG field_306;                // ctor 0x23 (35)
+    /* 030A */ LONG field_30A;                // ctor 0x2D (45)
+    /* 030E */ LONG m_duration;               // ctor 0xF (15); AIUpdate finish threshold
+    /* 0312 */ LONG m_pulsePeriod;            // ctor 5; AIUpdate pulse interval
+    /* 0316 */ BYTE field_316;                // ctor 0
+    /* 0317 */ BYTE field_317;                // ctor 1
+    /* 0318 */ CPoint m_casterPos;            // Fire
+    /* 0320 */ CPoint m_center;               // Fire
+    /* 0328 */ LONG m_nHeight;                // Fire
+    /* 032C */ SHORT m_nType;                 // Fire
+    /* 032E */ LONG m_tickCount;              // ctor 0; AIUpdate counter
+    /* 0332 */ BYTE m_bFinishing;             // ctor 0
+};
+
 #endif /* CPROJECTILE_H_ */
