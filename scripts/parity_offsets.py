@@ -18,10 +18,18 @@ diffs against the members the C++ source actually references. A member the
 BINARY touches but the SOURCE never names = a wrong/missing member.
 
     .venv-reagent/bin/python scripts/parity_offsets.py 0x6E6490
-    .venv-reagent/bin/python scripts/parity_offsets.py 0x6E6490 --count 700
-    .venv-reagent/bin/python scripts/parity_offsets.py 0x6E6490 --src src/Foo.cpp:1802-1909 --class CGameAnimationTypeMonsterIcewind
+    .venv-reagent/bin/python scripts/parity_offsets.py 0x6E6490 --src src/Foo.cpp:1802-1909 --class CClass
+    .venv-reagent/bin/python scripts/parity_offsets.py --sweep "CGameAnimationType*.cpp"   # scan a glob
 
-Needs capstone (in .venv-reagent). Run from repo root.
+Function bounds come from the Ghidra export set (.ghidra-exports/, every fn). A
+(member,method) is only flagged when the source already calls that method on some
+OTHER member -- the copy-paste / incomplete-member-set signature -- so whole-method
+gaps (stub/incomplete recoveries like ProcessEffectList) are not mistaken for it.
+
+SWEET SPOT: straight-line member-heavy fns that call methods on direct member
+OBJECTS (the anim cell/colour methods). Pointer-heavy render fns (Blt*, Render3d)
+mis-attribute the `this` (an &member ARG looks like a receiver) -> verify those by
+hand. Needs capstone (.venv-reagent). Run from repo root.
 """
 from __future__ import annotations
 
@@ -89,11 +97,24 @@ def binary_call_pairs(addr: int, count: int, end_addr: int | None) -> tuple[Coun
             continue
         c = CALL_RE.search(ln)
         if c:
-            if pending is not None:
-                method = c.group(1).split("::")[-1].split("__")[-1]
+            if pending is not None and not _is_noise_callee(c.group(1)):
+                method = c.group(1).replace("__", "::").split("::")[-1]
                 pairs[(pending, method)] += 1
             pending = None
     return pairs, this_reg
+
+
+def _is_noise_callee(callee: str) -> bool:
+    """Skip implicit ctor/dtor and free asserts -- never written in the source body, so
+    they always look 'missing' and drown the real wrong-member signal."""
+    parts = callee.replace("__", "::").split("::")
+    method = parts[-1]
+    cls = parts[-2] if len(parts) > 1 else ""
+    if method.startswith("~") or method == cls:          # dtor / ctor
+        return True
+    if "Assert" in method or "operator" in method:       # UTIL_ASSERT, operator=, etc.
+        return True
+    return False
 
 
 def header_offset_map(class_name: str) -> dict[str, int]:
@@ -136,8 +157,36 @@ def resolve_source(addr: int):
     return REPO / m.group(1), int(m.group(3)), int(m.group(4)), cls
 
 
+GHIDRA_EXPORTS = REPO / ".ghidra-exports"
+_EXPORT_ADDRS: list[int] | None = None
+
+
+def _export_addrs() -> list[int]:
+    """Sorted start addresses of EVERY Ghidra function (recovered or not) -- the
+    authoritative function boundaries. Beats source `// 0xADDR` markers, which only
+    cover recovered fns (so they overshoot into an unrecovered following function)."""
+    global _EXPORT_ADDRS
+    if _EXPORT_ADDRS is None:
+        out = []
+        if GHIDRA_EXPORTS.is_dir():
+            for p in GHIDRA_EXPORTS.glob("*.json"):
+                try:
+                    out.append(int(p.stem, 16))
+                except ValueError:
+                    pass
+        _EXPORT_ADDRS = sorted(out)
+    return _EXPORT_ADDRS
+
+
 def function_end(path: Path, addr: int) -> int | None:
-    """Next-greater `// 0xADDR` recovery marker in the file = the next function start."""
+    """Next function start = the boundary. Prefer the Ghidra export set (all fns);
+    fall back to the file's `// 0xADDR` markers."""
+    import bisect
+
+    exps = _export_addrs()
+    i = bisect.bisect_right(exps, addr)
+    if i < len(exps):
+        return exps[i]
     addrs = sorted({int(m.group(1), 16) for m in ADDR_COMMENT_RE.finditer(path.read_text(errors="replace"))})
     nexts = [a for a in addrs if a > addr]
     return nexts[0] if nexts else None
@@ -159,16 +208,123 @@ def method_adj(offsets: list[int], hvals: set[int]) -> int:
     return deltas.most_common(1)[0][0] if deltas else 0
 
 
+_HDR_CACHE: dict[str, dict[str, int]] = {}
+
+
+def header_map_cached(cls: str) -> dict[str, int]:
+    if cls not in _HDR_CACHE:
+        _HDR_CACHE[cls] = header_offset_map(cls)
+    return _HDR_CACHE[cls]
+
+
+def analyze(addr: int, path: Path, start: int, end: int, cls: str, base_count: int):
+    """-> (missing, n_bin, n_src, this_reg, hdr, adj, bin_pairs) or None if not analysable."""
+    hdr = header_map_cached(cls)
+    if not hdr:
+        return None
+    end_addr = function_end(path, addr)
+    count = base_count
+    if end_addr is not None:
+        count = max(count, (end_addr - addr) // 2 + 32)
+    pairs, this_reg = binary_call_pairs(addr, count, end_addr)
+    if not pairs:
+        return None
+    off2name = {off: name for name, off in hdr.items()}
+    hvals = set(hdr.values())
+    by_method: dict[str, list[int]] = {}
+    for (off, meth), n in pairs.items():
+        by_method.setdefault(meth, []).extend([off] * n)
+    adj = {meth: method_adj(offs, hvals) for meth, offs in by_method.items()}
+    bin_pairs: Counter = Counter()
+    for (off, meth), n in pairs.items():
+        name = off2name.get(off - adj[meth])
+        if name:
+            bin_pairs[(name, meth)] += n
+    src = source_pairs(path, start, end)
+    src_methods = {meth for _, meth in src}
+    # Only flag (member, method) the binary calls but the source doesn't, WHERE the
+    # source already calls that method on some OTHER member. That's the copy-paste /
+    # incomplete-member-set signature (corpse-tint, the LayeredSpell weapon cells).
+    # If the method is absent from the source entirely, it's an incomplete/stub
+    # recovery (e.g. ProcessEffectList) -- a different problem, not "wrong member".
+    missing = sorted(p for p in (set(bin_pairs) - set(src)) if p[1] in src_methods)
+    return missing, len(bin_pairs), len(set(src)), this_reg, hdr, adj, bin_pairs
+
+
+FUNC_SIG_RE = re.compile(r"^[A-Za-z][\w:<>,\*&\s]*?\b(\w+)::~?(\w+)\s*\(")
+
+
+def enumerate_functions(path: Path):
+    """(addr, class, method, start_line, end_line) for each top-level recovered fn in the file."""
+    lines = path.read_text(errors="replace").splitlines()
+    raw = []  # (addr, cls, method, defline_idx)
+    pending = None
+    for i, ln in enumerate(lines):
+        if ln.startswith("// 0x"):                       # top-level address marker only
+            m = ADDR_COMMENT_RE.search(ln)
+            if m:
+                pending = int(m.group(1), 16)
+            continue
+        if pending is not None and not ln.startswith(("//", " ", "\t", "/*", "*")):
+            sm = FUNC_SIG_RE.match(ln)
+            if sm and not ln.rstrip().endswith(";"):
+                raw.append((pending, sm.group(1), sm.group(2), i))
+                pending = None
+    out = []
+    for j, (addr, cls, meth, di) in enumerate(raw):
+        end_line = raw[j + 1][3] - 1 if j + 1 < len(raw) else len(lines)
+        out.append((addr, cls, meth, di + 1, end_line))
+    return out
+
+
+def report_one(addr: int, cls: str, path: Path, start: int, end: int, res) -> None:
+    missing, n_bin, n_src, this_reg, hdr, adj, bin_pairs = res
+    print(f"== {cls}::?  0x{addr:X}  ({path.name}:{start}-{end})  this={this_reg}  bin={n_bin} src={n_src}")
+    if missing:
+        print("  !! WRONG/MISSING MEMBER -- binary calls these, source never does:")
+        for name, meth in missing:
+            off = hdr[name]
+            print(f"     {name}.{meth}()  (member 0x{off:X}, this 0x{off + adj[meth]:X}, {bin_pairs[(name, meth)]}x)")
+    else:
+        print("  OK")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("addr", help="binary function address, e.g. 0x6E6490")
+    ap.add_argument("addr", nargs="?", help="binary function address, e.g. 0x6E6490")
     ap.add_argument("--count", type=int, default=600, help="instructions to disasm")
     ap.add_argument("--src", help="file.cpp:start-end (override src_find)")
     ap.add_argument("--class", dest="cls", help="class name (override)")
+    ap.add_argument("--sweep", nargs="+", metavar="FILE", help="scan every recovered fn in these .cpp files")
     args = ap.parse_args()
 
-    addr = int(args.addr, 16)
+    if args.sweep:
+        files = []
+        for pat in args.sweep:
+            p = Path(pat)
+            files.extend(sorted(SRC.glob(pat)) if not p.exists() else [p])
+        hits = 0
+        checked = 0
+        for f in files:
+            for addr, cls, meth, start, end in enumerate_functions(f):
+                res = analyze(addr, f, start, end, cls, args.count)
+                if res is None:
+                    continue
+                checked += 1
+                missing = res[0]
+                if missing:
+                    hits += len(missing)
+                    print(f"\n!! {cls}::{meth}  0x{addr:X}  ({f.name}:{start}-{end})")
+                    _, _, _, _, hdr, adj, bin_pairs = res
+                    for name, mm in missing:
+                        off = hdr[name]
+                        print(f"     {name}.{mm}()  (member 0x{off:X}, this 0x{off + adj[mm]:X}, {bin_pairs[(name, mm)]}x)")
+        print(f"\n== sweep done: {checked} member-heavy fn(s) checked, {hits} suspect (member,method) pair(s).")
+        return 1 if hits else 0
 
+    if not args.addr:
+        ap.error("give an addr or --sweep FILES")
+    addr = int(args.addr, 16)
     if args.src:
         f, rng = args.src.split(":")
         s, e = rng.split("-")
@@ -181,52 +337,16 @@ def main() -> int:
         path, start, end, cls = r
         if args.cls:
             cls = args.cls
-
     if not cls:
         print("could not determine class; pass --class", file=sys.stderr)
         return 2
 
-    end_addr = function_end(path, addr)
-    count = args.count
-    if end_addr is not None:
-        count = max(count, (end_addr - addr) // 2 + 32)  # ensure the disasm reaches end_addr
-    pairs, this_reg = binary_call_pairs(addr, count, end_addr)
-    hdr = header_offset_map(cls)
-    if not hdr:
-        print(f"no `/* 0xNNN */ m_*` offset comments found for {cls}", file=sys.stderr)
+    res = analyze(addr, path, start, end, cls, args.count)
+    if res is None:
+        print(f"not analysable (no header offsets or no thiscalls) for {cls}", file=sys.stderr)
         return 2
-    off2name = {off: name for name, off in hdr.items()}
-    hvals = set(hdr.values())
-
-    # per-method base-subobject shift, then map each binary (offset, method) -> (member, method)
-    by_method: dict[str, list[int]] = {}
-    for (off, meth), n in pairs.items():
-        by_method.setdefault(meth, []).extend([off] * n)
-    adj = {meth: method_adj(offs, hvals) for meth, offs in by_method.items()}
-
-    bin_pairs: Counter = Counter()       # (member, method) the binary calls
-    unmapped: Counter = Counter()
-    for (off, meth), n in pairs.items():
-        name = off2name.get(off - adj[meth])
-        if name:
-            bin_pairs[(name, meth)] += n
-        else:
-            unmapped[(off, meth)] += n
-
-    src = source_pairs(path, start, end)
-    missing = sorted(set(bin_pairs) - set(src))
-
-    print(f"== offset parity {args.addr}  {cls}  ({path.name}:{start}-{end})")
-    print(f"   this-reg={this_reg}  binary thiscalls mapped to {len(bin_pairs)} (member,method) pair(s), "
-          f"source has {len(set(src))}")
-    if missing:
-        print("\n  !! WRONG/MISSING MEMBER -- binary calls these, source never does:")
-        for name, meth in missing:
-            off = hdr[name]
-            print(f"     {name}.{meth}()  (member 0x{off:X}, this 0x{off + adj[meth]:X}, {bin_pairs[(name, meth)]}x in binary)")
-        print("\n  Likely a copy-paste calling the method on a sibling member. Verify vs Ghidra and fix.")
-    else:
-        print("  OK: every (member,method) thiscall in the binary is present in the source.")
+    missing = res[0]
+    report_one(addr, cls, path, start, end, res)
     return 1 if missing else 0
 
 
