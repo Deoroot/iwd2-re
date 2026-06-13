@@ -1874,36 +1874,36 @@ void CGameAnimationTypeMonsterIcewind::ClearColorEffectsAll()
         m_wkVidCellBase.UnsuppressTintAllRanges();
 
         if (m_bExtendDir && !MIRROR_BAM) {
-            m_a1VidCellBase.DeleteResPaletteAffect();
-            m_a2VidCellBase.DeleteResPaletteAffect();
-            m_a3VidCellBase.DeleteResPaletteAffect();
-            m_a4VidCellBase.DeleteResPaletteAffect();
-            m_deVidCellBase.DeleteResPaletteAffect();
-            m_ghVidCellBase.DeleteResPaletteAffect();
-            m_slVidCellBase.DeleteResPaletteAffect();
-            m_guVidCellBase.DeleteResPaletteAffect();
-            m_spVidCellBase.DeleteResPaletteAffect();
-            m_caVidCellBase.DeleteResPaletteAffect();
-            m_scVidCellBase.DeleteResPaletteAffect();
-            m_sdVidCellBase.DeleteResPaletteAffect();
-            m_twVidCellBase.DeleteResPaletteAffect();
-            m_wkVidCellBase.DeleteResPaletteAffect();
+            m_a1VidCellExtend.DeleteResPaletteAffect();
+            m_a2VidCellExtend.DeleteResPaletteAffect();
+            m_a3VidCellExtend.DeleteResPaletteAffect();
+            m_a4VidCellExtend.DeleteResPaletteAffect();
+            m_deVidCellExtend.DeleteResPaletteAffect();
+            m_ghVidCellExtend.DeleteResPaletteAffect();
+            m_slVidCellExtend.DeleteResPaletteAffect();
+            m_guVidCellExtend.DeleteResPaletteAffect();
+            m_spVidCellExtend.DeleteResPaletteAffect();
+            m_caVidCellExtend.DeleteResPaletteAffect();
+            m_scVidCellExtend.DeleteResPaletteAffect();
+            m_sdVidCellExtend.DeleteResPaletteAffect();
+            m_twVidCellExtend.DeleteResPaletteAffect();
+            m_wkVidCellExtend.DeleteResPaletteAffect();
 
             // NOTE: Uninline.
-            m_a1VidCellBase.UnsuppressTintAllRanges();
-            m_a2VidCellBase.UnsuppressTintAllRanges();
-            m_a3VidCellBase.UnsuppressTintAllRanges();
-            m_a4VidCellBase.UnsuppressTintAllRanges();
-            m_deVidCellBase.UnsuppressTintAllRanges();
-            m_ghVidCellBase.UnsuppressTintAllRanges();
-            m_slVidCellBase.UnsuppressTintAllRanges();
-            m_guVidCellBase.UnsuppressTintAllRanges();
-            m_spVidCellBase.UnsuppressTintAllRanges();
-            m_caVidCellBase.UnsuppressTintAllRanges();
-            m_scVidCellBase.UnsuppressTintAllRanges();
-            m_sdVidCellBase.UnsuppressTintAllRanges();
-            m_twVidCellBase.UnsuppressTintAllRanges();
-            m_wkVidCellBase.UnsuppressTintAllRanges();
+            m_a1VidCellExtend.UnsuppressTintAllRanges();
+            m_a2VidCellExtend.UnsuppressTintAllRanges();
+            m_a3VidCellExtend.UnsuppressTintAllRanges();
+            m_a4VidCellExtend.UnsuppressTintAllRanges();
+            m_deVidCellExtend.UnsuppressTintAllRanges();
+            m_ghVidCellExtend.UnsuppressTintAllRanges();
+            m_slVidCellExtend.UnsuppressTintAllRanges();
+            m_guVidCellExtend.UnsuppressTintAllRanges();
+            m_spVidCellExtend.UnsuppressTintAllRanges();
+            m_caVidCellExtend.UnsuppressTintAllRanges();
+            m_scVidCellExtend.UnsuppressTintAllRanges();
+            m_sdVidCellExtend.UnsuppressTintAllRanges();
+            m_twVidCellExtend.UnsuppressTintAllRanges();
+            m_wkVidCellExtend.UnsuppressTintAllRanges();
         }
     }
 }
