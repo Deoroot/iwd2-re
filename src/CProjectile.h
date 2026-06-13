@@ -500,6 +500,12 @@ protected:
     // recurs six times, each preceded by a flag byte the ctor stamps with the
     // projectile type. Cleared to empty (NULL pointer) by the ctor.
     struct ResName /*#guess*/ {
+        // Copy `name` into the reference-counted buffer (releasing any current
+        // block first), the way CProjectileCone inlines its cone-name copy. The
+        // derived ctors reach this through the shared IE-string assign 0x537220
+        // (the compiler inlines some of the calls).
+        void Set(const char* name);
+
         /* 00 */ BYTE  m_flags;     // ctor: = (BYTE)nType
         /* 01 */ BYTE  _pad[3];
         /* 04 */ char* m_pName;     // refcounted block + 1 (NULL when empty)
@@ -702,6 +708,17 @@ class CProjectileConePulseVisual : public IcewindCProjectileTravellingVFX {
 public:
     CProjectileConePulseVisual(const CResRef& resRef);   // inlined into CProjectileCone::Pulse
     ~CProjectileConePulseVisual() override;              // 0x579B10 (vtable slot 0)
+};
+
+// Leaf 0x571E80 -- Fireball (SPWI304). The first of the IcewindCProjectileSpellHit
+// derived AOE leaves (own vtable 0x84F580). Adds no data of its own: the ctor
+// just re-points the vtable and configures the inherited spell-hit state -- flies
+// the "FirebaT" travel cell, plays "TRA_06", loads the explosion/range visuals
+// ("FirebaX"/"RNG_M03"/"FirebaR"/"FirebaA") into the three emission slots with
+// copy-from-back enabled, doubles the launch velocity and sets m_type 200.
+class CProjectileFireball /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileFireball();   // 0x571E80
 };
 
 #endif /* CPROJECTILE_H_ */

@@ -4439,6 +4439,94 @@ IcewindCProjectileSpellHit::IcewindCProjectileSpellHit(SHORT nType)
 
 // -----------------------------------------------------------------------------
 
+// 0x537220 (shared IE-string assign; the derived spell-hit ctors reach the
+// reference-counted name slots through it, the compiler inlining some calls).
+// Release any block this slot still holds -- a share count of 0 (sole owner) or
+// the 0xFF sentinel frees it, otherwise the count is dropped -- then copy `name`
+// into a freshly owned block. Same buffer model as CProjectileCone: one heap
+// allocation whose first byte is the share count and whose character data starts
+// one byte in. An empty name allocates nothing.
+void IcewindCProjectileSpellHit::ResName::Set(const char* name)
+{
+    if (m_pName != NULL) {
+        char* block = m_pName - 1;
+        char count = block[0];
+        if (count == 0 || count == (char)0xFF) {
+            delete[] block;
+        } else {
+            block[0] = count - 1;
+        }
+        m_pName = NULL;
+        m_nameLen = 0;
+        m_nameCap = 0;
+    }
+
+    LONG nameLen = (LONG)strlen(name);
+    if (nameLen != 0) {
+        LONG nameCap = nameLen | 0x1F;          // capacity rounded up (0x44BE10)
+        char* block = new char[nameCap + 2];    // share byte + data + terminator
+        block[0] = 0;                           // sole owner
+        m_pName = block + 1;
+        memcpy(m_pName, name, nameLen);
+        m_pName[nameLen] = '\0';
+        m_nameLen = nameLen;
+        m_nameCap = nameCap;
+    }
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x571E80
+// Fireball (SPWI304): builds through the spell-hit base (type word 0x100, whose
+// zero low byte clears the broadcast flag fields), re-points the vtable to the
+// leaf's own, then configures the projectile -- carrier cell "FirebaT", fire
+// sound "TRA_06", the three visual slots loaded with the explosion/range BAMs
+// (copy-from-back enabled), doubled launch velocity, 16 facings and m_type 200.
+// The carrier-name emptiness test mirrors the base ctor's branch (an empty name
+// would hide the projectile and skip the cell swap).
+CProjectileFireball::CProjectileFireball()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    const char* cellName = "FirebaT";
+    if (cellName[0] != '\0') {
+        m_visible = 1;
+        delete m_pVidCell;
+        m_pVidCell = new CVidCell(CResRef(cellName), FALSE);
+        field_4E0 = 1;
+    } else {
+        m_visible = 0;
+        field_4E0 = 0;
+    }
+
+    m_fireSoundRef = CResRef("TRA_06");
+    m_visualEffect.SetCopyFromBack(1);
+
+    m_visual1.m_resA.Set("FirebaX");
+    m_visual1.m_resB.Set("RNG_M03");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_resA.Set("FirebaR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+    field_53A = 1;
+    field_53C = 0x14;
+
+    m_visual3.m_resA.Set("FirebaA");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_velocity = static_cast<SHORT>(m_velocity << 1);
+    field_4D8 = 0;
+    field_574 = 1;
+    field_575 = 1;
+    field_576 = 1;
+    field_4D4 = 10000;
+    field_4DC = 10;
+    field_4C0 = 0x2D;
+    m_dirCount = 0x10;
+    m_type = 200;
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x57F640
 // The base ctor runs with "WhirlwX" and the strike tracker / leaf sound
 // members construct implicitly; this body sets the leaf state, points the
