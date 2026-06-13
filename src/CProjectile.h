@@ -469,4 +469,31 @@ public:
     /* 0356 */ LONG m_wanderSeed;
 };
 
+// Leaf 0x5806C0 -- the straight-line beam that strikes everything along its
+// path (vtable 0x8513BC; ctor takes the travelling BAM). DecodeProjectile
+// builds it for Lightning Bolt (type 0x28, "LightnT"; SPWI002/308/997 + Eye of
+// the Mage), Smashing Wave (0x12E, "SWaveX"; SPPR522), Lance of Disruption
+// (0x139, "LoDisrT"; SPWI319) and the acid breath weapon (0x17A, "HDABreT";
+// SPIN222) -- the per-case fields differ but the class is one.
+//
+// BG2's CProjectileLightningBolt is a CProjectileBAM with a DeliverEffects
+// override; IWD2 reworked it into this Icewind travelling-VFX leaf that drives
+// an embedded IcewindCProjectileTargetMap (service period 2, re-strike interval
+// 33, gather range set per case) the same way CProjectileWhirlwind does. Fire
+// re-aims the shot to m_beamRange past the picked target along the caster->
+// target line, so the bolt overshoots and rakes the whole line.
+class CProjectileLightningBolt : public IcewindCProjectileTravellingVFX {
+public:
+    CProjectileLightningBolt(const CResRef& resRef);   // 0x5806C0
+    ~CProjectileLightningBolt() override;              // 0x580770 (vtable slot 0)
+
+    void AIUpdate() override;      // 0x5808A0 (slot 3)
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x580B30 (slot 27)
+
+    // Distance the shot is pushed past the picked target (ScaleToCircle radius
+    // in Fire); the rake length, not a lifetime. 400 or 600 per spell.
+    /* 02AE */ LONG m_beamRange;
+    /* 02B2 */ IcewindCProjectileTargetMap m_targetMap;
+};
+
 #endif /* CPROJECTILE_H_ */

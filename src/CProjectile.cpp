@@ -653,6 +653,70 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    case 0x28: {
+        // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
+        // The line beam that rakes everything it crosses; height on, range 400.
+        CProjectileLightningBolt* pBolt = new CProjectileLightningBolt(CResRef("LightnT"));
+        pBolt->m_beamRange = 400;
+        pBolt->m_targetMap.m_nRange = 50;
+        pBolt->m_velocity = 20;
+        pBolt->m_visualEffect.SetCopyFromBack(TRUE);
+        pBolt->m_dirCount = 16;
+        pBolt->m_bHasHeight = TRUE;
+        pBolt->m_useHeightOffset = 1;
+        pBolt->m_fireSoundRef = CResRef("TRA_09");
+        pProjectile = pBolt;
+        break;
+    }
+
+    case 0x12E: {
+        // Smashing Wave ("SWaveX" BAM): SPPR522. Slower (10), ground-hugging
+        // (no height) and its north-half facings are not folded.
+        CProjectileLightningBolt* pBolt = new CProjectileLightningBolt(CResRef("SWaveX"));
+        pBolt->m_velocity = 10;
+        pBolt->m_dirCount = 16;
+        pBolt->m_bMirrorNorth = 0;
+        pBolt->m_visualEffect.SetCopyFromBack(TRUE);
+        pBolt->m_bHasHeight = FALSE;
+        pBolt->m_useHeightOffset = 0;
+        pBolt->m_targetMap.m_nRange = 50;
+        pBolt->m_beamRange = 400;
+        pBolt->m_fireSoundRef = CResRef("TRA_56");
+        pProjectile = pBolt;
+        break;
+    }
+
+    case 0x139: {
+        // Lance of Disruption ("LoDisrT" BAM): SPWI319. Longer rake (600).
+        CProjectileLightningBolt* pBolt = new CProjectileLightningBolt(CResRef("LoDisrT"));
+        pBolt->m_velocity = 20;
+        pBolt->m_dirCount = 16;
+        pBolt->m_visualEffect.SetCopyFromBack(TRUE);
+        pBolt->m_bHasHeight = TRUE;
+        pBolt->m_useHeightOffset = 1;
+        pBolt->m_targetMap.m_nRange = 50;
+        pBolt->m_beamRange = 600;
+        pBolt->m_fireSoundRef = CResRef("TRA_59");
+        pProjectile = pBolt;
+        break;
+    }
+
+    case 0x17A: {
+        // The acid-breath weapon ("HDABreT" BAM): SPIN222 ("Breathes Acid").
+        // Same shape as the lance, range 600.
+        CProjectileLightningBolt* pBolt = new CProjectileLightningBolt(CResRef("HDABreT"));
+        pBolt->m_velocity = 20;
+        pBolt->m_dirCount = 16;
+        pBolt->m_visualEffect.SetCopyFromBack(TRUE);
+        pBolt->m_bHasHeight = TRUE;
+        pBolt->m_useHeightOffset = 1;
+        pBolt->m_targetMap.m_nRange = 50;
+        pBolt->m_beamRange = 600;
+        pBolt->m_fireSoundRef = CResRef("TRA_59");
+        pProjectile = pBolt;
+        break;
+    }
+
     case 0x131:
         // The wandering tornado (Whirlwind / Wing Buffet).
         pProjectile = new CProjectileWhirlwind();
@@ -4258,4 +4322,118 @@ void CProjectileWhirlwind::OnArrival()
     m_targetX = nextPoint.x;
     m_targetY = nextPoint.y;
     m_nLegBudget = rand() % 50 + 50;
+}
+
+// 0x5806C0
+// Build the line-beam over the family travelling-VFX base, then arm the strike
+// tracker: it owns this projectile, services every 2 ticks and re-strikes each
+// victim every 33 in-range passes (gather range and beam length are stamped per
+// spell by DecodeProjectile).
+CProjectileLightningBolt::CProjectileLightningBolt(const CResRef& resRef)
+    : IcewindCProjectileTravellingVFX(resRef)
+{
+    m_beamRange = 400;
+    m_targetMap.m_pOwner = this;
+    m_targetMap.m_servicePeriod = 2;
+    m_targetMap.m_strikeInterval = 33;
+}
+
+// 0x580770 (vtable slot 0)
+CProjectileLightningBolt::~CProjectileLightningBolt()
+{
+}
+
+// 0x5808A0 (vtable slot 3)
+// Per-tick flight for the line beam: advance the subpixel integrator straight
+// toward the (overshot) target, removing on a wall, the area edge or once the
+// strike tracker has spent its cap, servicing the tracker each tick so it rakes
+// everything it passes, and arriving when it reaches the end of the line.
+void CProjectileLightningBolt::AIUpdate()
+{
+    // Frozen by Time Stop unless this is the freezing caster's own shot.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    // Strike tracker reached its total cap: remove and free.
+    if (m_targetMap.m_bDone == 1) {
+        RemoveFromArea();
+        if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(
+                m_id, CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+            == CGameObjectArray::SUCCESS) {
+            delete this;
+        }
+        return;
+    }
+
+    // Grid square before advancing (a wall check only fires on a crossing).
+    CPoint oldGrid(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX, m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+    // Advance the subpixel integrator (y carries the 3/4 isometric scale).
+    m_posAccumX += m_stepX;
+    m_posAccumY += m_stepY;
+    m_pos.x = m_posAccumX >> CGameSprite::EXACT_SCALE;
+    m_pos.y = ((m_posAccumY * 3) / 4) >> CGameSprite::EXACT_SCALE;
+
+    // Off the area: remove and free.
+    if (m_pos.x < 0 || m_pos.y < 0
+        || m_pArea->GetInfinity()->nAreaX <= m_pos.x
+        || m_pArea->GetInfinity()->nAreaY <= m_pos.y) {
+        RemoveFromArea();
+        if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(
+                m_id, CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+            == CGameObjectArray::SUCCESS) {
+            delete this;
+        }
+        return;
+    }
+
+    // Into a fresh impassable square: the beam stops dead (no bounce). Remove.
+    CPoint newGrid(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX, m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    if (oldGrid.x != newGrid.x || oldGrid.y != newGrid.y) {
+        SHORT nTableIndex;
+        if (m_pArea->m_search.GetLOSCost(newGrid, m_terrainTable, nTableIndex, FALSE)
+            == CPathSearch::COST_IMPASSABLE) {
+            RemoveFromArea();
+            if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(
+                    m_id, CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+                == CGameObjectArray::SUCCESS) {
+                delete this;
+            }
+            return;
+        }
+    }
+
+    // Service the strike tracker and keep the loop sound on the beam head.
+    m_targetMap.Service();
+    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+
+    // Reached the line's end (+/-32 x, +/-24 y): deliver; else keep flying.
+    if (m_targetX < m_pos.x + 0x20 && m_pos.x - 0x20 < m_targetX
+        && m_targetY < m_pos.y + 0x18 && m_pos.y - 0x18 < m_targetY) {
+        OnArrival();
+    } else {
+        IcewindCProjectileTravellingVFX::AIUpdate();
+    }
+}
+
+// 0x580B30 (vtable slot 27)
+// Push the picked target point out to m_beamRange past it along the caster->
+// target heading, so the bolt overshoots its mark and rakes the full line, then
+// launch through the base.
+void CProjectileLightningBolt::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    CGameObject* pSource;
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+            source, CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSource), INFINITE)
+        == CGameObjectArray::SUCCESS) {
+        CPoint& casterPos = pSource->GetPos();
+        CPoint endPoint = IcewindMisc::ScaleToCircle(targetPos,
+            targetPos.x - casterPos.x, targetPos.y - casterPos.y, m_beamRange);
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            source, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        IcewindCProjectileTravellingVFX::Fire(pArea, source, target, endPoint, nHeight, nType);
+    }
 }
