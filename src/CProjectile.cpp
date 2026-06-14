@@ -4513,6 +4513,90 @@ void IcewindCProjectileSpellHit::Render(CGameArea* pArea, CVidMode* pVidMode, in
 
 // -----------------------------------------------------------------------------
 
+// 0x56F820 (vtable slot 27). The launch. Records the source/target/area, shares
+// the caster to read the launch origin (GetProjectileSourcePosition) and the
+// drop height (DetermineHeight), and pulls the lifetime (field_4C0) from the
+// trailing effect on m_effectList through DetermineLifetime. A homing shot starts
+// at that origin; a non-homing one (field_4E0 == 0) starts on the target so it
+// arrives on the first tick. After registering in the object array (assigns m_id)
+// and the area, it plays the fire sound and seeds the subpixel flight: position
+// accumulators at the origin (1/1024 fixed point, y squashed 4/3), a velocity-
+// scaled step toward the target, and the initial facing. A zero flight distance
+// arrives immediately.
+void IcewindCProjectileSpellHit::Fire(CGameArea* pArea, LONG source, LONG target,
+                                      CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)nHeight;
+    (void)nType;
+
+    if (pArea == NULL) {
+        return;
+    }
+
+    m_sourceId = source;
+    m_targetId = target;
+    m_pArea = pArea;
+
+    CGameObject* pSource;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
+            CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    if (!m_effectList.IsEmpty()) {
+        CGameEffect* pLast = m_effectList.GetTail();
+        if (pLast != NULL) {
+            field_4C0 = DetermineLifetime(static_cast<BYTE>(pLast->m_firstCall));
+        }
+    }
+
+    CPoint ptLaunch;
+    GetProjectileSourcePosition(m_sourceId, ptLaunch);
+    if (field_4E0 == 0) {
+        ptLaunch = targetPos;
+    }
+
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        LONG savedSource = m_sourceId;
+        delete this;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(savedSource,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return;
+    }
+
+    LONG height = DetermineHeight(static_cast<CGameSprite*>(pSource));
+    AddToArea(pArea, ptLaunch, height, CGameObject::LIST_FRONT);
+    PlaySound(m_fireSoundRef, m_loopFireSound, FALSE);
+
+    m_targetX = targetPos.x;
+    m_pos.x = ptLaunch.x;
+    m_posAccumX = ptLaunch.x << 10;
+    m_posAccumY = (ptLaunch.y << 12) / 3;
+    m_targetY = targetPos.y;
+    m_pos.y = ptLaunch.y;
+
+    int dy = (m_targetY << 2) / 3 - (m_pos.y << 2) / 3;
+    int dx = m_targetX - m_pos.x;
+    int dist = static_cast<int>(sqrt(static_cast<double>(dx * dx + dy * dy)));
+    if (dist == 0) {
+        OnArrival();
+    } else {
+        m_stepX = ((dx << 10) * m_velocity) / dist;
+        m_stepY = ((dy << 10) * m_velocity) / dist;
+        m_facing = GetDirection(CPoint(m_targetX, m_targetY));
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceId,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x56FAF0 (vtable slot 3). The spell-hit family's per-tick update. Frozen by
 // Time Stop unless this projectile belongs to the time-stop caster. While
 // travelling (field_2B6 == 0) it flies toward the target point: snapping there
@@ -4617,6 +4701,17 @@ void IcewindCProjectileSpellHit::OnArrival()
     field_2B6 = 1;
     m_visible = 0;
     PlaySound(m_arrivalSoundRef, m_loopArrivalSound, TRUE);
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x5703E0 (vtable slot 35). Base lifetime getter: echo the field_4C0 default,
+// ignoring the trailing effect's first-call byte. Subclasses override it to derive
+// the projectile's lifetime from that effect.
+LONG IcewindCProjectileSpellHit::DetermineLifetime(BYTE bFirstCall)
+{
+    (void)bFirstCall;
+    return field_4C0;
 }
 
 // -----------------------------------------------------------------------------

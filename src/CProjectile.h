@@ -515,10 +515,20 @@ public:
     // the arrival sound. The detonation FX it then spawns are documented stubs.
     void OnArrival() override;                                                  // 0x56F410 (slot 28)
 
+    // Launch: record source/target/area, share the caster to read the launch
+    // origin and height, register in the object array and area, seed the subpixel
+    // flight toward the target, and pull the lifetime from the trailing effect.
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;  // 0x56F820 (slot 27)
+
     // Pure forwarder to the family Render (0x578480); the leaf still owns vtable
     // slot 19 so the slot pointer matches the binary (0x56F3F0, not the inherited
     // 0x578480). No added behaviour.
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x56F3F0 (slot 19)
+
+    // Lifetime for a freshly fired projectile, given the trailing effect's
+    // first-call byte. The base just echoes the field_4C0 default (0x5703E0 is a
+    // one-line getter); a subclass overrides it to derive a duration.
+    virtual LONG DetermineLifetime(BYTE bFirstCall) /*#guess*/;       // 0x5703E0 (vtable slot 35)
 
     // Gather every m_targetType object within range (front and back area lists)
     // and return the ids due a strike this pass: each victim is tracked in
