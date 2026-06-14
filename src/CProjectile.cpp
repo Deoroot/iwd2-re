@@ -761,6 +761,7 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pCone->m_duration = 8;
         pCone->m_pulsePeriod = 4;
         pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_08");
         pProjectile = pCone;
         break;
     }
@@ -830,6 +831,7 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pCone->m_duration = 8;
         pCone->m_pulsePeriod = 4;
         pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_08");
         pProjectile = pCone;
         break;
     }
@@ -851,7 +853,7 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     }
 
     case 0x13B: {
-        // Shout ("ShoutT"): a wide slow sonic cone (no copy-from-back tint).
+        // Shout ("ShoutT"): a wide slow sonic cone with a fast 2-tick pulse.
         CProjectileCone* pCone = new CProjectileCone(CResRef(""), CResRef("ShoutT"));
         pCone->m_coneLength = 100;
         pCone->m_outerRadius = 300;
@@ -861,6 +863,9 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pCone->field_306 = 75;
         pCone->field_30A = 0;
         pCone->m_duration = 12;
+        pCone->m_pulsePeriod = 2;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_08");
         pProjectile = pCone;
         break;
     }
@@ -876,6 +881,9 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pCone->field_306 = 75;
         pCone->field_30A = 0;
         pCone->m_duration = 12;
+        pCone->m_pulsePeriod = 2;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_08");
         pProjectile = pCone;
         break;
     }
@@ -918,6 +926,9 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pCone->field_306 = 75;
         pCone->field_30A = 0;
         pCone->m_duration = 12;
+        pCone->m_pulsePeriod = 2;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_08");
         pProjectile = pCone;
         break;
     }
@@ -949,6 +960,9 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pCone->field_306 = 75;
         pCone->field_30A = 0;
         pCone->m_duration = 12;
+        pCone->m_pulsePeriod = 2;
+        pCone->m_visualEffect.SetCopyFromBack(TRUE);
+        pCone->m_fireSoundRef = CResRef("TRA_08");
         pProjectile = pCone;
         break;
     }
