@@ -1,6 +1,6 @@
 # Icewind Dale 2 - Reverse Engineered
 
-> **Recover the lost source code.** An open-source recreation of the Icewind Dale II engine, built via community-driven reverse engineering.
+> **Recover the lost source code.** An open-source recreation of the Icewind Dale II engine, built via community-driven reverse engineering. Shout out to Alexander Batalov, the creator of the original project this fork is based on.
 
 ---
 
