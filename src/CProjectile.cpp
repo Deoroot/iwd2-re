@@ -654,6 +654,16 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    case 0x26:
+        // Fireball (SPWI304): the large area spell-hit projectile. The binary
+        // builds it bare (case 0x26 = `new CProjectileFireball()`); all
+        // configuration is in the leaf ctor (0x571E80). It travels and arrives
+        // through the inherited family virtuals, but the SpellHit AOE strike
+        // (vtable slots 36/37/38) and the OnArrival/Fire/AIUpdate overrides are
+        // not yet recovered, so no area damage fires yet.
+        pProjectile = new CProjectileFireball();
+        break;
+
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
         // The line beam that rakes everything it crosses; height on, range 400.
