@@ -4499,6 +4499,12 @@ IcewindCProjectileSpellHit::~IcewindCProjectileSpellHit()
     m_visual1.m_resA.Release();
 }
 
+// 0x56F3F0
+void IcewindCProjectileSpellHit::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    IcewindCProjectileTravellingVFX::Render(pArea, pVidMode, nSurface);
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x571E80

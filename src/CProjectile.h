@@ -495,6 +495,11 @@ public:
     IcewindCProjectileSpellHit(SHORT nType);   // 0x56EDD0
     ~IcewindCProjectileSpellHit() override;     // 0x56F1F0 (deleting thunk 0x56F070, vtable slot 0)
 
+    // Pure forwarder to the family Render (0x578480); the leaf still owns vtable
+    // slot 19 so the slot pointer matches the binary (0x56F3F0, not the inherited
+    // 0x578480). No added behaviour.
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x56F3F0 (slot 19)
+
 protected:
     // The IE reference-counted string CProjectileCone inlines for its cone-BAM
     // name (share-count byte at block[-1], character data at block + 1); here it
