@@ -4517,6 +4517,17 @@ void IcewindCProjectileSpellHit::Render(CGameArea* pArea, CVidMode* pVidMode, in
 
 // -----------------------------------------------------------------------------
 
+// 0x5701B0 (vtable slot 37). Strike every gathered victim: walk the target-id
+// list and deliver a strike to each. The spell-hit family's counterpart to
+// IcewindCProjectileTargetMap::Strike (which drives the wandering projectiles).
+void IcewindCProjectileSpellHit::Strike(std::list<LONG>& targets)
+{
+    for (std::list<LONG>::iterator it = targets.begin(); it != targets.end(); ++it)
+        StrikeTarget(*it);
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x5701E0 (vtable slot 38). Deliver one strike to a single gathered victim.
 // Resolves the victim by object id and strikes it at most once per pass: a victim
 // already in the m_miniB hit-tracker is skipped (the set stays empty for one-shot
