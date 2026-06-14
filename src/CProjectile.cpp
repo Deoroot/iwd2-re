@@ -6065,9 +6065,24 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     // omitted here (matches the IcewindCSpellHitVisual ctor).
 }
 
-// 0x56E260 (vtable slot 0). STUB pending recovery.
+// 0x56E260 (vtable slot 0 -- MSVC emits the scalar-deleting wrapper there; the
+// destructor body proper is 0x56E580). Releases the shared cell object the ctor
+// referenced (refcount at +0x10; when it reaches zero, free its buffer and the
+// object) and deletes the detonation animation. The CSound, the embedded
+// CGameAnimation and the CGameObject base destruct automatically.
 IcewindCSpellHitParticle::~IcewindCSpellHitParticle()
 {
+    if (field_104 != NULL) {
+        if (--*reinterpret_cast<LONG*>(static_cast<BYTE*>(field_104) + 0x10) == 0) {
+            free(*reinterpret_cast<void**>(static_cast<BYTE*>(field_104) + 4));
+            *reinterpret_cast<void**>(static_cast<BYTE*>(field_104) + 4) = NULL;
+            *reinterpret_cast<void**>(static_cast<BYTE*>(field_104) + 8) = NULL;
+            *reinterpret_cast<void**>(static_cast<BYTE*>(field_104) + 0xC) = NULL;
+            free(field_104);
+        }
+    }
+
+    delete m_animation.m_animation;
 }
 
 // 0x56E650 (vtable slot 3). Flies the particle's BAM cell along its velocity,
@@ -6076,9 +6091,22 @@ void IcewindCSpellHitParticle::AIUpdate()
 {
 }
 
-// 0x56ECF0 (vtable slot 18). STUB pending recovery.
+// 0x56ECF0 (vtable slot 18). Removes the particle from the area and the global
+// object array, then deletes itself. Mirrors CGameTemporal::RemoveFromArea with a
+// trailing self-delete.
 void IcewindCSpellHitParticle::RemoveFromArea()
 {
+    CGameObject::RemoveFromArea();
+
+    BYTE nResult = g_pBaldurChitin->GetObjectGame()->m_cObjectArray.Delete(m_id,
+        CGameObjectArray::THREAD_ASYNCH, NULL, -1);
+    if (nResult != CGameObjectArray::SUCCESS) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjAnimation.cpp __LINE__: 0x1B3
+        UTIL_ASSERT(FALSE);
+        return;
+    }
+
+    delete this;
 }
 
 // 0x56EA90 (vtable slot 19). Draws the particle's detonation animation through
