@@ -789,6 +789,30 @@ public:
     ~CProjectileFireball() override;   // 0x5768A0 (deleting thunk, slot 0; adds no data, chains to base)
 };
 
+// One cell of the detonation fan: a position (fixed point) and a flag the parent's
+// AIUpdate toggles as the cell is consumed. The parent records these into a shared
+// refcounted pool the IcewindCSpellHitParticle children reference. Names are
+// guesses; the 10-byte element matches the parent's /10 pool stride.
+#pragma pack(push, 2)
+struct IcewindCSpellHitCell /*#guess*/ {
+    /* 0x00 */ LONG  x;
+    /* 0x04 */ LONG  y;
+    /* 0x08 */ SHORT flag;
+};
+#pragma pack(pop)
+static_assert(sizeof(IcewindCSpellHitCell) == 0xA,
+    "IcewindCSpellHitCell must be the 10-byte element the fan pool stores");
+
+// Refcounted shared pool of fan cells (m_emission2.m_cellPool; children hold a
+// counted reference via m_cellPool/field_104). The cell vector lives at +0x04 and
+// the refcount at +0x10. Provisional layout -- the +0 field and the pool's
+// creation are recovered with OnArrival 0x56F410.
+struct IcewindCSpellHitCellPool /*#guess*/ {
+    /* 0x00 */ LONG field_0;
+    /* 0x04 */ std::vector<IcewindCSpellHitCell> m_cells;
+    /* 0x10 */ LONG m_refCount;
+};
+
 // Spell-hit emission-slot descriptor (ctor 0x56FDC0, sizeof 0x32). One visual
 // layer of the detonation: a resref name slot + cached length/handle, a second
 // name slot, the layer's IcewindCVisualEffect tint/transparency params, and a
@@ -836,7 +860,7 @@ struct IcewindCSpellHitEmissionRanged /*#guess*/ {
     /* 0x18 */ INT     field_18;
     /* 0x1C */ INT     field_1C;
     /* 0x20 */ IcewindCVisualEffect m_visualEffect;
-    /* 0x2C */ INT     field_2C;      // ctor: 0
+    /* 0x2C */ IcewindCSpellHitCellPool* m_cellPool;   // ctor: NULL; shared fan-cell pool, filled by OnArrival
     /* 0x30 */ INT     field_30;      // ctor: 0
     /* 0x34 */ BYTE    field_34;
     /* 0x35 */ BYTE    field_35;
@@ -1001,7 +1025,7 @@ public:
     /* 009E */ BYTE   m_durationFade;       // 0x56E280 param a8; read back by the parent's wall-bounce logic
     /* 009F */ BYTE   m_collision;          // 0x56E280 param a9
     /* 00A0 */ CSound m_sound;            // CResHelper<CResWave,4>; impact sound from descriptor.m_resref1, channel 0xE
-    /* 0104 */ void* field_104;           // shared cell object from descriptor +0x2C (refcount++ at +0x10)
+    /* 0104 */ IcewindCSpellHitCellPool* m_cellPool;   // shared fan-cell pool (= descriptor.m_cellPool)
     /* 0108 */ INT   field_108;           // = descriptor +0x30
     /* 010C */ BYTE  field_10C;           // = descriptor +0x34
     /* 010D */ BYTE  field_10D;           // = descriptor +0x44

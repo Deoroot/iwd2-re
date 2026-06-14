@@ -5717,7 +5717,7 @@ IcewindCSpellHitEmissionRanged::IcewindCSpellHitEmissionRanged()
     field_10 = 0;
     field_18 = 0;
     field_1C = 0;
-    field_2C = 0;
+    m_cellPool = NULL;
     field_30 = 0;
     field_34 = 0;
     field_35 = 0;
@@ -5908,10 +5908,156 @@ IcewindCSpellHitVisual::~IcewindCSpellHitVisual()
 {
 }
 
-// 0x56D0A0 (vtable slot 3). Advances the detonation animation and expires it.
-// STUB pending recovery.
+// 0x56D0A0 (vtable slot 3). Each tick advances the detonation and expands the
+// radial fan: every live cell drifts by its velocity, bounces off / dies on walls
+// (CSearchBitmap::GetLOSCost) per the mode byte, and spawns IcewindCSpellHit
+// particles -- stationary m_emission2 cells at an age-ramped probability (recorded
+// into the shared cell pool), and moving m_emission1 cells once per fresh coverage
+// pixel. The visual expires once the fan has settled and the BAM sequence ends.
 void IcewindCSpellHitVisual::AIUpdate()
 {
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    BOOL bSettled = TRUE;
+    field_28C++;
+    m_frameCount--;
+
+    if (field_2A0 == 1) {
+        if (m_frameCount == 0) {
+            if (m_cell.IsEndOfSequence(FALSE)) {
+                RemoveFromArea();
+                return;
+            }
+            m_frameCount++;
+            m_cell.FrameAdvance();
+            return;
+        }
+    } else if (m_frameCount == 0) {
+        RemoveFromArea();
+        return;
+    }
+
+    // Reset the per-cell coverage map.
+    memset(field_194, 0, (field_190 * 2 + 1) * (field_18C * 2 + 1));
+
+    int nCellCount = (field_198 + field_19C) * 4;
+    if (nCellCount > 0) {
+        SHORT nIndex = 0;
+        int i = 0;
+        do {
+            BYTE* pFlags = static_cast<BYTE*>(field_1A4);
+            if (pFlags[i] != 2) {
+                LONG* pCell = reinterpret_cast<LONG*>(static_cast<BYTE*>(field_1A0) + i * 0x10);
+                pCell[1] += pCell[3];   // pos.y += vel.y
+                pCell[0] += pCell[2];   // pos.x += vel.x
+
+                int nTileY = (((pCell[0] * 3 / 4) >> CGameSprite::EXACT_SCALE) + m_pos.y)
+                    / CPathSearch::GRID_SQUARE_SIZEY;
+                int nTileX = ((pCell[1] >> CGameSprite::EXACT_SCALE) + m_pos.x)
+                    / CPathSearch::GRID_SQUARE_SIZEX;
+
+                SHORT nTableIndex;
+                BYTE cost = m_pArea->m_search.GetLOSCost(CPoint(nTileX, nTileY),
+                    m_terrainTable, nTableIndex, FALSE);
+
+                BOOL bRender = TRUE;
+                if (cost == CPathSearch::COST_IMPASSABLE) {
+                    if (field_18B == CGameTemporal::COLLISION_DESTROY) {
+                        pFlags[i] = 2;
+                    }
+                    if (field_18B == CGameTemporal::COLLISION_REBOUND) {
+                        // Reverse the velocity on whichever axis crossed the wall.
+                        if ((((pCell[1] - pCell[3]) >> CGameSprite::EXACT_SCALE) + m_pos.x)
+                                / CPathSearch::GRID_SQUARE_SIZEX != nTileX) {
+                            pCell[1] += pCell[3] * -2;
+                            pCell[3] = -pCell[3];
+                        }
+                        if ((((pCell[0] - pCell[2]) * 3 / 4 >> CGameSprite::EXACT_SCALE) + m_pos.y)
+                                / CPathSearch::GRID_SQUARE_SIZEY != nTileY) {
+                            pCell[0] += pCell[2] * -2;
+                            pCell[2] = -pCell[2];
+                        }
+                    } else {
+                        bRender = FALSE;
+                        if (pFlags[i] == 0) {
+                            bSettled = FALSE;
+                        }
+                    }
+                }
+
+                if (bRender) {
+                    int nPixIdx = (((pCell[1] / CPathSearch::GRID_SQUARE_SIZEX) >> CGameSprite::EXACT_SCALE) + field_18C)
+                        + (((pCell[0] / CPathSearch::GRID_SQUARE_SIZEX) >> CGameSprite::EXACT_SCALE) + field_190)
+                          * (field_18C * 2 + 1);
+
+                    // Stationary m_emission2 spawn, gated by a cooldown and a
+                    // density probability that ramps with age.
+                    if (m_emission2.field_8 != 0) {
+                        if (field_29C < 1) {
+                            int nThreshold = field_28C * field_28C / m_emission2.field_40 + m_emission2.field_38;
+                            if (m_frameCount < 2) {
+                                nThreshold *= 2;
+                            }
+                            CPoint ptSpawn((m_pos.x << CGameSprite::EXACT_SCALE) + pCell[1],
+                                (m_pos.y << CGameSprite::EXACT_SCALE) + pCell[0] * 3 / 4);
+                            int nRand = rand() % 10000;
+                            IcewindCSpellHitCell cell = { ptSpawn.x, ptSpawn.y, 0 };
+                            if (nThreshold < nRand) {
+                                m_emission2.m_cellPool->m_cells.push_back(cell);
+                            } else {
+                                cell.flag = 1;
+                                m_emission2.m_cellPool->m_cells.push_back(cell);
+                                m_emission2.field_30 =
+                                    static_cast<INT>(m_emission2.m_cellPool->m_cells.size()) - 1;
+                                CPoint ptVel(0, 0);
+                                new IcewindCSpellHitParticle(m_emission2, m_pArea, ptSpawn, 0, ptVel,
+                                    static_cast<SHORT>(m_frameCount * 2 + m_duration), 0, field_18B);
+                                field_29C = m_emission2.field_3C;
+                            }
+                        } else {
+                            field_29C--;
+                        }
+                    }
+
+                    // Moving m_emission1 spawn, once per freshly-covered pixel.
+                    BYTE* pCoverage = static_cast<BYTE*>(field_194);
+                    BYTE nCount = pCoverage[nPixIdx];
+                    pCoverage[nPixIdx] = nCount + 1;
+                    if (nCount == 0 && pFlags[i] == 0) {
+                        if (m_emission1.field_8 != 0 && ++field_288 <= m_emission1.field_2E) {
+                            CPoint ptSpawn((m_pos.x << CGameSprite::EXACT_SCALE) + pCell[1],
+                                (m_pos.y << CGameSprite::EXACT_SCALE) + pCell[0] * 3 / 4);
+                            CPoint ptVel(pCell[3], pCell[2] * 3 / 4);
+                            new IcewindCSpellHitParticle(m_emission1, m_pArea, ptSpawn, 0, ptVel,
+                                static_cast<SHORT>(m_frameCount), 0, field_18B);
+                        }
+                        pFlags[i] = 1;
+                    } else if (pFlags[i] == 0) {
+                        bSettled = FALSE;
+                    }
+                }
+            }
+            nIndex++;
+            i = static_cast<SHORT>(nIndex);
+        } while (i < nCellCount);
+    }
+
+    if (bSettled) {
+        if (field_2A0 == 1) {
+            if (m_cell.IsEndOfSequence(FALSE)) {
+                RemoveFromArea();
+            }
+        } else {
+            RemoveFromArea();
+        }
+    }
+
+    if (field_2A0 == 1 && !m_cell.IsEndOfSequence(FALSE)) {
+        m_cell.FrameAdvance();
+    }
 }
 
 // 0x56D9B0 (vtable slot 18). STUB pending recovery.
@@ -5987,7 +6133,7 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
     BYTE mode9)
 {
-    field_104 = NULL;
+    m_cellPool = NULL;
     field_108 = 0;
     field_10C = 0;
     field_10D = 0;
@@ -6053,10 +6199,10 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
             pos.y >> (CGameSprite::EXACT_SCALE & 0x1F));
         AddToArea(pArea, scaledPos, a5, CGameObject::LIST_FRONT);
 
-        // Reference the descriptor's shared cell object (refcount at +0x10) and
-        // copy its trailing parameters.
-        field_104 = reinterpret_cast<void*>(descriptor.field_2C);
-        ++*reinterpret_cast<LONG*>(static_cast<BYTE*>(field_104) + 0x10);
+        // Take a counted reference on the descriptor's shared cell pool and copy
+        // its trailing parameters.
+        m_cellPool = descriptor.m_cellPool;
+        m_cellPool->m_refCount++;
         field_108 = descriptor.field_30;
         field_10C = static_cast<BYTE>(descriptor.field_34);
         field_10D = static_cast<BYTE>(descriptor.field_44);
@@ -6072,14 +6218,8 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
 // CGameAnimation and the CGameObject base destruct automatically.
 IcewindCSpellHitParticle::~IcewindCSpellHitParticle()
 {
-    if (field_104 != NULL) {
-        if (--*reinterpret_cast<LONG*>(static_cast<BYTE*>(field_104) + 0x10) == 0) {
-            free(*reinterpret_cast<void**>(static_cast<BYTE*>(field_104) + 4));
-            *reinterpret_cast<void**>(static_cast<BYTE*>(field_104) + 4) = NULL;
-            *reinterpret_cast<void**>(static_cast<BYTE*>(field_104) + 8) = NULL;
-            *reinterpret_cast<void**>(static_cast<BYTE*>(field_104) + 0xC) = NULL;
-            free(field_104);
-        }
+    if (m_cellPool != NULL && --m_cellPool->m_refCount == 0) {
+        delete m_cellPool;
     }
 
     delete m_animation.m_animation;
