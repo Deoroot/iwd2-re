@@ -5687,3 +5687,42 @@ void CProjectileCone::Pulse()
         pVisual->Fire(m_pArea, m_sourceId, CGameObjectArray::INVALID_INDEX, *it, m_nHeight, m_nType);
     }
 }
+
+// =============================================================================
+// IcewindCSpellHitVisual -- the on-ground detonation visual (SCAFFOLD).
+// Layout is recovered (see CProjectile.h); the bodies below are faithful stubs.
+// The base CGameObject and the typed sub-objects (m_cell, m_palette, m_sound,
+// m_visualEffect) are still constructed/destroyed; the real work -- BAM load,
+// radial velocity table, CGameObjectArray::Add + AddToArea, frame advance and
+// render -- is recovered in a later pass.
+// =============================================================================
+
+// 0x56BF30. Builds the detonation animation from the three emission-slot
+// descriptors, the impact position, the launch velocity and the lifetime.
+// STUB pending recovery.
+IcewindCSpellHitVisual::IcewindCSpellHitVisual(const CString&, const CString&, const CString&,
+    CGameArea*, const CPoint&, SHORT, BYTE, BYTE, SHORT)
+{
+}
+
+// 0x56CEE0 (vtable slot 0). STUB pending recovery.
+IcewindCSpellHitVisual::~IcewindCSpellHitVisual()
+{
+}
+
+// 0x56D0A0 (vtable slot 3). Advances the detonation animation and expires it.
+// STUB pending recovery.
+void IcewindCSpellHitVisual::AIUpdate()
+{
+}
+
+// 0x56D9B0 (vtable slot 18). STUB pending recovery.
+void IcewindCSpellHitVisual::RemoveFromArea()
+{
+}
+
+// 0x56D730 (vtable slot 19). Draws the current BAM frame fan. STUB pending
+// recovery.
+void IcewindCSpellHitVisual::Render(CGameArea*, CVidMode*, int)
+{
+}

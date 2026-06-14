@@ -787,4 +787,82 @@ public:
     ~CProjectileFireball() override;   // 0x5768A0 (deleting thunk, slot 0; adds no data, chains to base)
 };
 
+// CGameObject leaf 0x56BF30 -- the on-ground detonation visual that
+// IcewindCProjectileSpellHit::OnArrival spawns when the projectile arrives. It
+// is NOT a CProjectile: its own vtable 0x84F0DC has exactly CGameObject's 27
+// slots, overriding only the destructor, AIUpdate, RemoveFromArea and Render
+// (slots 1/13/25 -- GetObjectType, IsOver, EvaluateStatusTrigger -- are the
+// inherited folded CGameObject stubs). It is a free-standing area animation
+// object that draws a BAM through an embedded CVidCell and expands a radial fan
+// of animation cells outward from the impact at the projectile's velocity,
+// fading over m_duration ticks.
+//
+// OnArrival builds it from the spell-hit projectile's three "emission slot"
+// visual descriptors (proj +0x4E2 / +0x50E / +0x540; e.g. Fireball's
+// FirebaX / RNG_M03 / FirebaR detonation + range graphics) plus the impact
+// position, the launch velocity and the field_4C0 lifetime. The ctor loads the
+// detonation BAM (CDimm::GetResObject type 1000), copies the other two
+// descriptors into field_210/field_242, computes the per-direction velocity
+// table, registers the object (CGameObjectArray::Add) and adds it to the area.
+//
+// Name is a guess: IWD2.exe carries no RTTI and the BG2 PDB has no match (this
+// is an IWD2-specific Icewind class). vtable 0x84F0DC, ctor 0x56BF30.
+//
+// SCAFFOLD: the layout below is recovered from the 0x56BF30 ctor (sub-object
+// offsets asm-confirmed); the method bodies are faithful stubs pending recovery
+// of 0x56BF30 (ctor), 0x56D0A0 (AIUpdate), 0x56D730 (Render), 0x56D9B0
+// (RemoveFromArea) and 0x56CEE0 (dtor). Not yet wired into OnArrival.
+#pragma pack(push, 2)
+class IcewindCSpellHitVisual /*#guess*/ : public CGameObject {
+public:
+    // Args mirror the 0x56BF30 __thiscall: the three emission-slot descriptors,
+    // the area, the impact point, the range/frame seed, the launch velocity, a
+    // global byte (DAT_0085BD6D) and the lifetime. The descriptor type (a
+    // resref plus tint/copy-from-back/transparency words, the projectile's
+    // own) is not yet named; typed as CString here pending recovery.
+    IcewindCSpellHitVisual(const CString& visual0 /*#guess*/, const CString& visual1 /*#guess*/,
+                           const CString& visual2 /*#guess*/, CGameArea* pArea, const CPoint& pos,
+                           SHORT nRange, BYTE nVelocity, BYTE a8, SHORT nDuration);   // 0x56BF30
+    ~IcewindCSpellHitVisual() override;   // 0x56CEE0 (vtable slot 0)
+
+    void AIUpdate() override;        // 0x56D0A0 (slot 3)
+    void RemoveFromArea() override;  // 0x56D9B0 (slot 18)
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;   // 0x56D730 (slot 19)
+
+    /* 006E */ BYTE field_6E[0x10];
+    /* 007E */ SHORT field_7E;            // ctor: 0
+    /* 0080 */ SHORT field_80;            // ctor: 0
+    /* 0082 */ BYTE field_82[8];
+    /* 008A */ CVidCell m_cell;           // detonation BAM cell (sub-ctor 0x7ACD70)
+    /* 0164 */ CVidPalette m_palette;     // sub-ctor 0x7BEEA0 (nType = DAT_0085E84A)
+    /* 0188 */ SHORT m_duration;          // = field_4C0 lifetime
+    /* 018A */ BYTE m_frameCount;         // (nRange-1)/nVelocity + 1
+    /* 018B */ BYTE field_18B;            // = a8
+    // Radial velocity fan: per-direction counts and the malloc'd cell / velocity
+    // (16 bytes/entry) / flag buffers the ctor fills (0x18C..0x1A7).
+    /* 018C */ LONG field_18C;
+    /* 0190 */ LONG field_190;
+    /* 0194 */ void* field_194;
+    /* 0198 */ LONG field_198;
+    /* 019C */ LONG field_19C;
+    /* 01A0 */ void* field_1A0;
+    /* 01A4 */ void* field_1A4;
+    /* 01A8 */ CSound m_sound;            // sub-ctor 0x7A8BB0
+    /* 020C */ void* field_20C;           // = PTR_DAT_008C1758
+    /* 0210 */ BYTE field_210[0x32];      // emission descriptor copy (sub-ctor 0x56FDC0: CString + IcewindCVisualEffect)
+    /* 0242 */ BYTE field_242[0x4E];      // emission descriptor copy (sub-ctor 0x56FE30)
+    /* 0290 */ IcewindCVisualEffect m_visualEffect;   // sub-ctor 0x586A40
+    /* 029C */ LONG field_29C;
+    /* 02A0 */ BYTE field_2A0;
+    /* 02A1 */ BYTE _pad2A1;
+};
+#pragma pack(pop)
+// Validate the OWN-field span (0x6E..0x2A2 in the binary), not the absolute
+// size: the compiled CGameObject base is 0x78 here vs 0x6E in IWD2.exe (the base
+// header carries no #pragma pack(2), an existing whole-codebase discrepancy), so
+// every CGameObject leaf is shifted up by that excess. This assert still pins our
+// members to the binary's 0x234-byte tail and survives a future base-layout fix.
+static_assert(sizeof(IcewindCSpellHitVisual) - sizeof(CGameObject) == 0x2A2 - 0x6E,
+    "IcewindCSpellHitVisual own-field span must match the IWD2.exe 0x56BF30 layout (0x6E..0x2A2)");
+
 #endif /* CPROJECTILE_H_ */
