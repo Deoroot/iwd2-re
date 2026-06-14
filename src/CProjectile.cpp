@@ -5748,9 +5748,11 @@ void CProjectileCone::Pulse()
 IcewindCSpellHitEmission::IcewindCSpellHitEmission()
 {
     m_resref0Flags = 0;
+    m_resref0 = NULL;
     m_resref0Len = 0;
     m_resref0Cap = 0;
     m_resref1Flags = 0;
+    m_resref1 = NULL;
     m_resref1Len = 0;
     m_resref1Cap = 0;
     m_animMode = 0;
@@ -5762,9 +5764,11 @@ IcewindCSpellHitEmission::IcewindCSpellHitEmission()
 IcewindCSpellHitEmissionRanged::IcewindCSpellHitEmissionRanged()
 {
     m_resref0Flags = 0;
+    m_resref0 = NULL;
     m_resref0Len = 0;
     m_resref0Cap = 0;
     m_resref1Flags = 0;
+    m_resref1 = NULL;
     m_resref1Len = 0;
     m_resref1Cap = 0;
     m_cellPool = NULL;
@@ -6210,7 +6214,10 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
     m_animation.m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
 
-    m_sound.SetResRef(CResRef(descriptor.m_resref1), TRUE, TRUE);
+    // 0x56DFD7 / 0x56E34F: the binary routes m_resref1 through CString(LPCSTR), which
+    // substitutes "" (DAT_008485bc) for a NULL/empty slot. CResRef(const char*) is not
+    // NULL-safe (it derefs pName), so build the CString first to match the binary.
+    m_sound.SetResRef(CResRef(CString(descriptor.m_resref1)), TRUE, TRUE);
     m_sound.SetChannel(0xE, reinterpret_cast<DWORD>(pArea));
 
     m_animationRunning = 1;
@@ -6249,7 +6256,10 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
     m_animation.m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
 
-    m_sound.SetResRef(CResRef(descriptor.m_resref1), TRUE, TRUE);
+    // 0x56DFD7 / 0x56E34F: the binary routes m_resref1 through CString(LPCSTR), which
+    // substitutes "" (DAT_008485bc) for a NULL/empty slot. CResRef(const char*) is not
+    // NULL-safe (it derefs pName), so build the CString first to match the binary.
+    m_sound.SetResRef(CResRef(CString(descriptor.m_resref1)), TRUE, TRUE);
     m_sound.SetChannel(0xE, reinterpret_cast<DWORD>(pArea));
 
     m_animationRunning = 1;

@@ -829,12 +829,12 @@ struct IcewindCSpellHitEmission /*#guess*/ {
 
     /* 0x00 */ BYTE    m_resref0Flags;  // ResName flags byte
     /* 0x01 */ BYTE    _pad1[3];
-    /* 0x04 */ CString m_resref0 /*#guess*/;
+    /* 0x04 */ char*   m_resref0;       // ResName::m_pName (refcounted block+1; NULL=empty). POD: the binary copies the slot flat (rep movs @0x56C308), so this must NOT be a CString (its throwing operator= aborts).
     /* 0x08 */ INT     m_resref0Len;    // resref0 name length (Frida: 7)
     /* 0x0C */ INT     m_resref0Cap;    // resref0 name capacity (Frida: 31)
     /* 0x10 */ BYTE    m_resref1Flags;  // ResName flags byte
     /* 0x11 */ BYTE    _pad11[3];
-    /* 0x14 */ CString m_resref1 /*#guess*/;
+    /* 0x14 */ char*   m_resref1;       // ResName::m_pName (refcounted block+1; NULL=empty)
     /* 0x18 */ INT     m_resref1Len;    // resref1 name length
     /* 0x1C */ INT     m_resref1Cap;    // resref1 name capacity
     /* 0x20 */ IcewindCVisualEffect m_visualEffect;
@@ -857,12 +857,12 @@ struct IcewindCSpellHitEmissionRanged /*#guess*/ {
 
     /* 0x00 */ BYTE    m_resref0Flags;  // ResName flags byte
     /* 0x01 */ BYTE    _pad1[3];
-    /* 0x04 */ CString m_resref0 /*#guess*/;
+    /* 0x04 */ char*   m_resref0;       // ResName::m_pName (refcounted block+1; NULL=empty). POD: the binary copies the slot flat (rep movs @0x56C308), so this must NOT be a CString (its throwing operator= aborts).
     /* 0x08 */ INT     m_resref0Len;    // resref0 name length (Frida: 7)
     /* 0x0C */ INT     m_resref0Cap;    // resref0 name capacity (Frida: 31)
     /* 0x10 */ BYTE    m_resref1Flags;  // ResName flags byte
     /* 0x11 */ BYTE    _pad11[3];
-    /* 0x14 */ CString m_resref1 /*#guess*/;
+    /* 0x14 */ char*   m_resref1;       // ResName::m_pName (refcounted block+1; NULL=empty)
     /* 0x18 */ INT     m_resref1Len;    // resref1 name length
     /* 0x1C */ INT     m_resref1Cap;    // resref1 name capacity
     /* 0x20 */ IcewindCVisualEffect m_visualEffect;
