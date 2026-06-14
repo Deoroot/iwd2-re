@@ -932,4 +932,70 @@ public:
 static_assert(sizeof(IcewindCSpellHitVisual) - sizeof(CGameObject) == 0x2A2 - 0x6E,
     "IcewindCSpellHitVisual own-field span must match the IWD2.exe 0x56BF30 layout (0x6E..0x2A2)");
 
+// CGameObject leaf 0x56E280 -- one travelling particle of the detonation fan.
+// IcewindCSpellHitVisual::AIUpdate spawns a ring of these outward from the
+// impact: each carries a single BAM animation cell that flies along the launch
+// velocity, bounces off walls (CSearchBitmap::GetLOSCost) and expires after a
+// few frames, producing the spreading "spray" of the ground VFX.
+//
+// Like its parent it is NOT a CProjectile: its own vtable 0x84F14C has exactly
+// CGameObject's 27 slots, overriding only the destructor (0x56E260), AIUpdate
+// (0x56E650), RemoveFromArea (0x56ECF0) and Render (0x56EA90). The 0x84F14C
+// table is immediately followed in .rdata by the embedded animator's vtable
+// 0x84F1B8 (= 0x84F14C + 27*4), which a raw vtable scan can misread as a 28th
+// slot -- there is no added virtual.
+//
+// It embeds a small CGameAnimation-derived BAM animator at +0x7E (its own
+// vtable 0x84F1B8, slot 0 = CalculateGCBoundsRect at 0x56E210 forwarding to the
+// sub-object's m_animation at +0x82). That sub-object's full layout is a
+// separate recovery; it is left as an opaque span here.
+//
+// Two sibling ctors build it from the two cell-spawn paths of the parent's
+// AIUpdate: 0x56E280 (decodes the animation via FUN_0055D3A0) and 0x56DF00
+// (via FUN_0055CD70). Only 0x56E280 is scaffolded below; the 0x56DF00 overload
+// is recovered later (its descriptor argument type fixes the overload split).
+//
+// Name is a guess (no RTTI; no BG2 PDB match -- IWD2-specific Icewind class).
+// vtable 0x84F14C, ctor 0x56E280, sizeof 0x112.
+//
+// SCAFFOLD: layout below is recovered from the 0x56E280 ctor (offsets
+// asm/decompile-confirmed); method bodies are faithful stubs pending recovery
+// of 0x56E280/0x56DF00 (ctors), 0x56E650 (AIUpdate), 0x56EA90 (Render),
+// 0x56ECF0 (RemoveFromArea) and 0x56E260 (dtor). Not yet spawned by the parent.
+#pragma pack(push, 2)
+class IcewindCSpellHitParticle /*#guess*/ : public CGameObject {
+public:
+    // Args mirror the 0x56E280 __thiscall: the per-cell spawn descriptor
+    // (resref at +0x14, shared cell object at +0x2C), the area, the impact
+    // point, an AddToArea insert flag, the launch velocity (also seeds the BAM
+    // direction via CGameSprite::GetDirection) and the two mode bytes that the
+    // parent's wall-bounce logic reads back.
+    IcewindCSpellHitParticle(const void* pCellDescriptor /*#guess*/, CGameArea* pArea,
+                             const CPoint& pos, int a5 /*#guess*/, const CPoint& velocity,
+                             SHORT a7, BYTE mode8, BYTE mode9);   // 0x56E280
+    ~IcewindCSpellHitParticle() override;   // 0x56E260 (vtable slot 0)
+
+    void AIUpdate() override;        // 0x56E650 (slot 3)
+    void RemoveFromArea() override;  // 0x56ECF0 (slot 18)
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;   // 0x56EA90 (slot 19)
+
+    /* 006E */ BYTE m_terrainTable[16];   // seeded from CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE
+    // Embedded CGameAnimation-derived BAM animator (own vtable 0x84F1B8): vptr
+    // @0x7E, m_animation handle @0x82 (FUN_0055D3A0 decode), short @0x86,
+    // flag @0x88 (=1), pos @0x8C/0x90, velocity @0x94/0x98, short @0x9C,
+    // mode bytes @0x9E/0x9F. Split into named members when 0x84F1B8 is mapped.
+    /* 007E */ BYTE m_animator[0x22];
+    /* 00A0 */ CSound m_sound;            // sub-ctor 0x7A8BB0; SetChannel(0xE); caches resref @0xA4..0xB0
+    /* 0104 */ void* field_104;           // shared cell object from descriptor +0x2C (refcount++ at +0x10)
+    /* 0108 */ INT   field_108;           // = descriptor +0x30
+    /* 010C */ BYTE  field_10C;           // = descriptor +0x34
+    /* 010D */ BYTE  field_10D;           // = descriptor +0x44
+    /* 010E */ INT   field_10E;           // ctor: 0
+};
+#pragma pack(pop)
+// Validate the OWN-field span (0x6E..0x112 in the binary), not the absolute size
+// (see the IcewindCSpellHitVisual note above on the 0x6E-vs-0x78 base shift).
+static_assert(sizeof(IcewindCSpellHitParticle) - sizeof(CGameObject) == 0x112 - 0x6E,
+    "IcewindCSpellHitParticle own-field span must match the IWD2.exe 0x56E280 layout (0x6E..0x112)");
+
 #endif /* CPROJECTILE_H_ */

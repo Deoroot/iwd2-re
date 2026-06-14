@@ -5978,3 +5978,44 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
             m_visualEffect.m_dwFlags | 0x1);
     }
 }
+
+// 0x56E280. Builds one travelling particle of the detonation fan from a parent
+// cell-spawn descriptor (the 0x56DF00 sibling decodes its BAM differently).
+// STUB pending recovery.
+IcewindCSpellHitParticle::IcewindCSpellHitParticle(const void* pCellDescriptor, CGameArea* pArea,
+                                                   const CPoint& pos, int a5, const CPoint& velocity,
+                                                   SHORT a7, BYTE mode8, BYTE mode9)
+{
+    (void)pCellDescriptor;
+    (void)pArea;
+    (void)pos;
+    (void)a5;
+    (void)velocity;
+    (void)a7;
+    (void)mode8;
+    (void)mode9;
+}
+
+// 0x56E260 (vtable slot 0). STUB pending recovery.
+IcewindCSpellHitParticle::~IcewindCSpellHitParticle()
+{
+}
+
+// 0x56E650 (vtable slot 3). Flies the particle's BAM cell along its velocity,
+// bounces it off walls and expires it. STUB pending recovery.
+void IcewindCSpellHitParticle::AIUpdate()
+{
+}
+
+// 0x56ECF0 (vtable slot 18). STUB pending recovery.
+void IcewindCSpellHitParticle::RemoveFromArea()
+{
+}
+
+// 0x56EA90 (vtable slot 19). Draws the particle's BAM frame. STUB pending recovery.
+void IcewindCSpellHitParticle::Render(CGameArea* pArea, CVidMode* pVidMode, int a3)
+{
+    (void)pArea;
+    (void)pVidMode;
+    (void)a3;
+}
