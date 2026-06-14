@@ -5903,9 +5903,15 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
     }
 }
 
-// 0x56CEE0 (vtable slot 0). STUB pending recovery.
+// 0x56CEE0 (vtable slot 0 -- MSVC scalar-deleting wrapper; body at 0x56CF00).
+// Frees the three malloc'd fan buffers; the CVidCell, CVidPalette, CSound, the
+// IcewindCVisualEffect, the two emission descriptors and the CGameObject base all
+// destruct automatically.
 IcewindCSpellHitVisual::~IcewindCSpellHitVisual()
 {
+    free(field_194);
+    free(field_1A0);
+    free(field_1A4);
 }
 
 // 0x56D0A0 (vtable slot 3). Each tick advances the detonation and expands the
@@ -6060,9 +6066,21 @@ void IcewindCSpellHitVisual::AIUpdate()
     }
 }
 
-// 0x56D9B0 (vtable slot 18). STUB pending recovery.
+// 0x56D9B0 (vtable slot 18). Removes the visual from the area and the global
+// object array, then deletes itself (same shape as the particle's RemoveFromArea).
 void IcewindCSpellHitVisual::RemoveFromArea()
 {
+    CGameObject::RemoveFromArea();
+
+    BYTE nResult = g_pBaldurChitin->GetObjectGame()->m_cObjectArray.Delete(m_id,
+        CGameObjectArray::THREAD_ASYNCH, NULL, -1);
+    if (nResult != CGameObjectArray::SUCCESS) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\... __LINE__: 0x1ED
+        UTIL_ASSERT(FALSE);
+        return;
+    }
+
+    delete this;
 }
 
 // 0x56D730 (vtable slot 19). Draws the detonation BAM's current frame at the
