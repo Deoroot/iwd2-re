@@ -4517,6 +4517,53 @@ void IcewindCProjectileSpellHit::Render(CGameArea* pArea, CVidMode* pVidMode, in
 
 // -----------------------------------------------------------------------------
 
+// 0x5701E0 (vtable slot 38). Deliver one strike to a single gathered victim.
+// Resolves the victim by object id and strikes it at most once per pass: a victim
+// already in the m_miniB hit-tracker is skipped (the set stays empty for one-shot
+// AOEs such as Fireball, so every gathered victim is struck once). The strike
+// spawns the single-target carrier projectile (factory type m_objectTag + 1)
+// loaded with a copy of every effect on this projectile, carries over the caster
+// context (resref and spell level) and clears the carrier's own fire sound, then
+// fires it at the victim. For sprites (object type 0x31) a dead victim is skipped
+// and its position is snapshotted into m_posOld first. A victim already struck
+// returns early without releasing the share, matching the binary.
+void IcewindCProjectileSpellHit::StrikeTarget(LONG targetId)
+{
+    CGameObject* pTarget;
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+            targetId, CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE)
+        == CGameObjectArray::SUCCESS) {
+        if (m_miniB.find(pTarget->m_id) == m_miniB.end()) {
+            if ((0x01 & pTarget->GetObjectType()) != 0 || field_300 != 0) {
+                if (pTarget->GetObjectType() != 0x31)
+                    pTarget->GetPos();
+                if (pTarget->GetObjectType() == 0x31 &&
+                    IcewindMisc::IsDead(static_cast<CGameSprite*>(pTarget)))
+                    return;
+                if (pTarget->GetObjectType() == 0x31)
+                    static_cast<CGameSprite*>(pTarget)->m_posOld = pTarget->GetPos();
+
+                CProjectile* pChild = CProjectile::DecodeProjectile(m_objectTag + 1, NULL, 0);
+                pChild->m_casterResRef = m_casterResRef;
+                pChild->m_nSpellLevel = m_nSpellLevel;
+                pChild->m_fireSoundRef = CResRef();
+                for (POSITION pos = m_effectList.GetHeadPosition(); pos != NULL; ) {
+                    CGameEffect* pEffect = m_effectList.GetNext(pos);
+                    pChild->AddEffect(pEffect->Copy());
+                }
+                CPoint& strikePos = pTarget->GetPos();
+                pChild->Fire(m_pArea, m_id, targetId, strikePos, 0x32, 0);
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    m_callBackProjectile, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x571E80
 // Fireball (SPWI304): builds through the spell-hit base (type word 0x100, whose
 // zero low byte clears the broadcast flag fields), re-points the vtable to the

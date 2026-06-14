@@ -506,6 +506,11 @@ public:
     // 0x578480). No added behaviour.
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x56F3F0 (slot 19)
 
+    // Deliver one strike to a single gathered victim (the family's per-target
+    // strike step; see the .cpp). New virtual the spell-hit family introduces on
+    // top of the wandering-VFX base.
+    virtual void StrikeTarget(LONG targetId);   // 0x5701E0 (vtable slot 38)
+
 protected:
     // The IE reference-counted string CProjectileCone inlines for its cone-BAM
     // name (share-count byte at block[-1], character data at block + 1); here it
