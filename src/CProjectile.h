@@ -985,7 +985,7 @@ public:
 
     void AIUpdate() override;        // 0x56E650 (slot 3)
     void RemoveFromArea() override;  // 0x56ECF0 (slot 18)
-    void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;   // 0x56EA90 (slot 19)
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x56EA90 (slot 19)
 
     /* 006E */ BYTE m_terrainTable[16];   // seeded from CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE
     // The 0x6E..0xA0 block is laid out exactly like CGameTemporal -- the engine's

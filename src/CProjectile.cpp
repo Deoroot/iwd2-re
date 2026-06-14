@@ -6081,10 +6081,58 @@ void IcewindCSpellHitParticle::RemoveFromArea()
 {
 }
 
-// 0x56EA90 (vtable slot 19). Draws the particle's BAM frame. STUB pending recovery.
-void IcewindCSpellHitParticle::Render(CGameArea* pArea, CVidMode* pVidMode, int a3)
+// 0x56EA90 (vtable slot 19). Draws the particle's detonation animation through
+// CInfinity, gated on m_animationRunning, the impact point being in-bounds and
+// its tile being visible. Mirrors CGameTemporal::Render with an extra position
+// bounds guard.
+void IcewindCSpellHitParticle::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
-    (void)pArea;
-    (void)pVidMode;
-    (void)a3;
+    (void)pArea;   // binary asserts pVidMode != NULL here (ObjAnimation.cpp:0x162); UtilAssert omitted
+
+    if (!m_animationRunning) {
+        return;
+    }
+    if (m_pos.x < 0 || m_pos.y < 0 || m_pos.x >= 0x1401 || m_pos.y >= 0xF01) {
+        return;
+    }
+
+    CInfinity* pInfinity = &m_pArea->m_cInfinity;
+
+    LONG nTileIndex = (m_pos.y / CVisibilityMap::SQUARE_SIZEY) * m_pArea->m_visibility.m_nWidth
+        + m_pos.x / CVisibilityMap::SQUARE_SIZEX;
+    if (!m_pArea->m_visibility.IsTileVisible(nTileIndex)) {
+        return;
+    }
+
+    BOOL bFadeOut = FALSE;
+    if (m_duration < m_durationFade) {
+        bFadeOut = TRUE;
+    }
+
+    CRect rView(pInfinity->nCurrentX,
+        pInfinity->nCurrentY,
+        pInfinity->nCurrentX + (pInfinity->rViewPort.right - pInfinity->rViewPort.left),
+        pInfinity->nCurrentY + (pInfinity->rViewPort.bottom - pInfinity->rViewPort.top));
+
+    CRect rFx;
+    CPoint ptReference;
+    m_animation.CalculateFxRect(rFx, ptReference, m_posZ);
+
+    CPoint ptNewPos(m_pos.x, m_pos.y);
+    ptNewPos.y += m_pArea->GetHeightOffset(m_pos, CGameObject::LIST_BACK);
+
+    CRect rGCBounds;
+    m_animation.CalculateGCBoundsRect(rGCBounds, ptNewPos, ptReference, m_posZ,
+        rFx.right - rFx.left, rFx.bottom - rFx.top);
+
+    CRect rDest;
+    if (!rDest.IntersectRect(rGCBounds, rView)) {
+        return;
+    }
+
+    CPoint ptTint(m_pos.x, m_pos.y + m_posZ);
+    COLORREF rgbTintColor = m_pArea->GetTintColor(ptTint, m_listType);
+
+    m_animation.Render(pInfinity, pVidMode, nSurface, rFx, ptNewPos, ptReference,
+        0x20000, rgbTintColor, rDest, FALSE, bFadeOut, m_posZ, 0);
 }
