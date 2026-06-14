@@ -5918,8 +5918,63 @@ void IcewindCSpellHitVisual::RemoveFromArea()
 {
 }
 
-// 0x56D730 (vtable slot 19). Draws the current BAM frame fan. STUB pending
-// recovery.
-void IcewindCSpellHitVisual::Render(CGameArea*, CVidMode*, int)
+// 0x56D730 (vtable slot 19). Draws the detonation BAM's current frame at the
+// impact point through the CInfinity FX pipeline, gated on tile visibility, a
+// loaded BAM (field_2A0) and the sequence not having finished.
+void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
+    CRect rFX;
+    CRect rGCBounds;
+    CSize frameSize;
+    CPoint ptReference;
+    CPoint newPos;
+    CInfinity* pInfinity;
+
+    (void)pArea;
+    (void)pVidMode;   // binary asserts pVidMode != NULL here; UtilAssert omitted (it kills the game)
+
+    // Skip if the impact tile is off-screen or no detonation BAM was loaded. The
+    // point is clamped to the area bounds before the visibility lookup.
+    LONG nVisX = m_pos.x < 0 ? 0 : m_pos.x;
+    LONG nAreaW = *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(m_pArea) + 0x54C) /*#guess area width*/;
+    if (nVisX > nAreaW - 1) {
+        nVisX = nAreaW - 1;
+    }
+    LONG nVisY = m_pos.y < 0 ? 0 : m_pos.y;
+    LONG nAreaH = *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(m_pArea) + 0x550) /*#guess area height*/;
+    if (nVisY > nAreaH - 1) {
+        nVisY = nAreaH - 1;
+    }
+    if (!m_pArea->m_visibility.IsTileVisible(m_pArea->m_visibility.PointToTile(CPoint(nVisX, nVisY)))
+        || field_2A0 == 0) {
+        return;
+    }
+    if (m_cell.IsEndOfSequence(FALSE)) {
+        return;
+    }
+
+    m_cell.GetCurrentCenterPoint(ptReference, FALSE);
+    m_cell.GetCurrentFrameSize(frameSize, FALSE);
+    rFX.SetRect(0, 0, frameSize.cx, frameSize.cy);
+
+    newPos.x = m_pos.x;
+    newPos.y = m_pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y;
+
+    rGCBounds.left = newPos.x - ptReference.x;
+    rGCBounds.top = newPos.y - ptReference.y;
+    rGCBounds.right = rGCBounds.left + rFX.Width();
+    rGCBounds.bottom = rGCBounds.top + rFX.Height();
+
+    DWORD dwPrepFlags = m_visualEffect.m_dwFlags | CInfinity::FXPREP_COPYFROMBACK;
+
+    pInfinity = m_pArea->GetInfinity();
+    pInfinity->FXPrep(rFX, dwPrepFlags, nSurface, newPos, ptReference);
+    if (pInfinity->FXLock(rFX, dwPrepFlags)) {
+        pInfinity->FXRender(&m_cell, ptReference.x, ptReference.y, m_visualEffect.m_dwFlags, 0);
+        pInfinity->FXRenderClippingPolys(newPos.x, newPos.y - m_posZ, m_posZ, ptReference, rGCBounds,
+            FALSE, m_visualEffect.m_dwFlags);
+        pInfinity->FXUnlock(dwPrepFlags, NULL, CPoint(0, 0));
+        pInfinity->FXBltFrom(nSurface, rFX, newPos.x, newPos.y, ptReference.x, ptReference.y,
+            m_visualEffect.m_dwFlags | 0x1);
+    }
 }
