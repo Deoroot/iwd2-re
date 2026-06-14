@@ -787,6 +787,69 @@ public:
     ~CProjectileFireball() override;   // 0x5768A0 (deleting thunk, slot 0; adds no data, chains to base)
 };
 
+// Spell-hit emission-slot descriptor (ctor 0x56FDC0, sizeof 0x32). One visual
+// layer of the detonation: a resref name slot + cached length/handle, a second
+// name slot, the layer's IcewindCVisualEffect tint/transparency params, and a
+// trailing flag with a 0x7FFFFFFF sentinel. The spell-hit projectile carries
+// these as its emission slots and OnArrival copies them into the visual object.
+// Field names are guesses (the string slots are read as raw {ptr,len,handle}).
+#pragma pack(push, 1)
+struct IcewindCSpellHitEmission /*#guess*/ {
+    IcewindCSpellHitEmission();   // 0x56FDC0
+
+    /* 0x00 */ BYTE    field_0;       // ctor reads an uninitialised stack byte here
+    /* 0x01 */ BYTE    _pad1[3];
+    /* 0x04 */ CString m_resref0 /*#guess*/;
+    /* 0x08 */ INT     field_8;
+    /* 0x0C */ INT     field_C;
+    /* 0x10 */ BYTE    field_10;      // ctor reads an uninitialised stack byte here
+    /* 0x11 */ BYTE    _pad11[3];
+    /* 0x14 */ CString m_resref1 /*#guess*/;
+    /* 0x18 */ INT     field_18;
+    /* 0x1C */ INT     field_1C;
+    /* 0x20 */ IcewindCVisualEffect m_visualEffect;
+    /* 0x2C */ BYTE    field_2C;
+    /* 0x2D */ BYTE    _pad2D;
+    /* 0x2E */ INT     field_2E;      // ctor: 0x7FFFFFFF
+};
+#pragma pack(pop)
+static_assert(sizeof(IcewindCSpellHitEmission) == 0x32,
+    "IcewindCSpellHitEmission must match the IWD2.exe 0x56FDC0 layout (0x32)");
+
+// The richer emission-slot variant (ctor 0x56FE30, sizeof 0x4E): the same 0x2C
+// prefix plus a trailing geometry/timing block (0x38 = 250, 0x3C = 6, 0x40 =
+// 30). Used for the third spell-hit emission slot (e.g. Fireball's range ring).
+#pragma pack(push, 1)
+struct IcewindCSpellHitEmissionRanged /*#guess*/ {
+    IcewindCSpellHitEmissionRanged();   // 0x56FE30
+
+    /* 0x00 */ BYTE    field_0;       // ctor reads an uninitialised stack byte here
+    /* 0x01 */ BYTE    _pad1[3];
+    /* 0x04 */ CString m_resref0 /*#guess*/;
+    /* 0x08 */ INT     field_8;
+    /* 0x0C */ INT     field_C;
+    /* 0x10 */ BYTE    field_10;      // ctor reads an uninitialised stack byte here
+    /* 0x11 */ BYTE    _pad11[3];
+    /* 0x14 */ CString m_resref1 /*#guess*/;
+    /* 0x18 */ INT     field_18;
+    /* 0x1C */ INT     field_1C;
+    /* 0x20 */ IcewindCVisualEffect m_visualEffect;
+    /* 0x2C */ INT     field_2C;      // ctor: 0
+    /* 0x30 */ INT     field_30;      // ctor: 0
+    /* 0x34 */ BYTE    field_34;
+    /* 0x35 */ BYTE    field_35;
+    /* 0x36 */ BYTE    field_36;
+    /* 0x37 */ BYTE    _pad37;
+    /* 0x38 */ INT     field_38;      // ctor: 250 (0xFA)
+    /* 0x3C */ INT     field_3C;      // ctor: 6
+    /* 0x40 */ INT     field_40;      // ctor: 30 (0x1E)
+    /* 0x44 */ BYTE    field_44;      // ctor: 0
+    /* 0x45 */ BYTE    _pad45[9];
+};
+#pragma pack(pop)
+static_assert(sizeof(IcewindCSpellHitEmissionRanged) == 0x4E,
+    "IcewindCSpellHitEmissionRanged must match the IWD2.exe 0x56FE30 layout (0x4E)");
+
 // CGameObject leaf 0x56BF30 -- the on-ground detonation visual that
 // IcewindCProjectileSpellHit::OnArrival spawns when the projectile arrives. It
 // is NOT a CProjectile: its own vtable 0x84F0DC has exactly CGameObject's 27
@@ -849,8 +912,8 @@ public:
     /* 01A4 */ void* field_1A4;
     /* 01A8 */ CSound m_sound;            // sub-ctor 0x7A8BB0
     /* 020C */ void* field_20C;           // = PTR_DAT_008C1758
-    /* 0210 */ BYTE field_210[0x32];      // emission descriptor copy (sub-ctor 0x56FDC0: CString + IcewindCVisualEffect)
-    /* 0242 */ BYTE field_242[0x4E];      // emission descriptor copy (sub-ctor 0x56FE30)
+    /* 0210 */ IcewindCSpellHitEmission m_emission1;        // sub-ctor 0x56FDC0
+    /* 0242 */ IcewindCSpellHitEmissionRanged m_emission2;  // sub-ctor 0x56FE30
     /* 0290 */ IcewindCVisualEffect m_visualEffect;   // sub-ctor 0x586A40
     /* 029C */ LONG field_29C;
     /* 02A0 */ BYTE field_2A0;

@@ -5688,6 +5688,43 @@ void CProjectileCone::Pulse()
     }
 }
 
+// 0x56FDC0. Spell-hit emission-slot descriptor ctor. The string slots and the
+// IcewindCVisualEffect default-construct; the body clears the cache fields and
+// stamps the 0x7FFFFFFF sentinel. The binary stamps field_0/field_10 from an
+// uninitialised stack byte (a compiler artifact); we clear them.
+IcewindCSpellHitEmission::IcewindCSpellHitEmission()
+{
+    field_0 = 0;
+    field_8 = 0;
+    field_C = 0;
+    field_10 = 0;
+    field_18 = 0;
+    field_1C = 0;
+    field_2C = 0;
+    field_2E = 0x7FFFFFFF;
+}
+
+// 0x56FE30. The ranged emission-slot descriptor ctor: same prefix clear, then
+// the trailing geometry/timing defaults (250 / 6 / 30).
+IcewindCSpellHitEmissionRanged::IcewindCSpellHitEmissionRanged()
+{
+    field_0 = 0;
+    field_8 = 0;
+    field_C = 0;
+    field_10 = 0;
+    field_18 = 0;
+    field_1C = 0;
+    field_2C = 0;
+    field_30 = 0;
+    field_34 = 0;
+    field_35 = 0;
+    field_36 = 0;
+    field_38 = 250;
+    field_3C = 6;
+    field_40 = 30;
+    field_44 = 0;
+}
+
 // =============================================================================
 // IcewindCSpellHitVisual -- the on-ground detonation visual (SCAFFOLD).
 // Layout is recovered (see CProjectile.h); the bodies below are faithful stubs.
