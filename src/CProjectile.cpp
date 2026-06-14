@@ -4705,6 +4705,13 @@ void IcewindCProjectileSpellHit::OnArrival()
 
 // -----------------------------------------------------------------------------
 
+// 0x78E730 (vtable slot 34). Detonation hook -- a no-op in the spell-hit base and
+// every leaf (the binary folds all of them onto the shared empty 0x78E730). Present
+// for vtable layout; no recovered path invokes it. Name is a guess (see header).
+void IcewindCProjectileSpellHit::Explode()
+{
+}
+
 // 0x5703E0 (vtable slot 35). Base lifetime getter: echo the field_4C0 default,
 // ignoring the trailing effect's first-call byte. Subclasses override it to derive
 // the projectile's lifetime from that effect.

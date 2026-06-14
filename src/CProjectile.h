@@ -525,6 +525,13 @@ public:
     // 0x578480). No added behaviour.
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x56F3F0 (slot 19)
 
+    // First of the five spell-hit virtuals. A no-op in every family vtable (the
+    // COMDAT-folded empty 0x78E730), never overridden by a leaf and never called
+    // on the recovered Fire/AIUpdate/OnArrival/strike path -- declared only so the
+    // slots below land at their binary indices. Name guessed from the parallel
+    // slot-34 detonation hook on the CProjectileExploding branch.
+    virtual void Explode() /*#guess*/;                               // 0x78E730 (vtable slot 34, folded no-op)
+
     // Lifetime for a freshly fired projectile, given the trailing effect's
     // first-call byte. The base just echoes the field_4C0 default (0x5703E0 is a
     // one-line getter); a subclass overrides it to derive a duration.
