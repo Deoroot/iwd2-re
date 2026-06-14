@@ -4581,6 +4581,46 @@ void IcewindCProjectileSpellHit::AIUpdate()
 
 // -----------------------------------------------------------------------------
 
+// 0x56F410 (vtable slot 28). Arrival: when a call-back projectile was registered,
+// share it and run its CallBack hook, then flip into the detonation state
+// (field_2B6 = 1, which AIUpdate uses to start strike passes), drop the render
+// gate, and play the arrival sound.
+//
+// PARTIAL: the detonation FX that follow are documented stubs -- they spawn
+// through constructors not yet recovered. The field_56C tracker (0x5868E0), the
+// detonation visual carrier (0x56BF30 -- a 546-line CGameObject/CVidCell/CSound
+// composite gated by the three m_visual* slots), and the two looping area sounds
+// m_sound1/m_sound2 (an inlined CRes resource request poking the CSound's request
+// fields, gated by +0x4FA / +0x558) are omitted; their storage is left untouched.
+void IcewindCProjectileSpellHit::OnArrival()
+{
+    if (m_callBackProjectile != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pCallback;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_callBackProjectile,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pCallback,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+
+        static_cast<CProjectile*>(pCallback)->CallBack();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_callBackProjectile,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    field_2B6 = 1;
+    m_visible = 0;
+    PlaySound(m_arrivalSoundRef, m_loopArrivalSound, TRUE);
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x56FED0 (vtable slot 36). The gather pass: collect every m_targetType object
 // within m_type of m_pos (front list from the projectile's own vert-list node,
 // then the back list) with line of sight through m_terrainTable, then turn the
