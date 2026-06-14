@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include "CBaldurChitin.h"
+#include "CBaldurEngine.h"
+#include "CVidMode.h"
 #include "CGameEffect.h"
 #include "CGameArea.h"
 #include "CGameFireball3d.h"
@@ -5734,12 +5736,170 @@ IcewindCSpellHitEmissionRanged::IcewindCSpellHitEmissionRanged()
 // render -- is recovered in a later pass.
 // =============================================================================
 
-// 0x56BF30. Builds the detonation animation from the three emission-slot
-// descriptors, the impact position, the launch velocity and the lifetime.
-// STUB pending recovery.
-IcewindCSpellHitVisual::IcewindCSpellHitVisual(const CString&, const CString&, const CString&,
-    CGameArea*, const CPoint&, SHORT, BYTE, BYTE, SHORT)
+// 0x56BF30. Builds the on-ground detonation animation: loads the explosion BAM
+// into m_cell from the first emission slot, copies the other two emission slots
+// in, then rasterises two quarter-circle arcs (CVidMode::GetEllipseArcPixelList)
+// and stores, for every cell of the radial fan, the velocity vector normalised
+// to the launch speed -- replicated across the four quadrants -- before
+// registering the object and adding it to the area.
+IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& emission0,
+    const IcewindCSpellHitEmission& emission1, const IcewindCSpellHitEmissionRanged& emission2,
+    CGameArea* pArea, const CPoint& pos, SHORT nRange, BYTE nVelocity, BYTE a8, SHORT nDuration)
+    : m_palette(1 /* DAT_0085E84A */)
 {
+    field_29C = 0;
+    field_2A0 = 0;
+    field_28C = 0;
+    m_duration = nDuration;
+    field_288 = 0;
+    m_frameCount = static_cast<BYTE>((nRange - 1) / nVelocity) + 1;
+    field_18B = a8;
+
+    // Load the detonation BAM (CResCell, type 1000) and its header (CResCellHeader,
+    // type 1100) into m_cell from the first emission slot's resref.
+    if (emission0.field_8 == 0) {
+        field_2A0 = 0;
+    } else {
+        m_cell.SetResRef(CResRef(emission0.m_resref0), FALSE, TRUE, TRUE);
+        field_2A0 = 1;
+    }
+
+    m_visualEffect = emission0.m_visualEffect;
+    m_emission1 = emission1;
+    m_emission2 = emission2;
+
+    m_cell.SequenceSet(0);
+    m_cell.FrameSet(0);
+    field_7E = 0;
+    field_80 = 0;
+    field_1A0 = NULL;
+
+    // Allocate the per-cell pixel-run buffer sized for the full radius.
+    int nRadius = (nRange - 1) / 16;
+    field_18C = nRadius + 1;
+    field_190 = nRadius + 1;
+    field_194 = malloc((nRadius + 2 + nRadius + 1) * (nRadius + 2 + nRadius + 1));
+    if (field_194 == NULL) {
+        return;
+    }
+
+    // Rasterise the two arcs (half-radius major/minor axes); each call appends a
+    // run-length terminator and returns the run count.
+    int nHalf = (nRange - 1) / 32 + 1;
+    field_18C = nHalf;
+    field_190 = nHalf;
+    CBaldurEngine* pEngine = g_pBaldurChitin->GetActiveEngine();
+    int nRun1 = pEngine->pVidMode->GetEllipseArcPixelList(field_18C, nHalf,
+        static_cast<BYTE*>(field_194));
+    field_198 = nRun1 + 1;
+    static_cast<BYTE*>(field_194)[nRun1] = 1;
+
+    pEngine = g_pBaldurChitin->GetActiveEngine();
+    int nRun2 = pEngine->pVidMode->GetEllipseArcPixelList(field_190, field_18C,
+        static_cast<BYTE*>(field_194) + field_198);
+    field_19C = nRun2 + 1;
+    static_cast<BYTE*>(field_194)[field_198 + nRun2] = 1;
+
+    field_18C = (nRange - 1) / 16 + 1;
+    field_190 = field_18C;
+
+    // Velocity table: 16 bytes per cell, four quadrants.
+    field_1A0 = malloc((field_19C + field_198) * 0x40);
+    if (field_1A0 == NULL) {
+        return;
+    }
+    field_1A4 = malloc((field_19C + field_198) * 4);
+    if (field_1A4 == NULL) {
+        return;
+    }
+    memset(field_1A4, 0, (field_19C + field_198) * 4);
+
+    LONG* pVel = static_cast<LONG*>(field_1A0);
+    BYTE* pFlag = static_cast<BYTE*>(field_1A4);
+    BYTE* pArc = static_cast<BYTE*>(field_194);
+    LONG nStride = field_198 + field_19C;
+
+    LONG nCenterX = pos.x;
+    LONG nIsoY = (pos.y << 2) / 3;
+    LONG nCursorX = nCenterX;
+    LONG nCursorY = nRange + nIsoY;
+
+    for (SHORT i = 0; i < field_198; ++i) {
+        LONG dx = nCursorX - nCenterX;
+        LONG dy = nCursorY - nIsoY;
+        LONG dist = static_cast<LONG>(sqrt(static_cast<double>(dx * dx + dy * dy)));
+        LONG i0 = i;
+        LONG i1 = nStride + i;
+        LONG i2 = i + nStride * 2;
+        LONG i3 = i + nStride * 3;
+        pVel[i0 * 4 + 1] = 0;
+        pVel[i1 * 4 + 1] = 0;
+        pVel[i2 * 4 + 1] = 0;
+        pVel[i3 * 4 + 1] = 0;
+        pVel[i0 * 4] = 0;
+        pVel[i1 * 4] = 0;
+        pVel[i2 * 4] = 0;
+        pVel[i3 * 4] = 0;
+        LONG vx = (dx << 10) * nVelocity / dist;
+        pVel[i0 * 4 + 3] = vx;
+        pVel[i1 * 4 + 3] = vx;
+        if (vx == 0) {
+            pFlag[i2] = 2;
+            pFlag[i3] = 2;
+        }
+        pVel[i2 * 4 + 3] = -vx;
+        pVel[i3 * 4 + 3] = -vx;
+        LONG vy = (dy << 10) * nVelocity / dist;
+        pVel[i0 * 4 + 2] = vy;
+        pVel[i1 * 4 + 2] = -vy;
+        pVel[i2 * 4 + 2] = vy;
+        pVel[i3 * 4 + 2] = -vy;
+        nCursorX += 16 * 2;
+        nCursorY -= pArc[i] * 12 * 2;
+    }
+
+    nCursorX = nRange + nCenterX;
+    nCursorY = nIsoY;
+    for (SHORT i = 0; i < field_19C; ++i) {
+        LONG dy = nCursorY - nIsoY;
+        LONG dx = nCursorX - nCenterX;
+        LONG dist = static_cast<LONG>(sqrt(static_cast<double>(dx * dx + dy * dy)));
+        LONG j0 = field_198 + i;
+        LONG j1 = field_19C + field_198 * 2 + i;
+        LONG j2 = i + nStride * 2 + field_198;
+        LONG j3 = i + nStride * 3 + field_198;
+        pVel[j0 * 4 + 1] = 0;
+        pVel[j1 * 4 + 1] = 0;
+        pVel[j2 * 4 + 1] = 0;
+        pVel[j3 * 4 + 1] = 0;
+        pVel[j0 * 4] = 0;
+        pVel[j1 * 4] = 0;
+        pVel[j2 * 4] = 0;
+        pVel[j3 * 4] = 0;
+        LONG vx = (dx << 10) * nVelocity / dist;
+        pVel[j0 * 4 + 3] = vx;
+        pVel[j1 * 4 + 3] = vx;
+        pVel[j2 * 4 + 3] = -vx;
+        pVel[j3 * 4 + 3] = -vx;
+        LONG vy = (dy << 10) * nVelocity / dist;
+        pVel[j0 * 4 + 2] = vy;
+        pVel[j1 * 4 + 2] = -vy;
+        pVel[j2 * 4 + 2] = vy;
+        pVel[j3 * 4 + 2] = -vy;
+        if (pVel[i * 4 + 2] == 0) {
+            pFlag[j1] = 2;
+            pFlag[j3] = 2;
+        }
+        nCursorX -= pArc[field_198 + i] * 16 * 2;
+        nCursorY += 12 * 2;
+    }
+
+    memcpy(m_terrainTable, CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE, sizeof(m_terrainTable));
+
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        == CGameObjectArray::SUCCESS) {
+        AddToArea(pArea, pos, 0, 0 /* DAT_0084C50C */);
+    }
 }
 
 // 0x56CEE0 (vtable slot 0). STUB pending recovery.

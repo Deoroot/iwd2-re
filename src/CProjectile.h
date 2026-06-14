@@ -878,21 +878,23 @@ static_assert(sizeof(IcewindCSpellHitEmissionRanged) == 0x46,
 #pragma pack(push, 2)
 class IcewindCSpellHitVisual /*#guess*/ : public CGameObject {
 public:
-    // Args mirror the 0x56BF30 __thiscall: the three emission-slot descriptors,
-    // the area, the impact point, the range/frame seed, the launch velocity, a
-    // global byte (DAT_0085BD6D) and the lifetime. The descriptor type (a
-    // resref plus tint/copy-from-back/transparency words, the projectile's
-    // own) is not yet named; typed as CString here pending recovery.
-    IcewindCSpellHitVisual(const CString& visual0 /*#guess*/, const CString& visual1 /*#guess*/,
-                           const CString& visual2 /*#guess*/, CGameArea* pArea, const CPoint& pos,
-                           SHORT nRange, BYTE nVelocity, BYTE a8, SHORT nDuration);   // 0x56BF30
+    // Args mirror the 0x56BF30 __thiscall: the three emission-slot descriptors
+    // (emission0 supplies the detonation BAM + its visual-effect params;
+    // emission1/emission2 are copied in whole), the area, the impact point, the
+    // range/frame seed, the launch velocity, a global byte (DAT_0085BD6D) and
+    // the lifetime.
+    IcewindCSpellHitVisual(const IcewindCSpellHitEmission& emission0,
+                           const IcewindCSpellHitEmission& emission1,
+                           const IcewindCSpellHitEmissionRanged& emission2, CGameArea* pArea,
+                           const CPoint& pos, SHORT nRange, BYTE nVelocity, BYTE a8,
+                           SHORT nDuration);   // 0x56BF30
     ~IcewindCSpellHitVisual() override;   // 0x56CEE0 (vtable slot 0)
 
     void AIUpdate() override;        // 0x56D0A0 (slot 3)
     void RemoveFromArea() override;  // 0x56D9B0 (slot 18)
     void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;   // 0x56D730 (slot 19)
 
-    /* 006E */ BYTE field_6E[0x10];
+    /* 006E */ BYTE m_terrainTable[16];   // seeded from CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE
     /* 007E */ SHORT field_7E;            // ctor: 0
     /* 0080 */ SHORT field_80;            // ctor: 0
     /* 0082 */ BYTE field_82[8];
