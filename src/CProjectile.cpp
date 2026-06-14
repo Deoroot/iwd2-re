@@ -6292,15 +6292,20 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
 // 0x56E260 (vtable slot 0 -- MSVC emits the scalar-deleting wrapper there; the
 // destructor body proper is 0x56E580). Releases the shared cell object the ctor
 // referenced (refcount at +0x10; when it reaches zero, free its buffer and the
-// object) and deletes the detonation animation. The CSound, the embedded
-// CGameAnimation and the CGameObject base destruct automatically.
+// object). The detonation animation, the CSound, the embedded CGameAnimation
+// and the CGameObject base destruct automatically (the inlined
+// CGameAnimation::~CGameAnimation is what frees the CGameAnimationTypeEffect).
 IcewindCSpellHitParticle::~IcewindCSpellHitParticle()
 {
     if (m_cellPool != NULL && --m_cellPool->m_refCount == 0) {
         delete m_cellPool;
     }
 
-    delete m_animation.m_animation;
+    // m_animation (embedded CGameAnimation) auto-destructs and deletes its own
+    // m_animation pointer (CGameAnimation::~CGameAnimation, NULL-checked). The
+    // binary inlines exactly that one delete; deleting it explicitly here too
+    // double-frees the CGameAnimationTypeEffect -> 0xDDDDDDDD use-after-free read
+    // in ~CGameAnimation when the member dtor then runs on the freed pointer.
 }
 
 // 0x56E650 (vtable slot 3). Drives the particle: drift along m_posDelta, then on
