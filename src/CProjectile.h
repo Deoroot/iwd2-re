@@ -505,6 +505,11 @@ public:
     IcewindCProjectileSpellHit(SHORT nType);   // 0x56EDD0
     ~IcewindCProjectileSpellHit() override;     // 0x56F1F0 (deleting thunk 0x56F070, vtable slot 0)
 
+    // Per-tick update: fly to the target (snap or home), then on detonation run
+    // a strike pass every field_4D8 ticks until field_4C0 expires. Frozen by Time
+    // Stop unless this is the time-stop caster's own projectile.
+    void AIUpdate() override;                                                   // 0x56FAF0 (slot 3)
+
     // Pure forwarder to the family Render (0x578480); the leaf still owns vtable
     // slot 19 so the slot pointer matches the binary (0x56F3F0, not the inherited
     // 0x578480). No added behaviour.

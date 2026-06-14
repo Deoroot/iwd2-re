@@ -4513,6 +4513,74 @@ void IcewindCProjectileSpellHit::Render(CGameArea* pArea, CVidMode* pVidMode, in
 
 // -----------------------------------------------------------------------------
 
+// 0x56FAF0 (vtable slot 3). The spell-hit family's per-tick update. Frozen by
+// Time Stop unless this projectile belongs to the time-stop caster. While
+// travelling (field_2B6 == 0) it flies toward the target point: snapping there
+// instantly when field_4E0 is clear, otherwise homing in by m_velocity per tick
+// (advancing m_pVidCell, re-aiming, dragging the travel sound) until it reaches
+// the arrival radius, then OnArrival. Once detonating (field_2B6 != 0) it advances
+// its two vid cells, runs a strike pass every field_4D8 ticks (gather the due
+// victims, strike each), loops its area sound, and removes itself when the
+// field_4C0 lifetime expires.
+void IcewindCProjectileSpellHit::AIUpdate()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    if (field_2B6 == 0) {
+        if (field_4E0 == 0) {
+            m_pos.x = m_targetX;
+            m_pos.y = m_targetY;
+            OnArrival();
+            return;
+        }
+
+        m_pVidCell->FrameAdvance();
+
+        int dy = m_targetY - m_pos.y;
+        int dx = m_targetX - m_pos.x;
+        int radius = m_velocity + 1;
+        if (radius * radius < (dy * dy * 16) / 9 + dx * dx) {
+            AimAtPoint(m_targetX, m_targetY);
+            // Trailing sparkle sub-emitter (m_bSparkleTrail) via the unrecovered
+            // factory 0x51AE40 -- omitted like the same documented stub in
+            // CProjectileTravelling::AIUpdate.
+            m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+            return;
+        }
+
+        OnArrival();
+        return;
+    }
+
+    if (field_304 != 0) {
+        m_cell1.FrameAdvance();
+    }
+    if (field_3E2 != 0) {
+        m_cell2.FrameAdvance();
+    }
+
+    if (--field_4D8 < 1) {
+        std::list<LONG> due = GatherTargets();
+        Strike(due);
+        field_4D8 = field_4D4;
+    }
+
+    // +0x558 sound-loop gate (inside the guessed m_visual3 slot): keep the area
+    // sound looping while it is set and not already playing.
+    if (m_visual3.m_resB.m_nameLen != 0 && !m_sound2.IsSoundPlaying()) {
+        m_sound2.Play(m_pos.x, m_pos.y, 0, 0);
+    }
+
+    if (--field_4C0 < 1) {
+        RemoveSelf();
+    }
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x56FED0 (vtable slot 36). The gather pass: collect every m_targetType object
 // within m_type of m_pos (front list from the projectile's own vert-list node,
 // then the back list) with line of sight through m_terrainTable, then turn the
