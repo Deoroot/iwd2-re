@@ -5980,6 +5980,46 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
     }
 }
 
+// 0x56DF00. The m_emission1 sibling of the 0x56E280 ctor: same particle setup
+// from the plainer IcewindCSpellHitEmission, which carries no shared cell object
+// (field_104..field_10D are cleared rather than copied from the descriptor).
+IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmission& descriptor,
+    CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
+    BYTE mode9)
+{
+    m_animatorVtable = NULL;
+    field_86 = 0;
+    field_104 = NULL;
+    field_108 = 0;
+    field_10C = 0;
+    field_10D = 0;
+    field_10E = 0;
+
+    SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
+    m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
+
+    m_sound.SetResRef(CResRef(descriptor.m_resref1), TRUE, TRUE);
+    m_sound.SetChannel(0xE, reinterpret_cast<DWORD>(pArea));
+
+    field_88 = 1;
+    m_animPos = pos;
+    m_animVelocity = velocity;
+    field_9C = a7;
+    m_mode8 = mode8;
+    m_mode9 = mode9;
+
+    memcpy(m_terrainTable, CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE, sizeof(m_terrainTable));
+
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        == CGameObjectArray::SUCCESS) {
+        CPoint scaledPos(pos.x >> (CGameSprite::EXACT_SCALE & 0x1F),
+            pos.y >> (CGameSprite::EXACT_SCALE & 0x1F));
+        AddToArea(pArea, scaledPos, a5, CGameObject::LIST_FRONT);
+    }
+    // else: registration failed -> the binary self-deletes via vtable slot 0;
+    // omitted here (matches the IcewindCSpellHitVisual ctor).
+}
+
 // 0x56E280. Builds one travelling particle of the detonation fan from the
 // parent's m_emission2 descriptor (the 0x56DF00 sibling builds it from the
 // plainer m_emission1). Loads the impact sound, seeds the particle's motion

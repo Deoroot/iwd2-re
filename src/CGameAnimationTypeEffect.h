@@ -5,13 +5,15 @@
 #include "CVidCell.h"
 #include "IcewindCVisualEffect.h"
 
+struct IcewindCSpellHitEmission;
 struct IcewindCSpellHitEmissionRanged;
 
 class CGameAnimationTypeEffect : public CGameAnimationType {
 public:
     CGameAnimationTypeEffect(USHORT animationID, BYTE* colorRangeValues, WORD facing);
-    // Spell-hit detonation overload: builds the per-particle animation from an
+    // Spell-hit detonation overloads: build the per-particle animation from an
     // IcewindCSpellHitVisual emission descriptor + launch direction.
+    CGameAnimationTypeEffect(const IcewindCSpellHitEmission& descriptor, WORD facing);          // 0x55CD70
     CGameAnimationTypeEffect(const IcewindCSpellHitEmissionRanged& descriptor, WORD facing);   // 0x55D3A0
     /* 0000 */ ~CGameAnimationTypeEffect() override;
     /* 0004 */ void CalculateFxRect(CRect& rFx, CPoint& ptReference, LONG posZ) override;

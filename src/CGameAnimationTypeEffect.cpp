@@ -6,6 +6,61 @@
 #include "CProjectile.h"
 #include "CUtil.h"
 
+// 0x55CD70. Spell-hit detonation overload for the plainer IcewindCSpellHitEmission
+// (the 0x55D3A0 twin handles the IcewindCSpellHitEmissionRanged descriptor). It is
+// identical except this emission carries no field_36 (field_5E8 = 0) and its
+// random-sequence opt-in comes from field_2C rather than field_35.
+CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmission& descriptor,
+    WORD facing)
+    : m_palette(CVidPalette::TYPE_RANGE)
+{
+    field_5F6 = static_cast<BYTE>(facing);
+    field_5FA = NULL;
+    field_5FE = 0;
+    field_602 = 0;
+    field_5DE = 0;
+    m_translucent = 0;
+    field_5E1 = 0;
+    m_currentBamSequence = 0;
+    m_currentBamDirection = 0;
+    m_extendDirectionTest = 0;
+    m_animationID = 0;
+    m_visualEffect = descriptor.m_visualEffect;
+    field_5E8 = 0;
+    field_5E7 = descriptor.field_2C;
+    m_colorChunks = -1;
+    m_bRender = TRUE;
+    m_pSndDeath = "";
+
+    if (descriptor.field_8 == 0) {
+        m_g1VidCell.SetResRef(CResRef("GreaseA"), FALSE, TRUE, TRUE);
+    } else {
+        m_g1VidCell.SetResRef(CResRef(descriptor.m_resref0), FALSE, TRUE, TRUE);
+
+        if (field_5E7 == 1) {
+            BYTE cnt = static_cast<BYTE>(m_g1VidCell.GetNumberSequences(FALSE));
+            if (cnt != 0) {
+                m_currentBamSequence = static_cast<SHORT>(rand() % cnt);
+            } else {
+                m_currentBamSequence = 0;
+            }
+        } else {
+            m_currentBamSequence = 0;
+        }
+        m_g1VidCell.SequenceSet(m_currentBamSequence);
+        m_g1VidCell.FrameSet(0);
+
+        // The descriptor's resref name is copied into a scratch buffer here via
+        // the 0x44BC20 / 0x44BC00 allocator pair; pending recovery of those
+        // helpers field_5FA is left NULL.
+    }
+
+    m_currentVidCell = &m_g1VidCell;
+    m_currentVidCellShadow = NULL;
+    m_currentBamDirection = facing;
+    m_extendDirectionTest = CGameSprite::DIR_N;
+}
+
 // 0x55D3A0. Spell-hit detonation overload: builds one detonation-fan particle's
 // animation from an IcewindCSpellHitVisual emission descriptor and the launch
 // direction. Loads the detonation BAM into m_g1VidCell (the descriptor's

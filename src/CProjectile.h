@@ -966,13 +966,17 @@ static_assert(sizeof(IcewindCSpellHitVisual) - sizeof(CGameObject) == 0x2A2 - 0x
 #pragma pack(push, 2)
 class IcewindCSpellHitParticle /*#guess*/ : public CGameObject {
 public:
-    // Args mirror the 0x56E280 __thiscall: the spawn descriptor (the parent's
-    // m_emission2 -- its m_resref1 is the impact sound, field_2C a shared cell
-    // object), the area, the impact point, an AddToArea insert flag, the launch
-    // velocity (also seeds the BAM direction via CGameSprite::GetDirection) and
-    // the two mode bytes the parent's wall-bounce logic reads back. The 0x56DF00
-    // sibling takes the plainer IcewindCSpellHitEmission instead -- that is the
-    // overload split.
+    // Two ctors, one per emission slot the parent's AIUpdate spawns from. Args
+    // mirror the __thiscall: the spawn descriptor, the area, the impact point, an
+    // AddToArea insert flag, the launch velocity (also seeds the BAM direction via
+    // CGameSprite::GetDirection) and the two mode bytes the parent's wall-bounce
+    // logic reads back. The descriptor type is the overload split: the
+    // IcewindCSpellHitEmissionRanged form (m_emission2) also references a shared
+    // cell object via field_2C; the plainer IcewindCSpellHitEmission form
+    // (m_emission1) does not.
+    IcewindCSpellHitParticle(const IcewindCSpellHitEmission& descriptor, CGameArea* pArea,
+                             const CPoint& pos, int a5 /*#guess*/, const CPoint& velocity,
+                             SHORT a7, BYTE mode8, BYTE mode9);   // 0x56DF00
     IcewindCSpellHitParticle(const IcewindCSpellHitEmissionRanged& descriptor, CGameArea* pArea,
                              const CPoint& pos, int a5 /*#guess*/, const CPoint& velocity,
                              SHORT a7, BYTE mode8, BYTE mode9);   // 0x56E280
