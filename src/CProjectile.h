@@ -844,11 +844,11 @@ struct IcewindCSpellHitEmissionRanged /*#guess*/ {
     /* 0x3C */ INT     field_3C;      // ctor: 6
     /* 0x40 */ INT     field_40;      // ctor: 30 (0x1E)
     /* 0x44 */ BYTE    field_44;      // ctor: 0
-    /* 0x45 */ BYTE    _pad45[9];
+    /* 0x45 */ BYTE    _pad45;
 };
 #pragma pack(pop)
-static_assert(sizeof(IcewindCSpellHitEmissionRanged) == 0x4E,
-    "IcewindCSpellHitEmissionRanged must match the IWD2.exe 0x56FE30 layout (0x4E)");
+static_assert(sizeof(IcewindCSpellHitEmissionRanged) == 0x46,
+    "IcewindCSpellHitEmissionRanged must match the IWD2.exe 0x56FE30 layout (0x46)");
 
 // CGameObject leaf 0x56BF30 -- the on-ground detonation visual that
 // IcewindCProjectileSpellHit::OnArrival spawns when the projectile arrives. It
@@ -911,9 +911,11 @@ public:
     /* 01A0 */ void* field_1A0;
     /* 01A4 */ void* field_1A4;
     /* 01A8 */ CSound m_sound;            // sub-ctor 0x7A8BB0
-    /* 020C */ void* field_20C;           // = PTR_DAT_008C1758
+    /* 020C */ CString field_20C;         // default-constructs empty (binary stores afxNil)
     /* 0210 */ IcewindCSpellHitEmission m_emission1;        // sub-ctor 0x56FDC0
     /* 0242 */ IcewindCSpellHitEmissionRanged m_emission2;  // sub-ctor 0x56FE30
+    /* 0288 */ INT field_288;             // ctor: 0
+    /* 028C */ INT field_28C;             // ctor: 0
     /* 0290 */ IcewindCVisualEffect m_visualEffect;   // sub-ctor 0x586A40
     /* 029C */ LONG field_29C;
     /* 02A0 */ BYTE field_2A0;
