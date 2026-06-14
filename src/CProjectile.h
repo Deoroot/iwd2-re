@@ -1,6 +1,7 @@
 #ifndef CPROJECTILE_H_
 #define CPROJECTILE_H_
 
+#include <set>
 #include <vector>
 
 #include "CGameEffectList.h"
@@ -485,11 +486,16 @@ protected:
 // IcewindCVisualEffect) and two sounds, then broadcasts the projectile type byte
 // across the per-slot flag fields.
 //
-// Two embedded list-bearing sub-objects -- m_miniA (+0x4C4, ctor 0x570D50) and
-// m_miniB (+0x64E, ctor 0x4C4A90; shared with the CPersistantEffect copies) --
-// are not yet recovered: their list initialisation is faithfully omitted and
-// only the scalar fields the ctor stamps directly are reproduced. The opaque
-// bytes around them are explicit padding so the named fields keep their offsets.
+// Two embedded associative containers (VC6 _Tree, 16 bytes each in the binary):
+//   m_miniA (+0x4C4, ctor 0x570D50, shared nil DAT_008e3e38)  = std::map<LONG, X>
+//     -- per-target re-strike interval clock, populated only by persistent /
+//        re-striking AoEs; left opaque for now because our VS2019 _Tree is 8/12B
+//        (not 16B) so declaring it would drift every field below it to m_miniB.
+//   m_miniB (+0x64E, ctor 0x4C4A90, shared nil DAT_008d48b4) = std::set<LONG>
+//     -- already-struck-target dedup set (declared below; it is the final member
+//        so the by-name size drift touches nothing else).
+// The base ctor stamps the two _Alval padding bytes (= type byte, don't-care) and
+// the _Multi flag (= 0) of each; the container ctors fill _Myhead / _Mysize.
 class IcewindCProjectileSpellHit /*#guess*/ : public IcewindCProjectileTravellingVFX {
 public:
     IcewindCProjectileSpellHit(SHORT nType);   // 0x56EDD0
@@ -548,13 +554,17 @@ protected:
     /* 03E2 */ LONG          field_3E2;
     /* 03E6 */ CVidCell      m_cell2;
     /* 04C0 */ LONG          field_4C0;      // = 0x2D
-    // m_miniA -- list-bearing sub-object (ctor 0x570D50 unrecovered); only the
-    // bytes the parent ctor stamps are named, the rest is opaque padding.
-    /* 04C4 */ BYTE          m_miniA_field0; // = (BYTE)nType
-    /* 04C5 */ BYTE          m_miniA_field1; // = (BYTE)nType
-    /* 04C6 */ BYTE          _padA0[6];
-    /* 04CC */ BYTE          m_miniA_field8; // = 0
-    /* 04CD */ BYTE          _padA1[7];
+    // m_miniA -- std::map<LONG, X> (ctor 0x570D50) kept as opaque 16-byte storage
+    // (see the class header): the parent stamps the two _Alval bytes (+0x4C4/+0x4C5
+    // = type byte) and the _Multi flag (+0x4CC = 0); the map ctor fills _Myhead
+    // (+0x4C8) and _Mysize (+0x4D0). Not typed yet -- our _Tree is 8/12B, so the
+    // real member would shift every field down to m_miniB. Defer until a
+    // re-striking AoE actually needs the map.
+    /* 04C4 */ BYTE          m_miniA_field0; // _Alval pad = (BYTE)nType
+    /* 04C5 */ BYTE          m_miniA_field1; // _Alval pad = (BYTE)nType
+    /* 04C6 */ BYTE          _padA0[6];      // +0x4C8 = _Myhead (set by 0x570D50)
+    /* 04CC */ BYTE          m_miniA_field8; // _Multi = 0
+    /* 04CD */ BYTE          _padA1[7];      // +0x4D0 = _Mysize (set by 0x570D50)
     /* 04D4 */ LONG          field_4D4;      // = 10000
     /* 04D8 */ LONG          field_4D8;      // = 0
     /* 04DC */ LONG          field_4DC;      // = 10
@@ -579,12 +589,13 @@ protected:
     /* 0585 */ BYTE          _pad585;
     /* 0586 */ CSound        m_sound1;
     /* 05EA */ CSound        m_sound2;
-    // m_miniB -- second list-bearing sub-object (ctor 0x4C4A90 unrecovered).
-    /* 064E */ BYTE          m_miniB_field0; // = (BYTE)nType
-    /* 064F */ BYTE          m_miniB_field1; // = (BYTE)nType
-    /* 0650 */ BYTE          _padB0[6];
-    /* 0656 */ BYTE          m_miniB_field8; // = 0
-    /* 0657 */ BYTE          _padB1;
+    // m_miniB -- already-struck-target dedup set (binary: std::set<LONG>, ctor
+    // 0x4C4A90 via shared nil DAT_008d48b4, Find 0x570620, teardown 0x5370C0).
+    // A strike pass looks up each gathered target here before delivering, so a
+    // target is hit at most once per pass; stays empty for one-shot AoEs
+    // (fireball -- every target struck once). Final member, so the VS2019-vs-VC6
+    // _Tree size drift (8/12B vs 16B) moves nothing else.
+    /* 064E */ std::set<LONG> m_miniB;
 };
 
 // Leaf 0x57F640 -- the wandering tornado (WhirlwX BAM; DecodeProjectile

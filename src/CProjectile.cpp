@@ -4357,10 +4357,10 @@ void IcewindCProjectileTravellingVFX::UpdateDirectionSequence(CVidCell* pCell)
 // 0x56EDD0
 // Base ctor for the spell-hit / area-of-effect projectile family. Flies the
 // invisible "SPMAGMIS" carrier, targets anyone, and broadcasts the projectile
-// type byte across the per-slot flag fields. The two embedded list sub-objects
-// (m_miniA via 0x570D50, m_miniB via 0x4C4A90) are constructed by the binary
-// here; that list initialisation is not yet recovered and is faithfully omitted
-// -- only the scalar fields the ctor sets directly are reproduced. The six
+// type byte across the per-slot flag fields. The dedup set m_miniB (binary ctor
+// 0x4C4A90) is a real std::set now, so it default-constructs implicitly; the
+// re-strike map m_miniA (0x570D50) is still opaque storage, its construction
+// faithfully omitted (this model never populates it). The six
 // refcounted resource-name strings start empty, cleared the way 0x448D50 clears
 // fresh storage (zero pointer/length/capacity, no share-count release). The
 // embedded CAIObjectType, two CVidCells, three IcewindCVisualEffects and two
@@ -4441,10 +4441,9 @@ IcewindCProjectileSpellHit::IcewindCProjectileSpellHit(SHORT nType)
     field_580 = 0x1E;
     field_584 = 0;
 
-    // m_miniB scalar fields.
-    m_miniB_field0 = typeByte;
-    m_miniB_field1 = typeByte;
-    m_miniB_field8 = 0;
+    // m_miniB (std::set) default-constructs here -- the binary's stamps of its
+    // two _Alval pad bytes (= type byte, don't-care) and _Multi flag (= 0) are
+    // subsumed by the std::set ctor (0x4C4A90), which also sets _Myhead/_Mysize.
 }
 
 // -----------------------------------------------------------------------------
@@ -4496,9 +4495,10 @@ void IcewindCProjectileSpellHit::ResName::Set(const char* name)
 // reverse order (the binary calls the shared clear 0x448D50 for the three "B"
 // names and inlines the three "A" names); the two CSounds, two CVidCells and the
 // CAIObjectType target filter then destroy implicitly, then the base subobject.
-// The two list-bearing sub-objects m_miniB (teardown 0x5370C0) and m_miniA
-// (inlined list release) are constructed by unrecovered ctors, so their teardown
-// is faithfully omitted -- this model never allocates their lists.
+// m_miniB (std::set) now destroys implicitly too, reproducing the binary's set
+// teardown (0x5370C0, the reverse-order first call). The re-strike map m_miniA
+// stays opaque storage, so its inline teardown (0x570D50's nodes + the shared-nil
+// release at DAT_008e3e38) is faithfully omitted -- this model never fills it.
 IcewindCProjectileSpellHit::~IcewindCProjectileSpellHit()
 {
     m_visual3.m_resB.Release();
