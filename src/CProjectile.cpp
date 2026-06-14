@@ -5979,21 +5979,55 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
     }
 }
 
-// 0x56E280. Builds one travelling particle of the detonation fan from a parent
-// cell-spawn descriptor (the 0x56DF00 sibling decodes its BAM differently).
-// STUB pending recovery.
-IcewindCSpellHitParticle::IcewindCSpellHitParticle(const void* pCellDescriptor, CGameArea* pArea,
-                                                   const CPoint& pos, int a5, const CPoint& velocity,
-                                                   SHORT a7, BYTE mode8, BYTE mode9)
+// 0x56E280. Builds one travelling particle of the detonation fan from the
+// parent's m_emission2 descriptor (the 0x56DF00 sibling builds it from the
+// plainer m_emission1). Loads the impact sound, seeds the particle's motion
+// state from the launch parameters, registers the object and adds it to the
+// area, taking a reference on the descriptor's shared cell object.
+IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissionRanged& descriptor,
+    CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
+    BYTE mode9)
 {
-    (void)pCellDescriptor;
-    (void)pArea;
-    (void)pos;
-    (void)a5;
-    (void)velocity;
-    (void)a7;
-    (void)mode8;
-    (void)mode9;
+    m_animatorVtable = NULL;
+    m_animation = NULL;
+    field_86 = 0;
+    field_10E = 0;
+
+    // Decode the directional detonation BAM for this particle's launch direction
+    // into m_animation. Pending recovery of the directional BAM builder at
+    // 0x55D3A0 (it allocates a 0x606 scratch buffer, takes the velocity-derived
+    // direction from CGameSprite::GetDirection(CPoint(0,0), velocity) and builds
+    // the CGameAnimationType / CVidCell / palette), m_animation is left NULL and
+    // the embedded animator's vtable (0x84F1B8) is not yet installed.
+
+    m_sound.SetResRef(CResRef(descriptor.m_resref1), TRUE, TRUE);
+    m_sound.SetChannel(0xE, reinterpret_cast<DWORD>(pArea));
+
+    field_88 = 1;
+    m_animPos = pos;
+    m_animVelocity = velocity;
+    field_9C = a7;
+    m_mode8 = mode8;
+    m_mode9 = mode9;
+
+    memcpy(m_terrainTable, CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE, sizeof(m_terrainTable));
+
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        == CGameObjectArray::SUCCESS) {
+        CPoint scaledPos(pos.x >> (CGameSprite::EXACT_SCALE & 0x1F),
+            pos.y >> (CGameSprite::EXACT_SCALE & 0x1F));
+        AddToArea(pArea, scaledPos, a5, CGameObject::LIST_FRONT);
+
+        // Reference the descriptor's shared cell object (refcount at +0x10) and
+        // copy its trailing parameters.
+        field_104 = reinterpret_cast<void*>(descriptor.field_2C);
+        ++*reinterpret_cast<LONG*>(static_cast<BYTE*>(field_104) + 0x10);
+        field_108 = descriptor.field_30;
+        field_10C = static_cast<BYTE>(descriptor.field_34);
+        field_10D = static_cast<BYTE>(descriptor.field_44);
+    }
+    // else: registration failed -> the binary self-deletes via vtable slot 0;
+    // omitted here (matches the IcewindCSpellHitVisual ctor).
 }
 
 // 0x56E260 (vtable slot 0). STUB pending recovery.

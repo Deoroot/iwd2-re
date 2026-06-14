@@ -965,12 +965,14 @@ static_assert(sizeof(IcewindCSpellHitVisual) - sizeof(CGameObject) == 0x2A2 - 0x
 #pragma pack(push, 2)
 class IcewindCSpellHitParticle /*#guess*/ : public CGameObject {
 public:
-    // Args mirror the 0x56E280 __thiscall: the per-cell spawn descriptor
-    // (resref at +0x14, shared cell object at +0x2C), the area, the impact
-    // point, an AddToArea insert flag, the launch velocity (also seeds the BAM
-    // direction via CGameSprite::GetDirection) and the two mode bytes that the
-    // parent's wall-bounce logic reads back.
-    IcewindCSpellHitParticle(const void* pCellDescriptor /*#guess*/, CGameArea* pArea,
+    // Args mirror the 0x56E280 __thiscall: the spawn descriptor (the parent's
+    // m_emission2 -- its m_resref1 is the impact sound, field_2C a shared cell
+    // object), the area, the impact point, an AddToArea insert flag, the launch
+    // velocity (also seeds the BAM direction via CGameSprite::GetDirection) and
+    // the two mode bytes the parent's wall-bounce logic reads back. The 0x56DF00
+    // sibling takes the plainer IcewindCSpellHitEmission instead -- that is the
+    // overload split.
+    IcewindCSpellHitParticle(const IcewindCSpellHitEmissionRanged& descriptor, CGameArea* pArea,
                              const CPoint& pos, int a5 /*#guess*/, const CPoint& velocity,
                              SHORT a7, BYTE mode8, BYTE mode9);   // 0x56E280
     ~IcewindCSpellHitParticle() override;   // 0x56E260 (vtable slot 0)
@@ -980,12 +982,19 @@ public:
     void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;   // 0x56EA90 (slot 19)
 
     /* 006E */ BYTE m_terrainTable[16];   // seeded from CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE
-    // Embedded CGameAnimation-derived BAM animator (own vtable 0x84F1B8): vptr
-    // @0x7E, m_animation handle @0x82 (FUN_0055D3A0 decode), short @0x86,
-    // flag @0x88 (=1), pos @0x8C/0x90, velocity @0x94/0x98, short @0x9C,
-    // mode bytes @0x9E/0x9F. Split into named members when 0x84F1B8 is mapped.
-    /* 007E */ BYTE m_animator[0x22];
-    /* 00A0 */ CSound m_sound;            // sub-ctor 0x7A8BB0; SetChannel(0xE); caches resref @0xA4..0xB0
+    // Embedded CGameAnimation-derived BAM animator (own vtable 0x84F1B8, slot 0
+    // CalculateGCBoundsRect at 0x56E210 forwards to m_animation). The 0x56E280
+    // ctor builds it inline; field roles below are recovered from that ctor.
+    /* 007E */ void*  m_animatorVtable;    // = &vtable 0x84F1B8 (installed with the sub-object recovery)
+    /* 0082 */ void*  m_animation;         // directional BAM handle (FUN_0055D3A0 result)
+    /* 0086 */ SHORT  field_86;            // ctor: 0
+    /* 0088 */ INT    field_88;            // ctor: 1
+    /* 008C */ CPoint m_animPos;           // impact point (ctor param)
+    /* 0094 */ CPoint m_animVelocity;      // launch velocity (ctor param)
+    /* 009C */ SHORT  field_9C;            // ctor param a7
+    /* 009E */ BYTE   m_mode8;             // ctor param (read back by the parent's wall-bounce logic)
+    /* 009F */ BYTE   m_mode9;             // ctor param
+    /* 00A0 */ CSound m_sound;            // CResHelper<CResWave,4>; impact sound from descriptor.m_resref1, channel 0xE
     /* 0104 */ void* field_104;           // shared cell object from descriptor +0x2C (refcount++ at +0x10)
     /* 0108 */ INT   field_108;           // = descriptor +0x30
     /* 010C */ BYTE  field_10C;           // = descriptor +0x34
