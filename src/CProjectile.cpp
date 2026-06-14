@@ -4704,6 +4704,42 @@ void IcewindCProjectileSpellHit::OnArrival()
     field_2B6 = 1;
     m_visible = 0;
     PlaySound(m_arrivalSoundRef, m_loopArrivalSound, TRUE);
+
+    // The three visual slots are the detonation's spell-hit emission descriptors
+    // (their ResName/visual-effect prefix plus the trailing flag fields the visual
+    // ctor copies in whole).
+    const IcewindCSpellHitEmission& emission0 =
+        reinterpret_cast<const IcewindCSpellHitEmission&>(m_visual1);
+    const IcewindCSpellHitEmission& emission1 =
+        reinterpret_cast<const IcewindCSpellHitEmission&>(m_visual2);
+    IcewindCSpellHitEmissionRanged& emission2 =
+        reinterpret_cast<IcewindCSpellHitEmissionRanged&>(m_visual3);
+
+    // The ranged slot owns the shared fan-cell pool the visual and its particles share.
+    if (emission2.field_8 != 0) {
+        emission2.m_cellPool = new IcewindCSpellHitCellPool();
+    }
+
+    // Spawn the on-ground detonation visual when any emission slot is active.
+    if (emission1.field_8 != 0 || emission2.field_8 != 0 || emission0.field_8 != 0) {
+        new IcewindCSpellHitVisual(emission0, emission1, emission2, m_pArea, m_pos, m_type,
+            static_cast<BYTE>(m_velocity), CGameTemporal::COLLISION_DESTROY,
+            static_cast<SHORT>(field_4C0));
+    }
+
+    // Impact one-shot from the first slot's second resref.
+    if (emission0.field_18 != 0) {
+        m_sound1.SetResRef(CResRef(emission0.m_resref1), TRUE, TRUE);
+        m_sound1.SetChannel(0xE, reinterpret_cast<DWORD>(m_pArea));
+        m_sound1.Play(m_pos.x, m_pos.y, 0, FALSE);
+    }
+
+    // Looping ambience from the ranged slot's second resref.
+    if (emission2.field_18 != 0) {
+        m_sound2.SetResRef(CResRef(emission2.m_resref1), TRUE, TRUE);
+        m_sound2.SetLoopingFlag(TRUE);
+        m_sound2.SetChannel(0xE, reinterpret_cast<DWORD>(m_pArea));
+    }
 }
 
 // -----------------------------------------------------------------------------

@@ -513,8 +513,9 @@ public:
     void AIUpdate() override;                                                   // 0x56FAF0 (slot 3)
 
     // Arrival: hand off to the call-back projectile (CallBack), flip into the
-    // detonation state (field_2B6 = 1) so AIUpdate begins strike passes, and play
-    // the arrival sound. The detonation FX it then spawns are documented stubs.
+    // detonation state (field_2B6 = 1) so AIUpdate begins strike passes, play the
+    // arrival sound, then spawn the detonation FX -- the shared cell pool, the
+    // IcewindCSpellHitVisual on-ground visual and the impact/loop sounds.
     void OnArrival() override;                                                  // 0x56F410 (slot 28)
 
     // Launch: record source/target/area, share the caster to read the launch
@@ -808,6 +809,8 @@ static_assert(sizeof(IcewindCSpellHitCell) == 0xA,
 // the refcount at +0x10. Provisional layout -- the +0 field and the pool's
 // creation are recovered with OnArrival 0x56F410.
 struct IcewindCSpellHitCellPool /*#guess*/ {
+    IcewindCSpellHitCellPool() : field_0(0), m_refCount(0) {}   // 0x5868E0
+
     /* 0x00 */ LONG field_0;
     /* 0x04 */ std::vector<IcewindCSpellHitCell> m_cells;
     /* 0x10 */ LONG m_refCount;
