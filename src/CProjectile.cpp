@@ -5987,8 +5987,6 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
     BYTE mode9)
 {
-    m_animatorVtable = NULL;
-    field_86 = 0;
     field_104 = NULL;
     field_108 = 0;
     field_10C = 0;
@@ -5996,17 +5994,17 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     field_10E = 0;
 
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
-    m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
+    m_animation.m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
 
     m_sound.SetResRef(CResRef(descriptor.m_resref1), TRUE, TRUE);
     m_sound.SetChannel(0xE, reinterpret_cast<DWORD>(pArea));
 
-    field_88 = 1;
-    m_animPos = pos;
-    m_animVelocity = velocity;
-    field_9C = a7;
-    m_mode8 = mode8;
-    m_mode9 = mode9;
+    m_animationRunning = 1;
+    m_posExact = pos;
+    m_posDelta = velocity;
+    m_duration = a7;
+    m_durationFade = mode8;
+    m_collision = mode9;
 
     memcpy(m_terrainTable, CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE, sizeof(m_terrainTable));
 
@@ -6029,26 +6027,23 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
     BYTE mode9)
 {
-    m_animatorVtable = NULL;
-    field_86 = 0;
     field_10E = 0;
 
     // Build the per-particle detonation animation for this launch direction
     // (CGameSprite::GetDirection from the origin to the launch velocity gives the
-    // 16-way facing). The embedded animator's vtable (0x84F1B8) is not yet
-    // installed -- that thin forwarder is recovered separately.
+    // 16-way facing). The embedded CGameAnimation installs its own vtable.
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
-    m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
+    m_animation.m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
 
     m_sound.SetResRef(CResRef(descriptor.m_resref1), TRUE, TRUE);
     m_sound.SetChannel(0xE, reinterpret_cast<DWORD>(pArea));
 
-    field_88 = 1;
-    m_animPos = pos;
-    m_animVelocity = velocity;
-    field_9C = a7;
-    m_mode8 = mode8;
-    m_mode9 = mode9;
+    m_animationRunning = 1;
+    m_posExact = pos;
+    m_posDelta = velocity;
+    m_duration = a7;
+    m_durationFade = mode8;
+    m_collision = mode9;
 
     memcpy(m_terrainTable, CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE, sizeof(m_terrainTable));
 

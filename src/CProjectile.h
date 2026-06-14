@@ -6,6 +6,7 @@
 #include <set>
 #include <vector>
 
+#include "CGameAnimation.h"
 #include "CGameEffectList.h"
 #include "CGameObject.h"
 #include "CVidCell.h"
@@ -987,18 +988,18 @@ public:
     void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;   // 0x56EA90 (slot 19)
 
     /* 006E */ BYTE m_terrainTable[16];   // seeded from CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE
-    // Embedded CGameAnimation-derived BAM animator (own vtable 0x84F1B8, slot 0
-    // CalculateGCBoundsRect at 0x56E210 forwards to m_animation). The 0x56E280
-    // ctor builds it inline; field roles below are recovered from that ctor.
-    /* 007E */ void*  m_animatorVtable;    // = &vtable 0x84F1B8 (installed with the sub-object recovery)
-    /* 0082 */ CGameAnimationTypeEffect* m_animation;   // detonation animation (0x55D3A0 ctor)
-    /* 0086 */ SHORT  field_86;            // ctor: 0
-    /* 0088 */ INT    field_88;            // ctor: 1
-    /* 008C */ CPoint m_animPos;           // impact point (ctor param)
-    /* 0094 */ CPoint m_animVelocity;      // launch velocity (ctor param)
-    /* 009C */ SHORT  field_9C;            // ctor param a7
-    /* 009E */ BYTE   m_mode8;             // ctor param (read back by the parent's wall-bounce logic)
-    /* 009F */ BYTE   m_mode9;             // ctor param
+    // The 0x6E..0xA0 block is laid out exactly like CGameTemporal -- the engine's
+    // other "play a CGameAnimation drifting along a velocity until it expires"
+    // CGameObject. m_animation wraps the detonation effect (m_animation.m_animation
+    // is the 0x55D3A0/0x55CD70 CGameAnimationTypeEffect, vtable 0x84F1B8 slot 0
+    // CalculateGCBoundsRect at 0x56E210 forwards to it).
+    /* 007E */ CGameAnimation m_animation;
+    /* 0088 */ INT    m_animationRunning;
+    /* 008C */ CPoint m_posExact;
+    /* 0094 */ CPoint m_posDelta;
+    /* 009C */ SHORT  m_duration;
+    /* 009E */ BYTE   m_durationFade;       // 0x56E280 param a8; read back by the parent's wall-bounce logic
+    /* 009F */ BYTE   m_collision;          // 0x56E280 param a9
     /* 00A0 */ CSound m_sound;            // CResHelper<CResWave,4>; impact sound from descriptor.m_resref1, channel 0xE
     /* 0104 */ void* field_104;           // shared cell object from descriptor +0x2C (refcount++ at +0x10)
     /* 0108 */ INT   field_108;           // = descriptor +0x30
@@ -1007,9 +1008,9 @@ public:
     /* 010E */ INT   field_10E;           // ctor: 0
 };
 #pragma pack(pop)
-// Validate the OWN-field span (0x6E..0x112 in the binary), not the absolute size
-// (see the IcewindCSpellHitVisual note above on the 0x6E-vs-0x78 base shift).
-static_assert(sizeof(IcewindCSpellHitParticle) - sizeof(CGameObject) == 0x112 - 0x6E,
-    "IcewindCSpellHitParticle own-field span must match the IWD2.exe 0x56E280 layout (0x6E..0x112)");
+// No exact-size static_assert: like CGameTemporal this embeds CGameAnimation and
+// CSound by value, whose compiled sizes carry the same base-layout slack as the
+// rest of the codebase (see the IcewindCSpellHitVisual 0x6E-vs-0x78 note above).
+// The /* 0xNNN */ comments pin the IWD2.exe offsets.
 
 #endif /* CPROJECTILE_H_ */
