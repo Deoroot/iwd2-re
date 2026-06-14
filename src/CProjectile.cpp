@@ -4716,26 +4716,26 @@ void IcewindCProjectileSpellHit::OnArrival()
         reinterpret_cast<IcewindCSpellHitEmissionRanged&>(m_visual3);
 
     // The ranged slot owns the shared fan-cell pool the visual and its particles share.
-    if (emission2.field_8 != 0) {
+    if (emission2.m_resref0Len != 0) {
         emission2.m_cellPool = new IcewindCSpellHitCellPool();
     }
 
     // Spawn the on-ground detonation visual when any emission slot is active.
-    if (emission1.field_8 != 0 || emission2.field_8 != 0 || emission0.field_8 != 0) {
+    if (emission1.m_resref0Len != 0 || emission2.m_resref0Len != 0 || emission0.m_resref0Len != 0) {
         new IcewindCSpellHitVisual(emission0, emission1, emission2, m_pArea, m_pos, m_type,
             static_cast<BYTE>(m_velocity), CGameTemporal::COLLISION_DESTROY,
             static_cast<SHORT>(field_4C0));
     }
 
     // Impact one-shot from the first slot's second resref.
-    if (emission0.field_18 != 0) {
+    if (emission0.m_resref1Len != 0) {
         m_sound1.SetResRef(CResRef(emission0.m_resref1), TRUE, TRUE);
         m_sound1.SetChannel(0xE, reinterpret_cast<DWORD>(m_pArea));
         m_sound1.Play(m_pos.x, m_pos.y, 0, FALSE);
     }
 
     // Looping ambience from the ranged slot's second resref.
-    if (emission2.field_18 != 0) {
+    if (emission2.m_resref1Len != 0) {
         m_sound2.SetResRef(CResRef(emission2.m_resref1), TRUE, TRUE);
         m_sound2.SetLoopingFlag(TRUE);
         m_sound2.SetChannel(0xE, reinterpret_cast<DWORD>(m_pArea));
@@ -5733,35 +5733,35 @@ void CProjectileCone::Pulse()
 // uninitialised stack byte (a compiler artifact); we clear them.
 IcewindCSpellHitEmission::IcewindCSpellHitEmission()
 {
-    field_0 = 0;
-    field_8 = 0;
-    field_C = 0;
-    field_10 = 0;
-    field_18 = 0;
-    field_1C = 0;
-    field_2C = 0;
-    field_2E = 0x7FFFFFFF;
+    m_resref0Flags = 0;
+    m_resref0Len = 0;
+    m_resref0Cap = 0;
+    m_resref1Flags = 0;
+    m_resref1Len = 0;
+    m_resref1Cap = 0;
+    m_animMode = 0;
+    m_maxMovingSpawn = 0x7FFFFFFF;
 }
 
 // 0x56FE30. The ranged emission-slot descriptor ctor: same prefix clear, then
 // the trailing geometry/timing defaults (250 / 6 / 30).
 IcewindCSpellHitEmissionRanged::IcewindCSpellHitEmissionRanged()
 {
-    field_0 = 0;
-    field_8 = 0;
-    field_C = 0;
-    field_10 = 0;
-    field_18 = 0;
-    field_1C = 0;
+    m_resref0Flags = 0;
+    m_resref0Len = 0;
+    m_resref0Cap = 0;
+    m_resref1Flags = 0;
+    m_resref1Len = 0;
+    m_resref1Cap = 0;
     m_cellPool = NULL;
-    field_30 = 0;
-    field_34 = 0;
-    field_35 = 0;
-    field_36 = 0;
-    field_38 = 250;
-    field_3C = 6;
-    field_40 = 30;
-    field_44 = 0;
+    m_lastCellIndex = 0;
+    m_respawnFlag = 0;
+    m_animMode = 0;
+    m_animFlag36 = 0;
+    m_densityBase = 250;
+    m_emitPeriod = 6;
+    m_densityRampDiv = 30;
+    m_cloudFlag = 0;
 }
 
 // =============================================================================
@@ -5784,21 +5784,21 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
     CGameArea* pArea, const CPoint& pos, SHORT nRange, BYTE nVelocity, BYTE a8, SHORT nDuration)
     : m_palette(1 /* DAT_0085E84A */)
 {
-    field_29C = 0;
-    field_2A0 = 0;
-    field_28C = 0;
+    m_emitCooldown = 0;
+    m_bamLoaded = 0;
+    m_age = 0;
     m_duration = nDuration;
-    field_288 = 0;
+    m_movingSpawnCount = 0;
     m_frameCount = static_cast<BYTE>((nRange - 1) / nVelocity) + 1;
-    field_18B = a8;
+    m_collision = a8;
 
     // Load the detonation BAM (CResCell, type 1000) and its header (CResCellHeader,
     // type 1100) into m_cell from the first emission slot's resref.
-    if (emission0.field_8 == 0) {
-        field_2A0 = 0;
+    if (emission0.m_resref0Len == 0) {
+        m_bamLoaded = 0;
     } else {
         m_cell.SetResRef(CResRef(emission0.m_resref0), FALSE, TRUE, TRUE);
-        field_2A0 = 1;
+        m_bamLoaded = 1;
     }
 
     m_visualEffect = emission0.m_visualEffect;
@@ -5809,59 +5809,59 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
     m_cell.FrameSet(0);
     field_7E = 0;
     field_80 = 0;
-    field_1A0 = NULL;
+    m_fanCells = NULL;
 
     // Allocate the per-cell pixel-run buffer sized for the full radius.
     int nRadius = (nRange - 1) / 16;
-    field_18C = nRadius + 1;
-    field_190 = nRadius + 1;
-    field_194 = malloc((nRadius + 2 + nRadius + 1) * (nRadius + 2 + nRadius + 1));
-    if (field_194 == NULL) {
+    m_coverHalfW = nRadius + 1;
+    m_coverHalfH = nRadius + 1;
+    m_coverageMap = malloc((nRadius + 2 + nRadius + 1) * (nRadius + 2 + nRadius + 1));
+    if (m_coverageMap == NULL) {
         return;
     }
 
     // Rasterise the two arcs (half-radius major/minor axes); each call appends a
     // run-length terminator and returns the run count.
     int nHalf = (nRange - 1) / 32 + 1;
-    field_18C = nHalf;
-    field_190 = nHalf;
+    m_coverHalfW = nHalf;
+    m_coverHalfH = nHalf;
     CBaldurEngine* pEngine = g_pBaldurChitin->GetActiveEngine();
-    int nRun1 = pEngine->pVidMode->GetEllipseArcPixelList(field_18C, nHalf,
-        static_cast<BYTE*>(field_194));
-    field_198 = nRun1 + 1;
-    static_cast<BYTE*>(field_194)[nRun1] = 1;
+    int nRun1 = pEngine->pVidMode->GetEllipseArcPixelList(m_coverHalfW, nHalf,
+        static_cast<BYTE*>(m_coverageMap));
+    m_arcLen1 = nRun1 + 1;
+    static_cast<BYTE*>(m_coverageMap)[nRun1] = 1;
 
     pEngine = g_pBaldurChitin->GetActiveEngine();
-    int nRun2 = pEngine->pVidMode->GetEllipseArcPixelList(field_190, field_18C,
-        static_cast<BYTE*>(field_194) + field_198);
-    field_19C = nRun2 + 1;
-    static_cast<BYTE*>(field_194)[field_198 + nRun2] = 1;
+    int nRun2 = pEngine->pVidMode->GetEllipseArcPixelList(m_coverHalfH, m_coverHalfW,
+        static_cast<BYTE*>(m_coverageMap) + m_arcLen1);
+    m_arcLen2 = nRun2 + 1;
+    static_cast<BYTE*>(m_coverageMap)[m_arcLen1 + nRun2] = 1;
 
-    field_18C = (nRange - 1) / 16 + 1;
-    field_190 = field_18C;
+    m_coverHalfW = (nRange - 1) / 16 + 1;
+    m_coverHalfH = m_coverHalfW;
 
     // Velocity table: 16 bytes per cell, four quadrants.
-    field_1A0 = malloc((field_19C + field_198) * 0x40);
-    if (field_1A0 == NULL) {
+    m_fanCells = malloc((m_arcLen2 + m_arcLen1) * 0x40);
+    if (m_fanCells == NULL) {
         return;
     }
-    field_1A4 = malloc((field_19C + field_198) * 4);
-    if (field_1A4 == NULL) {
+    m_fanVel = malloc((m_arcLen2 + m_arcLen1) * 4);
+    if (m_fanVel == NULL) {
         return;
     }
-    memset(field_1A4, 0, (field_19C + field_198) * 4);
+    memset(m_fanVel, 0, (m_arcLen2 + m_arcLen1) * 4);
 
-    LONG* pVel = static_cast<LONG*>(field_1A0);
-    BYTE* pFlag = static_cast<BYTE*>(field_1A4);
-    BYTE* pArc = static_cast<BYTE*>(field_194);
-    LONG nStride = field_198 + field_19C;
+    LONG* pVel = static_cast<LONG*>(m_fanCells);
+    BYTE* pFlag = static_cast<BYTE*>(m_fanVel);
+    BYTE* pArc = static_cast<BYTE*>(m_coverageMap);
+    LONG nStride = m_arcLen1 + m_arcLen2;
 
     LONG nCenterX = pos.x;
     LONG nIsoY = (pos.y << 2) / 3;
     LONG nCursorX = nCenterX;
     LONG nCursorY = nRange + nIsoY;
 
-    for (SHORT i = 0; i < field_198; ++i) {
+    for (SHORT i = 0; i < m_arcLen1; ++i) {
         LONG dx = nCursorX - nCenterX;
         LONG dy = nCursorY - nIsoY;
         LONG dist = static_cast<LONG>(sqrt(static_cast<double>(dx * dx + dy * dy)));
@@ -5897,14 +5897,14 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
 
     nCursorX = nRange + nCenterX;
     nCursorY = nIsoY;
-    for (SHORT i = 0; i < field_19C; ++i) {
+    for (SHORT i = 0; i < m_arcLen2; ++i) {
         LONG dy = nCursorY - nIsoY;
         LONG dx = nCursorX - nCenterX;
         LONG dist = static_cast<LONG>(sqrt(static_cast<double>(dx * dx + dy * dy)));
-        LONG j0 = field_198 + i;
-        LONG j1 = field_19C + field_198 * 2 + i;
-        LONG j2 = i + nStride * 2 + field_198;
-        LONG j3 = i + nStride * 3 + field_198;
+        LONG j0 = m_arcLen1 + i;
+        LONG j1 = m_arcLen2 + m_arcLen1 * 2 + i;
+        LONG j2 = i + nStride * 2 + m_arcLen1;
+        LONG j3 = i + nStride * 3 + m_arcLen1;
         pVel[j0 * 4 + 1] = 0;
         pVel[j1 * 4 + 1] = 0;
         pVel[j2 * 4 + 1] = 0;
@@ -5927,7 +5927,7 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
             pFlag[j1] = 2;
             pFlag[j3] = 2;
         }
-        nCursorX -= pArc[field_198 + i] * 16 * 2;
+        nCursorX -= pArc[m_arcLen1 + i] * 16 * 2;
         nCursorY += 12 * 2;
     }
 
@@ -5945,9 +5945,9 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
 // destruct automatically.
 IcewindCSpellHitVisual::~IcewindCSpellHitVisual()
 {
-    free(field_194);
-    free(field_1A0);
-    free(field_1A4);
+    free(m_coverageMap);
+    free(m_fanCells);
+    free(m_fanVel);
 }
 
 // 0x56D0A0 (vtable slot 3). Each tick advances the detonation and expands the
@@ -5964,10 +5964,10 @@ void IcewindCSpellHitVisual::AIUpdate()
     }
 
     BOOL bSettled = TRUE;
-    field_28C++;
+    m_age++;
     m_frameCount--;
 
-    if (field_2A0 == 1) {
+    if (m_bamLoaded == 1) {
         if (m_frameCount == 0) {
             if (m_cell.IsEndOfSequence(FALSE)) {
                 RemoveFromArea();
@@ -5983,16 +5983,16 @@ void IcewindCSpellHitVisual::AIUpdate()
     }
 
     // Reset the per-cell coverage map.
-    memset(field_194, 0, (field_190 * 2 + 1) * (field_18C * 2 + 1));
+    memset(m_coverageMap, 0, (m_coverHalfH * 2 + 1) * (m_coverHalfW * 2 + 1));
 
-    int nCellCount = (field_198 + field_19C) * 4;
+    int nCellCount = (m_arcLen1 + m_arcLen2) * 4;
     if (nCellCount > 0) {
         SHORT nIndex = 0;
         int i = 0;
         do {
-            BYTE* pFlags = static_cast<BYTE*>(field_1A4);
+            BYTE* pFlags = static_cast<BYTE*>(m_fanVel);
             if (pFlags[i] != 2) {
-                LONG* pCell = reinterpret_cast<LONG*>(static_cast<BYTE*>(field_1A0) + i * 0x10);
+                LONG* pCell = reinterpret_cast<LONG*>(static_cast<BYTE*>(m_fanCells) + i * 0x10);
                 pCell[1] += pCell[3];   // pos.y += vel.y
                 pCell[0] += pCell[2];   // pos.x += vel.x
 
@@ -6007,10 +6007,10 @@ void IcewindCSpellHitVisual::AIUpdate()
 
                 BOOL bRender = TRUE;
                 if (cost == CPathSearch::COST_IMPASSABLE) {
-                    if (field_18B == CGameTemporal::COLLISION_DESTROY) {
+                    if (m_collision == CGameTemporal::COLLISION_DESTROY) {
                         pFlags[i] = 2;
                     }
-                    if (field_18B == CGameTemporal::COLLISION_REBOUND) {
+                    if (m_collision == CGameTemporal::COLLISION_REBOUND) {
                         // Reverse the velocity on whichever axis crossed the wall.
                         if ((((pCell[1] - pCell[3]) >> CGameSprite::EXACT_SCALE) + m_pos.x)
                                 / CPathSearch::GRID_SQUARE_SIZEX != nTileX) {
@@ -6031,15 +6031,15 @@ void IcewindCSpellHitVisual::AIUpdate()
                 }
 
                 if (bRender) {
-                    int nPixIdx = (((pCell[1] / CPathSearch::GRID_SQUARE_SIZEX) >> CGameSprite::EXACT_SCALE) + field_18C)
-                        + (((pCell[0] / CPathSearch::GRID_SQUARE_SIZEX) >> CGameSprite::EXACT_SCALE) + field_190)
-                          * (field_18C * 2 + 1);
+                    int nPixIdx = (((pCell[1] / CPathSearch::GRID_SQUARE_SIZEX) >> CGameSprite::EXACT_SCALE) + m_coverHalfW)
+                        + (((pCell[0] / CPathSearch::GRID_SQUARE_SIZEX) >> CGameSprite::EXACT_SCALE) + m_coverHalfH)
+                          * (m_coverHalfW * 2 + 1);
 
                     // Stationary m_emission2 spawn, gated by a cooldown and a
                     // density probability that ramps with age.
-                    if (m_emission2.field_8 != 0) {
-                        if (field_29C < 1) {
-                            int nThreshold = field_28C * field_28C / m_emission2.field_40 + m_emission2.field_38;
+                    if (m_emission2.m_resref0Len != 0) {
+                        if (m_emitCooldown < 1) {
+                            int nThreshold = m_age * m_age / m_emission2.m_densityRampDiv + m_emission2.m_densityBase;
                             if (m_frameCount < 2) {
                                 nThreshold *= 2;
                             }
@@ -6052,29 +6052,29 @@ void IcewindCSpellHitVisual::AIUpdate()
                             } else {
                                 cell.flag = 1;
                                 m_emission2.m_cellPool->m_cells.push_back(cell);
-                                m_emission2.field_30 =
+                                m_emission2.m_lastCellIndex =
                                     static_cast<INT>(m_emission2.m_cellPool->m_cells.size()) - 1;
                                 CPoint ptVel(0, 0);
                                 new IcewindCSpellHitParticle(m_emission2, m_pArea, ptSpawn, 0, ptVel,
-                                    static_cast<SHORT>(m_frameCount * 2 + m_duration), 0, field_18B);
-                                field_29C = m_emission2.field_3C;
+                                    static_cast<SHORT>(m_frameCount * 2 + m_duration), 0, m_collision);
+                                m_emitCooldown = m_emission2.m_emitPeriod;
                             }
                         } else {
-                            field_29C--;
+                            m_emitCooldown--;
                         }
                     }
 
                     // Moving m_emission1 spawn, once per freshly-covered pixel.
-                    BYTE* pCoverage = static_cast<BYTE*>(field_194);
+                    BYTE* pCoverage = static_cast<BYTE*>(m_coverageMap);
                     BYTE nCount = pCoverage[nPixIdx];
                     pCoverage[nPixIdx] = nCount + 1;
                     if (nCount == 0 && pFlags[i] == 0) {
-                        if (m_emission1.field_8 != 0 && ++field_288 <= m_emission1.field_2E) {
+                        if (m_emission1.m_resref0Len != 0 && ++m_movingSpawnCount <= m_emission1.m_maxMovingSpawn) {
                             CPoint ptSpawn((m_pos.x << CGameSprite::EXACT_SCALE) + pCell[1],
                                 (m_pos.y << CGameSprite::EXACT_SCALE) + pCell[0] * 3 / 4);
                             CPoint ptVel(pCell[3], pCell[2] * 3 / 4);
                             new IcewindCSpellHitParticle(m_emission1, m_pArea, ptSpawn, 0, ptVel,
-                                static_cast<SHORT>(m_frameCount), 0, field_18B);
+                                static_cast<SHORT>(m_frameCount), 0, m_collision);
                         }
                         pFlags[i] = 1;
                     } else if (pFlags[i] == 0) {
@@ -6088,7 +6088,7 @@ void IcewindCSpellHitVisual::AIUpdate()
     }
 
     if (bSettled) {
-        if (field_2A0 == 1) {
+        if (m_bamLoaded == 1) {
             if (m_cell.IsEndOfSequence(FALSE)) {
                 RemoveFromArea();
             }
@@ -6097,7 +6097,7 @@ void IcewindCSpellHitVisual::AIUpdate()
         }
     }
 
-    if (field_2A0 == 1 && !m_cell.IsEndOfSequence(FALSE)) {
+    if (m_bamLoaded == 1 && !m_cell.IsEndOfSequence(FALSE)) {
         m_cell.FrameAdvance();
     }
 }
@@ -6121,7 +6121,7 @@ void IcewindCSpellHitVisual::RemoveFromArea()
 
 // 0x56D730 (vtable slot 19). Draws the detonation BAM's current frame at the
 // impact point through the CInfinity FX pipeline, gated on tile visibility, a
-// loaded BAM (field_2A0) and the sequence not having finished.
+// loaded BAM (m_bamLoaded) and the sequence not having finished.
 void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
     CRect rFX;
@@ -6147,7 +6147,7 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
         nVisY = nAreaH - 1;
     }
     if (!m_pArea->m_visibility.IsTileVisible(m_pArea->m_visibility.PointToTile(CPoint(nVisX, nVisY)))
-        || field_2A0 == 0) {
+        || m_bamLoaded == 0) {
         return;
     }
     if (m_cell.IsEndOfSequence(FALSE)) {
@@ -6182,16 +6182,16 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
 
 // 0x56DF00. The m_emission1 sibling of the 0x56E280 ctor: same particle setup
 // from the plainer IcewindCSpellHitEmission, which carries no shared cell object
-// (field_104..field_10D are cleared rather than copied from the descriptor).
+// (m_cellPool..m_hasCloud are cleared rather than copied from the descriptor).
 IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmission& descriptor,
     CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
     BYTE mode9)
 {
     m_cellPool = NULL;
-    field_108 = 0;
-    field_10C = 0;
-    field_10D = 0;
-    field_10E = 0;
+    m_cellIndex = 0;
+    m_respawnFromPool = 0;
+    m_hasCloud = 0;
+    m_animTick = 0;
 
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
     m_animation.m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
@@ -6227,7 +6227,7 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
     BYTE mode9)
 {
-    field_10E = 0;
+    m_animTick = 0;
 
     // Build the per-particle detonation animation for this launch direction
     // (CGameSprite::GetDirection from the origin to the launch velocity gives the
@@ -6257,9 +6257,9 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
         // its trailing parameters.
         m_cellPool = descriptor.m_cellPool;
         m_cellPool->m_refCount++;
-        field_108 = descriptor.field_30;
-        field_10C = static_cast<BYTE>(descriptor.field_34);
-        field_10D = static_cast<BYTE>(descriptor.field_44);
+        m_cellIndex = descriptor.m_lastCellIndex;
+        m_respawnFromPool = static_cast<BYTE>(descriptor.m_respawnFlag);
+        m_hasCloud = static_cast<BYTE>(descriptor.m_cloudFlag);
     }
     // else: registration failed -> the binary self-deletes via vtable slot 0;
     // omitted here (matches the IcewindCSpellHitVisual ctor).
@@ -6290,7 +6290,7 @@ void IcewindCSpellHitParticle::AIUpdate()
         return;
     }
 
-    field_10E++;
+    m_animTick++;
 
     if (m_duration == 0) {
         // Lives until the animation sequence runs out.
@@ -6353,8 +6353,8 @@ void IcewindCSpellHitParticle::AIUpdate()
     }
 
     // The binary runs two descriptor-flag-gated extras here before advancing the
-    // frame: the field_10D ICloudA cloud effect (via the unnamed 0x55DBD0 /
-    // 0x4C5ED0 helpers) and the field_10C respawn from the shared cell pool
+    // frame: the m_hasCloud ICloudA cloud effect (via the unnamed 0x55DBD0 /
+    // 0x4C5ED0 helpers) and the m_respawnFromPool respawn from the shared cell pool
     // (field_104). Both are left unrecovered pending those helpers and the
     // cell-pool layout.
 

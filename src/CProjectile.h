@@ -817,62 +817,65 @@ struct IcewindCSpellHitCellPool /*#guess*/ {
 };
 
 // Spell-hit emission-slot descriptor (ctor 0x56FDC0, sizeof 0x32). One visual
-// layer of the detonation: a resref name slot + cached length/handle, a second
-// name slot, the layer's IcewindCVisualEffect tint/transparency params, and a
-// trailing flag with a 0x7FFFFFFF sentinel. The spell-hit projectile carries
-// these as its emission slots and OnArrival copies them into the visual object.
-// Field names are guesses (the string slots are read as raw {ptr,len,handle}).
+// layer of the detonation: a resref name slot (inline {ptr,len,cap} ResName), a
+// second name slot, the layer's IcewindCVisualEffect tint/transparency params,
+// the anim-mode selector and a spawn-budget sentinel. The spell-hit projectile
+// carries these as its emission slots and OnArrival copies them into the visual.
+// Member names recovered via Frida (tmp_spellhit_naming_trace.py): the resref
+// slots are inline {CString ptr, LONG len, LONG cap} (trace: len=7, cap=31).
 #pragma pack(push, 1)
 struct IcewindCSpellHitEmission /*#guess*/ {
     IcewindCSpellHitEmission();   // 0x56FDC0
 
-    /* 0x00 */ BYTE    field_0;       // ctor reads an uninitialised stack byte here
+    /* 0x00 */ BYTE    m_resref0Flags;  // ResName flags byte
     /* 0x01 */ BYTE    _pad1[3];
     /* 0x04 */ CString m_resref0 /*#guess*/;
-    /* 0x08 */ INT     field_8;
-    /* 0x0C */ INT     field_C;
-    /* 0x10 */ BYTE    field_10;      // ctor reads an uninitialised stack byte here
+    /* 0x08 */ INT     m_resref0Len;    // resref0 name length (Frida: 7)
+    /* 0x0C */ INT     m_resref0Cap;    // resref0 name capacity (Frida: 31)
+    /* 0x10 */ BYTE    m_resref1Flags;  // ResName flags byte
     /* 0x11 */ BYTE    _pad11[3];
     /* 0x14 */ CString m_resref1 /*#guess*/;
-    /* 0x18 */ INT     field_18;
-    /* 0x1C */ INT     field_1C;
+    /* 0x18 */ INT     m_resref1Len;    // resref1 name length
+    /* 0x1C */ INT     m_resref1Cap;    // resref1 name capacity
     /* 0x20 */ IcewindCVisualEffect m_visualEffect;
-    /* 0x2C */ BYTE    field_2C;
+    /* 0x2C */ BYTE    m_animMode;      // -> CGameAnimationTypeEffect.m_animMode (gate ==1)
     /* 0x2D */ BYTE    _pad2D;
-    /* 0x2E */ INT     field_2E;      // ctor: 0x7FFFFFFF
+    /* 0x2E */ INT     m_maxMovingSpawn; // ctor 0x7FFFFFFF; moving-spawn budget (Frida: 20)
 };
 #pragma pack(pop)
 static_assert(sizeof(IcewindCSpellHitEmission) == 0x32,
     "IcewindCSpellHitEmission must match the IWD2.exe 0x56FDC0 layout (0x32)");
 
 // The richer emission-slot variant (ctor 0x56FE30, sizeof 0x4E): the same 0x2C
-// prefix plus a trailing geometry/timing block (0x38 = 250, 0x3C = 6, 0x40 =
-// 30). Used for the third spell-hit emission slot (e.g. Fireball's range ring).
+// prefix plus the shared cell pool and a trailing density/timing block. Used for
+// the third spell-hit emission slot (Fireball's stationary-ember source + range
+// ring). Frida-confirmed Fireball values: m_densityBase 250, m_emitPeriod 6,
+// m_densityRampDiv 30, m_respawnFlag 1, m_animMode 1, m_animFlag36 1, m_cloudFlag 0.
 #pragma pack(push, 1)
 struct IcewindCSpellHitEmissionRanged /*#guess*/ {
     IcewindCSpellHitEmissionRanged();   // 0x56FE30
 
-    /* 0x00 */ BYTE    field_0;       // ctor reads an uninitialised stack byte here
+    /* 0x00 */ BYTE    m_resref0Flags;  // ResName flags byte
     /* 0x01 */ BYTE    _pad1[3];
     /* 0x04 */ CString m_resref0 /*#guess*/;
-    /* 0x08 */ INT     field_8;
-    /* 0x0C */ INT     field_C;
-    /* 0x10 */ BYTE    field_10;      // ctor reads an uninitialised stack byte here
+    /* 0x08 */ INT     m_resref0Len;    // resref0 name length (Frida: 7)
+    /* 0x0C */ INT     m_resref0Cap;    // resref0 name capacity (Frida: 31)
+    /* 0x10 */ BYTE    m_resref1Flags;  // ResName flags byte
     /* 0x11 */ BYTE    _pad11[3];
     /* 0x14 */ CString m_resref1 /*#guess*/;
-    /* 0x18 */ INT     field_18;
-    /* 0x1C */ INT     field_1C;
+    /* 0x18 */ INT     m_resref1Len;    // resref1 name length
+    /* 0x1C */ INT     m_resref1Cap;    // resref1 name capacity
     /* 0x20 */ IcewindCVisualEffect m_visualEffect;
     /* 0x2C */ IcewindCSpellHitCellPool* m_cellPool;   // ctor: NULL; shared fan-cell pool, filled by OnArrival
-    /* 0x30 */ INT     field_30;      // ctor: 0
-    /* 0x34 */ BYTE    field_34;
-    /* 0x35 */ BYTE    field_35;
-    /* 0x36 */ BYTE    field_36;
+    /* 0x30 */ INT     m_lastCellIndex; // ctor 0; scratch: index of the just-pushed cell (-> particle m_cellIndex)
+    /* 0x34 */ BYTE    m_respawnFlag;   // -> particle m_respawnFromPool (Frida: 1)
+    /* 0x35 */ BYTE    m_animMode;      // -> CGameAnimationTypeEffect.m_animMode (gate ==1; Frida: 1)
+    /* 0x36 */ BYTE    m_animFlag36;    // -> CGameAnimationTypeEffect.m_animFlag36 (Frida: 1)
     /* 0x37 */ BYTE    _pad37;
-    /* 0x38 */ INT     field_38;      // ctor: 250 (0xFA)
-    /* 0x3C */ INT     field_3C;      // ctor: 6
-    /* 0x40 */ INT     field_40;      // ctor: 30 (0x1E)
-    /* 0x44 */ BYTE    field_44;      // ctor: 0
+    /* 0x38 */ INT     m_densityBase;   // ctor 250; spawn-density base threshold
+    /* 0x3C */ INT     m_emitPeriod;    // ctor 6; m_emitCooldown reload
+    /* 0x40 */ INT     m_densityRampDiv;// ctor 30; age^2 divisor in the density ramp
+    /* 0x44 */ BYTE    m_cloudFlag;     // -> particle m_hasCloud (ICloudA gate; Frida: 0)
     /* 0x45 */ BYTE    _pad45;
 };
 #pragma pack(pop)
@@ -924,32 +927,33 @@ public:
     void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;   // 0x56D730 (slot 19)
 
     /* 006E */ BYTE m_terrainTable[16];   // seeded from CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE
-    /* 007E */ SHORT field_7E;            // ctor: 0
-    /* 0080 */ SHORT field_80;            // ctor: 0
-    /* 0082 */ BYTE field_82[8];
+    /* 007E */ SHORT field_7E;            // reserved: ctor 0, never read (Frida)
+    /* 0080 */ SHORT field_80;            // reserved: ctor 0, never read (Frida)
+    /* 0082 */ BYTE field_82[8];          // reserved: never read (Frida: const 30 20 ..)
     /* 008A */ CVidCell m_cell;           // detonation BAM cell (sub-ctor 0x7ACD70)
     /* 0164 */ CVidPalette m_palette;     // sub-ctor 0x7BEEA0 (nType = DAT_0085E84A)
     /* 0188 */ SHORT m_duration;          // = field_4C0 lifetime
     /* 018A */ BYTE m_frameCount;         // (nRange-1)/nVelocity + 1
-    /* 018B */ BYTE field_18B;            // = a8
-    // Radial velocity fan: per-direction counts and the malloc'd cell / velocity
-    // (16 bytes/entry) / flag buffers the ctor fills (0x18C..0x1A7).
-    /* 018C */ LONG field_18C;
-    /* 0190 */ LONG field_190;
-    /* 0194 */ void* field_194;
-    /* 0198 */ LONG field_198;
-    /* 019C */ LONG field_19C;
-    /* 01A0 */ void* field_1A0;
-    /* 01A4 */ void* field_1A4;
+    /* 018B */ BYTE m_collision;          // = a8; AIUpdate wall-bounce mode (COLLISION_DESTROY/REBOUND)
+    // Radial velocity fan: the coverage bitmap half-dimensions + arc run lengths,
+    // and the malloc'd coverage map / cell (16 bytes/entry) / velocity buffers the
+    // ctor fills (0x18C..0x1A7). Frida: m_coverHalfW == m_coverHalfH == 13.
+    /* 018C */ LONG m_coverHalfW;
+    /* 0190 */ LONG m_coverHalfH;
+    /* 0194 */ void* m_coverageMap;       // (m_coverHalfW*2+1)*(m_coverHalfH*2+1) bytes
+    /* 0198 */ LONG m_arcLen1;            // GetEllipseArcPixelList run 1
+    /* 019C */ LONG m_arcLen2;            // GetEllipseArcPixelList run 2; loop (m_arcLen1+m_arcLen2)*4
+    /* 01A0 */ void* m_fanCells;          // 16-byte cell entries (x, y, vel)
+    /* 01A4 */ void* m_fanVel;            // per-entry velocity table
     /* 01A8 */ CSound m_sound;            // sub-ctor 0x7A8BB0
-    /* 020C */ CString field_20C;         // default-constructs empty (binary stores afxNil)
+    /* 020C */ CString field_20C;         // reserved: empty CString, never assigned (Frida: afxNil)
     /* 0210 */ IcewindCSpellHitEmission m_emission1;        // sub-ctor 0x56FDC0
     /* 0242 */ IcewindCSpellHitEmissionRanged m_emission2;  // sub-ctor 0x56FE30
-    /* 0288 */ INT field_288;             // ctor: 0
-    /* 028C */ INT field_28C;             // ctor: 0
+    /* 0288 */ INT m_movingSpawnCount;    // ctor 0; covered-pixel counter, capped at m_emission1.m_maxMovingSpawn
+    /* 028C */ INT m_age;                 // ctor 0; ++ per tick; drives the density ramp (age^2)
     /* 0290 */ IcewindCVisualEffect m_visualEffect;   // sub-ctor 0x586A40
-    /* 029C */ LONG field_29C;
-    /* 02A0 */ BYTE field_2A0;
+    /* 029C */ LONG m_emitCooldown;       // stationary-spawn countdown; reload = m_emission2.m_emitPeriod (6)
+    /* 02A0 */ BYTE m_bamLoaded;          // 1 iff emission0 has a resref; Render gates on it
     /* 02A1 */ BYTE _pad2A1;
 };
 #pragma pack(pop)
@@ -1029,10 +1033,10 @@ public:
     /* 009F */ BYTE   m_collision;          // 0x56E280 param a9
     /* 00A0 */ CSound m_sound;            // CResHelper<CResWave,4>; impact sound from descriptor.m_resref1, channel 0xE
     /* 0104 */ IcewindCSpellHitCellPool* m_cellPool;   // shared fan-cell pool (= descriptor.m_cellPool)
-    /* 0108 */ INT   field_108;           // = descriptor +0x30
-    /* 010C */ BYTE  field_10C;           // = descriptor +0x34
-    /* 010D */ BYTE  field_10D;           // = descriptor +0x44
-    /* 010E */ INT   field_10E;           // ctor: 0
+    /* 0108 */ INT   m_cellIndex;         // = descriptor.m_lastCellIndex (Frida: climbs 38..119)
+    /* 010C */ BYTE  m_respawnFromPool;   // = descriptor.m_respawnFlag (stationary: 1, moving: 0)
+    /* 010D */ BYTE  m_hasCloud;          // = descriptor.m_cloudFlag (ICloudA gate; Frida: 0)
+    /* 010E */ INT   m_animTick;          // ctor 0; ++ per AIUpdate tick
 };
 #pragma pack(pop)
 // No exact-size static_assert: like CGameTemporal this embeds CGameAnimation and

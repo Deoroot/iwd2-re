@@ -39,15 +39,15 @@ public:
     /* 05E2 */ SHORT m_currentBamSequence;
     /* 05E4 */ SHORT m_currentBamDirection;
     /* 05E6 */ BYTE m_extendDirectionTest;
-    /* 05E7 */ unsigned char field_5E7;
+    /* 05E7 */ unsigned char m_animMode;             // = descriptor.m_animMode; random-sequence opt-in (==1)
     // Tail revealed by the 0x55D3A0 spell-hit ctor (the class is 0x606 bytes in
     // IWD2.exe; the 0x6A1F50 ctor leaves these untouched).
-    /* 05E8 */ BYTE field_5E8;                       // = descriptor.field_36
+    /* 05E8 */ BYTE m_animFlag36;                    // = descriptor.m_animFlag36
     /* 05EA */ IcewindCVisualEffect m_visualEffect;  // = descriptor.m_visualEffect
-    /* 05F6 */ BYTE field_5F6;                       // = (BYTE)facing
-    /* 05FA */ void* field_5FA;                      // scratch resref-name buffer (0x44BC20 path)
-    /* 05FE */ INT field_5FE;
-    /* 0602 */ INT field_602;
+    /* 05F6 */ BYTE m_facing;                        // = (BYTE)facing
+    /* 05FA */ void* m_animResName;                  // resref-name buffer (0x44BC20 path; Frida: {ptr, len 7, cap 31})
+    /* 05FE */ INT m_animResLen;                     // resref name length (Frida: 7)
+    /* 0602 */ INT m_animResCap;                     // resref name capacity (Frida: 31)
 };
 
 #endif /* CGAMEANIMATIONTYPEEFFECT_H_ */

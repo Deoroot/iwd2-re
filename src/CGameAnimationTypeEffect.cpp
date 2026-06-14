@@ -8,16 +8,17 @@
 
 // 0x55CD70. Spell-hit detonation overload for the plainer IcewindCSpellHitEmission
 // (the 0x55D3A0 twin handles the IcewindCSpellHitEmissionRanged descriptor). It is
-// identical except this emission carries no field_36 (field_5E8 = 0) and its
-// random-sequence opt-in comes from field_2C rather than field_35.
+// identical except this emission carries no m_animFlag36 (it stays 0) and its
+// random-sequence opt-in (m_animMode) comes from the plain descriptor's 0x2C slot
+// rather than the ranged descriptor's 0x35 slot.
 CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmission& descriptor,
     WORD facing)
     : m_palette(CVidPalette::TYPE_RANGE)
 {
-    field_5F6 = static_cast<BYTE>(facing);
-    field_5FA = NULL;
-    field_5FE = 0;
-    field_602 = 0;
+    m_facing = static_cast<BYTE>(facing);
+    m_animResName = NULL;
+    m_animResLen = 0;
+    m_animResCap = 0;
     field_5DE = 0;
     m_translucent = 0;
     field_5E1 = 0;
@@ -26,18 +27,18 @@ CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmissio
     m_extendDirectionTest = 0;
     m_animationID = 0;
     m_visualEffect = descriptor.m_visualEffect;
-    field_5E8 = 0;
-    field_5E7 = descriptor.field_2C;
+    m_animFlag36 = 0;
+    m_animMode = descriptor.m_animMode;
     m_colorChunks = -1;
     m_bRender = TRUE;
     m_pSndDeath = "";
 
-    if (descriptor.field_8 == 0) {
+    if (descriptor.m_resref0Len == 0) {
         m_g1VidCell.SetResRef(CResRef("GreaseA"), FALSE, TRUE, TRUE);
     } else {
         m_g1VidCell.SetResRef(CResRef(descriptor.m_resref0), FALSE, TRUE, TRUE);
 
-        if (field_5E7 == 1) {
+        if (m_animMode == 1) {
             BYTE cnt = static_cast<BYTE>(m_g1VidCell.GetNumberSequences(FALSE));
             if (cnt != 0) {
                 m_currentBamSequence = static_cast<SHORT>(rand() % cnt);
@@ -52,7 +53,7 @@ CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmissio
 
         // The descriptor's resref name is copied into a scratch buffer here via
         // the 0x44BC20 / 0x44BC00 allocator pair; pending recovery of those
-        // helpers field_5FA is left NULL.
+        // helpers m_animResName is left NULL.
     }
 
     m_currentVidCell = &m_g1VidCell;
@@ -66,15 +67,15 @@ CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmissio
 // direction. Loads the detonation BAM into m_g1VidCell (the descriptor's
 // m_resref0, or "GreaseA" when the descriptor carries no geometry), copies the
 // descriptor's visual-effect parameters and, when the descriptor opts in
-// (field_35), seeds a random start sequence.
+// (m_animMode), seeds a random start sequence.
 CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmissionRanged& descriptor,
     WORD facing)
     : m_palette(CVidPalette::TYPE_RANGE)
 {
-    field_5F6 = static_cast<BYTE>(facing);
-    field_5FA = NULL;
-    field_5FE = 0;
-    field_602 = 0;
+    m_facing = static_cast<BYTE>(facing);
+    m_animResName = NULL;
+    m_animResLen = 0;
+    m_animResCap = 0;
     field_5DE = 0;
     m_translucent = 0;
     field_5E1 = 0;
@@ -83,18 +84,18 @@ CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmissio
     m_extendDirectionTest = 0;
     m_animationID = 0;
     m_visualEffect = descriptor.m_visualEffect;
-    field_5E8 = descriptor.field_36;
-    field_5E7 = descriptor.field_35;
+    m_animFlag36 = descriptor.m_animFlag36;
+    m_animMode = descriptor.m_animMode;
     m_colorChunks = -1;
     m_bRender = TRUE;
     m_pSndDeath = "";
 
-    if (descriptor.field_8 == 0) {
+    if (descriptor.m_resref0Len == 0) {
         m_g1VidCell.SetResRef(CResRef("GreaseA"), FALSE, TRUE, TRUE);
     } else {
         m_g1VidCell.SetResRef(CResRef(descriptor.m_resref0), FALSE, TRUE, TRUE);
 
-        if (field_5E7 == 1) {
+        if (m_animMode == 1) {
             BYTE cnt = static_cast<BYTE>(m_g1VidCell.GetNumberSequences(FALSE));
             if (cnt != 0) {
                 m_currentBamSequence = static_cast<SHORT>(rand() % cnt);
@@ -109,7 +110,7 @@ CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmissio
 
         // The descriptor's resref name is copied into a scratch buffer here via
         // the 0x44BC20 / 0x44BC00 allocator pair; pending recovery of those
-        // helpers field_5FA is left NULL.
+        // helpers m_animResName is left NULL.
     }
 
     m_currentVidCell = &m_g1VidCell;
@@ -127,7 +128,7 @@ CGameAnimationTypeEffect::CGameAnimationTypeEffect(USHORT animationID, BYTE* col
     SHORT nFrame;
 
     m_animationID = animationID;
-    field_5E7 = 0;
+    m_animMode = 0;
     m_translucent = 0;
     field_5E1 = 0;
     m_colorChunks = -1;
@@ -230,7 +231,7 @@ CGameAnimationTypeEffect::CGameAnimationTypeEffect(USHORT animationID, BYTE* col
             break;
         case 0x10:
             m_g1VidCell.SetResRef(CResRef("GLPHWRDH"), FALSE, TRUE, TRUE);
-            field_5E7 = 1;
+            m_animMode = 1;
             break;
         default:
             // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjAnimation.cpp
@@ -561,7 +562,7 @@ void CGameAnimationTypeEffect::Render(CInfinity* pInfinity, CVidMode* pVidMode, 
         dwRenderFlags |= CInfinity::MIRROR_FX;
     }
 
-    if (field_5E7 == 1) {
+    if (m_animMode == 1) {
         dwRenderFlags |= 0x200;
     }
 
