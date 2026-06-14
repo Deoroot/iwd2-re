@@ -2,7 +2,8 @@
 
 ## Repo
 
-`src/` = hand-recovered C++ matching `IWD2.exe`. Ghidra = truth.
+`src/` = hand-recovered C++ matching `IWD2.exe`. Binary (asm/bytes) + Frida =
+ground truth; the Ghidra *decompile* is a fallible lift (see "Truth hierarchy").
 
 ## Host / VM split
 
@@ -17,7 +18,7 @@ Paths: `/home/wills/iwd2-re/...` = host; `C:\iwd2-re\...`, `C:\GOG Games\...` = 
 | Find fn/class/global in src (file:line, 0xADDR, exact body) | `python3 scripts/src_find.py NAME` / `Class::Method --body` / `0xADDR` / `Class:: -l` / `--file f.cpp` |
 | Quick look at a binary fn (sig, callees, callers, strings) | `python3 scripts/fn_digest.py 0xADDR\|Name` (`--full` → tmp file path) |
 | BG2 name carry-over (class layout, methods+vft slots, members, globals) | `python3 scripts/bg2_find.py NAME` / `CClass::` / `CClass::sub` — never grep the PDB dumps |
-| PE bytes / dwords / strings / disasm / vtable / ptr-scan / crash dump | `scripts/sym.py bytes\|u32\|str\|disasm\|findptr\|vtable\|addr2fn\|crash` |
+| PE bytes / dwords / strings / disasm / vtable / ptr-scan / crash dump | `.venv-reagent/bin/python scripts/sym.py bytes\|u32\|str\|disasm\|findptr\|vtable\|addr2fn\|crash` |
 | Who touches field +0xNNN (byte-pattern → containing fns) | `scripts/sym.py scan <hexbytes>` (little-endian displacement, e.g. `38560000` = `[reg+0x5638]`) |
 | Callers/callees graph, blast radius, exec flows, review diff | graph MCP: `query_graph` (callers_of/callees_of/file_summary), `get_impact_radius`, `get_affected_flows`, `detect_changes` |
 | GemRB lookup / cross-repo | same graph tools + `repo_root="/home/wills/iwd2-re/refs/gemrb"`; `cross_repo_search_tool` |
@@ -44,10 +45,14 @@ scripts/vm.sh frida script.py # ship + run as session-1 payload, ready-to-log
 - GUI over SSH = session 0 (never renders); session 1 via `vm_s1.cmd` required for render/input/Frida. Smoke timeout there = no desktop, not a crash.
 - Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one commit. Build fail → stop.
 
-## Ghidra = truth
+## Truth hierarchy (the decompile is a fallible lift)
 
-Don't invent code. Check Ghidra first. `// 0xADDR` can be stale. Ghidra wins.
-Address not in funcs table → check vtable DATA xref (virtual method): `scripts/sym.py findptr 0xMETHOD` → `sym.py vtable 0xBASE`.
+Don't invent code. Rank of ground truth:
+1. **PE bytes / disassembly** (`sym.py disasm`, `gb dump-asm`) = what the CPU runs — final word on instructions, call targets, struct offsets.
+2. **Frida runtime trace** = final word on dynamic facts — real `__thiscall` args, which branch runs, field/flag semantics, container contents, actual runtime types.
+3. **Ghidra decompile** = best first read but FALLIBLE: guesses types, mangles `__thiscall` args, miscounts 16-vs-32-bit reads, drops/merges inlined calls, garbles SEH/reordering, invents `CONCAT`/casts. Navigate with it; verify against asm or Frida before trusting counts, args, widths, offsets, or types.
+
+`// 0xADDR` can be stale → re-check against the binary. Address not in funcs table → check vtable DATA xref (virtual method): `scripts/sym.py findptr 0xMETHOD` → `sym.py vtable 0xBASE`.
 
 ## Ghidra access — ghidra-bridge
 
@@ -81,6 +86,11 @@ PE facts: host IWD2.exe = same bytes as VM, ImageBase `0x400000`, no ASLR → `s
 
 Throwaway traces to confirm field semantics live BEFORE a recover — ground truth beats guessing. Simple probes (args+fields at entries) = `frida_probe.py` hook-table JSON; complex logic (call-origin filters, list walks) = bespoke script, template `scripts/frida_formation_trace.py`, docs `docs/frida-differential-tracing.md`.
 - Game in VM session 1; spawn-time hooks → driver as session-1 payload (`vm.sh frida`).
+- **`vm.sh frida` payload gotchas (a driver shipped this way runs under a scheduled-task + fire-and-forget VBS — these bite EVERY time, don't relearn them):**
+  - NO stdin → `sys.stdin.read()` returns EOF instantly → the driver exits BEFORE you can interact. Keep it alive with `while True: time.sleep(0.5)`.
+  - stdout `>`-redirect is unreliable: once the VBS parent exits, writes to `vm_s1_out.txt` are silently dropped (only the first flushed lines land). Write events to a DEDICATED file with `f.flush()` + `os.fsync(f.fileno())`, then read that file — not `vm_s1_out.txt`.
+  - Re-attach hygiene: `taskkill /im python.exe` sometimes leaves the old attached driver alive (frida-helper lingers) and it BLOCKS the new `frida.attach` (silent no-fire). Kill by `/pid` and confirm `tasklist | findstr /i "python frida"` is EMPTY before re-shipping.
+  - Silent no-fire? Self-check placement: base = `0x400000`, no ASLR (so `ptr(0xADDR)` absolute is correct) — but dump 8 bytes at each hook addr and diff vs `sym.py bytes ADDR` before assuming the class/path is wrong.
 - `ptr(0xADDR)` absolute. `__thiscall`: `this` = `this.context.ecx`, stack args = `args[0..]`. Hook fn ENTRIES only.
 - Runtime wins when `__thiscall` args disagree with decompiler; decompiler wins for counts (high-word garbage in int32 reads of 16-bit values).
 - Read PE constants with `sym.py`, not the memory endpoint.
