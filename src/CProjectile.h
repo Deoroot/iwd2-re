@@ -16,6 +16,7 @@
 #include "IcewindCVisualEffect.h"
 
 class CGameAIBase;
+class CGameAnimationTypeEffect;
 class CGameArea;
 class CGameSprite;
 class CRes;
@@ -986,7 +987,7 @@ public:
     // CalculateGCBoundsRect at 0x56E210 forwards to m_animation). The 0x56E280
     // ctor builds it inline; field roles below are recovered from that ctor.
     /* 007E */ void*  m_animatorVtable;    // = &vtable 0x84F1B8 (installed with the sub-object recovery)
-    /* 0082 */ void*  m_animation;         // directional BAM handle (FUN_0055D3A0 result)
+    /* 0082 */ CGameAnimationTypeEffect* m_animation;   // detonation animation (0x55D3A0 ctor)
     /* 0086 */ SHORT  field_86;            // ctor: 0
     /* 0088 */ INT    field_88;            // ctor: 1
     /* 008C */ CPoint m_animPos;           // impact point (ctor param)

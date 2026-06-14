@@ -3,10 +3,16 @@
 
 #include "CGameAnimationType.h"
 #include "CVidCell.h"
+#include "IcewindCVisualEffect.h"
+
+struct IcewindCSpellHitEmissionRanged;
 
 class CGameAnimationTypeEffect : public CGameAnimationType {
 public:
     CGameAnimationTypeEffect(USHORT animationID, BYTE* colorRangeValues, WORD facing);
+    // Spell-hit detonation overload: builds the per-particle animation from an
+    // IcewindCSpellHitVisual emission descriptor + launch direction.
+    CGameAnimationTypeEffect(const IcewindCSpellHitEmissionRanged& descriptor, WORD facing);   // 0x55D3A0
     /* 0000 */ ~CGameAnimationTypeEffect() override;
     /* 0004 */ void CalculateFxRect(CRect& rFx, CPoint& ptReference, LONG posZ) override;
     /* 0008 */ void CalculateGCBoundsRect(CRect& rGCBounds, const CPoint& pos, const CPoint& ptReference, LONG posZ, LONG nWidth, LONG nHeight) override;
@@ -32,6 +38,14 @@ public:
     /* 05E4 */ SHORT m_currentBamDirection;
     /* 05E6 */ BYTE m_extendDirectionTest;
     /* 05E7 */ unsigned char field_5E7;
+    // Tail revealed by the 0x55D3A0 spell-hit ctor (the class is 0x606 bytes in
+    // IWD2.exe; the 0x6A1F50 ctor leaves these untouched).
+    /* 05E8 */ BYTE field_5E8;                       // = descriptor.field_36
+    /* 05EA */ IcewindCVisualEffect m_visualEffect;  // = descriptor.m_visualEffect
+    /* 05F6 */ BYTE field_5F6;                       // = (BYTE)facing
+    /* 05FA */ void* field_5FA;                      // scratch resref-name buffer (0x44BC20 path)
+    /* 05FE */ INT field_5FE;
+    /* 0602 */ INT field_602;
 };
 
 #endif /* CGAMEANIMATIONTYPEEFFECT_H_ */

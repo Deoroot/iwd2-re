@@ -8,6 +8,7 @@
 #include "CBaldurEngine.h"
 #include "CVidMode.h"
 #include "CGameEffect.h"
+#include "CGameAnimationTypeEffect.h"
 #include "CGameArea.h"
 #include "CGameFireball3d.h"
 #include "CMessage.h"
@@ -5989,16 +5990,15 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     BYTE mode9)
 {
     m_animatorVtable = NULL;
-    m_animation = NULL;
     field_86 = 0;
     field_10E = 0;
 
-    // Decode the directional detonation BAM for this particle's launch direction
-    // into m_animation. Pending recovery of the directional BAM builder at
-    // 0x55D3A0 (it allocates a 0x606 scratch buffer, takes the velocity-derived
-    // direction from CGameSprite::GetDirection(CPoint(0,0), velocity) and builds
-    // the CGameAnimationType / CVidCell / palette), m_animation is left NULL and
-    // the embedded animator's vtable (0x84F1B8) is not yet installed.
+    // Build the per-particle detonation animation for this launch direction
+    // (CGameSprite::GetDirection from the origin to the launch velocity gives the
+    // 16-way facing). The embedded animator's vtable (0x84F1B8) is not yet
+    // installed -- that thin forwarder is recovered separately.
+    SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
+    m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
 
     m_sound.SetResRef(CResRef(descriptor.m_resref1), TRUE, TRUE);
     m_sound.SetChannel(0xE, reinterpret_cast<DWORD>(pArea));
