@@ -2,6 +2,7 @@
 #define CPROJECTILE_H_
 
 #include <list>
+#include <map>
 #include <set>
 #include <vector>
 
@@ -488,10 +489,12 @@ protected:
 // across the per-slot flag fields.
 //
 // Two embedded associative containers (VC6 _Tree, 16 bytes each in the binary):
-//   m_miniA (+0x4C4, ctor 0x570D50, shared nil DAT_008e3e38)  = std::map<LONG, X>
-//     -- per-target re-strike interval clock, populated only by persistent /
-//        re-striking AoEs; left opaque for now because our VS2019 _Tree is 8/12B
-//        (not 16B) so declaring it would drift every field below it to m_miniB.
+//   m_miniA (+0x4C4, ctor 0x570D50, shared nil DAT_008e3e38)  = std::map<LONG, int>
+//     -- per-target re-strike interval clock (GatherTargets, 0x56FED0): each
+//        scanned victim's consecutive in-range pass count, due a strike whenever
+//        the count is a multiple of field_4DC. Typed as std::map plus an 8-byte
+//        pad: our VS2019 _Tree is 8B on Win32 (not the binary's 16B VC6 _Tree),
+//        and the pad keeps every field below it at its binary offset.
 //   m_miniB (+0x64E, ctor 0x4C4A90, shared nil DAT_008d48b4) = std::set<LONG>
 //     -- already-struck-target dedup set (declared below; it is the final member
 //        so the by-name size drift touches nothing else).
@@ -506,6 +509,14 @@ public:
     // slot 19 so the slot pointer matches the binary (0x56F3F0, not the inherited
     // 0x578480). No added behaviour.
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x56F3F0 (slot 19)
+
+    // Gather every m_targetType object within range (front and back area lists)
+    // and return the ids due a strike this pass: each victim is tracked in
+    // m_miniA on first contact and is due whenever its in-range pass count is a
+    // multiple of field_4DC, while tracked victims that left the radius are
+    // dropped. The family's fused counterpart to IcewindCProjectileTargetMap's
+    // split GatherTargets + CollectDueStrikes.
+    virtual std::list<LONG> GatherTargets();         // 0x56FED0 (vtable slot 36)
 
     // Strike every victim in the gathered list, delivering one strike to each
     // (the family's counterpart to IcewindCProjectileTargetMap::Strike). New
@@ -561,17 +572,14 @@ protected:
     /* 03E2 */ LONG          field_3E2;
     /* 03E6 */ CVidCell      m_cell2;
     /* 04C0 */ LONG          field_4C0;      // = 0x2D
-    // m_miniA -- std::map<LONG, X> (ctor 0x570D50) kept as opaque 16-byte storage
-    // (see the class header): the parent stamps the two _Alval bytes (+0x4C4/+0x4C5
-    // = type byte) and the _Multi flag (+0x4CC = 0); the map ctor fills _Myhead
-    // (+0x4C8) and _Mysize (+0x4D0). Not typed yet -- our _Tree is 8/12B, so the
-    // real member would shift every field down to m_miniB. Defer until a
-    // re-striking AoE actually needs the map.
-    /* 04C4 */ BYTE          m_miniA_field0; // _Alval pad = (BYTE)nType
-    /* 04C5 */ BYTE          m_miniA_field1; // _Alval pad = (BYTE)nType
-    /* 04C6 */ BYTE          _padA0[6];      // +0x4C8 = _Myhead (set by 0x570D50)
-    /* 04CC */ BYTE          m_miniA_field8; // _Multi = 0
-    /* 04CD */ BYTE          _padA1[7];      // +0x4D0 = _Mysize (set by 0x570D50)
+    // m_miniA -- per-target re-strike clock (GatherTargets, 0x56FED0). The binary
+    // VC6 _Tree is 16 bytes (_Alval bytes +0x4C4/+0x4C5, _Myhead +0x4C8, _Multi
+    // +0x4CC, _Mysize +0x4D0); our VS2019 std::map is 8 bytes on Win32, so the
+    // 8-byte pad preserves the binary's 16-byte footprint and keeps field_4D4 and
+    // everything below at its binary offset. Node layout drifts by name (accepted,
+    // like m_miniB).
+    /* 04C4 */ std::map<LONG, int> m_miniA;
+    /* 04CC */ BYTE          _miniA_pad[8];
     /* 04D4 */ LONG          field_4D4;      // = 10000
     /* 04D8 */ LONG          field_4D8;      // = 0
     /* 04DC */ LONG          field_4DC;      // = 10

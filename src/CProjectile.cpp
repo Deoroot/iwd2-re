@@ -4358,9 +4358,8 @@ void IcewindCProjectileTravellingVFX::UpdateDirectionSequence(CVidCell* pCell)
 // Base ctor for the spell-hit / area-of-effect projectile family. Flies the
 // invisible "SPMAGMIS" carrier, targets anyone, and broadcasts the projectile
 // type byte across the per-slot flag fields. The dedup set m_miniB (binary ctor
-// 0x4C4A90) is a real std::set now, so it default-constructs implicitly; the
-// re-strike map m_miniA (0x570D50) is still opaque storage, its construction
-// faithfully omitted (this model never populates it). The six
+// 0x4C4A90) and the re-strike map m_miniA (0x570D50) are real std containers now,
+// so both default-construct implicitly (GatherTargets fills m_miniA). The six
 // refcounted resource-name strings start empty, cleared the way 0x448D50 clears
 // fresh storage (zero pointer/length/capacity, no share-count release). The
 // embedded CAIObjectType, two CVidCells, three IcewindCVisualEffects and two
@@ -4391,11 +4390,9 @@ IcewindCProjectileSpellHit::IcewindCProjectileSpellHit(SHORT nType)
     field_3E2 = 0;
     m_targetType.Set(CAIObjectType::ANYONE);
 
-    // m_miniA scalar fields and the trailing block before the visual slots.
+    // The trailing scalar block before the visual slots (m_miniA, the re-strike
+    // clock, default-constructs as an empty std::map).
     field_4C0 = 0x2D;
-    m_miniA_field0 = typeByte;
-    m_miniA_field1 = typeByte;
-    m_miniA_field8 = 0;
     field_4D4 = 10000;
     field_4D8 = 0;
     field_4DC = 10;
@@ -4495,10 +4492,9 @@ void IcewindCProjectileSpellHit::ResName::Set(const char* name)
 // reverse order (the binary calls the shared clear 0x448D50 for the three "B"
 // names and inlines the three "A" names); the two CSounds, two CVidCells and the
 // CAIObjectType target filter then destroy implicitly, then the base subobject.
-// m_miniB (std::set) now destroys implicitly too, reproducing the binary's set
-// teardown (0x5370C0, the reverse-order first call). The re-strike map m_miniA
-// stays opaque storage, so its inline teardown (0x570D50's nodes + the shared-nil
-// release at DAT_008e3e38) is faithfully omitted -- this model never fills it.
+// m_miniB (std::set) and m_miniA (std::map) now destroy implicitly too,
+// reproducing the binary's container teardown (m_miniB's set 0x5370C0 first, then
+// m_miniA's map nodes + the shared-nil release at DAT_008e3e38).
 IcewindCProjectileSpellHit::~IcewindCProjectileSpellHit()
 {
     m_visual3.m_resB.Release();
@@ -4513,6 +4509,59 @@ IcewindCProjectileSpellHit::~IcewindCProjectileSpellHit()
 void IcewindCProjectileSpellHit::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
     IcewindCProjectileTravellingVFX::Render(pArea, pVidMode, nSurface);
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x56FED0 (vtable slot 36). The gather pass: collect every m_targetType object
+// within m_type of m_pos (front list from the projectile's own vert-list node,
+// then the back list) with line of sight through m_terrainTable, then turn the
+// scan into the list of ids due a strike this pass. Tracked victims (m_miniA)
+// that left the scan radius are dropped; each scanned id is inserted on first
+// sight ({id, 0}) and is due when its in-range pass count is a multiple of
+// field_4DC -- so on first contact -- while the pass count always advances.
+// Fuses what IcewindCProjectileTargetMap splits across GatherTargets (the scan)
+// and CollectDueStrikes (the interval filter).
+std::list<LONG> IcewindCProjectileSpellHit::GatherTargets()
+{
+    CTypedPtrList<CPtrList, LONG*> targets(10);
+
+    m_pArea->GetCloseObjects(m_posVertList, m_pos, m_targetType, m_type,
+        m_terrainTable, targets, TRUE, field_300);
+    m_pArea->GetAllInRangeBack(m_pos, m_targetType, m_type,
+        m_terrainTable, targets, TRUE, FALSE, field_300);
+
+    std::map<LONG, int>::iterator it = m_miniA.begin();
+    while (it != m_miniA.end()) {
+        BOOL bInRange = FALSE;
+        POSITION pos = targets.GetHeadPosition();
+        while (pos != NULL) {
+            if (reinterpret_cast<LONG>(targets.GetNext(pos)) == it->first) {
+                bInRange = TRUE;
+                break;
+            }
+        }
+        if (bInRange) {
+            ++it;
+        } else {
+            m_miniA.erase(it++);
+        }
+    }
+
+    std::list<LONG> due;
+    POSITION pos = targets.GetHeadPosition();
+    while (pos != NULL) {
+        LONG nId = reinterpret_cast<LONG>(targets.GetNext(pos));
+        if (m_miniA.find(nId) == m_miniA.end()) {
+            m_miniA[nId] = 0;
+        }
+        if (m_miniA[nId] % field_4DC == 0) {
+            due.push_back(nId);
+        }
+        m_miniA[nId]++;
+    }
+
+    return due;
 }
 
 // -----------------------------------------------------------------------------
