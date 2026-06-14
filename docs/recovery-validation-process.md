@@ -69,6 +69,26 @@ Before automation runs, clear stale logs when the investigation depends on them:
 Remove-Item "C:\GOG Games\Icewind Dale 2\iwd2-re-crash.log","C:\GOG Games\Icewind Dale 2\iwd2-re-debug.log" -ErrorAction SilentlyContinue
 ```
 
+## Arc Gate: run OUR build on the recovered path
+
+Static parity and a Frida trace on the *original* are necessary but not sufficient:
+neither one ever runs our own exe, so cast-time faults in recovered code can ship
+as "done". This shipped both Fireball crashes (abort-on-cast 11ef54f6, UAF
+0xDDDDDDDD 1ac84b92) past GREEN parity. Before closing an arc, exercise the path
+on our build with the crash oracle armed:
+
+```bash
+scripts/vm.sh smoke [slot]   # default slot 3 (the spell/combat save)
+```
+
+It launches our exe, loads the save, attaches `scripts/frida_crash_guard.py`
+(Frida `setExceptionHandler` + symbolized EBP backtrace), and HOLDS the terminal
+with no timer until you drive the path in the VM window. Press ENTER for
+`RESULT: CLEAN`; a fault prints its symbolized backtrace automatically and exits
+non-zero. For a behavioral (not merely no-crash) claim, follow with a differential
+trace that runs the same hooks on our build and on the original and diffs the
+fields/args.
+
 ## Runtime Automation
 
 Use New Game for intro/dialog/chapter validation. Loading an existing save can
@@ -105,8 +125,11 @@ For differential checks, compare at least:
 
 ## Crash Capture
 
-If the game opens an error dialog instead of exiting silently, capture the screen
-before killing the process:
+For a *silent* crash (the window just vanishes = unhandled access violation), arm
+`scripts/frida_crash_guard.py` first — it catches the fault with a symbolized
+backtrace before the process dies (this is what `vm.sh smoke` uses; see Arc Gate).
+The screenshot below is for the other case: the game opens an error dialog instead
+of exiting silently — capture the screen before killing the process:
 
 ```powershell
 Add-Type -AssemblyName System.Drawing

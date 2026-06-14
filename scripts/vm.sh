@@ -4,6 +4,10 @@
 #   scripts/vm.sh build [--run]        sync+build via remote_build.sh, print ONLY errors/warnings
 #                                      (full log -> tmp_vm_build.log). --run: kill ours + launch s1.
 #   scripts/vm.sh run [slot]           kill ours, launch game in session 1 (default save slot 2)
+#   scripts/vm.sh smoke [slot]         arc gate: run OUR build + load save (default slot 3) + arm the
+#                                      crash guard; HOLDS the terminal until you've driven the
+#                                      recovered path (press ENTER = RESULT: CLEAN) or it crashes
+#                                      (symbolized backtrace prints automatically). No timer (AFK-safe).
 #   scripts/vm.sh log <regex> [-n 50] [-f <vm-path>]
 #                                      Select-String server-side (UTF-16 safe, no iconv), last N
 #   scripts/vm.sh tail [N] [-f <vm-path>]   last N raw lines of the debug log
@@ -63,6 +67,71 @@ case "$cmd" in
       sleep 5
     done
     echo "WARN: no terminal status after 150s (last: '${out:-<empty>}')"
+    ;;
+  smoke)
+    # Arc gate: exercise the recovered path on OUR build with the crash oracle armed.
+    # Closes the gap that shipped the Fireball crashes (validated on the original only,
+    # never run on our exe). No timer: holds until you confirm the cast or it faults.
+    slot="${1:-3}"
+    sed -i "s/--slot [0-9]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
+    scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
+    ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
+    ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
+    echo "==> launching our build (slot $slot), waiting for load..."
+    out=""
+    for i in $(seq 1 30); do
+      out=$(ssh "$VM" 'cmd /c "type C:\iwd2-re\vm_s1_out.txt 2>nul"' 2>/dev/null || true)
+      case "$out" in
+        *loaded:*) break ;;
+        *timeout*|*failed:*) echo "launch FAILED: $out"; exit 1 ;;
+      esac
+      sleep 5
+    done
+    case "$out" in *loaded:*) : ;; *) echo "WARN: no load status (last: '${out:-<empty>}'); arming guard anyway" ;; esac
+    pid=$(ssh "$VM" 'powershell -NoProfile -Command "(Get-Process iwd2-re -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id)"' 2>/dev/null | tr -d "\r")
+    [ -z "$pid" ] && { echo "ERROR: iwd2-re.exe not running; nothing to guard"; exit 1; }
+    scp -q "$HERE/frida_crash_guard.py" "$VM:$VM_REPO/scripts/"
+    glog="$REPO/tmp_smoke_guard.log"; : > "$glog"
+    # attach-by-pid as a host-side bg ssh child; its stdout streams back reliably
+    # (unlike the vm.sh-frida VBS payload). </dev/null so it never steals our ENTER.
+    ssh "$VM" "python $VM_REPO/scripts/frida_crash_guard.py $pid" </dev/null >"$glog" 2>&1 &
+    gpid=$!
+    for i in $(seq 1 20); do grep -qE "ARMED|ATTACH_FAILED" "$glog" 2>/dev/null && break; sleep 1; done
+    if grep -q ATTACH_FAILED "$glog" 2>/dev/null; then
+      echo "guard attach FAILED:"; cat "$glog"; kill "$gpid" 2>/dev/null || true; exit 1
+    fi
+    echo
+    echo "==> CRASH GUARD ARMED on pid $pid (slot $slot loaded)."
+    echo "    Drive the recovered path in the VM window now (cast the spell / trigger the code)."
+    echo "    Press ENTER here when done with NO crash  ->  RESULT: CLEAN."
+    echo "    If it faults, the symbolized backtrace prints here automatically."
+    echo
+    verdict=""
+    while kill -0 "$gpid" 2>/dev/null; do
+      if grep -q "EXCEPTION" "$glog" 2>/dev/null; then verdict="CRASH"; break; fi
+      if [ -t 0 ]; then
+        if read -t 3 -r _; then
+          sleep 1
+          grep -q "EXCEPTION" "$glog" 2>/dev/null && verdict="CRASH" || verdict="CLEAN"
+          break
+        fi
+      else
+        sleep 3
+      fi
+    done
+    [ -z "$verdict" ] && { grep -q "EXCEPTION" "$glog" 2>/dev/null && verdict="CRASH" || verdict="CLEAN"; }
+    # teardown: stop the (possibly still-attached) remote guard so it can't block the next smoke
+    kill "$gpid" 2>/dev/null || true
+    ssh "$VM" 'powershell -NoProfile -Command "Stop-Process -Name python -Force -ErrorAction SilentlyContinue"' >/dev/null 2>&1 || true
+    echo
+    if [ "$verdict" = "CRASH" ]; then
+      echo "===================== RESULT: CRASH ====================="
+      sed -n '/EXCEPTION/,$p' "$glog"
+      echo "========================================================"
+      echo "(full guard log: tmp_smoke_guard.log)"
+      exit 1
+    fi
+    echo "RESULT: CLEAN  (no fault while the path was driven; guard log: tmp_smoke_guard.log)"
     ;;
   log)
     pat="${1:?usage: vm.sh log <regex> [-n N] [-f vm-path]}"; shift
