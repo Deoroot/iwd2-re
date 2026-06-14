@@ -6085,10 +6085,86 @@ IcewindCSpellHitParticle::~IcewindCSpellHitParticle()
     delete m_animation.m_animation;
 }
 
-// 0x56E650 (vtable slot 3). Flies the particle's BAM cell along its velocity,
-// bounces it off walls and expires it. STUB pending recovery.
+// 0x56E650 (vtable slot 3). Drives the particle: drift along m_posDelta, then on
+// crossing a search-grid cell bounce off / die on / pass through walls
+// (CSearchBitmap::GetLOSCost), expiring after m_duration ticks or when the
+// animation sequence ends, and advance the frame. Mirrors CGameTemporal::AIUpdate.
 void IcewindCSpellHitParticle::AIUpdate()
 {
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    field_10E++;
+
+    if (m_duration == 0) {
+        // Lives until the animation sequence runs out.
+        if (m_animation.IsEndOfSequence()) {
+            RemoveFromArea();
+            return;
+        }
+    } else {
+        m_duration--;
+        if (m_duration == 0) {
+            RemoveFromArea();
+            return;
+        }
+    }
+
+    int nOldCellX = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
+    int nOldCellY = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+    m_posExact.x += m_posDelta.x;
+    m_posExact.y += m_posDelta.y;
+    m_pos.x = m_posExact.x >> CGameSprite::EXACT_SCALE;
+    m_pos.y = m_posExact.y >> CGameSprite::EXACT_SCALE;
+
+    int nNewCellX = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
+    int nNewCellY = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+    if (nOldCellX != nNewCellX || nOldCellY != nNewCellY) {
+        SHORT nTableIndex;
+        BYTE cost = m_pArea->m_search.GetLOSCost(CPoint(nNewCellX, nNewCellY),
+            m_terrainTable, nTableIndex, FALSE);
+        if (cost == CPathSearch::COST_IMPASSABLE) {
+            if (m_collision == CGameTemporal::COLLISION_DESTROY) {
+                RemoveFromArea();
+                return;
+            }
+
+            if (m_collision == CGameTemporal::COLLISION_REBOUND) {
+                CPoint ptOld(m_posExact);
+                if (nOldCellX != nNewCellX) {
+                    m_posExact.x += -m_posDelta.x * 2;
+                    m_pos.x = m_posExact.x >> CGameSprite::EXACT_SCALE;
+                    m_posDelta.x = -m_posDelta.x;
+                }
+
+                if (nOldCellY != nNewCellY) {
+                    m_posExact.y += -m_posDelta.y * 2;
+                    m_pos.y = m_posExact.y >> CGameSprite::EXACT_SCALE;
+                    m_posDelta.y = -m_posDelta.y;
+                }
+
+                SHORT nDirection = CGameSprite::GetDirection(ptOld, m_posExact);
+                m_animation.ChangeDirection(nDirection);
+            } else {
+                // Pass-through: keep drifting, hidden while inside the wall.
+                m_animationRunning = 0;
+            }
+        } else {
+            m_animationRunning = 1;
+        }
+    }
+
+    // The binary runs two descriptor-flag-gated extras here before advancing the
+    // frame: the field_10D ICloudA cloud effect (via the unnamed 0x55DBD0 /
+    // 0x4C5ED0 helpers) and the field_10C respawn from the shared cell pool
+    // (field_104). Both are left unrecovered pending those helpers and the
+    // cell-pool layout.
+
+    m_animation.IncrementFrame();
 }
 
 // 0x56ECF0 (vtable slot 18). Removes the particle from the area and the global
