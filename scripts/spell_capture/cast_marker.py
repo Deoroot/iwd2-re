@@ -15,15 +15,18 @@ different path, so hooking the player cast actions is a clean player filter.
 
 Two modes, one for each build under test:
 
-  --mode frida   ORIGINAL IWD2.exe (no source): attach by name and hook the cast
-                 action entries CGameSprite::Spell @0x740270 and
-                 SpellPointSequence @0x742840 (__thiscall, this=ecx=sprite),
-                 reading the resref from this->m_curAction.m_string1 (CString
-                 char* at this+0x538; m_curAction @+0x476, m_string1 @CAIAction+0xC2,
-                 verified vs the binary). These are per-tick state machines so the
-                 entry fires every casting tick; the host recorder debounces a
-                 cast's ticks into one clip. We ATTACH (never spawn) so the
-                 original instance / kill-policy is untouched.
+  --mode frida   ORIGINAL IWD2.exe (no source): attach by name and hook
+                 CGameSprite::ApplyCastingEffect @0x755A70 -- the visual cast-start
+                 -- filtered by the call return address to the two PLAYER cast
+                 actions CGameSprite::Spell (ret 0x741B22) and SpellPointSequence
+                 (ret 0x743DBB). ApplyCastingEffect is also called from the enemy
+                 ForceSpell paths (0x461190 / ForceSpellPointAction); excluding
+                 those keeps the trigger to player casts AND fires it once per cast
+                 at the same point our build logs, so orig/ours clips line up.
+                 __thiscall, this=ecx=sprite; resref = this->m_curAction.m_string1
+                 (CString char* at this+0x538; m_curAction @+0x476,
+                 m_string1 @CAIAction+0xC2, verified vs the binary). We ATTACH
+                 (never spawn) so the original instance / kill-policy is untouched.
 
   --mode tail    OUR iwd2-re.exe: tail iwd2-re-debug.log for the "CAST spell=<resref>"
                  line emitted once per cast by CGameSprite::Spell /
@@ -46,14 +49,20 @@ DEFAULT_LOG = r"C:\GOG Games\Icewind Dale 2\iwd2-re-debug.log"
 CAST_RE = re.compile(r"CAST\s+spell=([A-Za-z0-9_]+)")
 
 FRIDA_SCRIPT = r"""
-// CGameSprite::Spell (target) + SpellPointSequence (point): the two player
-// cast-action handlers. __thiscall, this = ecx = the casting sprite. The spell
+// Hook CGameSprite::ApplyCastingEffect (0x755A70) = the visual cast-start, and
+// keep ONLY the calls coming from the PLAYER cast actions, filtered by the call
+// return address: CGameSprite::Spell (ret 0x741B22) and SpellPointSequence
+// (ret 0x743DBB). ApplyCastingEffect is also reached from the enemy ForceSpell
+// paths (0x461190 / ForceSpellPointAction) -- excluding those keeps the trigger
+// to player casts and fires it exactly once per cast (the source gates the call
+// on !m_bStartedCasting / m_castCounter==0), at the same point our debug build
+// logs, so orig and ours clips line up. __thiscall: this=ecx=sprite; the spell
 // resref is this->m_curAction.m_string1, an MFC CString whose char* is stored at
-// this+0x538 (m_curAction @+0x476, m_string1 @CAIAction+0xC2 -- 0x41E1B0 reads it
-// at ecx+0xC2). Resref is <=8 chars, NUL-terminated.
-var SPELL   = ptr(0x740270);
-var SPELLPT = ptr(0x742840);
+// this+0x538 (m_curAction @+0x476, m_string1 @CAIAction+0xC2). NUL-terminated.
+var APPLY = ptr(0x755A70);
 var M_STRING1 = 0x538;
+var RET_SPELL   = ptr(0x741B22);   // call+5 of ApplyCastingEffect in Spell
+var RET_SPELLPT = ptr(0x743DBB);   // call+5 of ApplyCastingEffect in SpellPointSequence
 
 function readResRef(self) {
     if (self.isNull()) { return null; }
@@ -73,15 +82,15 @@ function readResRef(self) {
     }
 }
 
-[SPELL, SPELLPT].forEach(function (addr) {
-    Interceptor.attach(addr, {
-        onEnter: function (args) {
-            var rr = readResRef(this.context.ecx);
-            if (rr && rr.length) { send({spell: rr}); }
-        }
-    });
+Interceptor.attach(APPLY, {
+    onEnter: function (args) {
+        var ret = this.returnAddress;
+        if (!ret.equals(RET_SPELL) && !ret.equals(RET_SPELLPT)) { return; }
+        var rr = readResRef(this.context.ecx);
+        if (rr && rr.length) { send({spell: rr}); }
+    }
 });
-send({hooked: "CGameSprite::Spell 0x740270 + SpellPointSequence 0x742840"});
+send({hooked: "CGameSprite::ApplyCastingEffect 0x755A70 (player casts only)"});
 """
 
 
@@ -241,7 +250,7 @@ def run_frida(args, send):
 
     script.on("message", on_message)
     script.load()
-    print("[marker] hooked CGameSprite::Spell + SpellPointSequence; cast a spell.",
+    print("[marker] hooked ApplyCastingEffect (player casts only); cast a spell.",
           flush=True)
     while True:                                  # keep-alive (no stdin)
         time.sleep(0.5)
