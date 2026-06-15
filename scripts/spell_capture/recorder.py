@@ -328,8 +328,13 @@ class Recorder:
                 self._update_geom(m)
                 continue
             exe = str(m.get("exe", "unknown"))
-            resref = str(m.get("spell", "")).strip().upper()
-            if not re.fullmatch(r"[A-Z0-9_]{1,8}", resref):
+            # Extract the resref prefix rather than reject outright: a stray
+            # trailing byte (e.g. a non-NUL-terminated read on the Frida side)
+            # must not drop the whole cast. Resref = up to 8 [A-Z0-9_].
+            raw = str(m.get("spell", "")).strip().upper()
+            rr = re.match(r"[A-Z0-9_]{1,8}", raw)
+            resref = rr.group(0) if rr else ""
+            if not resref:
                 log(f"bad cast datagram: {m}")
                 continue
             now = time.time()

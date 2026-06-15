@@ -60,7 +60,14 @@ function readResRef(self) {
     try {
         var p = self.add(M_STRING1).readPointer();   // CString m_pchData
         if (p.isNull()) { return null; }
-        return p.readCString(8);                      // resref, NUL-terminated
+        // readCString() with NO size reads until the NUL terminator. (Passing a
+        // size reads that many FIXED bytes and ignores the NUL, so a 7-char
+        // resref came back as "SPWI304" + 1 garbage byte.) MFC CString is always
+        // NUL-terminated; slice to the resref charset as a final guard.
+        var s = p.readCString();
+        if (!s) { return null; }
+        var m = /^[A-Za-z0-9_]{1,8}/.exec(s);
+        return m ? m[0] : null;
     } catch (e) {
         return null;
     }
