@@ -24,6 +24,8 @@
 #include "CUtil.h"
 #include "IcewindMisc.h"
 
+#include "DebugLog.h"
+
 static LONG GetProjectileSourceDiagonalOffset(const CRect& rEllipse)
 {
     LONG x = rEllipse.right;
@@ -333,6 +335,12 @@ void CProjectile::CallBack()
 // remaining hardcoded classes are left unimplemented rather than guessed.
 CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay)
 {
+    // Spell-capture marker (no-op unless .\iwd2-re-debug.enabled exists): the
+    // spell_capture rig tails this line to auto-clip the cast. Mirrors the Frida
+    // hook on the original at this same factory; raw projectileType indexes
+    // MISSILE.SRC for the clip name. Not present in IWD2.exe (debug-only).
+    Iwd2DebugLog("CAST type=%d", projectileType);
+
     IcewindCVisualEffect visualEffect;
 
     if (projectileType > 0x1000) {
