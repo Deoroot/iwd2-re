@@ -423,6 +423,8 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
     "src/FileFormat.h"
     "src/Icewind586B70.cpp"
     "src/Icewind586B70.h"
+    "src/IcewindCGameAnimationTypeEffect.cpp"
+    "src/IcewindCGameAnimationTypeEffect.h"
     "src/IcewindCGameEffects.cpp"
     "src/IcewindCGameEffects.h"
     "src/IcewindCProjectileTargetMap.cpp"

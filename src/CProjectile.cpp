@@ -9,6 +9,7 @@
 #include "CVidMode.h"
 #include "CGameEffect.h"
 #include "CGameAnimationTypeEffect.h"
+#include "IcewindCGameAnimationTypeEffect.h"
 #include "CGameArea.h"
 #include "CGameFireball3d.h"
 #include "CMessage.h"
@@ -6212,7 +6213,7 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     m_animTick = 0;
 
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
-    m_animation.m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
+    m_animation.m_animation = new IcewindCGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
 
     // 0x56DFD7 / 0x56E34F: the binary routes m_resref1 through CString(LPCSTR), which
     // substitutes "" (DAT_008485bc) for a NULL/empty slot. CResRef(const char*) is not
@@ -6254,7 +6255,7 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     // (CGameSprite::GetDirection from the origin to the launch velocity gives the
     // 16-way facing). The embedded CGameAnimation installs its own vtable.
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
-    m_animation.m_animation = new CGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
+    m_animation.m_animation = new IcewindCGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
 
     // 0x56DFD7 / 0x56E34F: the binary routes m_resref1 through CString(LPCSTR), which
     // substitutes "" (DAT_008485bc) for a NULL/empty slot. CResRef(const char*) is not

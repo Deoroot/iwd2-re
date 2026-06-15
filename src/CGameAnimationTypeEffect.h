@@ -5,16 +5,13 @@
 #include "CVidCell.h"
 #include "IcewindCVisualEffect.h"
 
-struct IcewindCSpellHitEmission;
-struct IcewindCSpellHitEmissionRanged;
-
+// The spell-hit detonation-ember sibling (vtable 0x84eeb8, IcewindCGameAnimationTypeEffect.cpp)
+// is recovered as a subclass in IcewindCGameAnimationTypeEffect.h; its descriptor
+// ctors (0x55CD70 / 0x55D3A0) used to live here when the two binary classes were
+// conflated.
 class CGameAnimationTypeEffect : public CGameAnimationType {
 public:
     CGameAnimationTypeEffect(USHORT animationID, BYTE* colorRangeValues, WORD facing);
-    // Spell-hit detonation overloads: build the per-particle animation from an
-    // IcewindCSpellHitVisual emission descriptor + launch direction.
-    CGameAnimationTypeEffect(const IcewindCSpellHitEmission& descriptor, WORD facing);          // 0x55CD70
-    CGameAnimationTypeEffect(const IcewindCSpellHitEmissionRanged& descriptor, WORD facing);   // 0x55D3A0
     /* 0000 */ ~CGameAnimationTypeEffect() override;
     /* 0004 */ void CalculateFxRect(CRect& rFx, CPoint& ptReference, LONG posZ) override;
     /* 0008 */ void CalculateGCBoundsRect(CRect& rGCBounds, const CPoint& pos, const CPoint& ptReference, LONG posZ, LONG nWidth, LONG nHeight) override;
@@ -27,6 +24,16 @@ public:
     /* 00AC */ SHORT SetSequence(SHORT nSequence) override;
     /* 00C8 */ SHORT GetCurrentFrame() override;
 
+protected:
+    // Shared base/member construction for the IcewindCGameAnimationTypeEffect
+    // spell-hit sibling: builds the CGameAnimationType base and the
+    // CVidCell/CVidPalette/IcewindCVisualEffect subobjects (m_palette as TYPE_RANGE)
+    // before the subclass fills in its own members. Not a standalone-constructible
+    // animation -- the binary's two classes both derive straight from
+    // CGameAnimationType, this scaffolds the shared part of their ctors.
+    CGameAnimationTypeEffect();
+
+public:
     /* 03FE */ CVidCell* m_currentVidCell;
     /* 0402 */ CVidCell* m_currentVidCellShadow;
     /* 0406 */ CVidCell m_g1VidCell;

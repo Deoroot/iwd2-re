@@ -6,117 +6,15 @@
 #include "CProjectile.h"
 #include "CUtil.h"
 
-// 0x55CD70. Spell-hit detonation overload for the plainer IcewindCSpellHitEmission
-// (the 0x55D3A0 twin handles the IcewindCSpellHitEmissionRanged descriptor). It is
-// identical except this emission carries no m_animFlag36 (it stays 0) and its
-// random-sequence opt-in (m_animMode) comes from the plain descriptor's 0x2C slot
-// rather than the ranged descriptor's 0x35 slot.
-CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmission& descriptor,
-    WORD facing)
+// Shared base/member construction for the spell-hit detonation-ember sibling
+// IcewindCGameAnimationTypeEffect, whose 0x55CD70 / 0x55D3A0 ctors build the
+// CGameAnimationType base and the CVidCell/CVidPalette/IcewindCVisualEffect
+// subobjects exactly as this class does before filling in their own members. The
+// binary derives both classes straight from CGameAnimationType (siblings); modelling
+// the spell-hit anim as a subclass routes that shared construction through here.
+CGameAnimationTypeEffect::CGameAnimationTypeEffect()
     : m_palette(CVidPalette::TYPE_RANGE)
 {
-    m_facing = static_cast<BYTE>(facing);
-    m_animResName = NULL;
-    m_animResLen = 0;
-    m_animResCap = 0;
-    field_5DE = 0;
-    m_translucent = 0;
-    field_5E1 = 0;
-    m_currentBamSequence = 0;
-    m_currentBamDirection = 0;
-    m_extendDirectionTest = 0;
-    m_animationID = 0;
-    m_visualEffect = descriptor.m_visualEffect;
-    m_animFlag36 = 0;
-    m_animMode = descriptor.m_animMode;
-    m_colorChunks = -1;
-    m_bRender = TRUE;
-    m_pSndDeath = "";
-
-    if (descriptor.m_resref0Len == 0) {
-        m_g1VidCell.SetResRef(CResRef("GreaseA"), FALSE, TRUE, TRUE);
-    } else {
-        m_g1VidCell.SetResRef(CResRef(descriptor.m_resref0), FALSE, TRUE, TRUE);
-
-        if (m_animMode == 1) {
-            BYTE cnt = static_cast<BYTE>(m_g1VidCell.GetNumberSequences(FALSE));
-            if (cnt != 0) {
-                m_currentBamSequence = static_cast<SHORT>(rand() % cnt);
-            } else {
-                m_currentBamSequence = 0;
-            }
-        } else {
-            m_currentBamSequence = 0;
-        }
-        m_g1VidCell.SequenceSet(m_currentBamSequence);
-        m_g1VidCell.FrameSet(0);
-
-        // The descriptor's resref name is copied into a scratch buffer here via
-        // the 0x44BC20 / 0x44BC00 allocator pair; pending recovery of those
-        // helpers m_animResName is left NULL.
-    }
-
-    m_currentVidCell = &m_g1VidCell;
-    m_currentVidCellShadow = NULL;
-    m_currentBamDirection = facing;
-    m_extendDirectionTest = CGameSprite::DIR_N;
-}
-
-// 0x55D3A0. Spell-hit detonation overload: builds one detonation-fan particle's
-// animation from an IcewindCSpellHitVisual emission descriptor and the launch
-// direction. Loads the detonation BAM into m_g1VidCell (the descriptor's
-// m_resref0, or "GreaseA" when the descriptor carries no geometry), copies the
-// descriptor's visual-effect parameters and, when the descriptor opts in
-// (m_animMode), seeds a random start sequence.
-CGameAnimationTypeEffect::CGameAnimationTypeEffect(const IcewindCSpellHitEmissionRanged& descriptor,
-    WORD facing)
-    : m_palette(CVidPalette::TYPE_RANGE)
-{
-    m_facing = static_cast<BYTE>(facing);
-    m_animResName = NULL;
-    m_animResLen = 0;
-    m_animResCap = 0;
-    field_5DE = 0;
-    m_translucent = 0;
-    field_5E1 = 0;
-    m_currentBamSequence = 0;
-    m_currentBamDirection = 0;
-    m_extendDirectionTest = 0;
-    m_animationID = 0;
-    m_visualEffect = descriptor.m_visualEffect;
-    m_animFlag36 = descriptor.m_animFlag36;
-    m_animMode = descriptor.m_animMode;
-    m_colorChunks = -1;
-    m_bRender = TRUE;
-    m_pSndDeath = "";
-
-    if (descriptor.m_resref0Len == 0) {
-        m_g1VidCell.SetResRef(CResRef("GreaseA"), FALSE, TRUE, TRUE);
-    } else {
-        m_g1VidCell.SetResRef(CResRef(descriptor.m_resref0), FALSE, TRUE, TRUE);
-
-        if (m_animMode == 1) {
-            BYTE cnt = static_cast<BYTE>(m_g1VidCell.GetNumberSequences(FALSE));
-            if (cnt != 0) {
-                m_currentBamSequence = static_cast<SHORT>(rand() % cnt);
-            } else {
-                m_currentBamSequence = 0;
-            }
-        } else {
-            m_currentBamSequence = 0;
-        }
-        m_g1VidCell.SequenceSet(m_currentBamSequence);
-        m_g1VidCell.FrameSet(0);
-
-        // The descriptor's resref name is copied into a scratch buffer here via
-        // the 0x44BC20 / 0x44BC00 allocator pair; pending recovery of those
-        // helpers m_animResName is left NULL.
-    }
-
-    m_currentVidCell = &m_g1VidCell;
-    m_currentVidCellShadow = NULL;
-    m_currentBamDirection = facing;
-    m_extendDirectionTest = CGameSprite::DIR_N;
 }
 
 // 0x6A1F50
