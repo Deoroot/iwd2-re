@@ -122,6 +122,114 @@ IcewindCGameAnimationTypeEffect::IcewindCGameAnimationTypeEffect(const IcewindCS
     m_extendDirectionTest = CGameSprite::DIR_N;
 }
 
+// 0x55D690. Same FX-rect computation as the CGameAnimationTypeEffect twin (0x6A3280):
+// the cell's centre point plus its frame size, widened to enclose a shadow cell. The
+// detonation embers never carry a shadow (the ctors force m_currentVidCellShadow to
+// NULL), so only the else branch runs at runtime; the shadow arm is reproduced from
+// the twin for fidelity.
+void IcewindCGameAnimationTypeEffect::CalculateFxRect(CRect& rFx, CPoint& ptReference, LONG posZ)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\IcewindCGameAnimationTypeEffect.cpp
+    // __LINE__: 157
+    UTIL_ASSERT(m_currentVidCell != NULL);
+
+    CPoint ptChar;
+    m_currentVidCell->GetCurrentCenterPoint(ptChar, FALSE);
+
+    if (m_currentVidCellShadow != NULL) {
+        ptChar.y += posZ;
+    }
+
+    ptReference = ptChar;
+
+    CSize frameSize;
+    m_currentVidCell->GetCurrentFrameSize(frameSize, FALSE);
+
+    if (m_currentVidCellShadow != NULL) {
+        CPoint ptShadow;
+        m_currentVidCellShadow->GetCurrentCenterPoint(ptShadow, FALSE);
+
+        ptReference.x = max(ptShadow.x, ptReference.x);
+        ptReference.y = max(ptShadow.y, ptReference.y);
+
+        frameSize.cx += ptReference.x - ptChar.x;
+        frameSize.cy += ptReference.y - ptChar.y;
+        rFx.SetRect(0, 0, frameSize.cx, frameSize.cy);
+
+        m_currentVidCellShadow->GetCurrentFrameSize(frameSize, FALSE);
+
+        rFx.right = max(frameSize.cx + ptReference.x - ptShadow.x, rFx.right);
+        rFx.bottom = max(frameSize.cy + ptReference.y - ptShadow.y, rFx.bottom);
+
+        ptReference.y = max(ptChar.y - posZ, ptShadow.y + posZ);
+    } else {
+        rFx.SetRect(0, 0, frameSize.cx, frameSize.cy);
+    }
+}
+
+// 0x55D800. The detonation embers have no directional sequences, so unlike the
+// CGameAnimationTypeEffect twin (0x6A3450) this only records the facing -- no assert,
+// no sequence reselection.
+void IcewindCGameAnimationTypeEffect::ChangeDirection(SHORT nDirection)
+{
+    m_currentBamDirection = nDirection;
+}
+
+// 0x55D260. Same as the CGameAnimationTypeEffect twin (0x6A3140): delegates to the
+// current cell.
+BOOL IcewindCGameAnimationTypeEffect::IsEndOfSequence()
+{
+    // __FILE__: .\Include\IcewindCGameAnimationTypeEffect.h
+    // __LINE__: 38
+    UTIL_ASSERT(m_currentVidCell != NULL);
+
+    return m_currentVidCell->IsEndOfSequence(FALSE);
+}
+
+// 0x55D810. Advances the ember animation. Unlike the CGameAnimationTypeEffect twin
+// (0x6A3550, which keys on m_animationID), at end-of-sequence this either stops
+// rendering (m_animFlag36 == 1, a one-shot burst), reseeds a random sequence
+// (m_animMode == 1) or steps to the next sequence clamped to the last; mid-sequence it
+// just advances the frame. The embers never carry a shadow cell (the ctors force
+// m_currentVidCellShadow to NULL), so the shadow arms are inert here.
+void IcewindCGameAnimationTypeEffect::IncrementFrame()
+{
+    if (m_currentVidCell->IsEndOfSequence(FALSE)) {
+        if (m_animFlag36 == 1) {
+            m_bRender = 0;
+            return;
+        }
+
+        if (m_animMode == 1) {
+            BYTE cnt = static_cast<BYTE>(m_g1VidCell.GetNumberSequences(FALSE));
+            if (cnt != 0) {
+                m_currentBamSequence = static_cast<SHORT>(rand() % cnt);
+            } else {
+                m_currentBamSequence = 0;
+            }
+        } else {
+            m_currentBamSequence++;
+            if (m_currentBamSequence >= m_g1VidCell.GetNumberSequences(FALSE)) {
+                m_currentBamSequence = static_cast<SHORT>(m_g1VidCell.GetNumberSequences(FALSE) - 1);
+            }
+        }
+
+        m_g1VidCell.SequenceSet(m_currentBamSequence);
+        m_g1VidCell.FrameSet(0);
+
+        if (m_currentVidCellShadow != NULL) {
+            m_g1VidCellShadow.SequenceSet(m_currentBamSequence);
+            m_g1VidCellShadow.FrameSet(0);
+        }
+    } else {
+        m_currentVidCell->FrameAdvance();
+
+        if (m_currentVidCellShadow != NULL) {
+            m_currentVidCellShadow->FrameAdvance();
+        }
+    }
+}
+
 // 0x55d950. The detonation-ember render. Unlike the CGameAnimationTypeEffect twin
 // (0x6A36A0, which keys clear-fill on m_translucent/transparency and blits with the
 // caller's render flags), every blend decision here comes from the descriptor's
@@ -214,4 +322,11 @@ void IcewindCGameAnimationTypeEffect::Render(CInfinity* pInfinity, CVidMode* pVi
             ptReference.y,
             m_visualEffect.m_dwFlags | 0x1);
     }
+}
+
+// 0x55D210. The detonation embers report no meaningful frame index -- unlike the
+// CGameAnimationTypeEffect twin (0x6A3180) this returns -1 unconditionally.
+SHORT IcewindCGameAnimationTypeEffect::GetCurrentFrame()
+{
+    return -1;
 }
