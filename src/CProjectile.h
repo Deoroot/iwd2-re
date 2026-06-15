@@ -790,6 +790,20 @@ public:
     ~CProjectileFireball() override;   // 0x5768A0 (deleting thunk, slot 0; adds no data, chains to base)
 };
 
+// Leaf 0x574B80 -- Stinking Cloud (SPWI213, factory type 95/0x5F). A sibling of
+// CProjectileFireball: another bare IcewindCProjectileSpellHit AOE leaf whose own
+// vtable (0x8501B0) is byte-identical to Fireball's 40 slots -- it overrides nothing,
+// so the two classes differ only by RTTI and ctor. Unlike Fireball it builds no travel
+// cell (invisible in flight) and plays no fire sound; the ctor loads the cloud burst /
+// range visuals ("SCloudX"/"RNG_M01" + "SCloudR" + "SCloudA") into the three emission
+// slots with copy-from-back, plus the persistent gas area resref "ARE_M02" in the third
+// slot's second name. Lifetime (field_4C0) 1000, m_dirCount 1, m_type 100.
+class CProjectileStinkingCloud /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileStinkingCloud();    // 0x574B80
+    ~CProjectileStinkingCloud() override;   // slot 0; ICF-folded onto 0x5768A0 (shared with CProjectileFireball::~CProjectileFireball)
+};
+
 // One cell of the detonation fan: a position (fixed point) and a flag the parent's
 // AIUpdate toggles as the cell is consumed. The parent records these into a shared
 // refcounted pool the IcewindCSpellHitParticle children reference. Names are

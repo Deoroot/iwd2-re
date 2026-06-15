@@ -668,6 +668,17 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileFireball();
         break;
 
+    case 0x5F:
+        // Stinking Cloud (SPWI213): the persistent-gas area spell-hit projectile.
+        // Sibling of Fireball -- another bare IcewindCProjectileSpellHit leaf; all
+        // configuration is in the leaf ctor (0x574B80). Like Fireball the inherited
+        // SpellHit AOE strike and the gas area (ARE_M02) are not yet recovered, but
+        // the detonation visual fires through the inherited OnArrival. Previously this
+        // type fell through to the default `new CProjectile()`, so casting Stinking
+        // Cloud produced nothing.
+        pProjectile = new CProjectileStinkingCloud();
+        break;
+
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
         // The line beam that rakes everything it crosses; height on, range 400.
@@ -4940,6 +4951,51 @@ CProjectileFireball::CProjectileFireball()
 // 0x5768A0 (vtable slot 0; the scalar deleting thunk wraps this). Fireball adds
 // no data of its own, so the destructor just chains to the spell-hit base.
 CProjectileFireball::~CProjectileFireball()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x574B80
+// Stinking Cloud (SPWI213, factory type 95/0x5F). A trivial IcewindCProjectileSpellHit
+// leaf like Fireball: it re-points the vtable (0x8501B0) and configures the inherited
+// spell-hit state, adding no data of its own. It builds no travel cell (the cloud is
+// invisible in flight) and plays no fire sound; it loads the detonation/range visuals
+// ("SCloudX"/"RNG_M01" + "SCloudR" + "SCloudA") into the three emission slots with
+// copy-from-back, with the persistent gas area ("ARE_M02") in the third slot's second
+// resref. Lifetime (field_4C0) 1000 (vs Fireball's 0x2D -- the cloud lingers),
+// m_dirCount 1, m_type 100.
+CProjectileStinkingCloud::CProjectileStinkingCloud()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("SCloudX");
+    m_visual1.m_resB.Set("RNG_M01");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_resA.Set("SCloudR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+    field_53A = 1;
+    field_53C = 0xD;
+
+    m_visual3.m_resA.Set("SCloudA");
+    m_visual3.m_resB.Set("ARE_M02");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    field_4D4 = 10;
+    field_4DC = 10;
+    field_578 = 1000;
+    field_4C0 = 1000;
+    field_574 = 1;
+    field_575 = 1;
+    field_4D8 = 0;
+    m_dirCount = 1;
+    m_type = 100;
+}
+
+// Slot-0 destructor: an empty body that chains to the spell-hit base, ICF-folded onto
+// CProjectileFireball::~CProjectileFireball at 0x5768A0 (identical code). It carries no
+// own address marker so it does not collide with Fireball's in the address map.
+CProjectileStinkingCloud::~CProjectileStinkingCloud()
 {
 }
 
