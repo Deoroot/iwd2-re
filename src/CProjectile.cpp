@@ -6381,11 +6381,42 @@ void IcewindCSpellHitParticle::AIUpdate()
         }
     }
 
-    // The binary runs two descriptor-flag-gated extras here before advancing the
-    // frame: the m_hasCloud ICloudA cloud effect (via the unnamed 0x55DBD0 /
-    // 0x4C5ED0 helpers) and the m_respawnFromPool respawn from the shared cell pool
-    // (field_104). Both are left unrecovered pending those helpers and the
-    // cell-pool layout.
+    // m_hasCloud (descriptor.m_cloudFlag): the ICloudA/ICloudB cloud swap via the
+    // 0x55DBD0 cell-respawn helper gated by the 0x4C5ED0 resref compare. Left a
+    // documented gap -- the binary's 0x4C5ED0 call site drops the `this` (the cell
+    // whose resref is compared), so the compare subject is unrecovered. Not the
+    // Fireball path (m_cloudFlag == 0); only the cloud AoEs reach it.
+
+    // m_respawnFromPool (descriptor.m_respawnFlag): on each end-of-sequence, move
+    // this ember to a random unclaimed cell of the shared fan pool and release the
+    // one it held, so the stationary detonation embers keep redistributing across
+    // the burn footprint each cycle. Omitting it was the Fireball "green ground
+    // flames" regression -- the original IWD2.exe runs this respawn; our build did
+    // not, leaving the FirebaA embers stuck advancing past their sequence end.
+    if (m_respawnFromPool == 1) {
+        if (m_animation.IsEndOfSequence()) {
+            int nIndex;
+            do {
+                int nCount = static_cast<int>(m_cellPool->m_cells.size());
+                int nBack = 0;
+                if (nCount != 0) {
+                    int nRand = rand();
+                    if (nRand % nCount != 0) {
+                        nBack = rand() % (nRand % nCount);
+                    }
+                }
+                nIndex = nCount - nBack - 1;
+            } while (m_cellPool->m_cells[nIndex].flag == 1);
+
+            m_cellPool->m_cells[nIndex].flag = 1;
+            m_cellPool->m_cells[m_cellIndex].flag = 0;
+            m_cellIndex = nIndex;
+            m_posExact.x = m_cellPool->m_cells[nIndex].x;
+            m_posExact.y = m_cellPool->m_cells[nIndex].y;
+            m_pos.x = m_posExact.x >> CGameSprite::EXACT_SCALE;
+            m_pos.y = m_posExact.y >> CGameSprite::EXACT_SCALE;
+        }
+    }
 
     m_animation.IncrementFrame();
 }
