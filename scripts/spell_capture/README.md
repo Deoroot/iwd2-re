@@ -14,11 +14,12 @@ small `.mkv` and **overwrite by
 | File | Runs on | Role |
 |------|---------|------|
 | `recorder.py` | host | null-sink → Xephyr (visible nested X) → SPICE client → continuous segmented ffmpeg → ring buffer + UDP cast listener + cutter |
-| `cast_marker.py` | VM | detects casts and UDP-forwards `{exe,projType,ts}` to the host. `--mode frida` (original, hook `0x51EAF0`) / `--mode tail` (ours, tail debug log) |
+| `cast_marker.py` | VM | detects player casts and UDP-forwards `{exe,spell,ts}` (spell = resref). `--mode frida` (original: hook `ApplyCastingEffect` `0x755A70`, return-address filtered to the player cast sites) / `--mode tail` (ours: tail the debug log) |
 | `spellcap.sh` | host | facade: `rec` / `mark-orig` / `mark-ours` / `compare` / `stop` |
 
-`projType` → `data/near_infinity_export/SRC/MISSILE.SRC` (1-based line) →
-canonical spell name used in the filename.
+The spell **resref** (e.g. `SPWI304`) keys each clip; the recorder resolves it to
+the TLK display name (`Fireball`) via `reagent_asset_names.py` for the filename and
+overlay, falling back to the resref for spells absent from the export.
 
 ## Dependencies
 
@@ -33,43 +34,81 @@ virt-manager. Do **not** also open virt-manager/another viewer while recording, 
 it will disconnect the recorder. (`--headless` uses offscreen Xvfb instead, only
 useful when you don't need to see/drive the game.)
 
-## Workflow
+## Quick start
 
 ```bash
-# 1. start the recorder -> an "iwd2-spellcap" Xephyr window opens. THIS is your
-#    view: watch and drive the game in it. (Ctrl-C to stop; keeps clips.)
+# 1. the game must already be running in the VM (the recorder probes its
+#    resolution). Start the recorder -> an "iwd2-spellcap" Xephyr window opens.
+#    THIS is your view: watch and cast in it. (Ctrl-C stops; clips are kept.)
 scripts/spell_capture/spellcap.sh rec
-#    options: --encoder hevc_nvenc|libx265  (default av1_nvenc)  --post 15 --pre 1
-#             --fps 20  --abr 64k  (light defaults)
+#    options: --encoder hevc_nvenc|libx265 (default av1_nvenc) --post 15 --pre 1
 #             --crop X,Y,W,H (manual rect)  --full (whole desktop)  --headless
 
-# 2. launch the game (renders now that the recorder's SPICE client is connected)
-scripts/vm.sh run 3          # our build, slot 3   (or launch the original yourself)
-#    it appears in the Xephyr window
-
-# 3. start the matching marker in the VM
-scripts/spell_capture/spellcap.sh mark-ours     # our iwd2-re.exe (tails debug log)
-#   or
+# 2. start the marker that matches the running build
 scripts/spell_capture/spellcap.sh mark-orig     # original IWD2.exe (Frida)
+#   or
+scripts/spell_capture/spellcap.sh mark-ours     # our iwd2-re.exe (tails debug log)
 
-# 4. drive the game IN THE XEPHYR WINDOW and cast. Clips appear in
-#    scripts/spell_capture/clips/<Spell>__<exe>.mkv
-
-# 5. (optional) side-by-side, both audio tracks (0=orig, 1=ours)
-scripts/spell_capture/spellcap.sh compare Fireball
-
-# 6. teardown
+# 3. cast IN THE XEPHYR WINDOW -> clips/<Spell>__<exe>.mkv
+# 4. compare / stop
+scripts/spell_capture/spellcap.sh compare Fireball   # side-by-side, both audio tracks
 scripts/spell_capture/spellcap.sh stop
 ```
 
-Our build only emits the `CAST type=N` log line when
-`.\iwd2-re-debug.enabled` exists in the game CWD
+## Guide: a full orig-vs-ours session
+
+The recorder is **shared** — it tags every clip by build (`exe`) from the
+datagram, so you record **both** builds against **one** running recorder. Only the
+marker and the game swap; **do not Ctrl-C the recorder between builds**.
+
+**A. Original first** (original `IWD2.exe` already running in the VM)
+
+```bash
+scripts/spell_capture/spellcap.sh rec          # recorder — leave it running
+scripts/spell_capture/spellcap.sh mark-orig    # Frida attach to IWD2.exe
+# cast your spells in the Xephyr window -> clips/<Spell>__orig.mkv
+```
+
+**B. Switch to our build** (the host recorder stays up)
+
+```bash
+# stop ONLY the VM marker (keeps the host recorder alive)
+ssh win11vm 'powershell -NoProfile -Command "Stop-Process -Name python -Force"'
+
+scripts/vm.sh kill orig        # close the original (explicit; never auto-killed)
+scripts/vm.sh run              # launch our iwd2-re.exe in session 1
+
+# enable our debug log: an "iwd2-re-debug.enabled" file (NO leading dot!) in the
+# game CWD. (A leading-dot ".iwd2-re-debug.enabled" silently leaves logging OFF.)
+ssh win11vm 'powershell -NoProfile -Command "New-Item -Force -ItemType File \"C:\GOG Games\Icewind Dale 2\iwd2-re-debug.enabled\""'
+
+scripts/spell_capture/spellcap.sh mark-ours    # tails the debug log
+# cast the SAME spells -> clips/<Spell>__ours.mkv
+```
+
+**C. Compare**
+
+```bash
+scripts/spell_capture/spellcap.sh compare Fireball   # -> clips/Fireball__cmp.mkv
+scripts/spell_capture/spellcap.sh stop               # recorder + VM marker
+```
+
+Both builds trigger at the same cast-start point, so the two clips line up for a
+frame-by-frame diff. `compare <Name>` takes the clip's **display name** (e.g.
+`Fireball`, `Color_Spray`), not the resref.
+
+Our build only emits the `CAST spell=<resref>` log line while the
+`iwd2-re-debug.enabled` file (no leading dot) exists in the game CWD
 (`C:\GOG Games\Icewind Dale 2`); `mark-ours` reminds you.
 
 ## Notes / tuning
 
-- Trigger point = `CProjectile::DecodeProjectile` (the projectile/VFX factory), so
-  every *visual* spell clips; pure no-VFX spells don't (nothing to compare).
+- Trigger = the player's cast action at the visual cast-start, keyed by resref:
+  our build logs `CAST spell=<resref>` once in `CGameSprite::Spell` /
+  `SpellPointSequence`; the original is hooked at `ApplyCastingEffect` filtered to
+  those two call sites. Enemies cast via `ForceSpell` (a different path), so combat
+  enemy spells **don't** clip, and non-projectile spells (cones like Color Spray)
+  clip too — both were broken by the old per-projectile factory trigger.
 - The host stamps UDP arrival on the same wall clock as the ring segments; the 1 s
   pre-roll absorbs trigger latency — no clock sync needed.
 - Ring keeps `--keep` seconds (default 120) of 5 s segments under `ring/`; only the
