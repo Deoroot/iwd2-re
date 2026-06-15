@@ -958,6 +958,77 @@ public:
     ~CProjectileInsectPlague() override;   // slot 0; ICF-folded onto 0x5768A0
 };
 
+// Leaf 0x573600 -- Fiery Cloud (SPWI802, factory type 214/0xD6). Full three-slot cloud
+// leaf (own vtable 0x84FB98) -- burst "ICloudX"/"EFF_M40", ring "ICloudR", persistent
+// fire-cloud area "ICloudA"/"ARE_M05". The ONLY recovered leaf that sets
+// m_visual3CloudFlag = 1, so it is the effect that drives the IcewindCSpellHitParticle
+// cloud-flip (m_hasCloud / ICloudA-ICloudB) path. m_lifetime 0x41A, m_aoeRange 100.
+class CProjectileFieryCloud /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileFieryCloud();    // 0x573600
+    ~CProjectileFieryCloud() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x574140 -- Produce Fire (SPPR411, factory type 215/0xD7). Two-slot leaf (own
+// vtable 0x84FE08): burst "PFireX"/"EFF_P45" and the persistent fire area
+// "PFireA"/"ARE_P03". m_strikeInterval 10000, m_lifetime 100, m_aoeRange 0x3C.
+class CProjectileProduceFire /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileProduceFire();    // 0x574140
+    ~CProjectileProduceFire() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x575B90 -- Tremor (SPPR719, factory type 306/0x132). The most minimal leaf in
+// the family (own vtable 0x850558): it sets only m_visual1.m_soundResRef ("ARE_P27")
+// and m_aoeRange 0x15E -- no cell, no copy-from-back, every other field default.
+class CProjectileTremor /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileTremor();    // 0x575B90
+    ~CProjectileTremor() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x577B20 -- Dispel Magic (EFFDM1, factory type 246/0xF6). Single-burst leaf (own
+// vtable 0x850C0C): first slot only, the abjuration glow "AbjuraX"/"ARE_M20",
+// copy-from-back. m_aoeRange 0x96.
+class CProjectileDispelMagic /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileDispelMagic();    // 0x577B20
+    ~CProjectileDispelMagic() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// The enchantment-glow overlays -- four near-identical single-burst leaves that load
+// the shared "EnchanX"/"ARE_M21" glow into the first emission slot (copy-from-back),
+// strike once (m_strikePeriod 10000, m_strikeInterval 10, m_lifetime 0x2D) and differ
+// only by RTTI/vtable and m_aoeRange.
+//
+// Leaf 0x574300 -- Sleep (SPWI116, factory type 42/0x2A; m_aoeRange 0x96).
+class CProjectileSleep /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileSleep();    // 0x574300
+    ~CProjectileSleep() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x572830 -- Hold Animal (SPPR305, factory type 249/0xF9; m_aoeRange 200).
+class CProjectileHoldAnimal /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileHoldAnimal();    // 0x572830
+    ~CProjectileHoldAnimal() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x572E60 -- Eye of Stone (SPIN132, factory type 190/0xBE; m_aoeRange 0x96).
+class CProjectileEyeOfStone /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileEyeOfStone();    // 0x572E60
+    ~CProjectileEyeOfStone() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x573160 -- Halt Undead (SPWI320, factory type 357/0x165; m_aoeRange 0x96).
+class CProjectileHaltUndead /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileHaltUndead();    // 0x573160
+    ~CProjectileHaltUndead() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
 // One cell of the detonation fan: a position (fixed point) and a flag the parent's
 // AIUpdate toggles as the cell is consumed. The parent records these into a shared
 // refcounted pool the IcewindCSpellHitParticle children reference. Names are

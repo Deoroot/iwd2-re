@@ -771,6 +771,55 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileInsectPlague();
         break;
 
+    case 0xD6:
+        // Fiery Cloud (SPWI802): the persistent fire-cloud area spell-hit projectile and
+        // the one effect that drives the cloud-flip particle path (ctor 0x573600).
+        // Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileFieryCloud();
+        break;
+
+    case 0xD7:
+        // Produce Fire (SPPR411): the persistent fire area spell-hit projectile (ctor
+        // 0x574140). Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileProduceFire();
+        break;
+
+    case 0x132:
+        // Tremor (SPPR719): the minimal area spell-hit projectile (ctor 0x575B90).
+        // Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileTremor();
+        break;
+
+    case 0xF6:
+        // Dispel Magic (EFFDM1): the single-burst abjuration-glow spell-hit projectile
+        // (ctor 0x577B20). Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileDispelMagic();
+        break;
+
+    case 0x2A:
+        // Sleep (SPWI116): enchantment-glow spell-hit overlay (ctor 0x574300).
+        // Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileSleep();
+        break;
+
+    case 0xF9:
+        // Hold Animal (SPPR305): enchantment-glow spell-hit overlay (ctor 0x572830).
+        // Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileHoldAnimal();
+        break;
+
+    case 0xBE:
+        // Eye of Stone (SPIN132): enchantment-glow spell-hit overlay (ctor 0x572E60).
+        // Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileEyeOfStone();
+        break;
+
+    case 0x165:
+        // Halt Undead (SPWI320): enchantment-glow spell-hit overlay (ctor 0x573160).
+        // Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileHaltUndead();
+        break;
+
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
         // The line beam that rakes everything it crosses; height on, range 400.
@@ -5517,6 +5566,215 @@ CProjectileInsectPlague::CProjectileInsectPlague()
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
 CProjectileInsectPlague::~CProjectileInsectPlague()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x573600
+// Fiery Cloud (SPWI802, factory type 214/0xD6). A full three-slot IcewindCProjectileSpellHit
+// cloud leaf (vtable 0x84FB98): burst ("ICloudX"/"EFF_M40"), ring ("ICloudR") and the
+// persistent fire-cloud area ("ICloudA"/"ARE_M05"), all copy-from-back. Unique among the
+// recovered leaves in setting m_visual3CloudFlag = 1 -- this is the effect that drives the
+// IcewindCSpellHitParticle cloud-flip (ICloudA/ICloudB) path. m_lifetime 0x41A, m_aoeRange
+// 100.
+CProjectileFieryCloud::CProjectileFieryCloud()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("ICloudX");
+    m_visual1.m_soundResRef.Set("EFF_M40");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_cellResRef.Set("ICloudR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0xD;
+
+    m_visual3.m_cellResRef.Set("ICloudA");
+    m_visual3.m_soundResRef.Set("ARE_M05");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3DensityBase = 0x5DC;
+    m_visual3CloudFlag = 1;
+    m_lifetime = 0x41A;
+    m_dirCount = 1;
+    m_aoeRange = 100;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileFieryCloud::~CProjectileFieryCloud()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x574140
+// Produce Fire (SPPR411, factory type 215/0xD7). A two-slot IcewindCProjectileSpellHit
+// leaf (vtable 0x84FE08): the burst slot ("PFireX"/"EFF_P45") and the persistent fire
+// area ("PFireA"/"ARE_P03"), both copy-from-back. m_strikeInterval 10000, m_lifetime 100,
+// m_aoeRange 0x3C.
+CProjectileProduceFire::CProjectileProduceFire()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("PFireX");
+    m_visual1.m_soundResRef.Set("EFF_P45");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual3.m_cellResRef.Set("PFireA");
+    m_visual3.m_soundResRef.Set("ARE_P03");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3DensityBase = 0x2EE;
+    m_strikePeriod = 10;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10000;
+    m_lifetime = 100;
+    m_dirCount = 1;
+    m_aoeRange = 0x3C;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileProduceFire::~CProjectileProduceFire()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x575B90
+// Tremor (SPPR719, factory type 306/0x132). The most minimal leaf in the family (vtable
+// 0x850558): it loads only the looping area sound "ARE_P27" into m_visual1.m_soundResRef
+// and sets m_aoeRange 0x15E -- no cell, no copy-from-back, every other field default.
+CProjectileTremor::CProjectileTremor()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_soundResRef.Set("ARE_P27");
+    m_aoeRange = 0x15E;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileTremor::~CProjectileTremor()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x577B20
+// Dispel Magic (EFFDM1, factory type 246/0xF6). A single-burst IcewindCProjectileSpellHit
+// leaf (vtable 0x850C0C): the first emission slot only, the abjuration glow
+// ("AbjuraX"/"ARE_M20", copy-from-back). m_aoeRange 0x96.
+CProjectileDispelMagic::CProjectileDispelMagic()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("AbjuraX");
+    m_visual1.m_soundResRef.Set("ARE_M20");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_aoeRange = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileDispelMagic::~CProjectileDispelMagic()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// The enchantment-glow overlays: four near-identical single-burst leaves loading the
+// shared "EnchanX"/"ARE_M21" glow into the first emission slot (copy-from-back) and
+// striking once (m_strikePeriod 10000, m_strikeInterval 10, m_lifetime 0x2D); they
+// differ only by RTTI/vtable and m_aoeRange.
+
+// 0x574300
+// Sleep (SPWI116, factory type 42/0x2A; vtable 0x84FEA4; m_aoeRange 0x96).
+CProjectileSleep::CProjectileSleep()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("EnchanX");
+    m_visual1.m_soundResRef.Set("ARE_M21");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileSleep::~CProjectileSleep()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x572830
+// Hold Animal (SPPR305, factory type 249/0xF9; vtable 0x84F88C; m_aoeRange 200).
+CProjectileHoldAnimal::CProjectileHoldAnimal()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("EnchanX");
+    m_visual1.m_soundResRef.Set("ARE_M21");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 200;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileHoldAnimal::~CProjectileHoldAnimal()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x572E60
+// Eye of Stone (SPIN132, factory type 190/0xBE; vtable 0x84F9C4; m_aoeRange 0x96).
+CProjectileEyeOfStone::CProjectileEyeOfStone()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("EnchanX");
+    m_visual1.m_soundResRef.Set("ARE_M21");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileEyeOfStone::~CProjectileEyeOfStone()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x573160
+// Halt Undead (SPWI320, factory type 357/0x165; vtable 0x84FA60; m_aoeRange 0x96).
+CProjectileHaltUndead::CProjectileHaltUndead()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("EnchanX");
+    m_visual1.m_soundResRef.Set("ARE_M21");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileHaltUndead::~CProjectileHaltUndead()
 {
 }
 
