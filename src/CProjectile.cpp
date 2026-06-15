@@ -827,6 +827,50 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileHaltUndead();
         break;
 
+    case 0x43:
+        // Flame Strike (projectile type 67, SPIN977): the sound-only spell-hit overlay
+        // ("EFF_P16", no cell) (ctor 0x572470). Previously fell through to the default
+        // plain CProjectile.
+        pProjectile = new CProjectileFlameStrike();
+        break;
+
+    case 0x107:
+        // Hold Monster (projectile type 263): the enchantment-glow spell-hit overlay
+        // ("EnchanX"/"ARE_M21"), a sibling of Hold Animal (ctor 0x572B30). Previously fell
+        // through to the default plain CProjectile.
+        pProjectile = new CProjectileHoldMonster();
+        break;
+
+    case 0x10E:
+        // Fire Seed (projectile type 270): the visible travelling "MagicStn" carrier that
+        // bursts the "FSeedsX"/"EFF_P45" overlay (ctor 0x572110). Previously fell through to
+        // the default plain CProjectile.
+        pProjectile = new CProjectileFireSeed();
+        break;
+
+    case 0x117:
+        // Malavon's Corrosive Fog (projectile type 279): a full three-slot cloud reusing the
+        // Death Fog visuals ("DFogX"/"DFogR"/"DFogA"), a sibling of Acid Fog with a longer
+        // 2000-tick lifetime and 0xFA range (ctor 0x573CC0). Previously fell through to the
+        // default plain CProjectile.
+        pProjectile = new CProjectileCorrosiveFog();
+        break;
+
+    case 0x126:   // Portal Animation Flipping Hack Open  (projectile type 294)
+    case 0x129:   // Portal Animation Flipping Hack Close (projectile type 297)
+        // The minimal portal-door animation overlay: base lifetime 2000, target type reset to
+        // ANYONE, nothing else (ctor 0x5756C0, shared by both directions). Not a spell, which
+        // is why no SPL owns it. Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectilePortalAnimFlip();
+        break;
+
+    case 0x17F:
+        // Boulder, Big (Trap) (projectile type 383, SPWI088): the visible travelling
+        // "BIGBOLDR" carrier that loops "AM6103e"/"AM5101e" without a burst overlay (ctor
+        // 0x577590). Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileBigBoulder();
+        break;
+
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
         // The line beam that rakes everything it crosses; height on, range 400.
@@ -5831,6 +5875,192 @@ CProjectileSnowballSwarm::CProjectileSnowballSwarm()
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
 CProjectileSnowballSwarm::~CProjectileSnowballSwarm()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x572470
+// Flame Strike (projectile type 67, SPIN977; vtable 0x84F754). The most minimal
+// overlay in the family: it loads only the "EFF_P16" impact sound onto the burst
+// slot -- no cell, no copy-from-back -- then the standard strike cadence. m_aoeRange
+// 0x8C.
+CProjectileFlameStrike::CProjectileFlameStrike()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_soundResRef.Set("EFF_P16");
+
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 0x8C;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileFlameStrike::~CProjectileFlameStrike()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x572B30
+// Hold Monster (projectile type 263; vtable 0x84F928). The enchantment-glow overlay,
+// identical to Hold Animal: the "EnchanX"/"ARE_M21" burst slot with copy-from-back and
+// the standard strike cadence. m_aoeRange 200.
+CProjectileHoldMonster::CProjectileHoldMonster()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("EnchanX");
+    m_visual1.m_soundResRef.Set("ARE_M21");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 200;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileHoldMonster::~CProjectileHoldMonster()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x572110
+// Fire Seed (projectile type 270; vtable 0x84F61C). A visible travelling leaf in the
+// Fireball mould: it builds the "MagicStn" carrier cell (replacing the base cell when
+// the name is non-empty), bursts the "FSeedsX"/"EFF_P45" overlay with copy-from-back and
+// flies with 16 facings. m_lifetime 0x2D, m_aoeRange 0x46. The carrier-name emptiness
+// test mirrors the base ctor's branch.
+CProjectileFireSeed::CProjectileFireSeed()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    const char* cellName = "MagicStn";
+    if (cellName[0] != '\0') {
+        m_visible = 1;
+        delete m_pVidCell;
+        m_pVidCell = new CVidCell(CResRef(cellName), FALSE);
+        m_bHasTravelCell = 1;
+    } else {
+        m_visible = 0;
+        m_bHasTravelCell = 0;
+    }
+
+    m_visual1.m_cellResRef.Set("FSeedsX");
+    m_visual1.m_soundResRef.Set("EFF_P45");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_dirCount = 0x10;
+    m_aoeRange = 0x46;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileFireSeed::~CProjectileFireSeed()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x573CC0
+// Malavon's Corrosive Fog (projectile type 279; vtable 0x84FCD0). A full three-slot
+// cloud reusing the Death Fog visuals, a sibling of Acid Fog (same "DFogX"/"RNG_M01"
+// burst, "DFogR" ring and "DFogA"/"ARE_M02" persistent area, all copy-from-back) but
+// with a wider ring (m_visual2MaxSpawn 0x1A), a longer 2000-tick lifetime and m_aoeRange
+// 0xFA.
+CProjectileCorrosiveFog::CProjectileCorrosiveFog()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("DFogX");
+    m_visual1.m_soundResRef.Set("RNG_M01");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_cellResRef.Set("DFogR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0x1A;
+
+    m_visual3.m_cellResRef.Set("DFogA");
+    m_visual3.m_soundResRef.Set("ARE_M02");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3DensityBase = 500;
+    m_strikeCountdown = 0;
+    m_lifetime = 2000;
+    m_dirCount = 1;
+    m_aoeRange = 0xFA;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileCorrosiveFog::~CProjectileCorrosiveFog()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x5756C0
+// Portal Animation Flipping Hack, Open (projectile type 294) and Close (projectile type
+// 297) -- the same ctor and vtable (0x850420) serve both directions. Not a spell (no SPL
+// owns it): the engine reuses the spell-hit projectile as a minimal portal-door overlay.
+// It runs the base ctor with lifetime 2000 and resets the target type to ANYONE, adding
+// no visuals.
+CProjectilePortalAnimFlip::CProjectilePortalAnimFlip()
+    : IcewindCProjectileSpellHit(2000)
+{
+    m_targetType.Set(CAIObjectType::ANYONE);
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectilePortalAnimFlip::~CProjectilePortalAnimFlip()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x577590
+// Boulder, Big (Trap) (projectile type 383, SPWI088; vtable 0x850AD4). A visible
+// travelling leaf (base lifetime 100): it builds the "BIGBOLDR" carrier cell, sets a
+// single facing at velocity 7 and loops the "AM6103e" fire sound / "AM5101e" arrival
+// sound without loading any burst overlay. m_visual3RespawnFlag is set with anim mode 0;
+// m_aoeRange 100. The carrier-name emptiness test mirrors the base ctor's branch.
+CProjectileBigBoulder::CProjectileBigBoulder()
+    : IcewindCProjectileSpellHit(100)
+{
+    const char* cellName = "BIGBOLDR";
+    if (cellName[0] != '\0') {
+        m_visible = 1;
+        delete m_pVidCell;
+        m_pVidCell = new CVidCell(CResRef(cellName), FALSE);
+        m_bHasTravelCell = 1;
+    } else {
+        m_visible = 0;
+        m_bHasTravelCell = 0;
+    }
+
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 0;
+    m_strikePeriod = 10;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_dirCount = 1;
+    m_aoeRange = 100;
+    m_velocity = 7;
+    m_fireSoundRef = CResRef("AM6103e");
+    m_arrivalSoundRef = CResRef("AM5101e");
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileBigBoulder::~CProjectileBigBoulder()
 {
 }
 

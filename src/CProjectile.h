@@ -1040,6 +1040,59 @@ public:
     ~CProjectileSnowballSwarm() override;   // slot 0; ICF-folded onto 0x5768A0
 };
 
+// Leaf 0x572470 -- Flame Strike (projectile type 67, SPIN977; vtable 0x84F754).
+// Sound-only overlay: just the "EFF_P16" impact sound on the burst slot, m_aoeRange 0x8C.
+class CProjectileFlameStrike /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileFlameStrike();    // 0x572470
+    ~CProjectileFlameStrike() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x572B30 -- Hold Monster (projectile type 263; vtable 0x84F928). The "EnchanX"/
+// "ARE_M21" enchantment-glow overlay, identical to Hold Animal; m_aoeRange 200.
+class CProjectileHoldMonster /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileHoldMonster();    // 0x572B30
+    ~CProjectileHoldMonster() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x572110 -- Fire Seed (projectile type 270; vtable 0x84F61C). A visible travelling
+// leaf: the "MagicStn" carrier cell bursts the "FSeedsX"/"EFF_P45" overlay, 16 facings.
+// m_lifetime 0x2D, m_aoeRange 0x46.
+class CProjectileFireSeed /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileFireSeed();    // 0x572110
+    ~CProjectileFireSeed() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x573CC0 -- Malavon's Corrosive Fog (projectile type 279; vtable 0x84FCD0). A full
+// three-slot cloud reusing the Death Fog visuals ("DFogX"/"DFogR"/"DFogA"), an Acid Fog
+// sibling with a wider ring, a 2000-tick lifetime and m_aoeRange 0xFA.
+class CProjectileCorrosiveFog /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileCorrosiveFog();    // 0x573CC0
+    ~CProjectileCorrosiveFog() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x5756C0 -- Portal Animation Flipping Hack, Open (projectile type 294) and Close
+// (type 297), one class for both. Not a spell (no SPL owner): a minimal portal-door
+// overlay (vtable 0x850420) that runs the base ctor with lifetime 2000 and resets the
+// target type to ANYONE, adding no visuals.
+class CProjectilePortalAnimFlip /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectilePortalAnimFlip();    // 0x5756C0
+    ~CProjectilePortalAnimFlip() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x577590 -- Boulder, Big (Trap) (projectile type 383, SPWI088; vtable 0x850AD4). A
+// visible travelling leaf (base lifetime 100): the "BIGBOLDR" carrier flies at velocity 7
+// with one facing, looping "AM6103e"/"AM5101e", no burst overlay. m_aoeRange 100.
+class CProjectileBigBoulder /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileBigBoulder();    // 0x577590
+    ~CProjectileBigBoulder() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
 // One cell of the detonation fan: a position (fixed point) and a flag the parent's
 // AIUpdate toggles as the cell is consumed. The parent records these into a shared
 // refcounted pool the IcewindCSpellHitParticle children reference. Names are
