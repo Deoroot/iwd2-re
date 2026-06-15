@@ -18,10 +18,9 @@ IcewindCGameAnimationTypeEffect::IcewindCGameAnimationTypeEffect(const IcewindCS
     WORD facing)
     : CGameAnimationTypeEffect()
 {
-    m_facing = static_cast<BYTE>(facing);
-    m_animResName = NULL;
-    m_animResLen = 0;
-    m_animResCap = 0;
+    // facing is stashed in the m_animResName TString's unused +0 header byte (0x55D3A0);
+    // the member's default ctor has already zeroed the string fields themselves.
+    m_animResName.m_buf[0] = static_cast<char>(facing);
     field_5DE = 0;
     m_translucent = 0;
     field_5E1 = 0;
@@ -75,10 +74,9 @@ IcewindCGameAnimationTypeEffect::IcewindCGameAnimationTypeEffect(const IcewindCS
     WORD facing)
     : CGameAnimationTypeEffect()
 {
-    m_facing = static_cast<BYTE>(facing);
-    m_animResName = NULL;
-    m_animResLen = 0;
-    m_animResCap = 0;
+    // facing is stashed in the m_animResName TString's unused +0 header byte (0x55D3A0);
+    // the member's default ctor has already zeroed the string fields themselves.
+    m_animResName.m_buf[0] = static_cast<char>(facing);
     field_5DE = 0;
     m_translucent = 0;
     field_5E1 = 0;

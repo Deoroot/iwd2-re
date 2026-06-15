@@ -587,11 +587,7 @@ void CGameAnimationTypeEffect::OverrideAnimation(const char* resref)
     m_g1VidCell.SequenceSet(m_currentBamSequence);
     m_g1VidCell.FrameSet(0);
 
-    // The binary then copies `resref` into the m_animResName buffer (the 0x44BC20
-    // string-assign inlined: writes m_animResName / m_animResLen / m_animResCap plus
-    // a refcount byte ahead of the heap buffer). Its allocator helpers (0x44BC20 /
-    // 0x44BE10 / 0x448D50) are not recovered, so the name copy is left out rather
-    // than reproduced wrong -- missing beats wrong. m_animResName is consumed only
-    // by the cloud-alternation gate in IcewindCSpellHitParticle::AIUpdate (itself an
-    // unrecovered path); the BAM swap and reseed above are the visible behaviour.
+    // Store the new resref name (the binary inlines the 0x44BC20 TString assign).
+    // Read back by the cloud-alternation gate in IcewindCSpellHitParticle::AIUpdate.
+    m_animResName = resref;
 }

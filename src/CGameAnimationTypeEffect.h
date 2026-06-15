@@ -4,6 +4,7 @@
 #include "CGameAnimationType.h"
 #include "CVidCell.h"
 #include "IcewindCVisualEffect.h"
+#include "TString.h"
 
 // The spell-hit detonation-ember sibling (vtable 0x84eeb8, IcewindCGameAnimationTypeEffect.cpp)
 // is recovered as a subclass in IcewindCGameAnimationTypeEffect.h; its descriptor
@@ -57,10 +58,10 @@ public:
     // IWD2.exe; the 0x6A1F50 ctor leaves these untouched).
     /* 05E8 */ BYTE m_animFlag36;                    // = descriptor.m_animFlag36
     /* 05EA */ IcewindCVisualEffect m_visualEffect;  // = descriptor.m_visualEffect
-    /* 05F6 */ BYTE m_facing;                        // = (BYTE)facing
-    /* 05FA */ void* m_animResName;                  // resref-name buffer (0x44BC20 path; Frida: {ptr, len 7, cap 31})
-    /* 05FE */ INT m_animResLen;                     // resref name length (Frida: 7)
-    /* 0602 */ INT m_animResCap;                     // resref name capacity (Frida: 31)
+    // 16-byte TString (data @0x5FA, len @0x5FE, cap @0x602). The ctors stash
+    // (BYTE)facing in its unused +0 header byte (m_buf[0] @0x5F6); the string ops
+    // never touch +0, so the two coexist exactly as in the binary.
+    /* 05F6 */ TString m_animResName;
 };
 
 #endif /* CGAMEANIMATIONTYPEEFFECT_H_ */
