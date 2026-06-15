@@ -6382,11 +6382,24 @@ void IcewindCSpellHitParticle::AIUpdate()
         }
     }
 
-    // m_hasCloud (descriptor.m_cloudFlag): the ICloudA/ICloudB cloud swap via the
-    // 0x55DBD0 cell-respawn helper gated by the 0x4C5ED0 resref compare. Left a
-    // documented gap -- the binary's 0x4C5ED0 call site drops the `this` (the cell
-    // whose resref is compared), so the compare subject is unrecovered. Not the
-    // Fireball path (m_cloudFlag == 0); only the cloud AoEs reach it.
+    // m_hasCloud (descriptor.m_cloudFlag): the ICloudA/ICloudB cloud flip-book. On
+    // each end-of-sequence flip an ICloudB cell back to ICloudA, and every 100th tick
+    // force it to ICloudB -- so the cloud animation alternates between the two BAMs.
+    // Only the cloud AoEs set this (m_cloudFlag == 1); Fireball (m_cloudFlag == 0)
+    // never enters here. OverrideAnimation lives on the CGameAnimationTypeEffect base.
+    if (m_hasCloud == 1) {
+        CGameAnimationTypeEffect* pAnim =
+            static_cast<CGameAnimationTypeEffect*>(m_animation.m_animation);
+        if (m_animation.IsEndOfSequence()) {
+            if (pAnim->m_animResName.Compare(0, pAnim->m_animResName.Length(),
+                    "ICloudB", static_cast<int>(strlen("ICloudB"))) == 0) {
+                pAnim->OverrideAnimation("ICloudA");
+            }
+        }
+        if (m_animTick != 0 && m_animTick % 100 == 0) {   // 0x84F260 = 100 ticks
+            pAnim->OverrideAnimation("ICloudB");
+        }
+    }
 
     // m_respawnFromPool (descriptor.m_respawnFlag): on each end-of-sequence, move
     // this ember to a random unclaimed cell of the shared fan pool and release the
