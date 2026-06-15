@@ -561,3 +561,37 @@ SHORT CGameAnimationTypeEffect::SetSequence(SHORT nSequence)
 {
     return CGameSprite::SEQ_READY;
 }
+
+// 0x55DBD0
+void CGameAnimationTypeEffect::OverrideAnimation(const char* resref)
+{
+    // Rebind the cell to the new BAM (the binary inlines CVidCell::SetResRef:
+    // both the CResCell and the m_header CResHelper, the pRes->m_bCacheHeader
+    // flag and m_bDoubleSize = FALSE). The resref is routed through CString the
+    // same way the spell-hit ctors do it (CResRef(const char*) is not NULL-safe).
+    m_g1VidCell.SetResRef(CResRef(CString(resref)), FALSE, TRUE, TRUE);
+
+    // Reseed the sequence: a random one when this is a random-sequence animation
+    // (m_animMode == 1), otherwise the first. Mirrors the ctor's seeding.
+    if (m_animMode == 1) {
+        BYTE cnt = static_cast<BYTE>(m_g1VidCell.GetNumberSequences(FALSE));
+        if (cnt != 0) {
+            m_currentBamSequence = rand() % cnt;
+        } else {
+            m_currentBamSequence = 0;
+        }
+    } else {
+        m_currentBamSequence = 0;
+    }
+
+    m_g1VidCell.SequenceSet(m_currentBamSequence);
+    m_g1VidCell.FrameSet(0);
+
+    // The binary then copies `resref` into the m_animResName buffer (the 0x44BC20
+    // string-assign inlined: writes m_animResName / m_animResLen / m_animResCap plus
+    // a refcount byte ahead of the heap buffer). Its allocator helpers (0x44BC20 /
+    // 0x44BE10 / 0x448D50) are not recovered, so the name copy is left out rather
+    // than reproduced wrong -- missing beats wrong. m_animResName is consumed only
+    // by the cloud-alternation gate in IcewindCSpellHitParticle::AIUpdate (itself an
+    // unrecovered path); the BAM swap and reseed above are the visible behaviour.
+}

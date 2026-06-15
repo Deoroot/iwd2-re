@@ -24,6 +24,12 @@ public:
     /* 00AC */ SHORT SetSequence(SHORT nSequence) override;
     /* 00C8 */ SHORT GetCurrentFrame() override;
 
+    // 0x55DBD0 (non-virtual -- no vtable slot references it). Swap the cell's BAM
+    // to a new resref and reseed the sequence; used to flip the spell-hit cloud
+    // animation between ICloudA/ICloudB. Named after BG2's OverrideAnimation
+    // (which is virtual / (CResRef,int) there); IWD2's takes one resref string.
+    void OverrideAnimation(const char* resref);
+
 protected:
     // Shared base/member construction for the IcewindCGameAnimationTypeEffect
     // spell-hit sibling: builds the CGameAnimationType base and the
