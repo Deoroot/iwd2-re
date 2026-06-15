@@ -859,7 +859,7 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     case 0x126:   // Portal Animation Flipping Hack Open  (projectile type 294)
     case 0x129:   // Portal Animation Flipping Hack Close (projectile type 297)
         // The minimal portal-door animation overlay: base lifetime 2000, target type reset to
-        // ANYONE, nothing else (ctor 0x5756C0, shared by both directions). Not a spell, which
+        // NOT_SPRITE, nothing else (ctor 0x5756C0, shared by both directions). Not a spell, which
         // is why no SPL owns it. Previously fell through to the default plain CProjectile.
         pProjectile = new CProjectilePortalAnimFlip();
         break;
@@ -6012,12 +6012,12 @@ CProjectileCorrosiveFog::~CProjectileCorrosiveFog()
 // Portal Animation Flipping Hack, Open (projectile type 294) and Close (projectile type
 // 297) -- the same ctor and vtable (0x850420) serve both directions. Not a spell (no SPL
 // owns it): the engine reuses the spell-hit projectile as a minimal portal-door overlay.
-// It runs the base ctor with lifetime 2000 and resets the target type to ANYONE, adding
-// no visuals.
+// It runs the base ctor with lifetime 2000 and resets the target type to NOT_SPRITE
+// (filter @0x8C76C8, not ANYONE @0x8C7748), adding no visuals.
 CProjectilePortalAnimFlip::CProjectilePortalAnimFlip()
     : IcewindCProjectileSpellHit(2000)
 {
-    m_targetType.Set(CAIObjectType::ANYONE);
+    m_targetType.Set(CAIObjectType::NOT_SPRITE);
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.

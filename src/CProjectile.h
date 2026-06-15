@@ -598,7 +598,7 @@ protected:
     /* 02B6 */ LONG          m_bDetonated;   // AIUpdate phase: 0 = in flight, 1 = detonating (OnArrival flips to 1)
     /* 02BA */ WORD          field_2BA;
     /* 02BC */ WORD          field_2BC;
-    /* 02BE */ CAIObjectType m_targetType;   // .Set(CAIObjectType::ANYONE)
+    /* 02BE */ CAIObjectType m_targetType;   // CGameObject default = NOT_SPRITE (@0x8C76C8)
     /* 02FA */ LONG          field_2FA;
     /* 02FE */ BYTE          field_2FE;
     /* 02FF */ BYTE          field_2FF;
@@ -1077,7 +1077,7 @@ public:
 // Leaf 0x5756C0 -- Portal Animation Flipping Hack, Open (projectile type 294) and Close
 // (type 297), one class for both. Not a spell (no SPL owner): a minimal portal-door
 // overlay (vtable 0x850420) that runs the base ctor with lifetime 2000 and resets the
-// target type to ANYONE, adding no visuals.
+// target type to NOT_SPRITE (filter @0x8C76C8), adding no visuals.
 class CProjectilePortalAnimFlip /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectilePortalAnimFlip();    // 0x5756C0
