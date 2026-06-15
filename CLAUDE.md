@@ -140,7 +140,8 @@ Bundle = resolved decompile (our names, vtable-slot-annotated vcalls) + REQUIRED
 
 - Recover → context bundle first (above). Verify `// 0xADDR` against Ghidra before touching.
 - Prefer named constants over magic numbers when defined in file.
-- `python scripts/vtable_audit.py ClassName` — catches missing virtual overrides.
+- `python scripts/vtable_audit.py ClassName` — missing virtual overrides (1-vtable anchor → conflation-blind).
+- `python scripts/ctor_vtable_check.py [ClassName]` — class CONFLATION: ctors install diff vtables = 2 binary classes merged → wrong virtual recovered (the Fireball green bug). Run on classes w/ >1 ctor.
 - After a recover: `re-agent parity --address 0xADDR` should be GREEN/YELLOW.
 - Member-heavy fn (cell/render/anim, many `m_x.Method()`): `.venv-reagent/bin/python scripts/parity_offsets.py 0xADDR` — catches "right callee, wrong member" (diffs the per-thiscall `this`-offset→member the BINARY uses vs what the source names; the signal re-agent parity's call-counts are blind to — found the 3-yr corpse-tint bug). `scripts/lint_extend_cells.py` = cheap source-only twin for the extend/`*Base`-in-extend-block copy-paste.
 - **Static parity is not runtime proof — an arc is not done until OUR build runs the recovered path.** `scripts/vm.sh smoke [slot]` launches our exe, loads the save (default slot 3), arms the crash oracle `scripts/frida_crash_guard.py` (symbolized EBP backtrace), then HOLDS the terminal — no timer — until you drive the path: press ENTER for `RESULT: CLEAN`, or a fault prints its backtrace automatically. A Frida trace on the *original* learns ground truth but never exercises our exe; that gap shipped both Fireball cast-time crashes (abort 11ef54f6, UAF 1ac84b92) past GREEN parity. For behavioral claims (not just "doesn't crash"), also diff our-build-vs-original on the same hooks.
