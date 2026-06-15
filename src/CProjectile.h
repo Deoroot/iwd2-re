@@ -840,6 +840,64 @@ public:
     ~CProjectileEntangle() override;   // slot 0; ICF-folded onto 0x5768A0
 };
 
+// Leaf 0x572290 -- Fire Storm (SPPR705, factory type 92/0x5C; the projectile is
+// shared by SPWI081/SPWI399). Bare IcewindCProjectileSpellHit AOE leaf (own vtable
+// 0x84F6B8; dtor ICF-folded onto 0x5768A0). Loads the firestorm burst into the first
+// slot ("FStormX"/"EFF_P45") and the persistent fire area into the third
+// ("FStormA"/"ARE_P03"), both copy-from-back. Lifetime (field_4C0) 0x69, m_dirCount 1,
+// m_type 200. Leaves m_visual2 empty.
+class CProjectileFireStorm /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileFireStorm();    // 0x572290
+    ~CProjectileFireStorm() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x571170 -- Acid Storm (SPWI708, factory type 211/0xD3). Bare
+// IcewindCProjectileSpellHit AOE leaf (own vtable 0x84F274; dtor ICF-folded onto
+// 0x5768A0). Loads the storm burst into the first slot ("AStormX", copy-from-back) and
+// the persistent acid area into the third ("AStormA"/"ARE_M04"). Re-strike clock
+// field_4DC 10000, lifetime (field_4C0) 0x2D, m_dirCount 1, m_type 200. Sets field_575
+// and field_576 (not field_574); leaves m_visual2 (and m_visual1.m_resB) empty.
+class CProjectileAcidStorm /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileAcidStorm();    // 0x571170
+    ~CProjectileAcidStorm() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x5747A0 -- Spike Stones (SPPR512, factory type 213/0xD5). Bare
+// IcewindCProjectileSpellHit AOE leaf (own vtable 0x84FFDC; dtor ICF-folded onto
+// 0x5768A0). Loads the spike burst into the first slot ("SStoneA"/"EFF_P48") and the
+// persistent spike area into the third (the same "SStoneA" cell + "ARE_P04");
+// uniquely among the family it enables NO copy-from-back on either slot. Lifetime
+// (field_4C0) 0x4B0, m_type 0x96. Leaves m_visual2 empty.
+class CProjectileSpikeStones /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileSpikeStones();    // 0x5747A0
+    ~CProjectileSpikeStones() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x573E90 -- Power Word, Kill (SPWI903, factory type 278/0x116). Bare
+// IcewindCProjectileSpellHit leaf (own vtable 0x84FD6C; dtor ICF-folded onto 0x5768A0).
+// A single-burst spell-hit: loads only the first emission slot ("PWKillX"/"EFF_M39",
+// copy-from-back) and no area slot. field_4D4 10000, lifetime (field_4C0) 0x2D, m_type
+// 0x96.
+class CProjectilePowerWordKill /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectilePowerWordKill();    // 0x573E90
+    ~CProjectilePowerWordKill() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x5778A0 -- Symbol of Death (SPPR726, factory type 365/0x16D). Bare
+// IcewindCProjectileSpellHit leaf (own vtable 0x850B70; dtor ICF-folded onto 0x5768A0).
+// The minimal leaf of the family: loads only the first emission slot
+// ("SoPainX"/"EFF_P49", copy-from-back) and sets m_type 300 -- nothing else, so every
+// other field keeps the base-ctor default.
+class CProjectileSymbolOfDeath /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileSymbolOfDeath();    // 0x5778A0
+    ~CProjectileSymbolOfDeath() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
 // One cell of the detonation fan: a position (fixed point) and a flag the parent's
 // AIUpdate toggles as the cell is consumed. The parent records these into a shared
 // refcounted pool the IcewindCSpellHitParticle children reference. Names are

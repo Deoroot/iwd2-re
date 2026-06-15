@@ -703,6 +703,41 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileEntangle();
         break;
 
+    case 0x5C:
+        // Fire Storm (SPPR705; the projectile is shared by SPWI081/SPWI399): the
+        // persistent fire area spell-hit projectile. Bare IcewindCProjectileSpellHit
+        // leaf (ctor 0x572290). Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileFireStorm();
+        break;
+
+    case 0xD3:
+        // Acid Storm (SPWI708): the persistent acid area spell-hit projectile. Bare
+        // IcewindCProjectileSpellHit leaf (ctor 0x571170). Previously fell through to
+        // the default plain CProjectile.
+        pProjectile = new CProjectileAcidStorm();
+        break;
+
+    case 0xD5:
+        // Spike Stones (SPPR512): the persistent spike-field area spell-hit projectile.
+        // Bare IcewindCProjectileSpellHit leaf (ctor 0x5747A0). Previously fell through
+        // to the default plain CProjectile.
+        pProjectile = new CProjectileSpikeStones();
+        break;
+
+    case 0x116:
+        // Power Word, Kill (SPWI903): the single-burst spell-hit projectile. Bare
+        // IcewindCProjectileSpellHit leaf (ctor 0x573E90). Previously fell through to
+        // the default plain CProjectile.
+        pProjectile = new CProjectilePowerWordKill();
+        break;
+
+    case 0x16D:
+        // Symbol of Death (SPPR726): the single-burst spell-hit projectile. Bare
+        // IcewindCProjectileSpellHit leaf (ctor 0x5778A0). Previously fell through to
+        // the default plain CProjectile.
+        pProjectile = new CProjectileSymbolOfDeath();
+        break;
+
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
         // The line beam that rakes everything it crosses; height on, range 400.
@@ -5123,6 +5158,157 @@ CProjectileEntangle::CProjectileEntangle()
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
 CProjectileEntangle::~CProjectileEntangle()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x572290
+// Fire Storm (SPPR705, factory type 92/0x5C; the projectile is shared by SPWI081 and
+// SPWI399). A trivial IcewindCProjectileSpellHit leaf: it re-points the vtable
+// (0x84F6B8) and configures the inherited spell-hit state. It loads the firestorm burst
+// ("FStormX"/"EFF_P45") into the first emission slot and the persistent fire area
+// ("FStormA"/"ARE_P03") into the third, both copy-from-back, leaving the middle slot
+// empty. Lifetime (field_4C0) 0x69, m_dirCount 1, m_type 200.
+CProjectileFireStorm::CProjectileFireStorm()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("FStormX");
+    m_visual1.m_resB.Set("EFF_P45");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual3.m_resA.Set("FStormA");
+    m_visual3.m_resB.Set("ARE_P03");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    field_4D4 = 10;
+    field_4DC = 10;
+    field_574 = 1;
+    field_575 = 1;
+    field_4D8 = 0;
+    field_4C0 = 0x69;
+    m_dirCount = 1;
+    m_type = 200;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileFireStorm::~CProjectileFireStorm()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x571170
+// Acid Storm (SPWI708, factory type 211/0xD3). A trivial IcewindCProjectileSpellHit
+// leaf: it re-points the vtable (0x84F274) and configures the inherited spell-hit state.
+// It loads the storm burst ("AStormX", copy-from-back) into the first emission slot and
+// the persistent acid area ("AStormA"/"ARE_M04") into the third, leaving the middle slot
+// and the first slot's second name empty. Re-strike clock field_4DC 10000, lifetime
+// (field_4C0) 0x2D, m_dirCount 1, m_type 200. It sets field_575 and field_576 (not
+// field_574).
+CProjectileAcidStorm::CProjectileAcidStorm()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("AStormX");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual3.m_resA.Set("AStormA");
+    m_visual3.m_resB.Set("ARE_M04");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    field_575 = 1;
+    field_576 = 1;
+    field_4D4 = 10;
+    field_4D8 = 0;
+    field_4DC = 10000;
+    field_4C0 = 0x2D;
+    m_dirCount = 1;
+    m_type = 200;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileAcidStorm::~CProjectileAcidStorm()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x5747A0
+// Spike Stones (SPPR512, factory type 213/0xD5). A trivial IcewindCProjectileSpellHit
+// leaf: it re-points the vtable (0x84FFDC) and configures the inherited spell-hit state.
+// It loads the spike burst ("SStoneA"/"EFF_P48") into the first emission slot and the
+// persistent spike area (the same "SStoneA" cell + "ARE_P04") into the third. Uniquely
+// among the family it enables no copy-from-back on either slot. Lifetime (field_4C0)
+// 0x4B0, m_type 0x96.
+CProjectileSpikeStones::CProjectileSpikeStones()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("SStoneA");
+    m_visual1.m_resB.Set("EFF_P48");
+
+    m_visual3.m_resA.Set("SStoneA");
+    m_visual3.m_resB.Set("ARE_P04");
+
+    field_4D4 = 10;
+    field_4DC = 10;
+    field_574 = 1;
+    field_575 = 1;
+    field_578 = 500;
+    field_4D8 = 0;
+    field_4C0 = 0x4B0;
+    m_type = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileSpikeStones::~CProjectileSpikeStones()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x573E90
+// Power Word, Kill (SPWI903, factory type 278/0x116). A trivial IcewindCProjectileSpellHit
+// leaf: it re-points the vtable (0x84FD6C) and configures the inherited spell-hit state.
+// A single-burst spell-hit -- it loads only the first emission slot ("PWKillX"/"EFF_M39",
+// copy-from-back) and no area slot. field_4D4 10000, lifetime (field_4C0) 0x2D, m_type 0x96.
+CProjectilePowerWordKill::CProjectilePowerWordKill()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("PWKillX");
+    m_visual1.m_resB.Set("EFF_M39");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    field_4D4 = 10000;
+    field_4D8 = 0;
+    field_4DC = 10;
+    field_4C0 = 0x2D;
+    m_type = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectilePowerWordKill::~CProjectilePowerWordKill()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x5778A0
+// Symbol of Death (SPPR726, factory type 365/0x16D). The minimal IcewindCProjectileSpellHit
+// leaf: it re-points the vtable (0x850B70), loads only the first emission slot
+// ("SoPainX"/"EFF_P49", copy-from-back) and sets m_type 300 -- nothing else, so every other
+// field keeps the base-ctor default.
+CProjectileSymbolOfDeath::CProjectileSymbolOfDeath()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("SoPainX");
+    m_visual1.m_resB.Set("EFF_P49");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_type = 300;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileSymbolOfDeath::~CProjectileSymbolOfDeath()
 {
 }
 
