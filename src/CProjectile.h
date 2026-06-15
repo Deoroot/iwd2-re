@@ -494,7 +494,7 @@ protected:
 //   m_miniA (+0x4C4, ctor 0x570D50, shared nil DAT_008e3e38)  = std::map<LONG, int>
 //     -- per-target re-strike interval clock (GatherTargets, 0x56FED0): each
 //        scanned victim's consecutive in-range pass count, due a strike whenever
-//        the count is a multiple of field_4DC. Typed as std::map plus an 8-byte
+//        the count is a multiple of m_strikeInterval. Typed as std::map plus an 8-byte
 //        pad: our VS2019 _Tree is 8B on Win32 (not the binary's 16B VC6 _Tree),
 //        and the pad keeps every field below it at its binary offset.
 //   m_miniB (+0x64E, ctor 0x4C4A90, shared nil DAT_008d48b4) = std::set<LONG>
@@ -508,12 +508,13 @@ public:
     ~IcewindCProjectileSpellHit() override;     // 0x56F1F0 (deleting thunk 0x56F070, vtable slot 0)
 
     // Per-tick update: fly to the target (snap or home), then on detonation run
-    // a strike pass every field_4D8 ticks until field_4C0 expires. Frozen by Time
-    // Stop unless this is the time-stop caster's own projectile.
+    // a strike pass every m_strikePeriod ticks (the m_strikeCountdown clock) until
+    // m_lifetime expires. Frozen by Time Stop unless this is the time-stop caster's
+    // own projectile.
     void AIUpdate() override;                                                   // 0x56FAF0 (slot 3)
 
     // Arrival: hand off to the call-back projectile (CallBack), flip into the
-    // detonation state (field_2B6 = 1) so AIUpdate begins strike passes, play the
+    // detonation state (m_bDetonated = 1) so AIUpdate begins strike passes, play the
     // arrival sound, then spawn the detonation FX -- the shared cell pool, the
     // IcewindCSpellHitVisual on-ground visual and the impact/loop sounds.
     void OnArrival() override;                                                  // 0x56F410 (slot 28)
@@ -536,14 +537,14 @@ public:
     virtual void Explode() /*#guess*/;                               // 0x78E730 (vtable slot 34, folded no-op)
 
     // Lifetime for a freshly fired projectile, given the trailing effect's
-    // first-call byte. The base just echoes the field_4C0 default (0x5703E0 is a
+    // first-call byte. The base just echoes the m_lifetime default (0x5703E0 is a
     // one-line getter); a subclass overrides it to derive a duration.
     virtual LONG DetermineLifetime(BYTE bFirstCall) /*#guess*/;       // 0x5703E0 (vtable slot 35)
 
     // Gather every m_targetType object within range (front and back area lists)
     // and return the ids due a strike this pass: each victim is tracked in
     // m_miniA on first contact and is due whenever its in-range pass count is a
-    // multiple of field_4DC, while tracked victims that left the radius are
+    // multiple of m_strikeInterval, while tracked victims that left the radius are
     // dropped. The family's fused counterpart to IcewindCProjectileTargetMap's
     // split GatherTargets + CollectDueStrikes.
     virtual std::list<LONG> GatherTargets();         // 0x56FED0 (vtable slot 36)
@@ -578,59 +579,72 @@ protected:
         /* 08 */ LONG  m_nameLen;
         /* 0C */ LONG  m_nameCap;
     };
-    // One visual-emission slot: two named resources and a visual-effect block.
+    // One detonation emission slot: the visual cell BAM, a sound resref and a
+    // visual-effect block. OnArrival reinterpret_casts the three slots to the
+    // IcewindCSpellHitEmission(Ranged) descriptors: m_cellResRef == emission
+    // m_resref0 (the BAM drawn by the spell-hit visual), m_soundResRef == emission
+    // m_resref1 (played as the impact one-shot for slot 0 / looping ambience for
+    // slot 2; unused for slot 1).
     struct VisualSlot /*#guess*/ {
-        /* 00 */ ResName              m_resA;
-        /* 10 */ ResName              m_resB;
+        /* 00 */ ResName              m_cellResRef;    // emission m_resref0 -- detonation BAM cell
+        /* 10 */ ResName              m_soundResRef;   // emission m_resref1 -- impact/loop sound
         /* 20 */ IcewindCVisualEffect m_fx;
     };
 
-    /* 02AE */ SHORT         m_type;         // = nType (DecodeProjectile factory type)
+    /* 02AE */ SHORT         m_aoeRange;     // gather/detonation radius (GatherTargets `range`, visual ctor `nRange`) -- NOT the factory type
     /* 02B0 */ WORD          field_2B0;
     /* 02B2 */ WORD          m_objectTag;    // = 0x4E
     /* 02B4 */ WORD          field_2B4;
-    /* 02B6 */ LONG          field_2B6;
+    /* 02B6 */ LONG          m_bDetonated;   // AIUpdate phase: 0 = in flight, 1 = detonating (OnArrival flips to 1)
     /* 02BA */ WORD          field_2BA;
     /* 02BC */ WORD          field_2BC;
     /* 02BE */ CAIObjectType m_targetType;   // .Set(CAIObjectType::ANYONE)
     /* 02FA */ LONG          field_2FA;
     /* 02FE */ BYTE          field_2FE;
     /* 02FF */ BYTE          field_2FF;
-    /* 0300 */ LONG          field_300;
-    /* 0304 */ LONG          field_304;
+    /* 0300 */ LONG          m_bAffectNonCreatures;  // GatherTargets `checkForNonSprites`; StrikeTarget also hits non-creatures when set
+    /* 0304 */ LONG          m_bAnimateCell1;        // AIUpdate gates m_cell1.FrameAdvance
     /* 0308 */ CVidCell      m_cell1;
-    /* 03E2 */ LONG          field_3E2;
+    /* 03E2 */ LONG          m_bAnimateCell2;        // AIUpdate gates m_cell2.FrameAdvance
     /* 03E6 */ CVidCell      m_cell2;
-    /* 04C0 */ LONG          field_4C0;      // = 0x2D
+    /* 04C0 */ LONG          m_lifetime;     // = 0x2D; AIUpdate decrements each tick, RemoveSelf at < 1; DetermineLifetime returns it
     // m_miniA -- per-target re-strike clock (GatherTargets, 0x56FED0). The binary
     // VC6 _Tree is 16 bytes (_Alval bytes +0x4C4/+0x4C5, _Myhead +0x4C8, _Multi
     // +0x4CC, _Mysize +0x4D0); our VS2019 std::map is 8 bytes on Win32, so the
-    // 8-byte pad preserves the binary's 16-byte footprint and keeps field_4D4 and
+    // 8-byte pad preserves the binary's 16-byte footprint and keeps m_strikePeriod and
     // everything below at its binary offset. Node layout drifts by name (accepted,
     // like m_miniB).
     /* 04C4 */ std::map<LONG, int> m_miniA;
     /* 04CC */ BYTE          _miniA_pad[8];
-    /* 04D4 */ LONG          field_4D4;      // = 10000
-    /* 04D8 */ LONG          field_4D8;      // = 0
-    /* 04DC */ LONG          field_4DC;      // = 10
-    /* 04E0 */ BYTE          field_4E0;      // = 0
+    /* 04D4 */ LONG          m_strikePeriod;     // = 10000; ticks between strike passes (reload for m_strikeCountdown)
+    /* 04D8 */ LONG          m_strikeCountdown;  // = 0; AIUpdate: --; at < 1 runs GatherTargets+Strike, then reloads from m_strikePeriod
+    /* 04DC */ LONG          m_strikeInterval;   // = 10; re-strike cadence: a target is due when its in-range pass count % this == 0
+    /* 04E0 */ BYTE          m_bHasTravelCell;   // = 0; 0 = arrive instantly (Fire launches at targetPos), 1 = fly the travel cell
     /* 04E1 */ BYTE          _pad4E1;
     /* 04E2 */ VisualSlot    m_visual1;
+    // m_visual2's IcewindCSpellHitEmission tail (the bytes past VisualSlot's 0x2C
+    // {cell,sound,fx} prefix): the slot's m_animMode and m_maxMovingSpawn. Modelled
+    // as named members because VisualSlot covers only the prefix.
     /* 050E */ VisualSlot    m_visual2;
-    /* 053A */ BYTE          field_53A;      // = 0
+    /* 053A */ BYTE          m_visual2AnimMode;  // = 0; m_visual2 emission m_animMode (+0x2C)
     /* 053B */ BYTE          _pad53B;
-    /* 053C */ LONG          field_53C;      // = 0x7FFFFFFF
+    /* 053C */ LONG          m_visual2MaxSpawn;  // = 0x7FFFFFFF; m_visual2 emission m_maxMovingSpawn (+0x2E)
+    // m_visual3's IcewindCSpellHitEmissionRanged tail (the block past the VisualSlot
+    // prefix): the shared fan-cell pool and the spawn-density/timing fields the
+    // spell-hit visual and its particles read through the emission2 reference.
+    // Defaults 250/6/30 come from the 0x56FE30 emission ctor; leaf ctors override
+    // these through the projectile-relative offsets.
     /* 0540 */ VisualSlot    m_visual3;
-    /* 056C */ LONG          field_56C;      // = 0
-    /* 0570 */ LONG          field_570;      // = 0
-    /* 0574 */ BYTE          field_574;      // = 0
-    /* 0575 */ BYTE          field_575;      // = 0
-    /* 0576 */ BYTE          field_576;      // = 0
+    /* 056C */ LONG          m_visual3CellPool;       // = 0; emission m_cellPool (+0x2C)
+    /* 0570 */ LONG          m_visual3LastCellIndex;  // = 0; emission m_lastCellIndex (+0x30)
+    /* 0574 */ BYTE          m_visual3RespawnFlag;    // = 0; emission m_respawnFlag (+0x34) -> particle m_respawnFromPool
+    /* 0575 */ BYTE          m_visual3AnimMode;       // = 0; emission m_animMode (+0x35)
+    /* 0576 */ BYTE          m_visual3AnimFlag36;     // = 0; emission m_animFlag36 (+0x36)
     /* 0577 */ BYTE          _pad577;
-    /* 0578 */ LONG          field_578;      // = 0xFA
-    /* 057C */ LONG          field_57C;      // = 6
-    /* 0580 */ LONG          field_580;      // = 0x1E
-    /* 0584 */ BYTE          field_584;      // = 0
+    /* 0578 */ LONG          m_visual3DensityBase;    // = 0xFA (250); emission m_densityBase (+0x38)
+    /* 057C */ LONG          m_visual3EmitPeriod;     // = 6; emission m_emitPeriod (+0x3C)
+    /* 0580 */ LONG          m_visual3DensityRampDiv; // = 0x1E (30); emission m_densityRampDiv (+0x40)
+    /* 0584 */ BYTE          m_visual3CloudFlag;      // = 0; emission m_cloudFlag (+0x44)
     /* 0585 */ BYTE          _pad585;
     /* 0586 */ CSound        m_sound1;
     /* 05EA */ CSound        m_sound2;
@@ -783,7 +797,7 @@ public:
 // just re-points the vtable and configures the inherited spell-hit state -- flies
 // the "FirebaT" travel cell, plays "TRA_06", loads the explosion/range visuals
 // ("FirebaX"/"RNG_M03"/"FirebaR"/"FirebaA") into the three emission slots with
-// copy-from-back enabled, doubles the launch velocity and sets m_type 200.
+// copy-from-back enabled, doubles the launch velocity and sets m_aoeRange 200.
 class CProjectileFireball /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectileFireball();    // 0x571E80
@@ -797,7 +811,7 @@ public:
 // cell (invisible in flight) and plays no fire sound; the ctor loads the cloud burst /
 // range visuals ("SCloudX"/"RNG_M01" + "SCloudR" + "SCloudA") into the three emission
 // slots with copy-from-back, plus the persistent gas area resref "ARE_M02" in the third
-// slot's second name. Lifetime (field_4C0) 1000, m_dirCount 1, m_type 100.
+// slot's second name. Lifetime (m_lifetime) 1000, m_dirCount 1, m_aoeRange 100.
 class CProjectileStinkingCloud /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectileStinkingCloud();    // 0x574B80
@@ -808,7 +822,7 @@ public:
 // IcewindCProjectileSpellHit AOE leaf (own vtable 0x8502E8; dtor ICF-folded onto
 // 0x5768A0). Invisible in flight, no fire sound; the ctor loads the web burst into
 // the first emission slot ("WebX"/"EFF_M19") and the persistent web area into the
-// third ("WebA"/"ARE_M03"), both copy-from-back. Lifetime (field_4C0) 0x5DC, m_type
+// third ("WebA"/"ARE_M03"), both copy-from-back. Lifetime (m_lifetime) 0x5DC, m_aoeRange
 // 0x96. Leaves m_visual2 empty.
 class CProjectileWeb /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
@@ -820,8 +834,8 @@ public:
 // IcewindCProjectileSpellHit AOE leaf (own vtable 0x84FAFC; dtor ICF-folded onto
 // 0x5768A0). The ctor loads the storm burst into the first slot ("IStormX",
 // copy-from-back) and the persistent ice area into the third ("IStormA"/"ARE_M04").
-// Re-strike clock field_4DC 10000, lifetime (field_4C0) 100, m_dirCount 1, m_type
-// 200. Leaves m_visual2 (and m_visual1.m_resB) empty.
+// Re-strike clock m_strikeInterval 10000, lifetime (m_lifetime) 100, m_dirCount 1, m_aoeRange
+// 200. Leaves m_visual2 (and m_visual1.m_soundResRef) empty.
 class CProjectileIceStorm /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectileIceStorm();    // 0x573460
@@ -832,8 +846,8 @@ public:
 // IcewindCProjectileSpellHit AOE leaf (own vtable 0x84F4E4; dtor ICF-folded onto
 // 0x5768A0). The ctor loads the entangle burst into the first slot ("EntangX",
 // copy-from-back) and the persistent entangling area into the third
-// ("EntangA"/"ARE_P01"). Lifetime (field_4C0) 1000, m_type 200. Leaves m_visual2
-// (and m_visual1.m_resB) empty.
+// ("EntangA"/"ARE_P01"). Lifetime (m_lifetime) 1000, m_aoeRange 200. Leaves m_visual2
+// (and m_visual1.m_soundResRef) empty.
 class CProjectileEntangle /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectileEntangle();    // 0x571CE0
@@ -844,8 +858,8 @@ public:
 // shared by SPWI081/SPWI399). Bare IcewindCProjectileSpellHit AOE leaf (own vtable
 // 0x84F6B8; dtor ICF-folded onto 0x5768A0). Loads the firestorm burst into the first
 // slot ("FStormX"/"EFF_P45") and the persistent fire area into the third
-// ("FStormA"/"ARE_P03"), both copy-from-back. Lifetime (field_4C0) 0x69, m_dirCount 1,
-// m_type 200. Leaves m_visual2 empty.
+// ("FStormA"/"ARE_P03"), both copy-from-back. Lifetime (m_lifetime) 0x69, m_dirCount 1,
+// m_aoeRange 200. Leaves m_visual2 empty.
 class CProjectileFireStorm /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectileFireStorm();    // 0x572290
@@ -856,8 +870,8 @@ public:
 // IcewindCProjectileSpellHit AOE leaf (own vtable 0x84F274; dtor ICF-folded onto
 // 0x5768A0). Loads the storm burst into the first slot ("AStormX", copy-from-back) and
 // the persistent acid area into the third ("AStormA"/"ARE_M04"). Re-strike clock
-// field_4DC 10000, lifetime (field_4C0) 0x2D, m_dirCount 1, m_type 200. Sets field_575
-// and field_576 (not field_574); leaves m_visual2 (and m_visual1.m_resB) empty.
+// m_strikeInterval 10000, lifetime (m_lifetime) 0x2D, m_dirCount 1, m_aoeRange 200. Sets m_visual3AnimMode
+// and m_visual3AnimFlag36 (not m_visual3RespawnFlag); leaves m_visual2 (and m_visual1.m_soundResRef) empty.
 class CProjectileAcidStorm /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectileAcidStorm();    // 0x571170
@@ -869,7 +883,7 @@ public:
 // 0x5768A0). Loads the spike burst into the first slot ("SStoneA"/"EFF_P48") and the
 // persistent spike area into the third (the same "SStoneA" cell + "ARE_P04");
 // uniquely among the family it enables NO copy-from-back on either slot. Lifetime
-// (field_4C0) 0x4B0, m_type 0x96. Leaves m_visual2 empty.
+// (m_lifetime) 0x4B0, m_aoeRange 0x96. Leaves m_visual2 empty.
 class CProjectileSpikeStones /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectileSpikeStones();    // 0x5747A0
@@ -879,7 +893,7 @@ public:
 // Leaf 0x573E90 -- Power Word, Kill (SPWI903, factory type 278/0x116). Bare
 // IcewindCProjectileSpellHit leaf (own vtable 0x84FD6C; dtor ICF-folded onto 0x5768A0).
 // A single-burst spell-hit: loads only the first emission slot ("PWKillX"/"EFF_M39",
-// copy-from-back) and no area slot. field_4D4 10000, lifetime (field_4C0) 0x2D, m_type
+// copy-from-back) and no area slot. m_strikePeriod 10000, lifetime (m_lifetime) 0x2D, m_aoeRange
 // 0x96.
 class CProjectilePowerWordKill /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
@@ -890,7 +904,7 @@ public:
 // Leaf 0x5778A0 -- Symbol of Death (SPPR726, factory type 365/0x16D). Bare
 // IcewindCProjectileSpellHit leaf (own vtable 0x850B70; dtor ICF-folded onto 0x5768A0).
 // The minimal leaf of the family: loads only the first emission slot
-// ("SoPainX"/"EFF_P49", copy-from-back) and sets m_type 300 -- nothing else, so every
+// ("SoPainX"/"EFF_P49", copy-from-back) and sets m_aoeRange 300 -- nothing else, so every
 // other field keeps the base-ctor default.
 class CProjectileSymbolOfDeath /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
@@ -1003,7 +1017,7 @@ static_assert(sizeof(IcewindCSpellHitEmissionRanged) == 0x46,
 // OnArrival builds it from the spell-hit projectile's three "emission slot"
 // visual descriptors (proj +0x4E2 / +0x50E / +0x540; e.g. Fireball's
 // FirebaX / RNG_M03 / FirebaR detonation + range graphics) plus the impact
-// position, the launch velocity and the field_4C0 lifetime. The ctor loads the
+// position, the launch velocity and the m_lifetime lifetime. The ctor loads the
 // detonation BAM (CDimm::GetResObject type 1000), copies the other two
 // descriptors into field_210/field_242, computes the per-direction velocity
 // table, registers the object (CGameObjectArray::Add) and adds it to the area.
@@ -1040,7 +1054,7 @@ public:
     /* 0082 */ BYTE field_82[8];          // reserved: never read (Frida: const 30 20 ..)
     /* 008A */ CVidCell m_cell;           // detonation BAM cell (sub-ctor 0x7ACD70)
     /* 0164 */ CVidPalette m_palette;     // sub-ctor 0x7BEEA0 (nType = DAT_0085E84A)
-    /* 0188 */ SHORT m_duration;          // = field_4C0 lifetime
+    /* 0188 */ SHORT m_duration;          // = m_lifetime lifetime
     /* 018A */ BYTE m_frameCount;         // (nRange-1)/nVelocity + 1
     /* 018B */ BYTE m_collision;          // = a8; AIUpdate wall-bounce mode (COLLISION_DESTROY/REBOUND)
     // Radial velocity fan: the coverage bitmap half-dimensions + arc run lengths,

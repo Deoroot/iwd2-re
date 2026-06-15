@@ -4464,67 +4464,67 @@ IcewindCProjectileSpellHit::IcewindCProjectileSpellHit(SHORT nType)
     m_visible = 0;
 
     // Identity and target filter.
-    m_type = nType;
+    m_aoeRange = nType;
     m_objectTag = 0x4E;
     field_2B4 = 0;
-    field_2B6 = 0;
+    m_bDetonated = 0;
     field_2BA = 0;
     field_2BC = 0;
     field_2FA = 0;
     field_2FE = 0;
     field_2FF = 0;
-    field_300 = 0;
-    field_304 = 0;
-    field_3E2 = 0;
+    m_bAffectNonCreatures = 0;
+    m_bAnimateCell1 = 0;
+    m_bAnimateCell2 = 0;
     m_targetType.Set(CAIObjectType::ANYONE);
 
     // The trailing scalar block before the visual slots (m_miniA, the re-strike
     // clock, default-constructs as an empty std::map).
-    field_4C0 = 0x2D;
-    field_4D4 = 10000;
-    field_4D8 = 0;
-    field_4DC = 10;
-    field_4E0 = 0;
+    m_lifetime = 0x2D;
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_bHasTravelCell = 0;
 
     // Three visual-emission slots: stamp each resource name's flag with the type
     // and clear the refcounted string to empty.
-    m_visual1.m_resA.m_flags = typeByte;
-    m_visual1.m_resA.m_pName = NULL;
-    m_visual1.m_resA.m_nameLen = 0;
-    m_visual1.m_resA.m_nameCap = 0;
-    m_visual1.m_resB.m_flags = typeByte;
-    m_visual1.m_resB.m_pName = NULL;
-    m_visual1.m_resB.m_nameLen = 0;
-    m_visual1.m_resB.m_nameCap = 0;
+    m_visual1.m_cellResRef.m_flags = typeByte;
+    m_visual1.m_cellResRef.m_pName = NULL;
+    m_visual1.m_cellResRef.m_nameLen = 0;
+    m_visual1.m_cellResRef.m_nameCap = 0;
+    m_visual1.m_soundResRef.m_flags = typeByte;
+    m_visual1.m_soundResRef.m_pName = NULL;
+    m_visual1.m_soundResRef.m_nameLen = 0;
+    m_visual1.m_soundResRef.m_nameCap = 0;
 
-    m_visual2.m_resA.m_flags = typeByte;
-    m_visual2.m_resA.m_pName = NULL;
-    m_visual2.m_resA.m_nameLen = 0;
-    m_visual2.m_resA.m_nameCap = 0;
-    m_visual2.m_resB.m_flags = typeByte;
-    m_visual2.m_resB.m_pName = NULL;
-    m_visual2.m_resB.m_nameLen = 0;
-    m_visual2.m_resB.m_nameCap = 0;
-    field_53A = 0;
-    field_53C = 0x7FFFFFFF;
+    m_visual2.m_cellResRef.m_flags = typeByte;
+    m_visual2.m_cellResRef.m_pName = NULL;
+    m_visual2.m_cellResRef.m_nameLen = 0;
+    m_visual2.m_cellResRef.m_nameCap = 0;
+    m_visual2.m_soundResRef.m_flags = typeByte;
+    m_visual2.m_soundResRef.m_pName = NULL;
+    m_visual2.m_soundResRef.m_nameLen = 0;
+    m_visual2.m_soundResRef.m_nameCap = 0;
+    m_visual2AnimMode = 0;
+    m_visual2MaxSpawn = 0x7FFFFFFF;
 
-    m_visual3.m_resA.m_flags = typeByte;
-    m_visual3.m_resA.m_pName = NULL;
-    m_visual3.m_resA.m_nameLen = 0;
-    m_visual3.m_resA.m_nameCap = 0;
-    m_visual3.m_resB.m_flags = typeByte;
-    m_visual3.m_resB.m_pName = NULL;
-    m_visual3.m_resB.m_nameLen = 0;
-    m_visual3.m_resB.m_nameCap = 0;
-    field_56C = 0;
-    field_570 = 0;
-    field_574 = 0;
-    field_575 = 0;
-    field_576 = 0;
-    field_578 = 0xFA;
-    field_57C = 6;
-    field_580 = 0x1E;
-    field_584 = 0;
+    m_visual3.m_cellResRef.m_flags = typeByte;
+    m_visual3.m_cellResRef.m_pName = NULL;
+    m_visual3.m_cellResRef.m_nameLen = 0;
+    m_visual3.m_cellResRef.m_nameCap = 0;
+    m_visual3.m_soundResRef.m_flags = typeByte;
+    m_visual3.m_soundResRef.m_pName = NULL;
+    m_visual3.m_soundResRef.m_nameLen = 0;
+    m_visual3.m_soundResRef.m_nameCap = 0;
+    m_visual3CellPool = 0;
+    m_visual3LastCellIndex = 0;
+    m_visual3RespawnFlag = 0;
+    m_visual3AnimMode = 0;
+    m_visual3AnimFlag36 = 0;
+    m_visual3DensityBase = 0xFA;
+    m_visual3EmitPeriod = 6;
+    m_visual3DensityRampDiv = 0x1E;
+    m_visual3CloudFlag = 0;
 
     // m_miniB (std::set) default-constructs here -- the binary's stamps of its
     // two _Alval pad bytes (= type byte, don't-care) and _Multi flag (= 0) are
@@ -4585,12 +4585,12 @@ void IcewindCProjectileSpellHit::ResName::Set(const char* name)
 // m_miniA's map nodes + the shared-nil release at DAT_008e3e38).
 IcewindCProjectileSpellHit::~IcewindCProjectileSpellHit()
 {
-    m_visual3.m_resB.Release();
-    m_visual3.m_resA.Release();
-    m_visual2.m_resB.Release();
-    m_visual2.m_resA.Release();
-    m_visual1.m_resB.Release();
-    m_visual1.m_resA.Release();
+    m_visual3.m_soundResRef.Release();
+    m_visual3.m_cellResRef.Release();
+    m_visual2.m_soundResRef.Release();
+    m_visual2.m_cellResRef.Release();
+    m_visual1.m_soundResRef.Release();
+    m_visual1.m_cellResRef.Release();
 }
 
 // 0x56F3F0
@@ -4603,9 +4603,9 @@ void IcewindCProjectileSpellHit::Render(CGameArea* pArea, CVidMode* pVidMode, in
 
 // 0x56F820 (vtable slot 27). The launch. Records the source/target/area, shares
 // the caster to read the launch origin (GetProjectileSourcePosition) and the
-// drop height (DetermineHeight), and pulls the lifetime (field_4C0) from the
+// drop height (DetermineHeight), and pulls the lifetime (m_lifetime) from the
 // trailing effect on m_effectList through DetermineLifetime. A homing shot starts
-// at that origin; a non-homing one (field_4E0 == 0) starts on the target so it
+// at that origin; a non-homing one (m_bHasTravelCell == 0) starts on the target so it
 // arrives on the first tick. After registering in the object array (assigns m_id)
 // and the area, it plays the fire sound and seeds the subpixel flight: position
 // accumulators at the origin (1/1024 fixed point, y squashed 4/3), a velocity-
@@ -4638,13 +4638,13 @@ void IcewindCProjectileSpellHit::Fire(CGameArea* pArea, LONG source, LONG target
     if (!m_effectList.IsEmpty()) {
         CGameEffect* pLast = m_effectList.GetTail();
         if (pLast != NULL) {
-            field_4C0 = DetermineLifetime(static_cast<BYTE>(pLast->m_firstCall));
+            m_lifetime = DetermineLifetime(static_cast<BYTE>(pLast->m_firstCall));
         }
     }
 
     CPoint ptLaunch;
     GetProjectileSourcePosition(m_sourceId, ptLaunch);
-    if (field_4E0 == 0) {
+    if (m_bHasTravelCell == 0) {
         ptLaunch = targetPos;
     }
 
@@ -4687,13 +4687,13 @@ void IcewindCProjectileSpellHit::Fire(CGameArea* pArea, LONG source, LONG target
 
 // 0x56FAF0 (vtable slot 3). The spell-hit family's per-tick update. Frozen by
 // Time Stop unless this projectile belongs to the time-stop caster. While
-// travelling (field_2B6 == 0) it flies toward the target point: snapping there
-// instantly when field_4E0 is clear, otherwise homing in by m_velocity per tick
+// travelling (m_bDetonated == 0) it flies toward the target point: snapping there
+// instantly when m_bHasTravelCell is clear, otherwise homing in by m_velocity per tick
 // (advancing m_pVidCell, re-aiming, dragging the travel sound) until it reaches
-// the arrival radius, then OnArrival. Once detonating (field_2B6 != 0) it advances
-// its two vid cells, runs a strike pass every field_4D8 ticks (gather the due
+// the arrival radius, then OnArrival. Once detonating (m_bDetonated != 0) it advances
+// its two vid cells, runs a strike pass every m_strikeCountdown ticks (gather the due
 // victims, strike each), loops its area sound, and removes itself when the
-// field_4C0 lifetime expires.
+// m_lifetime lifetime expires.
 void IcewindCProjectileSpellHit::AIUpdate()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
@@ -4701,8 +4701,8 @@ void IcewindCProjectileSpellHit::AIUpdate()
         return;
     }
 
-    if (field_2B6 == 0) {
-        if (field_4E0 == 0) {
+    if (m_bDetonated == 0) {
+        if (m_bHasTravelCell == 0) {
             m_pos.x = m_targetX;
             m_pos.y = m_targetY;
             OnArrival();
@@ -4727,26 +4727,26 @@ void IcewindCProjectileSpellHit::AIUpdate()
         return;
     }
 
-    if (field_304 != 0) {
+    if (m_bAnimateCell1 != 0) {
         m_cell1.FrameAdvance();
     }
-    if (field_3E2 != 0) {
+    if (m_bAnimateCell2 != 0) {
         m_cell2.FrameAdvance();
     }
 
-    if (--field_4D8 < 1) {
+    if (--m_strikeCountdown < 1) {
         std::list<LONG> due = GatherTargets();
         Strike(due);
-        field_4D8 = field_4D4;
+        m_strikeCountdown = m_strikePeriod;
     }
 
     // +0x558 sound-loop gate (inside the guessed m_visual3 slot): keep the area
     // sound looping while it is set and not already playing.
-    if (m_visual3.m_resB.m_nameLen != 0 && !m_sound2.IsSoundPlaying()) {
+    if (m_visual3.m_soundResRef.m_nameLen != 0 && !m_sound2.IsSoundPlaying()) {
         m_sound2.Play(m_pos.x, m_pos.y, 0, 0);
     }
 
-    if (--field_4C0 < 1) {
+    if (--m_lifetime < 1) {
         RemoveSelf();
     }
 }
@@ -4755,11 +4755,11 @@ void IcewindCProjectileSpellHit::AIUpdate()
 
 // 0x56F410 (vtable slot 28). Arrival: when a call-back projectile was registered,
 // share it and run its CallBack hook, then flip into the detonation state
-// (field_2B6 = 1, which AIUpdate uses to start strike passes), drop the render
+// (m_bDetonated = 1, which AIUpdate uses to start strike passes), drop the render
 // gate, and play the arrival sound.
 //
 // PARTIAL: the detonation FX that follow are documented stubs -- they spawn
-// through constructors not yet recovered. The field_56C tracker (0x5868E0), the
+// through constructors not yet recovered. The m_visual3CellPool tracker (0x5868E0), the
 // detonation visual carrier (0x56BF30 -- a 546-line CGameObject/CVidCell/CSound
 // composite gated by the three m_visual* slots), and the two looping area sounds
 // m_sound1/m_sound2 (an inlined CRes resource request poking the CSound's request
@@ -4786,7 +4786,7 @@ void IcewindCProjectileSpellHit::OnArrival()
             INFINITE);
     }
 
-    field_2B6 = 1;
+    m_bDetonated = 1;
     m_visible = 0;
     PlaySound(m_arrivalSoundRef, m_loopArrivalSound, TRUE);
 
@@ -4807,9 +4807,9 @@ void IcewindCProjectileSpellHit::OnArrival()
 
     // Spawn the on-ground detonation visual when any emission slot is active.
     if (emission1.m_resref0Len != 0 || emission2.m_resref0Len != 0 || emission0.m_resref0Len != 0) {
-        new IcewindCSpellHitVisual(emission0, emission1, emission2, m_pArea, m_pos, m_type,
+        new IcewindCSpellHitVisual(emission0, emission1, emission2, m_pArea, m_pos, m_aoeRange,
             static_cast<BYTE>(m_velocity), CGameTemporal::COLLISION_DESTROY,
-            static_cast<SHORT>(field_4C0));
+            static_cast<SHORT>(m_lifetime));
     }
 
     // Impact one-shot from the first slot's second resref.
@@ -4836,34 +4836,34 @@ void IcewindCProjectileSpellHit::Explode()
 {
 }
 
-// 0x5703E0 (vtable slot 35). Base lifetime getter: echo the field_4C0 default,
+// 0x5703E0 (vtable slot 35). Base lifetime getter: echo the m_lifetime default,
 // ignoring the trailing effect's first-call byte. Subclasses override it to derive
 // the projectile's lifetime from that effect.
 LONG IcewindCProjectileSpellHit::DetermineLifetime(BYTE bFirstCall)
 {
     (void)bFirstCall;
-    return field_4C0;
+    return m_lifetime;
 }
 
 // -----------------------------------------------------------------------------
 
 // 0x56FED0 (vtable slot 36). The gather pass: collect every m_targetType object
-// within m_type of m_pos (front list from the projectile's own vert-list node,
+// within m_aoeRange of m_pos (front list from the projectile's own vert-list node,
 // then the back list) with line of sight through m_terrainTable, then turn the
 // scan into the list of ids due a strike this pass. Tracked victims (m_miniA)
 // that left the scan radius are dropped; each scanned id is inserted on first
 // sight ({id, 0}) and is due when its in-range pass count is a multiple of
-// field_4DC -- so on first contact -- while the pass count always advances.
+// m_strikeInterval -- so on first contact -- while the pass count always advances.
 // Fuses what IcewindCProjectileTargetMap splits across GatherTargets (the scan)
 // and CollectDueStrikes (the interval filter).
 std::list<LONG> IcewindCProjectileSpellHit::GatherTargets()
 {
     CTypedPtrList<CPtrList, LONG*> targets(10);
 
-    m_pArea->GetCloseObjects(m_posVertList, m_pos, m_targetType, m_type,
-        m_terrainTable, targets, TRUE, field_300);
-    m_pArea->GetAllInRangeBack(m_pos, m_targetType, m_type,
-        m_terrainTable, targets, TRUE, FALSE, field_300);
+    m_pArea->GetCloseObjects(m_posVertList, m_pos, m_targetType, m_aoeRange,
+        m_terrainTable, targets, TRUE, m_bAffectNonCreatures);
+    m_pArea->GetAllInRangeBack(m_pos, m_targetType, m_aoeRange,
+        m_terrainTable, targets, TRUE, FALSE, m_bAffectNonCreatures);
 
     std::map<LONG, int>::iterator it = m_miniA.begin();
     while (it != m_miniA.end()) {
@@ -4889,7 +4889,7 @@ std::list<LONG> IcewindCProjectileSpellHit::GatherTargets()
         if (m_miniA.find(nId) == m_miniA.end()) {
             m_miniA[nId] = 0;
         }
-        if (m_miniA[nId] % field_4DC == 0) {
+        if (m_miniA[nId] % m_strikeInterval == 0) {
             due.push_back(nId);
         }
         m_miniA[nId]++;
@@ -4928,7 +4928,7 @@ void IcewindCProjectileSpellHit::StrikeTarget(LONG targetId)
             targetId, CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE)
         == CGameObjectArray::SUCCESS) {
         if (m_miniB.find(pTarget->m_id) == m_miniB.end()) {
-            if ((0x01 & pTarget->GetObjectType()) != 0 || field_300 != 0) {
+            if ((0x01 & pTarget->GetObjectType()) != 0 || m_bAffectNonCreatures != 0) {
                 if (pTarget->GetObjectType() != 0x31)
                     pTarget->GetPos();
                 if (pTarget->GetObjectType() == 0x31 &&
@@ -4963,7 +4963,7 @@ void IcewindCProjectileSpellHit::StrikeTarget(LONG targetId)
 // zero low byte clears the broadcast flag fields), re-points the vtable to the
 // leaf's own, then configures the projectile -- carrier cell "FirebaT", fire
 // sound "TRA_06", the three visual slots loaded with the explosion/range BAMs
-// (copy-from-back enabled), doubled launch velocity, 16 facings and m_type 200.
+// (copy-from-back enabled), doubled launch velocity, 16 facings and m_aoeRange 200.
 // The carrier-name emptiness test mirrors the base ctor's branch (an empty name
 // would hide the projectile and skip the cell swap).
 CProjectileFireball::CProjectileFireball()
@@ -4974,37 +4974,37 @@ CProjectileFireball::CProjectileFireball()
         m_visible = 1;
         delete m_pVidCell;
         m_pVidCell = new CVidCell(CResRef(cellName), FALSE);
-        field_4E0 = 1;
+        m_bHasTravelCell = 1;
     } else {
         m_visible = 0;
-        field_4E0 = 0;
+        m_bHasTravelCell = 0;
     }
 
     m_fireSoundRef = CResRef("TRA_06");
     m_visualEffect.SetCopyFromBack(1);
 
-    m_visual1.m_resA.Set("FirebaX");
-    m_visual1.m_resB.Set("RNG_M03");
+    m_visual1.m_cellResRef.Set("FirebaX");
+    m_visual1.m_soundResRef.Set("RNG_M03");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    m_visual2.m_resA.Set("FirebaR");
+    m_visual2.m_cellResRef.Set("FirebaR");
     m_visual2.m_fx.SetCopyFromBack(1);
-    field_53A = 1;
-    field_53C = 0x14;
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0x14;
 
-    m_visual3.m_resA.Set("FirebaA");
+    m_visual3.m_cellResRef.Set("FirebaA");
     m_visual3.m_fx.SetCopyFromBack(1);
 
     m_velocity = static_cast<SHORT>(m_velocity << 1);
-    field_4D8 = 0;
-    field_574 = 1;
-    field_575 = 1;
-    field_576 = 1;
-    field_4D4 = 10000;
-    field_4DC = 10;
-    field_4C0 = 0x2D;
+    m_strikeCountdown = 0;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3AnimFlag36 = 1;
+    m_strikePeriod = 10000;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
     m_dirCount = 0x10;
-    m_type = 200;
+    m_aoeRange = 200;
 }
 
 // 0x5768A0 (vtable slot 0; the scalar deleting thunk wraps this). Fireball adds
@@ -5022,33 +5022,33 @@ CProjectileFireball::~CProjectileFireball()
 // invisible in flight) and plays no fire sound; it loads the detonation/range visuals
 // ("SCloudX"/"RNG_M01" + "SCloudR" + "SCloudA") into the three emission slots with
 // copy-from-back, with the persistent gas area ("ARE_M02") in the third slot's second
-// resref. Lifetime (field_4C0) 1000 (vs Fireball's 0x2D -- the cloud lingers),
-// m_dirCount 1, m_type 100.
+// resref. Lifetime (m_lifetime) 1000 (vs Fireball's 0x2D -- the cloud lingers),
+// m_dirCount 1, m_aoeRange 100.
 CProjectileStinkingCloud::CProjectileStinkingCloud()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("SCloudX");
-    m_visual1.m_resB.Set("RNG_M01");
+    m_visual1.m_cellResRef.Set("SCloudX");
+    m_visual1.m_soundResRef.Set("RNG_M01");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    m_visual2.m_resA.Set("SCloudR");
+    m_visual2.m_cellResRef.Set("SCloudR");
     m_visual2.m_fx.SetCopyFromBack(1);
-    field_53A = 1;
-    field_53C = 0xD;
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0xD;
 
-    m_visual3.m_resA.Set("SCloudA");
-    m_visual3.m_resB.Set("ARE_M02");
+    m_visual3.m_cellResRef.Set("SCloudA");
+    m_visual3.m_soundResRef.Set("ARE_M02");
     m_visual3.m_fx.SetCopyFromBack(1);
 
-    field_4D4 = 10;
-    field_4DC = 10;
-    field_578 = 1000;
-    field_4C0 = 1000;
-    field_574 = 1;
-    field_575 = 1;
-    field_4D8 = 0;
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3DensityBase = 1000;
+    m_lifetime = 1000;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_strikeCountdown = 0;
     m_dirCount = 1;
-    m_type = 100;
+    m_aoeRange = 100;
 }
 
 // Slot-0 destructor: an empty body that chains to the spell-hit base, ICF-folded onto
@@ -5066,26 +5066,26 @@ CProjectileStinkingCloud::~CProjectileStinkingCloud()
 // inherited spell-hit state, adding no data of its own. Invisible in flight, no fire
 // sound; it loads the web burst ("WebX"/"EFF_M19") into the first emission slot and the
 // persistent web area ("WebA"/"ARE_M03") into the third, both copy-from-back, leaving
-// the middle slot empty. Lifetime (field_4C0) 0x5DC, m_type 0x96.
+// the middle slot empty. Lifetime (m_lifetime) 0x5DC, m_aoeRange 0x96.
 CProjectileWeb::CProjectileWeb()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("WebX");
-    m_visual1.m_resB.Set("EFF_M19");
+    m_visual1.m_cellResRef.Set("WebX");
+    m_visual1.m_soundResRef.Set("EFF_M19");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    m_visual3.m_resA.Set("WebA");
-    m_visual3.m_resB.Set("ARE_M03");
+    m_visual3.m_cellResRef.Set("WebA");
+    m_visual3.m_soundResRef.Set("ARE_M03");
     m_visual3.m_fx.SetCopyFromBack(1);
 
-    field_4D4 = 10;
-    field_4DC = 10;
-    field_574 = 1;
-    field_575 = 1;
-    field_578 = 0x1C2;
-    field_4D8 = 0;
-    field_4C0 = 0x5DC;
-    m_type = 0x96;
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3DensityBase = 0x1C2;
+    m_strikeCountdown = 0;
+    m_lifetime = 0x5DC;
+    m_aoeRange = 0x96;
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
@@ -5100,26 +5100,26 @@ CProjectileWeb::~CProjectileWeb()
 // it re-points the vtable (0x84FAFC) and configures the inherited spell-hit state. It
 // loads the storm burst ("IStormX", copy-from-back) into the first emission slot and
 // the persistent ice area ("IStormA"/"ARE_M04") into the third, leaving the middle slot
-// and the first slot's second name empty. Re-strike clock field_4DC 10000, lifetime
-// (field_4C0) 100, m_dirCount 1, m_type 200.
+// and the first slot's second name empty. Re-strike clock m_strikeInterval 10000, lifetime
+// (m_lifetime) 100, m_dirCount 1, m_aoeRange 200.
 CProjectileIceStorm::CProjectileIceStorm()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("IStormX");
+    m_visual1.m_cellResRef.Set("IStormX");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    m_visual3.m_resA.Set("IStormA");
-    m_visual3.m_resB.Set("ARE_M04");
+    m_visual3.m_cellResRef.Set("IStormA");
+    m_visual3.m_soundResRef.Set("ARE_M04");
     m_visual3.m_fx.SetCopyFromBack(1);
 
-    field_574 = 1;
-    field_575 = 1;
-    field_4D4 = 10;
-    field_4D8 = 0;
-    field_4DC = 10000;
-    field_4C0 = 100;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_strikePeriod = 10;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10000;
+    m_lifetime = 100;
     m_dirCount = 1;
-    m_type = 200;
+    m_aoeRange = 200;
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
@@ -5134,26 +5134,26 @@ CProjectileIceStorm::~CProjectileIceStorm()
 // it re-points the vtable (0x84F4E4) and configures the inherited spell-hit state. It
 // loads the entangle burst ("EntangX", copy-from-back) into the first emission slot and
 // the persistent entangling area ("EntangA"/"ARE_P01") into the third, leaving the
-// middle slot and the first slot's second name empty. Lifetime (field_4C0) 1000,
-// m_type 200.
+// middle slot and the first slot's second name empty. Lifetime (m_lifetime) 1000,
+// m_aoeRange 200.
 CProjectileEntangle::CProjectileEntangle()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("EntangX");
+    m_visual1.m_cellResRef.Set("EntangX");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    m_visual3.m_resA.Set("EntangA");
-    m_visual3.m_resB.Set("ARE_P01");
+    m_visual3.m_cellResRef.Set("EntangA");
+    m_visual3.m_soundResRef.Set("ARE_P01");
     m_visual3.m_fx.SetCopyFromBack(1);
 
-    field_4D4 = 10;
-    field_4DC = 10;
-    field_574 = 1;
-    field_575 = 1;
-    field_578 = 0x1C2;
-    field_4D8 = 0;
-    field_4C0 = 1000;
-    m_type = 200;
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3DensityBase = 0x1C2;
+    m_strikeCountdown = 0;
+    m_lifetime = 1000;
+    m_aoeRange = 200;
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
@@ -5169,26 +5169,26 @@ CProjectileEntangle::~CProjectileEntangle()
 // (0x84F6B8) and configures the inherited spell-hit state. It loads the firestorm burst
 // ("FStormX"/"EFF_P45") into the first emission slot and the persistent fire area
 // ("FStormA"/"ARE_P03") into the third, both copy-from-back, leaving the middle slot
-// empty. Lifetime (field_4C0) 0x69, m_dirCount 1, m_type 200.
+// empty. Lifetime (m_lifetime) 0x69, m_dirCount 1, m_aoeRange 200.
 CProjectileFireStorm::CProjectileFireStorm()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("FStormX");
-    m_visual1.m_resB.Set("EFF_P45");
+    m_visual1.m_cellResRef.Set("FStormX");
+    m_visual1.m_soundResRef.Set("EFF_P45");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    m_visual3.m_resA.Set("FStormA");
-    m_visual3.m_resB.Set("ARE_P03");
+    m_visual3.m_cellResRef.Set("FStormA");
+    m_visual3.m_soundResRef.Set("ARE_P03");
     m_visual3.m_fx.SetCopyFromBack(1);
 
-    field_4D4 = 10;
-    field_4DC = 10;
-    field_574 = 1;
-    field_575 = 1;
-    field_4D8 = 0;
-    field_4C0 = 0x69;
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_strikeCountdown = 0;
+    m_lifetime = 0x69;
     m_dirCount = 1;
-    m_type = 200;
+    m_aoeRange = 200;
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
@@ -5203,27 +5203,27 @@ CProjectileFireStorm::~CProjectileFireStorm()
 // leaf: it re-points the vtable (0x84F274) and configures the inherited spell-hit state.
 // It loads the storm burst ("AStormX", copy-from-back) into the first emission slot and
 // the persistent acid area ("AStormA"/"ARE_M04") into the third, leaving the middle slot
-// and the first slot's second name empty. Re-strike clock field_4DC 10000, lifetime
-// (field_4C0) 0x2D, m_dirCount 1, m_type 200. It sets field_575 and field_576 (not
-// field_574).
+// and the first slot's second name empty. Re-strike clock m_strikeInterval 10000, lifetime
+// (m_lifetime) 0x2D, m_dirCount 1, m_aoeRange 200. It sets m_visual3AnimMode and m_visual3AnimFlag36 (not
+// m_visual3RespawnFlag).
 CProjectileAcidStorm::CProjectileAcidStorm()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("AStormX");
+    m_visual1.m_cellResRef.Set("AStormX");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    m_visual3.m_resA.Set("AStormA");
-    m_visual3.m_resB.Set("ARE_M04");
+    m_visual3.m_cellResRef.Set("AStormA");
+    m_visual3.m_soundResRef.Set("ARE_M04");
     m_visual3.m_fx.SetCopyFromBack(1);
 
-    field_575 = 1;
-    field_576 = 1;
-    field_4D4 = 10;
-    field_4D8 = 0;
-    field_4DC = 10000;
-    field_4C0 = 0x2D;
+    m_visual3AnimMode = 1;
+    m_visual3AnimFlag36 = 1;
+    m_strikePeriod = 10;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10000;
+    m_lifetime = 0x2D;
     m_dirCount = 1;
-    m_type = 200;
+    m_aoeRange = 200;
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
@@ -5238,25 +5238,25 @@ CProjectileAcidStorm::~CProjectileAcidStorm()
 // leaf: it re-points the vtable (0x84FFDC) and configures the inherited spell-hit state.
 // It loads the spike burst ("SStoneA"/"EFF_P48") into the first emission slot and the
 // persistent spike area (the same "SStoneA" cell + "ARE_P04") into the third. Uniquely
-// among the family it enables no copy-from-back on either slot. Lifetime (field_4C0)
-// 0x4B0, m_type 0x96.
+// among the family it enables no copy-from-back on either slot. Lifetime (m_lifetime)
+// 0x4B0, m_aoeRange 0x96.
 CProjectileSpikeStones::CProjectileSpikeStones()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("SStoneA");
-    m_visual1.m_resB.Set("EFF_P48");
+    m_visual1.m_cellResRef.Set("SStoneA");
+    m_visual1.m_soundResRef.Set("EFF_P48");
 
-    m_visual3.m_resA.Set("SStoneA");
-    m_visual3.m_resB.Set("ARE_P04");
+    m_visual3.m_cellResRef.Set("SStoneA");
+    m_visual3.m_soundResRef.Set("ARE_P04");
 
-    field_4D4 = 10;
-    field_4DC = 10;
-    field_574 = 1;
-    field_575 = 1;
-    field_578 = 500;
-    field_4D8 = 0;
-    field_4C0 = 0x4B0;
-    m_type = 0x96;
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3DensityBase = 500;
+    m_strikeCountdown = 0;
+    m_lifetime = 0x4B0;
+    m_aoeRange = 0x96;
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
@@ -5270,19 +5270,19 @@ CProjectileSpikeStones::~CProjectileSpikeStones()
 // Power Word, Kill (SPWI903, factory type 278/0x116). A trivial IcewindCProjectileSpellHit
 // leaf: it re-points the vtable (0x84FD6C) and configures the inherited spell-hit state.
 // A single-burst spell-hit -- it loads only the first emission slot ("PWKillX"/"EFF_M39",
-// copy-from-back) and no area slot. field_4D4 10000, lifetime (field_4C0) 0x2D, m_type 0x96.
+// copy-from-back) and no area slot. m_strikePeriod 10000, lifetime (m_lifetime) 0x2D, m_aoeRange 0x96.
 CProjectilePowerWordKill::CProjectilePowerWordKill()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("PWKillX");
-    m_visual1.m_resB.Set("EFF_M39");
+    m_visual1.m_cellResRef.Set("PWKillX");
+    m_visual1.m_soundResRef.Set("EFF_M39");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    field_4D4 = 10000;
-    field_4D8 = 0;
-    field_4DC = 10;
-    field_4C0 = 0x2D;
-    m_type = 0x96;
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 0x96;
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
@@ -5295,16 +5295,16 @@ CProjectilePowerWordKill::~CProjectilePowerWordKill()
 // 0x5778A0
 // Symbol of Death (SPPR726, factory type 365/0x16D). The minimal IcewindCProjectileSpellHit
 // leaf: it re-points the vtable (0x850B70), loads only the first emission slot
-// ("SoPainX"/"EFF_P49", copy-from-back) and sets m_type 300 -- nothing else, so every other
+// ("SoPainX"/"EFF_P49", copy-from-back) and sets m_aoeRange 300 -- nothing else, so every other
 // field keeps the base-ctor default.
 CProjectileSymbolOfDeath::CProjectileSymbolOfDeath()
     : IcewindCProjectileSpellHit(0x100)
 {
-    m_visual1.m_resA.Set("SoPainX");
-    m_visual1.m_resB.Set("EFF_P49");
+    m_visual1.m_cellResRef.Set("SoPainX");
+    m_visual1.m_soundResRef.Set("EFF_P49");
     m_visual1.m_fx.SetCopyFromBack(1);
 
-    m_type = 300;
+    m_aoeRange = 300;
 }
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
