@@ -1029,6 +1029,17 @@ public:
     ~CProjectileHaltUndead() override;   // slot 0; ICF-folded onto 0x5768A0
 };
 
+// Leaf 0x5745E0 -- Snilloc's Snowball Swarm (SPWI220, factory type 217/0xD9). A visible
+// travelling leaf in the Fireball mould (own vtable 0x84FF40, no virtual overrides; dtor
+// ICF-folded onto 0x5768A0): it flies the "SSSwarT" carrier cell, plays "TRA_18", loads
+// the burst ("SSSwarX"/"RNG_M02") and ring ("SSSwarR") emission slots with copy-from-back,
+// doubles the launch velocity and sets 16 facings. m_lifetime 0x2D, m_aoeRange 0xFA.
+class CProjectileSnowballSwarm /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileSnowballSwarm();    // 0x5745E0
+    ~CProjectileSnowballSwarm() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
 // One cell of the detonation fan: a position (fixed point) and a flag the parent's
 // AIUpdate toggles as the cell is consumed. The parent records these into a shared
 // refcounted pool the IcewindCSpellHitParticle children reference. Names are

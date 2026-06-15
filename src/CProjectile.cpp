@@ -771,6 +771,13 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileInsectPlague();
         break;
 
+    case 0xD9:
+        // Snilloc's Snowball Swarm (SPWI220): the visible travelling area spell-hit
+        // projectile in the Fireball mould (ctor 0x5745E0). Previously fell through to
+        // the default plain CProjectile.
+        pProjectile = new CProjectileSnowballSwarm();
+        break;
+
     case 0xD6:
         // Fiery Cloud (SPWI802): the persistent fire-cloud area spell-hit projectile and
         // the one effect that drives the cloud-flip particle path (ctor 0x573600).
@@ -5775,6 +5782,55 @@ CProjectileHaltUndead::CProjectileHaltUndead()
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
 CProjectileHaltUndead::~CProjectileHaltUndead()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x5745E0
+// Snilloc's Snowball Swarm (SPWI220, factory type 217/0xD9). A visible travelling
+// IcewindCProjectileSpellHit leaf in the Fireball mould (vtable 0x84FF40): it builds the
+// "SSSwarT" carrier cell (replacing the base cell when the name is non-empty), plays
+// "TRA_18", loads the burst ("SSSwarX"/"RNG_M02") and ring ("SSSwarR") emission slots
+// with copy-from-back, doubles the launch velocity and sets 16 facings. m_lifetime 0x2D,
+// m_aoeRange 0xFA. The carrier-name emptiness test mirrors the base ctor's branch.
+CProjectileSnowballSwarm::CProjectileSnowballSwarm()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    const char* cellName = "SSSwarT";
+    if (cellName[0] != '\0') {
+        m_visible = 1;
+        delete m_pVidCell;
+        m_pVidCell = new CVidCell(CResRef(cellName), FALSE);
+        m_bHasTravelCell = 1;
+    } else {
+        m_visible = 0;
+        m_bHasTravelCell = 0;
+    }
+
+    m_fireSoundRef = CResRef("TRA_18");
+    m_visualEffect.SetCopyFromBack(1);
+
+    m_visual1.m_cellResRef.Set("SSSwarX");
+    m_visual1.m_soundResRef.Set("RNG_M02");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_cellResRef.Set("SSSwarR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+
+    m_strikeCountdown = 0;
+    m_velocity = static_cast<SHORT>(m_velocity << 1);
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0x1A;
+    m_strikePeriod = 10000;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_dirCount = 0x10;
+    m_aoeRange = 0xFA;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileSnowballSwarm::~CProjectileSnowballSwarm()
 {
 }
 
