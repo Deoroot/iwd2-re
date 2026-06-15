@@ -679,6 +679,30 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileStinkingCloud();
         break;
 
+    case 0x40:
+        // Web (SPWI215): the persistent web-field area spell-hit projectile. Another
+        // bare IcewindCProjectileSpellHit leaf (ctor 0x574EB0); the entangling web area
+        // (ARE_M03) and the inherited SpellHit strike fire through the family virtuals.
+        // Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileWeb();
+        break;
+
+    case 0x62:
+        // Ice Storm (SPWI404): the pounding-hail area spell-hit projectile. Bare
+        // IcewindCProjectileSpellHit leaf (ctor 0x573460); the ice area (ARE_M04) and
+        // the inherited strike fire through the family virtuals. Previously fell through
+        // to the default plain CProjectile.
+        pProjectile = new CProjectileIceStorm();
+        break;
+
+    case 0xEB:
+        // Entangle (SPPR105): the grasping-undergrowth area spell-hit projectile. Bare
+        // IcewindCProjectileSpellHit leaf (ctor 0x571CE0); the entangling area (ARE_P01)
+        // and the inherited strike fire through the family virtuals. Previously fell
+        // through to the default plain CProjectile.
+        pProjectile = new CProjectileEntangle();
+        break;
+
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
         // The line beam that rakes everything it crosses; height on, range 400.
@@ -4996,6 +5020,109 @@ CProjectileStinkingCloud::CProjectileStinkingCloud()
 // CProjectileFireball::~CProjectileFireball at 0x5768A0 (identical code). It carries no
 // own address marker so it does not collide with Fireball's in the address map.
 CProjectileStinkingCloud::~CProjectileStinkingCloud()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x574EB0
+// Web (SPWI215, factory type 64/0x40). A trivial IcewindCProjectileSpellHit leaf like
+// Fireball/Stinking Cloud: it re-points the vtable (0x8502E8) and configures the
+// inherited spell-hit state, adding no data of its own. Invisible in flight, no fire
+// sound; it loads the web burst ("WebX"/"EFF_M19") into the first emission slot and the
+// persistent web area ("WebA"/"ARE_M03") into the third, both copy-from-back, leaving
+// the middle slot empty. Lifetime (field_4C0) 0x5DC, m_type 0x96.
+CProjectileWeb::CProjectileWeb()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("WebX");
+    m_visual1.m_resB.Set("EFF_M19");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual3.m_resA.Set("WebA");
+    m_visual3.m_resB.Set("ARE_M03");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    field_4D4 = 10;
+    field_4DC = 10;
+    field_574 = 1;
+    field_575 = 1;
+    field_578 = 0x1C2;
+    field_4D8 = 0;
+    field_4C0 = 0x5DC;
+    m_type = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileWeb::~CProjectileWeb()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x573460
+// Ice Storm (SPWI404, factory type 98/0x62). A trivial IcewindCProjectileSpellHit leaf:
+// it re-points the vtable (0x84FAFC) and configures the inherited spell-hit state. It
+// loads the storm burst ("IStormX", copy-from-back) into the first emission slot and
+// the persistent ice area ("IStormA"/"ARE_M04") into the third, leaving the middle slot
+// and the first slot's second name empty. Re-strike clock field_4DC 10000, lifetime
+// (field_4C0) 100, m_dirCount 1, m_type 200.
+CProjectileIceStorm::CProjectileIceStorm()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("IStormX");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual3.m_resA.Set("IStormA");
+    m_visual3.m_resB.Set("ARE_M04");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    field_574 = 1;
+    field_575 = 1;
+    field_4D4 = 10;
+    field_4D8 = 0;
+    field_4DC = 10000;
+    field_4C0 = 100;
+    m_dirCount = 1;
+    m_type = 200;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileIceStorm::~CProjectileIceStorm()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x571CE0
+// Entangle (SPPR105, factory type 235/0xEB). A trivial IcewindCProjectileSpellHit leaf:
+// it re-points the vtable (0x84F4E4) and configures the inherited spell-hit state. It
+// loads the entangle burst ("EntangX", copy-from-back) into the first emission slot and
+// the persistent entangling area ("EntangA"/"ARE_P01") into the third, leaving the
+// middle slot and the first slot's second name empty. Lifetime (field_4C0) 1000,
+// m_type 200.
+CProjectileEntangle::CProjectileEntangle()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_resA.Set("EntangX");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual3.m_resA.Set("EntangA");
+    m_visual3.m_resB.Set("ARE_P01");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    field_4D4 = 10;
+    field_4DC = 10;
+    field_574 = 1;
+    field_575 = 1;
+    field_578 = 0x1C2;
+    field_4D8 = 0;
+    field_4C0 = 1000;
+    m_type = 200;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileEntangle::~CProjectileEntangle()
 {
 }
 

@@ -804,6 +804,42 @@ public:
     ~CProjectileStinkingCloud() override;   // slot 0; ICF-folded onto 0x5768A0 (shared with CProjectileFireball::~CProjectileFireball)
 };
 
+// Leaf 0x574EB0 -- Web (SPWI215, factory type 64/0x40). Another bare
+// IcewindCProjectileSpellHit AOE leaf (own vtable 0x8502E8; dtor ICF-folded onto
+// 0x5768A0). Invisible in flight, no fire sound; the ctor loads the web burst into
+// the first emission slot ("WebX"/"EFF_M19") and the persistent web area into the
+// third ("WebA"/"ARE_M03"), both copy-from-back. Lifetime (field_4C0) 0x5DC, m_type
+// 0x96. Leaves m_visual2 empty.
+class CProjectileWeb /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileWeb();    // 0x574EB0
+    ~CProjectileWeb() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x573460 -- Ice Storm (SPWI404, factory type 98/0x62). Bare
+// IcewindCProjectileSpellHit AOE leaf (own vtable 0x84FAFC; dtor ICF-folded onto
+// 0x5768A0). The ctor loads the storm burst into the first slot ("IStormX",
+// copy-from-back) and the persistent ice area into the third ("IStormA"/"ARE_M04").
+// Re-strike clock field_4DC 10000, lifetime (field_4C0) 100, m_dirCount 1, m_type
+// 200. Leaves m_visual2 (and m_visual1.m_resB) empty.
+class CProjectileIceStorm /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileIceStorm();    // 0x573460
+    ~CProjectileIceStorm() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x571CE0 -- Entangle (SPPR105, factory type 235/0xEB). Bare
+// IcewindCProjectileSpellHit AOE leaf (own vtable 0x84F4E4; dtor ICF-folded onto
+// 0x5768A0). The ctor loads the entangle burst into the first slot ("EntangX",
+// copy-from-back) and the persistent entangling area into the third
+// ("EntangA"/"ARE_P01"). Lifetime (field_4C0) 1000, m_type 200. Leaves m_visual2
+// (and m_visual1.m_resB) empty.
+class CProjectileEntangle /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileEntangle();    // 0x571CE0
+    ~CProjectileEntangle() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
 // One cell of the detonation fan: a position (fixed point) and a flag the parent's
 // AIUpdate toggles as the cell is consumed. The parent records these into a shared
 // refcounted pool the IcewindCSpellHitParticle children reference. Names are
