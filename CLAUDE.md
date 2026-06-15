@@ -28,6 +28,7 @@ Paths: `/home/wills/iwd2-re/...` = host; `C:\iwd2-re\...`, `C:\GOG Games\...` = 
 | Token-cost check of recent sessions | `python3 scripts/token_audit.py` |
 
 - **No ad-hoc python heredocs** for pefile/capstone/minidump/map work the CLIs cover — extend the CLI instead.
+- Run scripts via `.venv-reagent/bin/python` (pefile/capstone/ghidra deps live there; bare `python` → `ModuleNotFoundError`).
 - Raw `gb decompile` only when the digest is insufficient. Recovery = full bundle (below), unchanged.
 - Grep/Read on `src/` only after `src_find.py` misses. Graph query = one bare identifier token.
 - Exploration estimated >5 tool calls or >3 files → spawn `caveman:cavecrew-investigator` (compressed output). Mechanical 1-2-file edit late in a long session → `caveman:cavecrew-builder`. Else inline.
