@@ -86,11 +86,11 @@ PE facts: host IWD2.exe = same bytes as VM, ImageBase `0x400000`, no ASLR → `s
 
 Throwaway traces to confirm field semantics live BEFORE a recover — ground truth beats guessing. Simple probes (args+fields at entries) = `frida_probe.py` hook-table JSON; complex logic (call-origin filters, list walks) = bespoke script, template `scripts/frida_formation_trace.py`, docs `docs/frida-differential-tracing.md`.
 - Game in VM session 1; spawn-time hooks → driver as session-1 payload (`vm.sh frida`).
-- **`vm.sh frida` payload gotchas (a driver shipped this way runs under a scheduled-task + fire-and-forget VBS — these bite EVERY time, don't relearn them):**
-  - NO stdin → `sys.stdin.read()` returns EOF instantly → the driver exits BEFORE you can interact. Keep it alive with `while True: time.sleep(0.5)`.
-  - stdout `>`-redirect is unreliable: once the VBS parent exits, writes to `vm_s1_out.txt` are silently dropped (only the first flushed lines land). Write events to a DEDICATED file with `f.flush()` + `os.fsync(f.fileno())`, then read that file — not `vm_s1_out.txt`.
-  - Re-attach hygiene: a stuck attached driver BLOCKS the new `frida.attach` (silent no-fire / stale logfile that won't truncate because it's still locked + heartbeating). `taskkill /im python.exe` is UNRELIABLE here — it leaves the driver alive, and `tasklist | findstr python` often doesn't even list it. Use PowerShell instead: `Get-Process python` to see it, `Stop-Process -Name python -Force` to kill it; confirm `Get-Process python` is empty before re-shipping. If the logfile is locked (`del` says "used by another process"), that stuck driver is the cause.
-  - Silent no-fire? Self-check placement: base = `0x400000`, no ASLR (so `ptr(0xADDR)` absolute is correct) — but dump 8 bytes at each hook addr and diff vs `sym.py bytes ADDR` before assuming the class/path is wrong.
+- **`vm.sh frida` payload gotchas (scheduled-task + fire-and-forget VBS — bite EVERY time):**
+  - NO stdin: `sys.stdin.read()`=EOF → driver exits early. Keep alive: `while True: time.sleep(0.5)`.
+  - stdout `>`-redirect drops writes once VBS parent exits. Write to a DEDICATED file w/ `f.flush()`+`os.fsync(fd)`, read THAT (not `vm_s1_out.txt`).
+  - Re-attach: stuck driver BLOCKS `frida.attach` (silent no-fire / locked logfile). `taskkill` UNRELIABLE; use `Get-Process python` / `Stop-Process -Name python -Force`, confirm empty before re-ship.
+  - Silent no-fire? base `0x400000` no-ASLR (`ptr(0xADDR)` absolute ok) — but dump 8 bytes/hook, diff vs `sym.py bytes ADDR` before blaming the path.
 - `ptr(0xADDR)` absolute. `__thiscall`: `this` = `this.context.ecx`, stack args = `args[0..]`. Hook fn ENTRIES only.
 - Runtime wins when `__thiscall` args disagree with decompiler; decompiler wins for counts (high-word garbage in int32 reads of 16-bit values).
 - Read PE constants with `sym.py`, not the memory endpoint.
@@ -143,8 +143,8 @@ Bundle = resolved decompile (our names, vtable-slot-annotated vcalls) + REQUIRED
 - `python scripts/vtable_audit.py ClassName` — missing virtual overrides (1-vtable anchor → conflation-blind).
 - `python scripts/ctor_vtable_check.py [ClassName]` — class CONFLATION: ctors install diff vtables = 2 binary classes merged → wrong virtual recovered (the Fireball green bug). Run on classes w/ >1 ctor.
 - After a recover: `re-agent parity --address 0xADDR` should be GREEN/YELLOW.
-- Member-heavy fn (cell/render/anim, many `m_x.Method()`): `.venv-reagent/bin/python scripts/parity_offsets.py 0xADDR` — catches "right callee, wrong member" (diffs the per-thiscall `this`-offset→member the BINARY uses vs what the source names; the signal re-agent parity's call-counts are blind to — found the 3-yr corpse-tint bug). `scripts/lint_extend_cells.py` = cheap source-only twin for the extend/`*Base`-in-extend-block copy-paste.
-- **Static parity is not runtime proof — an arc is not done until OUR build runs the recovered path.** `scripts/vm.sh smoke [slot]` launches our exe, loads the save (default slot 3), arms the crash oracle `scripts/frida_crash_guard.py` (symbolized EBP backtrace), then HOLDS the terminal — no timer — until you drive the path: press ENTER for `RESULT: CLEAN`, or a fault prints its backtrace automatically. A Frida trace on the *original* learns ground truth but never exercises our exe; that gap shipped both Fireball cast-time crashes (abort 11ef54f6, UAF 1ac84b92) past GREEN parity. For behavioral claims (not just "doesn't crash"), also diff our-build-vs-original on the same hooks.
+- Member-heavy fn (cell/render/anim): `.venv-reagent/bin/python scripts/parity_offsets.py 0xADDR` — "right callee, wrong member" (diffs binary's per-thiscall `this`-offset→member vs source; parity call-counts blind to it; found the 3-yr corpse-tint bug). `scripts/lint_extend_cells.py` = source-only twin for extend/`*Base` copy-paste.
+- **Static parity ≠ runtime proof — arc not done until OUR build runs the path.** `scripts/vm.sh smoke [slot]` = our exe + save (default slot 3) + crash oracle `frida_crash_guard.py` (symbolized EBP bt), HOLDS terminal (no timer): ENTER→`RESULT: CLEAN` or a fault prints its bt. Original-only Frida never exercises our exe (shipped both Fireball cast crashes past GREEN: abort 11ef54f6, UAF 1ac84b92). Behavioral claims → diff our-vs-original, same hooks.
 - End every recover session by recommending the next function(s) (callee gaps, `gb unimplemented`, caller counts).
 
 ## No hacks
