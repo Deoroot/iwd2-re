@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
 r"""VM-side spell-cast marker forwarder (runs inside the Win11 VM).
 
-Detects every spell cast and forwards it to the host recorder as a UDP datagram
-(guest -> host gateway 10.0.2.2 over QEMU user-mode networking):
+Detects every PLAYER spell cast and forwards it to the host recorder as a UDP
+datagram (guest -> host gateway 10.0.2.2 over QEMU user-mode networking):
 
-    {"exe": "orig"|"ours", "projType": <int>, "ts": <guest epoch>}
+    {"exe": "orig"|"ours", "spell": "<resref>", "ts": <guest epoch>}
+
+The trigger is the player's spell-cast ACTION (CGameSprite::Spell /
+SpellPointSequence), keyed by the spell resref, NOT the projectile factory: that
+older hook (DecodeProjectile) fired per-projectile -- spamming on enemy/ambient
+projectiles in combat and missing non-projectile spells (cones like Color Spray).
+Enemies cast via ForceSpell (CGameAIBase::ForceSpellAction @0x461190), a
+different path, so hooking the player cast actions is a clean player filter.
 
 Two modes, one for each build under test:
 
-  --mode frida   ORIGINAL IWD2.exe (no source): attach by name and hook the
-                 projectile factory DecodeProjectile @0x51EAF0
-                 (__cdecl DecodeProjectile(USHORT type, caster, BYTE) -> arg0).
-                 Same hook as scripts/frida_castspecific_probe.py. We ATTACH
-                 (never spawn) so the original instance / kill-policy is untouched.
+  --mode frida   ORIGINAL IWD2.exe (no source): attach by name and hook the cast
+                 action entries CGameSprite::Spell @0x740270 and
+                 SpellPointSequence @0x742840 (__thiscall, this=ecx=sprite),
+                 reading the resref from this->m_curAction.m_string1 (CString
+                 char* at this+0x538; m_curAction @+0x476, m_string1 @CAIAction+0xC2,
+                 verified vs the binary). These are per-tick state machines so the
+                 entry fires every casting tick; the host recorder debounces a
+                 cast's ticks into one clip. We ATTACH (never spawn) so the
+                 original instance / kill-policy is untouched.
 
-  --mode tail    OUR iwd2-re.exe: tail iwd2-re-debug.log for the "CAST type=N"
-                 line emitted by CProjectile::DecodeProjectile (gated by
-                 .\iwd2-re-debug.enabled). No Frida, no addresses.
+  --mode tail    OUR iwd2-re.exe: tail iwd2-re-debug.log for the "CAST spell=<resref>"
+                 line emitted once per cast by CGameSprite::Spell /
+                 SpellPointSequence (gated by .\iwd2-re-debug.enabled). No Frida,
+                 no addresses.
 
 Designed to be shipped + run as a vm.sh session-1 payload: it never reads stdin
 and keeps itself alive, so the fire-and-forget VBS parent exiting is harmless.
@@ -31,17 +43,38 @@ import threading
 import time
 
 DEFAULT_LOG = r"C:\GOG Games\Icewind Dale 2\iwd2-re-debug.log"
-CAST_RE = re.compile(r"CAST\s+type=(\d+)")
+CAST_RE = re.compile(r"CAST\s+spell=([A-Za-z0-9_]+)")
 
 FRIDA_SCRIPT = r"""
-var DECODE = ptr(0x51EAF0);
-Interceptor.attach(DECODE, {
-    onEnter: function (args) {
-        // static __cdecl DecodeProjectile(USHORT type, caster, BYTE) -> stack arg0
-        send({projType: args[0].toInt32() & 0xffff});
+// CGameSprite::Spell (target) + SpellPointSequence (point): the two player
+// cast-action handlers. __thiscall, this = ecx = the casting sprite. The spell
+// resref is this->m_curAction.m_string1, an MFC CString whose char* is stored at
+// this+0x538 (m_curAction @+0x476, m_string1 @CAIAction+0xC2 -- 0x41E1B0 reads it
+// at ecx+0xC2). Resref is <=8 chars, NUL-terminated.
+var SPELL   = ptr(0x740270);
+var SPELLPT = ptr(0x742840);
+var M_STRING1 = 0x538;
+
+function readResRef(self) {
+    if (self.isNull()) { return null; }
+    try {
+        var p = self.add(M_STRING1).readPointer();   // CString m_pchData
+        if (p.isNull()) { return null; }
+        return p.readCString(8);                      // resref, NUL-terminated
+    } catch (e) {
+        return null;
     }
+}
+
+[SPELL, SPELLPT].forEach(function (addr) {
+    Interceptor.attach(addr, {
+        onEnter: function (args) {
+            var rr = readResRef(this.context.ecx);
+            if (rr && rr.length) { send({spell: rr}); }
+        }
+    });
 });
-send({hooked: "0x51EAF0"});
+send({hooked: "CGameSprite::Spell 0x740270 + SpellPointSequence 0x742840"});
 """
 
 
@@ -158,15 +191,18 @@ def geom_reporter(host, port, interval, stop):
 def make_sender(host, port, exe):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def send(proj_type):
-        payload = json.dumps({"exe": exe, "projType": int(proj_type),
+    def send(resref):
+        resref = str(resref).strip().upper()
+        if not resref:
+            return
+        payload = json.dumps({"exe": exe, "spell": resref,
                               "ts": time.time()}).encode("utf-8")
         try:
             sock.sendto(payload, (host, port))
         except OSError as e:
             print(f"[marker] UDP send failed: {e}", flush=True)
             return
-        print(f"[marker] CAST exe={exe} projType={proj_type} -> {host}:{port}",
+        print(f"[marker] CAST exe={exe} spell={resref} -> {host}:{port}",
               flush=True)
 
     return send
@@ -193,12 +229,13 @@ def run_frida(args, send):
             print(f"[marker] frida: {message}", flush=True)
             return
         p = message.get("payload", {})
-        if "projType" in p:
-            send(p["projType"])
+        if "spell" in p:
+            send(p["spell"])
 
     script.on("message", on_message)
     script.load()
-    print("[marker] hooked DecodeProjectile @0x51EAF0; cast a spell.", flush=True)
+    print("[marker] hooked CGameSprite::Spell + SpellPointSequence; cast a spell.",
+          flush=True)
     while True:                                  # keep-alive (no stdin)
         time.sleep(0.5)
 
@@ -220,7 +257,7 @@ def run_tail(args, send):
                 continue
             m = CAST_RE.search(line)
             if m:
-                send(int(m.group(1)))
+                send(m.group(1))
 
 
 def main():

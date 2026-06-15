@@ -12566,6 +12566,13 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
         ApplyCastingEffect(m_curSpell, ability, targetPos);
         m_bStartedCasting = TRUE;
 
+        // Spell-capture marker (no-op unless .\iwd2-re-debug.enabled exists): the
+        // spell_capture rig tails this line to auto-clip the cast. Fires once per
+        // cast at the visual cast-start (ApplyCastingEffect), keyed by the spell
+        // resref so clips are named per spell. Not present in IWD2.exe (debug-only);
+        // the original is traced by the Frida hook on this same function.
+        Iwd2DebugLog("CAST spell=%s", (const char*)resName);
+
         CAIObjectType enemy = GetAIType().GetEnemyOf();
         LONG nearestEnemy = m_pArea->GetNearest(
             m_id,
@@ -13285,6 +13292,12 @@ SHORT CGameSprite::SpellPointSequence()
 
     if (m_castCounter == 0) {
         ApplyCastingEffect(m_curSpell, ability, castPoint);
+
+        // Spell-capture marker (no-op unless .\iwd2-re-debug.enabled exists): the
+        // spell_capture rig tails this line to auto-clip the cast. Fires once per
+        // cast at the visual cast-start, keyed by the spell resref. Point-target
+        // sibling of the CGameSprite::Spell marker. Not present in IWD2.exe.
+        Iwd2DebugLog("CAST spell=%s", (const char*)resName);
     }
 
     INT adjustedSpeed = static_cast<SHORT>(ability->speedFactor)

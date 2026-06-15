@@ -5,7 +5,10 @@ Records the IWD2 VM display+audio (delivered to the host over SPICE) and cuts a
 short clip every time a spell is cast in the game. Cast events arrive as UDP
 datagrams from a marker forwarder running inside the VM (see cast_marker.py):
 
-    {"exe": "orig"|"ours", "projType": <int>, "ts": <guest epoch, optional>}
+    {"exe": "orig"|"ours", "spell": "<resref>", "ts": <guest epoch, optional>}
+
+The resref (e.g. SPWI304) names the clip; the recorder resolves it to the spell's
+display name (Fireball) via reagent_asset_names.py for the filename and overlay.
 
 Pipeline (all encoding on the host GPU, the VM only serves its normal SPICE):
 
@@ -40,7 +43,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-MISSILE_SRC = REPO / "data" / "near_infinity_export" / "SRC" / "MISSILE.SRC"
+ASSET_NAMES = REPO / "scripts" / "reagent_asset_names.py"
 
 # --- encoder presets -------------------------------------------------------
 # Light defaults on purpose: this is for spotting visual/audio differences, not
@@ -62,32 +65,34 @@ def run(cmd, **kw):
                           text=True, **kw)
 
 
-# --- missile-type -> canonical name ---------------------------------------
-def load_missile_names():
-    """MISSILE.SRC: 1-based line N == projectile type N (line 95 == Stinking Cloud)."""
+# --- spell resref -> canonical name ---------------------------------------
+_NAME_CACHE = {}            # RESREF -> display name (e.g. "SPWI304" -> "Fireball")
+
+
+def spell_display(resref):
+    """Resolve a spell resref to its TLK display name, cached. Falls back to the
+    resref itself if reagent_asset_names.py can't resolve it (unknown/non-SPL)."""
+    rr = str(resref).strip().upper()
+    if not rr:
+        return "unknown"
+    if rr in _NAME_CACHE:
+        return _NAME_CACHE[rr]
+    name = rr
     try:
-        raw = MISSILE_SRC.read_text(encoding="latin-1").splitlines()
-    except OSError:
-        return []
-    return [s.strip() for s in raw]
-
-
-_MISSILE = load_missile_names()
-
-
-def missile_raw(proj_type):
-    name = ""
-    if 1 <= proj_type <= len(_MISSILE):
-        name = _MISSILE[proj_type - 1]
-    if not name or name.lower() == "none":
-        name = f"type{proj_type}"
+        r = run([sys.executable, str(ASSET_NAMES), rr, "--json"])
+        data = json.loads(r.stdout)
+        if data and data[0].get("name"):
+            name = data[0]["name"]
+    except (OSError, ValueError, IndexError, KeyError, AttributeError):
+        pass
+    _NAME_CACHE[rr] = name
     return name
 
 
-def spell_name(proj_type):
-    """filename-safe spell name (underscored)."""
-    return re.sub(r"[^A-Za-z0-9]+", "_", missile_raw(proj_type)).strip("_") \
-        or f"type{proj_type}"
+def spell_filename(resref):
+    """filename-safe display name (underscored), e.g. SPWI304 -> 'Fireball'."""
+    return re.sub(r"[^A-Za-z0-9]+", "_", spell_display(resref)).strip("_") \
+        or str(resref).strip().upper() or "unknown"
 
 
 def find_font():
@@ -154,7 +159,7 @@ class Recorder:
         self.procs = {}            # name -> Popen
         self.sink_module = None    # pactl null-sink module id (str) to unload
         self.loopback_module = None  # pactl loopback (capture -> speakers) module id
-        self.events = []           # queue of (arrival_epoch, exe, projType)
+        self.events = []           # queue of (arrival_epoch, exe, resref)
         self.ev_lock = threading.Lock()
         self._last_cast = {}       # exe -> last accepted cast time (debounce bursts)
         self.w = self.h = None            # Xvfb / guest desktop size (1:1 map)
@@ -322,23 +327,23 @@ class Recorder:
             if m.get("geom"):
                 self._update_geom(m)
                 continue
-            try:
-                exe = str(m.get("exe", "unknown"))
-                proj = int(m.get("projType"))
-            except (ValueError, TypeError):
+            exe = str(m.get("exe", "unknown"))
+            resref = str(m.get("spell", "")).strip().upper()
+            if not re.fullmatch(r"[A-Z0-9_]{1,8}", resref):
                 log(f"bad cast datagram: {m}")
                 continue
             now = time.time()
             with self.ev_lock:
-                # One spell cast spawns several projectiles/VFX in a burst -> one
-                # clip per burst: keep the FIRST projType, debounce the rest.
+                # The cast action is a per-tick state machine -> the marker fires
+                # every casting tick (and on the orig hook, every projectile too):
+                # one clip per cast, keep the FIRST, debounce the rest.
                 last = self._last_cast.get(exe, 0.0)
                 if now - last < self.a.debounce:
-                    log(f"  debounced {spell_name(proj)} (+{now - last:.1f}s, same cast)")
+                    log(f"  debounced {resref} (+{now - last:.1f}s, same cast)")
                     continue
                 self._last_cast[exe] = now
-                self.events.append((now, exe, proj))
-            log(f"CAST exe={exe} projType={proj} ({spell_name(proj)})")
+                self.events.append((now, exe, resref))
+            log(f"CAST exe={exe} spell={resref} ({spell_display(resref)})")
         sock.close()
 
     def _update_geom(self, m):
@@ -373,7 +378,7 @@ class Recorder:
             except Exception as e:                       # noqa: BLE001
                 log(f"clip failed: {e}")
 
-    def make_clip(self, arrival, exe, proj):
+    def make_clip(self, arrival, exe, resref):
         lo, hi = arrival - self.a.pre, arrival + self.a.post
         segs = []
         for f in sorted(self.ring.glob("seg_*.mkv")):
@@ -391,7 +396,7 @@ class Recorder:
         dur = self.a.pre + self.a.post
         listfile = self.ring / f".cut_{int(arrival)}.txt"
         listfile.write_text("".join(f"file '{f.resolve()}'\n" for _, f in segs))
-        out = self.clips / f"{spell_name(proj)}__{exe}.mkv"
+        out = self.clips / f"{spell_filename(resref)}__{exe}.mkv"
         tmp = self.clips / f".{out.name}.tmp.mkv"
         codec, opts = VENC[self.a.encoder]
         with self.crop_lock:
@@ -416,7 +421,7 @@ class Recorder:
             w &= ~1
             vf.append(f"crop={w}:{h}:{x}:{y}")
         if self.a.font:
-            label = f"{missile_raw(proj)}   {'RE' if exe == 'ours' else 'original'}"
+            label = f"{spell_display(resref)}   {'RE' if exe == 'ours' else 'original'}"
             label = re.sub(r"[^A-Za-z0-9 ]", " ", label).strip()
             # bottom-RIGHT, right-anchored (x = w-text_w-margin) so long spell
             # names grow leftward and never overflow the right edge. No background
