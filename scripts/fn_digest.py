@@ -29,6 +29,33 @@ SRC_INDEX = EXPORTS / "src_index.json"
 
 STR_RE = re.compile(r'"((?:[^"\\]|\\.){2,60})"')
 
+# Template / inline-STL instantiation smell (see template_smell). A callee is "trivial"
+# if it is an operator overload, a CRT/STL helper, or a CRes* / container member -- i.e.
+# resource/library plumbing, NOT named game logic (which would call CGame*/CInfinity/etc).
+LIB_CALLEE_RE = re.compile(
+    r"operator|CRes|GetResObject|CTypedPtr|CObArray|CObList|CString|CPtrList|"
+    r"std::|^_+|mem(cpy|set|move|cmp)|str(cmp|cpy|ncpy|len)|malloc|free"
+)
+TEMPLATE_MIN_CALLERS = 40   # a template instantiation is used widely; a real gap rarely is
+TEMPLATE_MAX_LINES = 50     # ... yet compiles to a small body of only library calls
+
+
+def template_smell(n_lines: int, n_callers: int, callee_names: list[str]) -> str | None:
+    """One-line reason if a FUN_ smells like a C++ template / inline-STL instantiation
+    rather than a genuine recovery gap: a fat fan-in + a tiny body whose callees are only
+    operator overloads / CRT / STL / CRes* / container members. Ghidra emits one such FUN_ per
+    instantiation address (e.g. CResHelper<T,1100>::SetResRef = FUN_00442990, ~600 callers,
+    one template body in CRes.h), and the hunt-for-gaps reflex misreads them as high value.
+    Counter-intuitive rule encoded here: a huge caller count next to "not in src" is a red
+    flag for a FALSE positive, not a target. Caller gates this on loc is None (unmapped)."""
+    if n_callers < TEMPLATE_MIN_CALLERS or n_lines > TEMPLATE_MAX_LINES:
+        return None
+    if not callee_names:
+        return f"{n_callers} callers, {n_lines}-line body, no real callees"
+    if all(LIB_CALLEE_RE.search(n) for n in callee_names):
+        return f"{n_callers} callers, {n_lines}-line body, only operator/CRT/STL/CRes callees"
+    return None
+
 
 def name_to_addr(query: str) -> int | None:
     raw = json.loads(ADDR_MAP.read_text())
@@ -108,6 +135,7 @@ def main() -> int:
         print("THUNK")
 
     callees = exp.get("callees") or []
+    callee_names: list[str] = []
     if callees:
         seen = set()
         out = []
@@ -119,12 +147,18 @@ def main() -> int:
                 seen.add(nm)
                 out.append(nm)
         print(f"callees ({len(out)}): " + ", ".join(out[:20]) + (" ..." if len(out) > 20 else ""))
+        callee_names = out
     callers = exp.get("callers") or []
     if callers:
         cn = [c.get("name", "?") for c in callers]
         print(f"callers ({len(cn)}): " + ", ".join(cn[:12]) + (" ..." if len(cn) > 12 else ""))
     else:
         print("callers: none exported (virtual-only or root)")
+    if loc is None:
+        smell = template_smell(lines, len(callers), callee_names)
+        if smell:
+            print(f"⚠ likely template/STL instantiation, not a recovery gap ({smell}); "
+                  f"check headers first (CResHelper<> in CRes.h, CTypedPtrList, CString, std::*)")
     if n_vcall:
         print(f"virtual calls in body: {n_vcall} (annotated in --full)")
 
