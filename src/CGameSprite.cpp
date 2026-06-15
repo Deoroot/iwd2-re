@@ -5791,8 +5791,10 @@ void CGameSprite::SetDirection(SHORT direction)
     m_deltaDirection = direction > m_nDirection ? 1 : -1;
 
     if (direction - m_nDirection > 8 || direction - m_nDirection <= -8) {
-        // FIXME: Same value?
-        m_deltaDirection = direction > m_nDirection ? 1 : -1;
+        // Turn the short way: when the target is more than half the 16-step
+        // compass away, flip the step sign so we rotate across the 0/15 seam
+        // (binary: `neg edx` at 0x706cb9) instead of the long way around.
+        m_deltaDirection = -m_deltaDirection;
     }
 
     if (abs(direction - m_nDirection) == 8) {
