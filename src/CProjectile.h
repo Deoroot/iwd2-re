@@ -1093,6 +1093,35 @@ public:
     ~CProjectileBigBoulder() override;   // slot 0; ICF-folded onto 0x5768A0
 };
 
+// Leaf 0x576990 -- Delayed Blast Fireball (SPWI714, projectile type 360/0x168; vtable
+// 0x85099C). The only spell-hit leaf with its own data and virtual overrides: a Fireball-
+// shaped carrier ("FirebaT" cell, "TRA_06" loop) with a full three-slot cloud, plus a
+// proximity-delay state machine. OnArrival latches the bead instead of detonating;
+// AIUpdate then rescans every fifth tick and fires the base detonation the moment any
+// object enters a 100-unit radius. m_bBlasted/m_scanTimer follow the base m_miniB (binary
+// 0x65E/0x660; their offsets drift with the VS2019 std::set size and nothing outside this
+// class reads them).
+class CProjectileDBFireball /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileDBFireball();    // 0x576990
+    ~CProjectileDBFireball() override;   // slot 0; ICF-folded onto 0x5768A0
+    void AIUpdate() override;   // vtable slot 3;  0x576BA0
+    void OnArrival() override;  // vtable slot 28; 0x576CE0
+private:
+    BYTE m_bBlasted;   /*#guess*/ // ~0x65E -- latched once the delayed blast actually fires
+    LONG m_scanTimer;  /*#guess*/ // ~0x660 -- proximity rescan counter (fires every 5th tick)
+};
+
+// Leaf 0x576CF0 -- Turn Undead (projectile type 376/0x178; vtable 0x850A38). A minimal
+// no-visual spell-hit leaf (strike period 10000, interval 10, m_lifetime 0x2D, m_aoeRange
+// 300); keeps the base AIUpdate/OnArrival, so unlike its code neighbour Delayed Blast
+// Fireball it detonates on arrival.
+class CProjectileTurnUndead /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileTurnUndead();    // 0x576CF0
+    ~CProjectileTurnUndead() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
 // One cell of the detonation fan: a position (fixed point) and a flag the parent's
 // AIUpdate toggles as the cell is consumed. The parent records these into a shared
 // refcounted pool the IcewindCSpellHitParticle children reference. Names are

@@ -871,6 +871,19 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileBigBoulder();
         break;
 
+    case 0x168:
+        // Delayed Blast Fireball (SPWI714): the Fireball-shaped carrier whose OnArrival
+        // latches instead of detonating and whose AIUpdate proximity-delays the blast
+        // (ctor 0x576990). Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileDBFireball();
+        break;
+
+    case 0x178:
+        // Turn Undead (projectile type 376): the minimal no-visual spell-hit overlay (ctor
+        // 0x576CF0). Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileTurnUndead();
+        break;
+
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
         // The line beam that rakes everything it crosses; height on, range 400.
@@ -6061,6 +6074,128 @@ CProjectileBigBoulder::CProjectileBigBoulder()
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
 CProjectileBigBoulder::~CProjectileBigBoulder()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x576990
+// Delayed Blast Fireball (projectile type 360, SPWI714; vtable 0x85099C). The own
+// members m_bBlasted/m_scanTimer are cleared first, then the leaf installs a Fireball-
+// shaped carrier: the visible "FirebaT" travel cell, the "TRA_06" loop, the "FirebaX"/
+// "RNG_M03" burst, "FirebaR" ring and "FirebaA" area slots (all copy-from-back), a wider
+// ring spawn, the cloud flags, doubled launch velocity, 16 facings and m_aoeRange 300.
+CProjectileDBFireball::CProjectileDBFireball()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_bBlasted = 0;
+    m_scanTimer = 0;
+
+    const char* cellName = "FirebaT";
+    if (cellName[0] != '\0') {
+        m_visible = 1;
+        delete m_pVidCell;
+        m_pVidCell = new CVidCell(CResRef(cellName), FALSE);
+        m_bHasTravelCell = 1;
+    } else {
+        m_visible = 0;
+        m_bHasTravelCell = 0;
+    }
+
+    m_fireSoundRef = CResRef("TRA_06");
+    m_visualEffect.SetCopyFromBack(1);
+
+    m_visual1.m_cellResRef.Set("FirebaX");
+    m_visual1.m_soundResRef.Set("RNG_M03");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_cellResRef.Set("FirebaR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0x14;
+
+    m_visual3.m_cellResRef.Set("FirebaA");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_strikeCountdown = 0;
+    m_velocity = static_cast<SHORT>(m_velocity << 1);
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3AnimFlag36 = 1;
+    m_strikePeriod = 10000;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_dirCount = 0x10;
+    m_aoeRange = 300;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileDBFireball::~CProjectileDBFireball()
+{
+}
+
+// 0x576BA0 (vtable slot 3). While the bead is still flying (m_bDetonated == 0) or has
+// already gone off (m_bBlasted == 1) the base AIUpdate runs unchanged. Once it has landed
+// and is sitting on its delay, every fifth tick it scans its area for any object within
+// 100 of its position; the first time something is in range it fires the base detonation
+// (IcewindCProjectileSpellHit::OnArrival) and latches m_bBlasted. The carrier cell's frame
+// is advanced every tick so the bead keeps animating while it waits.
+void CProjectileDBFireball::AIUpdate()
+{
+    if (m_bDetonated == 0) {
+        IcewindCProjectileSpellHit::AIUpdate();
+        return;
+    }
+    if (m_bBlasted == 1) {
+        IcewindCProjectileSpellHit::AIUpdate();
+        return;
+    }
+
+    if (++m_scanTimer == 5) {
+        m_scanTimer = 0;
+
+        CTypedPtrList<CPtrList, LONG*> targets(10);
+        GetArea()->GetCloseObjects(GetVertListPos(), GetPos(), CAIObjectType::ANYONE, 100,
+            m_terrainTable, targets, TRUE, FALSE);
+        GetArea()->GetAllInRangeBack(GetPos(), CAIObjectType::ANYONE, 100,
+            m_terrainTable, targets, TRUE, FALSE, FALSE);
+
+        if (targets.GetHeadPosition() != NULL) {
+            IcewindCProjectileSpellHit::OnArrival();
+            m_bBlasted = 1;
+        }
+    }
+
+    m_pVidCell->FrameAdvance();
+}
+
+// 0x576CE0 (vtable slot 28). Landing does not detonate: it only latches the detonation
+// flag so AIUpdate begins the proximity-delay loop. The blast itself is deferred to the
+// first AIUpdate pass that finds something in range.
+void CProjectileDBFireball::OnArrival()
+{
+    m_bDetonated = 1;
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x576CF0
+// Turn Undead (projectile type 376; vtable 0x850A38). A minimal spell-hit leaf with no
+// visuals: only the strike cadence (period 10000, interval 10), m_lifetime 0x2D and a wide
+// m_aoeRange 300. It keeps the base AIUpdate/OnArrival, so it detonates on arrival like an
+// ordinary overlay.
+CProjectileTurnUndead::CProjectileTurnUndead()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 300;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileTurnUndead::~CProjectileTurnUndead()
 {
 }
 
