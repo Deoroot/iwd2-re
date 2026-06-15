@@ -912,6 +912,52 @@ public:
     ~CProjectileSymbolOfDeath() override;   // slot 0; ICF-folded onto 0x5768A0
 };
 
+// Leaf 0x571310 -- Cloudkill (SPWI018, factory type 187/0xBB). Full three-slot cloud
+// leaf in the Stinking Cloud mould (own vtable 0x84F310; dtor ICF-folded onto
+// 0x5768A0): burst "CloudKX"/"RNG_M01", ring "CloudKR", and the persistent gas area
+// "CloudKA"/"ARE_M02". m_lifetime 1000, m_aoeRange 0x96.
+class CProjectileCloudkill /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileCloudkill();    // 0x571310
+    ~CProjectileCloudkill() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x5714E0 -- Acid Fog (SPWI019, factory type 212/0xD4). Sibling of Cloudkill
+// (own vtable 0x84F3AC): burst "DFogX"/"RNG_M01", ring "DFogR", gas area
+// "DFogA"/"ARE_M02". m_lifetime 0x44C, m_aoeRange 0x96.
+class CProjectileAcidFog /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileAcidFog();    // 0x5714E0
+    ~CProjectileAcidFog() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x572670 -- Grease (SPWI101, factory type 101/0x65). Two-slot leaf (own vtable
+// 0x84F7F0, like Web): burst "GreaseX"/"EFF_M31b" and the persistent grease area
+// "GreaseA"/"ARE_M01" with m_visual3DensityBase 1000. m_lifetime 1000, m_aoeRange 100.
+class CProjectileGrease /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileGrease();    // 0x572670
+    ~CProjectileGrease() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x571930 -- Circle of Death (SPWI606, factory type 267/0x10B). Single-burst leaf
+// (own vtable 0x84F448, like Power Word Kill): first slot only, "DSpellX"/"EFF_M42".
+// m_strikePeriod 10000, m_lifetime 0x2D, m_aoeRange 300.
+class CProjectileCircleOfDeath /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileCircleOfDeath();    // 0x571930
+    ~CProjectileCircleOfDeath() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
+// Leaf 0x573AF0 -- Insect Plague (SPPR510, factory type 216/0xD8). Full three-slot cloud
+// leaf (own vtable 0x84FC34): burst "IPlaguX"/"RNG_P01", ring "IPlaguR", and the
+// persistent swarm area "IPlaguA"/"ARE_P02". m_lifetime 0x5DC, m_aoeRange 0xFA.
+class CProjectileInsectPlague /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileInsectPlague();    // 0x573AF0
+    ~CProjectileInsectPlague() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
 // One cell of the detonation fan: a position (fixed point) and a flag the parent's
 // AIUpdate toggles as the cell is consumed. The parent records these into a shared
 // refcounted pool the IcewindCSpellHitParticle children reference. Names are

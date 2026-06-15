@@ -738,6 +738,39 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileSymbolOfDeath();
         break;
 
+    case 0xBB:
+        // Cloudkill (SPWI018): the persistent poison-gas area spell-hit projectile, a
+        // full three-slot cloud leaf (ctor 0x571310). Previously fell through to the
+        // default plain CProjectile.
+        pProjectile = new CProjectileCloudkill();
+        break;
+
+    case 0xD4:
+        // Acid Fog (SPWI019): the persistent acid-gas area spell-hit projectile, a
+        // sibling of Cloudkill (ctor 0x5714E0). Previously fell through to the default
+        // plain CProjectile.
+        pProjectile = new CProjectileAcidFog();
+        break;
+
+    case 0x65:
+        // Grease (SPWI101): the persistent grease-slick area spell-hit projectile (ctor
+        // 0x572670). Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileGrease();
+        break;
+
+    case 0x10B:
+        // Circle of Death (SPWI606): the single-burst spell-hit projectile (ctor
+        // 0x571930). Previously fell through to the default plain CProjectile.
+        pProjectile = new CProjectileCircleOfDeath();
+        break;
+
+    case 0xD8:
+        // Insect Plague (SPPR510): the persistent insect-swarm area spell-hit projectile,
+        // a full three-slot cloud leaf (ctor 0x573AF0). Previously fell through to the
+        // default plain CProjectile.
+        pProjectile = new CProjectileInsectPlague();
+        break;
+
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
         // The line beam that rakes everything it crosses; height on, range 400.
@@ -5309,6 +5342,181 @@ CProjectileSymbolOfDeath::CProjectileSymbolOfDeath()
 
 // Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
 CProjectileSymbolOfDeath::~CProjectileSymbolOfDeath()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x571310
+// Cloudkill (SPWI018, factory type 187/0xBB). A full three-slot IcewindCProjectileSpellHit
+// cloud leaf in the Stinking Cloud mould (vtable 0x84F310): the burst slot
+// ("CloudKX"/"RNG_M01"), the ring slot ("CloudKR") and the persistent gas area
+// ("CloudKA"/"ARE_M02"), all copy-from-back. m_lifetime 1000, m_aoeRange 0x96.
+CProjectileCloudkill::CProjectileCloudkill()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("CloudKX");
+    m_visual1.m_soundResRef.Set("RNG_M01");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_cellResRef.Set("CloudKR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0xD;
+
+    m_visual3.m_cellResRef.Set("CloudKA");
+    m_visual3.m_soundResRef.Set("ARE_M02");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_visual3DensityBase = 500;
+    m_strikeCountdown = 0;
+    m_lifetime = 1000;
+    m_dirCount = 1;
+    m_aoeRange = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileCloudkill::~CProjectileCloudkill()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x5714E0
+// Acid Fog (SPWI019, factory type 212/0xD4). A sibling of Cloudkill (vtable 0x84F3AC):
+// the burst slot ("DFogX"/"RNG_M01"), the ring slot ("DFogR") and the persistent
+// acid-gas area ("DFogA"/"ARE_M02"), all copy-from-back. m_lifetime 0x44C, m_aoeRange
+// 0x96.
+CProjectileAcidFog::CProjectileAcidFog()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("DFogX");
+    m_visual1.m_soundResRef.Set("RNG_M01");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_cellResRef.Set("DFogR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0x14;
+
+    m_visual3.m_cellResRef.Set("DFogA");
+    m_visual3.m_soundResRef.Set("ARE_M02");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_strikeCountdown = 0;
+    m_lifetime = 0x44C;
+    m_dirCount = 1;
+    m_aoeRange = 0x96;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileAcidFog::~CProjectileAcidFog()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x572670
+// Grease (SPWI101, factory type 101/0x65). A two-slot IcewindCProjectileSpellHit leaf
+// (vtable 0x84F7F0, like Web): the burst slot ("GreaseX"/"EFF_M31b") and the persistent
+// grease area ("GreaseA"/"ARE_M01"), both copy-from-back, leaving the middle slot empty.
+// m_visual3DensityBase 1000, m_lifetime 1000, m_aoeRange 100.
+CProjectileGrease::CProjectileGrease()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("GreaseX");
+    m_visual1.m_soundResRef.Set("EFF_M31b");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual3.m_cellResRef.Set("GreaseA");
+    m_visual3.m_soundResRef.Set("ARE_M01");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3DensityBase = 1000;
+    m_lifetime = 1000;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_strikeCountdown = 0;
+    m_dirCount = 1;
+    m_aoeRange = 100;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileGrease::~CProjectileGrease()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x571930
+// Circle of Death (SPWI606, factory type 267/0x10B). A single-burst IcewindCProjectileSpellHit
+// leaf (vtable 0x84F448, like Power Word Kill): the first emission slot only
+// ("DSpellX"/"EFF_M42", copy-from-back) and no area slot. m_strikePeriod 10000,
+// m_lifetime 0x2D, m_aoeRange 300.
+CProjectileCircleOfDeath::CProjectileCircleOfDeath()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("DSpellX");
+    m_visual1.m_soundResRef.Set("EFF_M42");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10000;
+    m_strikeCountdown = 0;
+    m_strikeInterval = 10;
+    m_lifetime = 0x2D;
+    m_aoeRange = 300;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileCircleOfDeath::~CProjectileCircleOfDeath()
+{
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x573AF0
+// Insect Plague (SPPR510, factory type 216/0xD8). A full three-slot IcewindCProjectileSpellHit
+// cloud leaf (vtable 0x84FC34): the burst slot ("IPlaguX"/"RNG_P01"), the ring slot
+// ("IPlaguR") and the persistent swarm area ("IPlaguA"/"ARE_P02"), all copy-from-back.
+// m_lifetime 0x5DC, m_aoeRange 0xFA.
+CProjectileInsectPlague::CProjectileInsectPlague()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_visual1.m_cellResRef.Set("IPlaguX");
+    m_visual1.m_soundResRef.Set("RNG_P01");
+    m_visual1.m_fx.SetCopyFromBack(1);
+
+    m_visual2.m_cellResRef.Set("IPlaguR");
+    m_visual2.m_fx.SetCopyFromBack(1);
+    m_visual2AnimMode = 1;
+    m_visual2MaxSpawn = 0xD;
+
+    m_visual3.m_cellResRef.Set("IPlaguA");
+    m_visual3.m_soundResRef.Set("ARE_P02");
+    m_visual3.m_fx.SetCopyFromBack(1);
+
+    m_strikePeriod = 10;
+    m_strikeInterval = 10;
+    m_visual3RespawnFlag = 1;
+    m_visual3AnimMode = 1;
+    m_strikeCountdown = 0;
+    m_lifetime = 0x5DC;
+    m_dirCount = 1;
+    m_aoeRange = 0xFA;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileInsectPlague::~CProjectileInsectPlague()
 {
 }
 
