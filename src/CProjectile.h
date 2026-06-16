@@ -591,6 +591,14 @@ protected:
         /* 20 */ IcewindCVisualEffect m_fx;
     };
 
+    // pack(2): IWD2.exe packs the whole projectile to 2 bytes -- the binary-mirror
+    // members below hold many sub-4-aligned LONG/CSound/pointer tails (field_2FA,
+    // m_visual1, m_visual2MaxSpawn, m_sound1, ...). Without it the compiler 4-aligns
+    // each, drifting it and every member below; the visible failure was the Cloudkill
+    // ring over-density (m_visual2's reinterpret_cast<IcewindCSpellHitEmission&> read a
+    // 4-aligned m_maxMovingSpawn as garbage). Packs member PLACEMENT only; the nested
+    // ResName/VisualSlot above keep their own default layout, as before.
+#pragma pack(push, 2)
     /* 02AE */ SHORT         m_aoeRange;     // gather/detonation radius (GatherTargets `range`, visual ctor `nRange`) -- NOT the factory type
     /* 02B0 */ WORD          field_2B0;
     /* 02B2 */ WORD          m_objectTag;    // = 0x4E
@@ -624,16 +632,10 @@ protected:
     /* 04E2 */ VisualSlot    m_visual1;
     // m_visual2's IcewindCSpellHitEmission tail (the bytes past VisualSlot's 0x2C
     // {cell,sound,fx} prefix): the slot's m_animMode and m_maxMovingSpawn. Modelled
-    // as named members because VisualSlot covers only the prefix.
-    //
-    // pack(2): IWD2.exe packs these IE emission slots to 2 bytes, so the LONG tail
-    // m_visual2MaxSpawn sits at m_visual2+0x2E (not 4-aligned). Without the pragma
-    // the compiler 4-aligns it to +0x30, and IcewindCProjectileSpellHit::OnArrival's
-    // reinterpret_cast<IcewindCSpellHitEmission&>(m_visual2) then reads garbage for
-    // m_maxMovingSpawn -- the moving-spawn ring runs uncapped (36 emit vs the
-    // intended m_visual2MaxSpawn=13), over-densifying the detonation. Mirrors the
-    // pack(2) already on IcewindCSpellHitVisual / IcewindCSpellHitParticle.
-#pragma pack(push, 2)
+    // as named members because VisualSlot covers only the prefix. The class-level
+    // pack(2) keeps m_visual2MaxSpawn at the packed m_visual2+0x2E (not the 4-aligned
+    // +0x30) so OnArrival's reinterpret_cast reads the real m_maxMovingSpawn -- the
+    // Cloudkill ring otherwise runs uncapped (36 emit vs the intended 13).
     /* 050E */ VisualSlot    m_visual2;
     /* 053A */ BYTE          m_visual2AnimMode;  // = 0; m_visual2 emission m_animMode (+0x2C)
     /* 053B */ BYTE          _pad53B;
@@ -655,7 +657,6 @@ protected:
     /* 0580 */ LONG          m_visual3DensityRampDiv; // = 0x1E (30); emission m_densityRampDiv (+0x40)
     /* 0584 */ BYTE          m_visual3CloudFlag;      // = 0; emission m_cloudFlag (+0x44)
     /* 0585 */ BYTE          _pad585;
-#pragma pack(pop)
     /* 0586 */ CSound        m_sound1;
     /* 05EA */ CSound        m_sound2;
     // m_miniB -- already-struck-target dedup set (binary: std::set<LONG>, ctor
@@ -665,6 +666,7 @@ protected:
     // (fireball -- every target struck once). Final member, so the VS2019-vs-VC6
     // _Tree size drift (8/12B vs 16B) moves nothing else.
     /* 064E */ std::set<LONG> m_miniB;
+#pragma pack(pop)
 };
 
 // Leaf 0x57F640 -- the wandering tornado (WhirlwX BAM; DecodeProjectile
