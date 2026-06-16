@@ -15426,7 +15426,13 @@ void CMessageFamiliarRemoveResRef::Run()
 CMessageFireProjectile::CMessageFireProjectile(WORD projectileType, LONG projectileTargetId, const CPoint& projectileTarget, LONG height, LONG caller, LONG target, unsigned char a7)
     : CMessage(caller, target)
 {
-    m_projectileType = projectileType;
+    // 0x500481: the binary increments the projectile type before storing it
+    // (inc ecx). Senders pass the projectile's m_projectileType, which DecodeProjectile
+    // stores as (factory type - 1); the +1 restores the factory type so Run's
+    // DecodeProjectile(m_projectileType) rebuilds the same projectile. Without it the
+    // handler decodes one type lower -- e.g. Ice Storm (0x62) replicated as Color
+    // Spray (0x61).
+    m_projectileType = static_cast<WORD>(projectileType + 1);
     m_projectileTargetId = projectileTargetId;
     m_projectileTarget = projectileTarget;
     m_height = height;
@@ -15476,12 +15482,13 @@ void CMessageFireProjectile::Run()
         return;
     }
 
-    // MP-ownership / world gate: skip unless the world is live and this machine
-    // owns the caster (CChitin +0x96E / +0x104C, unmodelled -- raw offsets).
-    const BYTE* pChitin = reinterpret_cast<const BYTE*>(g_pChitin);
-    BOOL skip = (*reinterpret_cast<const int*>(pChitin + 0x96E) == 0)
-        || (*reinterpret_cast<const int*>(pChitin + 0x104C)
-            == static_cast<int>(pCaster->m_remotePlayerID));
+    // 0x500853: the binary inlines CGameObject::InControl (0x4530C0) -- the launch is
+    // skipped on the machine that controls the caster, which already fired the projectile
+    // locally (CGameSprite::Spell). The original tests cNetwork's service provider and
+    // m_idLocalPlayer; recovering those as raw CChitin offsets (+0x96E / +0x104C) read the
+    // wrong words in our CChitin layout, so the gate never skipped in single-player and the
+    // handler fired a duplicate projectile alongside the local one.
+    BOOL skip = pCaster->InControl();
     if (skip || pCaster->m_pArea == NULL) {
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
             CGameObjectArray::THREAD_ASYNCH, INFINITE);
