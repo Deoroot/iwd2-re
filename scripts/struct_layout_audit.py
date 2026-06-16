@@ -27,7 +27,14 @@ USAGE
     python scripts/struct_layout_audit.py CProjectile
     python scripts/struct_layout_audit.py CProjectile --header src/CProjectile.h \
                                                        --source src/CProjectile.cpp
-    Exit 0 = no drift, 1 = drift found, 2 = harness/parse error.
+    Each break is auto-classified:
+      ACTIONABLE   -- a sub-4-aligned tail (offset % 4) that wants pack(2)
+      benign       -- preceding member is a compiler-divergent type (CVidCell/STL)
+      cumulative   -- a 4-aligned member an upstream benign break pushed off-boundary
+      review       -- preceding member is an embedded class of unknown compiled size
+      out-of-order -- member declared below the prior member's offset
+    Exit 1 = >=1 actionable or out-of-order break, 0 = clean / benign-only,
+    2 = harness/parse error.
 
     The dump is produced on the VM (MSVC) via vm_build.cmd with the CL env var;
     the source TU is touched to force its recompile. Header + source are scp'd
@@ -46,14 +53,40 @@ HOST_REPO = Path(__file__).resolve().parent.parent
 # Header member with an offset comment, e.g.  "/* 053C */ LONG m_visual2MaxSpawn;"
 # or "/* 04C4 */ std::map<LONG, int> m_miniA;" or "BYTE _pad[8];".
 _HDR_MEMBER = re.compile(
-    r"/\*\s*(0x)?([0-9A-Fa-f]+)\s*\*/\s*.*?\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*;")
+    r"/\*\s*(?:0x)?([0-9A-Fa-f]+)\s*\*/\s*(.*?)\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*;")
+
+# Classify a spacing break by the PRECEDING member's type. The gap INTO a member
+# grows either because the preceding member's compiled size differs (benign when
+# that type is compiler-divergent) or because alignment padding was inserted
+# before the *following* member -- it wants >2-byte alignment that #pragma pack(2)
+# would have removed (the actionable packing bug, e.g. the Cloudkill visual slot).
+_DIVERGENT = re.compile(
+    r"\bCVidCell\b|\bstd\s*::|\bCArray\s*<|\bCTypedPtr\w*\s*<|\bCMap\w*\s*<|"
+    r"\bCList\b|\bCPtrList\b")
+_STABLE = re.compile(
+    r"\b(?:BYTE|WORD|DWORD|ULONG|LONG|UINT|INT|int|unsigned|USHORT|SHORT|"
+    r"BOOLEAN|BOOL|bool|CHAR|char|float|double|COLORREF)\b|\*\s*$")
+
+
+def classify_prev(prev_type: str, offset: int) -> str:
+    """benign | actionable | cumulative | review, from the preceding member's
+    type and whether the moved member is sub-4-aligned in the binary."""
+    if _DIVERGENT.search(prev_type):
+        return "benign"
+    if _STABLE.search(prev_type):
+        # pack(2) only matters when the binary itself sits the member off a 4-byte
+        # boundary (offset % 4). A member the binary already 4-aligns that drifted
+        # is an upstream benign break bleeding through an alignment boundary, not a
+        # pack(2) site -- pack(2) would not move it.
+        return "actionable" if offset % 4 else "cumulative"
+    return "review"
 # MSVC layout dump member line, e.g.  " 1398\t| m_visual2MaxSpawn"  (single pipe =
 # a direct member; "| |" = an inherited base member, skipped).
 _DUMP_MEMBER = re.compile(r"^\s*(\d+)\s*\|\s+(?!\||\+)(.*\b)([A-Za-z_]\w*)\s*$")
 
 
 def parse_header(header: Path, cls: str):
-    """Ordered [(member, comment_offset)] for the direct members of `cls`."""
+    """Ordered [(member, comment_offset, type)] for the direct members of `cls`."""
     text = header.read_text(errors="replace").splitlines()
     # Find the class body and walk it at brace-depth 1 (skip nested structs).
     # The class *definition* (name then ':' base-list, a '/*..*/' tag, or '{') --
@@ -70,7 +103,7 @@ def parse_header(header: Path, cls: str):
         if at_class_scope:
             m = _HDR_MEMBER.search(ln)
             if m:
-                members.append((m.group(3), int(m.group(2), 16)))
+                members.append((m.group(3), int(m.group(1), 16), m.group(2).strip()))
         depth += opens - closes
         if opens:
             seen = True
@@ -138,37 +171,83 @@ def main():
     dump = run_layout_dump(args.cls, source_rel)
     compiled = parse_dump(dump, args.cls)
 
-    common = [(m, off) for m, off in hdr if m in compiled]
+    common = [(m, off, typ) for m, off, typ in hdr if m in compiled]
     if len(common) < 2:
         sys.exit(f"[audit] only {len(common)} member(s) matched between header and dump "
                  f"-- cannot diff spacing")
 
     # Adjacent-member spacing: a uniform base/STL size shift (e.g. our CGameObject
     # 0x78 vs the binary's 0x6E, or a wider STL node) cancels out, so only a genuine
-    # spacing change trips -- a sub-4-aligned LONG/WORD tail that drifted for want of
-    # #pragma pack(2) (the Cloudkill ring bug), or a member whose own size differs
-    # from the binary. The break is localized to the member that moved.
-    breaks = []
-    for (pname, pcmt), (name, cmt) in zip(common, common[1:]):
-        cmt_gap = cmt - pcmt
-        bin_gap = compiled[name] - compiled[pname]
-        if cmt_gap != bin_gap:
-            breaks.append((pname, name, cmt_gap, bin_gap))
+    # spacing change trips. Each break is then classified by the preceding member's
+    # type -- benign (compiler-divergent size) vs actionable (a sub-aligned tail that
+    # wants pack(2)) -- and a member declared below the prior offset is flagged as
+    # out-of-order (the compiler lays members in declaration order; the spacing of
+    # its neighbour pair is meaningless, so that pair is skipped).
+    actionable, benign, cumulative, review, out_of_order = [], [], [], [], []
+    prev_oo = False
+    for (pname, pcmt, ptyp), (name, cmt, _t) in zip(common, common[1:]):
+        if cmt <= pcmt:                       # declared at/below the prior offset
+            out_of_order.append((pname, name, pcmt, cmt))
+            prev_oo = True
+            continue
+        if prev_oo:                           # compiled gap polluted by the oo member
+            prev_oo = False
+            continue
+        cmt_gap, bin_gap = cmt - pcmt, compiled[name] - compiled[pname]
+        if cmt_gap == bin_gap:
+            continue
+        row = (pname, name, cmt_gap, bin_gap, ptyp)
+        cat = classify_prev(ptyp, cmt)
+        if cat in ("actionable", "cumulative") and bin_gap <= cmt_gap:
+            # A pack(2) pad is strictly positive (the unpacked compiler ADDS bytes
+            # the packed binary omits). A non-positive drift on a stable member is a
+            # declaration-order-vs-offset artifact (its successors carry lower
+            # offsets), not a packing fix -- route it to review.
+            cat = "review"
+        {"benign": benign, "actionable": actionable, "cumulative": cumulative,
+         "review": review}[cat].append(row)
+
+    def _show(rows):
+        for prev, name, cg, bg, ptyp in rows:
+            print(f"   {prev} -> {name}: comment gap 0x{cg:X}, compiled gap 0x{bg:X} "
+                  f"(drift {bg - cg:+d} B) [prev {ptyp or '?'}]")
 
     print(f"[audit] {args.cls}: {len(common)} members checked vs /* 0xNNN */ comments")
-    if not breaks:
+    if actionable:
+        print(f"[audit] {len(actionable)} ACTIONABLE -- a sub-aligned tail drifted for "
+              f"want of #pragma pack(2). Real bug if a reinterpret_cast or a "
+              f"hardcoded/binary offset reads the moved member; named/by-pointer access "
+              f"only = latent layout mismatch. Verify the use site:")
+        _show(actionable)
+    if out_of_order:
+        print(f"[audit] {len(out_of_order)} OUT-OF-ORDER -- member declared below the "
+              f"prior member's offset. The compiler lays members in declaration order, "
+              f"so the layout cannot match the binary until they are reordered:")
+        for prev, name, pcmt, cmt in out_of_order:
+            print(f"   {prev} (0x{pcmt:X}) -> {name} (0x{cmt:X}): offset goes backwards")
+    if benign:
+        print(f"[audit] {len(benign)} benign -- preceding member is a compiler-divergent "
+              f"type (CVidCell / STL / MFC container), a known whole-codebase size "
+              f"discrepancy, not a packing bug:")
+        _show(benign)
+    if cumulative:
+        print(f"[audit] {len(cumulative)} cumulative -- the moved member is 4-aligned in "
+              f"the binary, so pack(2) won't move it; its compiled pad is an upstream "
+              f"benign break bleeding through an alignment boundary, not a fix site:")
+        _show(cumulative)
+    if review:
+        print(f"[audit] {len(review)} review -- preceding member's compiled size is "
+              f"unknown to the classifier (an embedded class); verify by hand:")
+        _show(review)
+    if not (actionable or out_of_order or benign or cumulative or review):
         print("[audit] PASS -- compiled member spacing matches the comments.")
         return 0
-    print(f"[audit] {len(breaks)} spacing break(s) -- the compiled gap INTO the named "
-          f"member differs from the binary. The cause is the PRECEDING member's "
-          f"compiled size: a wider STL node / CVidCell / base type (a known, benign "
-          f"whole-codebase discrepancy) OR a tail that drifted for want of "
-          f"#pragma pack(2). It is the packing bug when the moved member is one a "
-          f"reinterpret_cast relies on (e.g. the visual-slot tails):")
-    for prev, name, cg, bg in breaks:
-        print(f"   {prev} -> {name}: comment gap 0x{cg:X}, compiled gap 0x{bg:X} "
-              f"(drift {bg - cg:+d} B)")
-    return 1
+    if actionable or out_of_order:
+        print(f"[audit] RESULT: {len(actionable)} actionable + {len(out_of_order)} "
+              f"out-of-order -> FAIL")
+        return 1
+    print("[audit] RESULT: only benign/review breaks -> PASS")
+    return 0
 
 
 if __name__ == "__main__":
