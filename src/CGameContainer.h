@@ -26,6 +26,7 @@ public:
     /* 004C */ void Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface) override;
     /* 0050 */ BOOLEAN DoAIUpdate(BOOLEAN active, LONG counter) override;
     /* 0058 */ void SetCursor(LONG nToolTip) override;
+    /* 0078 */ void AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply) override;
 
     /* 00B8 */ virtual void RenderClippedPoly(CGameArea* pArea, CVidMode* pVidMode, INT nSurface, COLORREF color);
 

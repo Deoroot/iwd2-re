@@ -6,6 +6,7 @@
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
+#include "CGameEffect.h"
 #include "CGameSprite.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
@@ -1547,4 +1548,21 @@ void CGameContainer::SetScriptRes(CString scriptRes)
 SHORT CGameContainer::GetNumItems()
 {
     return static_cast<SHORT>(m_lstItems.GetCount());
+}
+
+// 0x47CBE0
+// HACK: minimal override standing in for the full CGameContainer::AddEffect (498
+// lines @0x47CBE0 -- dispatches container effects via DecodeEffect / CAITrigger /
+// CCreatureFile; not yet recovered). AddEffect is virtual (vtable slot 0x78). With
+// NO override the container inherits CGameAIBase::AddEffect, which casts `this` to
+// CGameSprite and writes m_timedEffectList @this+0x5526 -- past the (smaller)
+// container object, into freed heap (0xDDDDDDDD) -> crash when a Fireball AoE effect
+// reaches a container. Dropping the effect mirrors the base's non-sprite path
+// (delete + return) and is safe for damage effects; replaces 0x47CBE0 until the
+// full container-effect dispatch is recovered.
+void CGameContainer::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
+{
+    if (pEffect != NULL) {
+        delete pEffect;
+    }
 }
