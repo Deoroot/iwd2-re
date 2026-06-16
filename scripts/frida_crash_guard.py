@@ -56,6 +56,12 @@ function ebpwalk(ctx){
   return out.join("\n");
 }
 Process.setExceptionHandler(function(d){
+  // Ignore benign, continuable exceptions Frida reports as 'system': chiefly
+  // DBG_PRINTEXCEPTION_C raised by OutputDebugString (our Iwd2DebugLog) and the
+  // MS_VC thread-name exception. They are NOT crashes -- reporting them aborts the
+  // smoke at the first debug-log line (e.g. the CAST marker) before the real fault.
+  // Real faults are access-violation / breakpoint / illegal-instruction / etc.
+  if (d.type === 'system') { return false; }   // pass through, don't report
   var hdr = "%TAG% " + d.type + " @ " + d.address;
   if (d.memory) hdr += "  mem " + d.memory.operation + " " + d.memory.address;
   hdr += " ##########";
