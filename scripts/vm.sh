@@ -56,7 +56,7 @@ case "$cmd" in
   run)
     slot="${1:-}"
     if [ -n "$slot" ]; then
-      sed -i "s/--slot [0-9]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
+      sed -i "s/--slot [^ ]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
       scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
     fi
     ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
@@ -73,7 +73,7 @@ case "$cmd" in
     # Closes the gap that shipped the Fireball crashes (validated on the original only,
     # never run on our exe). No timer: holds until you confirm the cast or it faults.
     slot="${1:-3}"
-    sed -i "s/--slot [0-9]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
+    sed -i "s/--slot [^ ]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
     scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
     ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
     ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
