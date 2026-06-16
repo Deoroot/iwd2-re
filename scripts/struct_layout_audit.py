@@ -27,11 +27,12 @@ USAGE
     python scripts/struct_layout_audit.py CProjectile
     python scripts/struct_layout_audit.py CProjectile --header src/CProjectile.h \
                                                        --source src/CProjectile.cpp
-    Each break is auto-classified:
-      ACTIONABLE   -- a sub-4-aligned tail (offset % 4) that wants pack(2)
+    Each break is auto-classified, keyed on the MOVED member (not the preceding
+    type, which used to mask CVidCell-preceded sub-4 LONGs):
+      ACTIONABLE   -- moved member is sub-4-aligned (offset % 4 == 2) with a +2 pad
       benign       -- preceding member is a compiler-divergent type (CVidCell/STL)
-      cumulative   -- a 4-aligned member an upstream benign break pushed off-boundary
-      review       -- preceding member is an embedded class of unknown compiled size
+      cumulative   -- a 4-aligned member an upstream pack site pushed off-boundary
+      review       -- unknown embedded-class size, or a non-positive drift artifact
       out-of-order -- member declared below the prior member's offset
     Exit 1 = >=1 actionable or out-of-order break, 0 = clean / benign-only,
     2 = harness/parse error.
@@ -68,18 +69,29 @@ _STABLE = re.compile(
     r"BOOLEAN|BOOL|bool|CHAR|char|float|double|COLORREF)\b|\*\s*$")
 
 
-def classify_prev(prev_type: str, offset: int) -> str:
-    """benign | actionable | cumulative | review, from the preceding member's
-    type and whether the moved member is sub-4-aligned in the binary."""
+def classify(prev_type: str, offset: int, drift: int) -> str:
+    """Bucket a spacing break, keying FIRST on the moved member's own binary
+    sub-alignment so a divergent preceding type can no longer mask a real pack
+    site (the CVidCell-preceded sub-4 LONGs the prev-type heuristic missed):
+    actionable | benign | cumulative | review."""
+    if offset % 4 != 0 and drift == 2:
+        # The binary sits a 4-align-wanting member at a 2-aligned (offset % 4 == 2)
+        # slot and the compiler padded it +2 to a 4-boundary -- the pack(2) bug,
+        # whatever precedes it (this is what a divergent prev used to hide).
+        return "actionable"
     if _DIVERGENT.search(prev_type):
+        # A member the binary already 4-aligns, drifted by the preceding member's
+        # compiled size: a known CVidCell / STL / MFC discrepancy, not a pack bug.
         return "benign"
+    if drift <= 0:
+        # A pack pad is strictly positive; a non-positive drift is a
+        # declaration-order-vs-offset artifact (successors carry lower offsets).
+        return "review"
     if _STABLE.search(prev_type):
-        # pack(2) only matters when the binary itself sits the member off a 4-byte
-        # boundary (offset % 4). A member the binary already 4-aligns that drifted
-        # is an upstream benign break bleeding through an alignment boundary, not a
-        # pack(2) site -- pack(2) would not move it.
-        return "actionable" if offset % 4 else "cumulative"
-    return "review"
+        # Upstream drift bled past a fixed-size member into a 4-aligned one; pack(2)
+        # would not move it -- it resolves once the upstream pack site is fixed.
+        return "cumulative"
+    return "review"          # unknown embedded-class size -- verify by hand
 # MSVC layout dump member line, e.g.  " 1398\t| m_visual2MaxSpawn"  (single pipe =
 # a direct member; "| |" = an inherited base member, skipped).
 _DUMP_MEMBER = re.compile(r"^\s*(\d+)\s*\|\s+(?!\||\+)(.*\b)([A-Za-z_]\w*)\s*$")
@@ -197,15 +209,8 @@ def main():
         if cmt_gap == bin_gap:
             continue
         row = (pname, name, cmt_gap, bin_gap, ptyp)
-        cat = classify_prev(ptyp, cmt)
-        if cat in ("actionable", "cumulative") and bin_gap <= cmt_gap:
-            # A pack(2) pad is strictly positive (the unpacked compiler ADDS bytes
-            # the packed binary omits). A non-positive drift on a stable member is a
-            # declaration-order-vs-offset artifact (its successors carry lower
-            # offsets), not a packing fix -- route it to review.
-            cat = "review"
         {"benign": benign, "actionable": actionable, "cumulative": cumulative,
-         "review": review}[cat].append(row)
+         "review": review}[classify(ptyp, cmt, bin_gap - cmt_gap)].append(row)
 
     def _show(rows):
         for prev, name, cg, bg, ptyp in rows:
