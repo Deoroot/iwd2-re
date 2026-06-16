@@ -2412,8 +2412,14 @@ void CGameSprite::AIUpdate()
                             || (pGame->GetCharacterPortraitNum(m_id) != -1
                                 && (m_derivedStats.m_generalState & STATE_STONE_DEATH) != 0)) {
                             if (InControl()) {
+                                // RemoveFromArea (virtual) clears m_pArea via
+                                // CGameObject::RemoveFromArea, so cache the area
+                                // first -- the binary saves it (mov edi,[esi+0x12])
+                                // before the call and reads m_nCharacters off the
+                                // saved pointer afterward.
+                                CGameArea* pArea = m_pArea;
                                 RemoveFromArea();
-                                if (m_pArea->m_nCharacters == 0) {
+                                if (pArea->m_nCharacters == 0) {
                                     pGame->SelectCharacter(pGame->GetProtagonist(), FALSE);
                                     pGame->SelectToolbar();
                                     if (g_pBaldurChitin->GetActiveEngine() != g_pBaldurChitin->GetScreenWorld()
