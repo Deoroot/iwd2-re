@@ -625,6 +625,15 @@ protected:
     // m_visual2's IcewindCSpellHitEmission tail (the bytes past VisualSlot's 0x2C
     // {cell,sound,fx} prefix): the slot's m_animMode and m_maxMovingSpawn. Modelled
     // as named members because VisualSlot covers only the prefix.
+    //
+    // pack(2): IWD2.exe packs these IE emission slots to 2 bytes, so the LONG tail
+    // m_visual2MaxSpawn sits at m_visual2+0x2E (not 4-aligned). Without the pragma
+    // the compiler 4-aligns it to +0x30, and IcewindCProjectileSpellHit::OnArrival's
+    // reinterpret_cast<IcewindCSpellHitEmission&>(m_visual2) then reads garbage for
+    // m_maxMovingSpawn -- the moving-spawn ring runs uncapped (36 emit vs the
+    // intended m_visual2MaxSpawn=13), over-densifying the detonation. Mirrors the
+    // pack(2) already on IcewindCSpellHitVisual / IcewindCSpellHitParticle.
+#pragma pack(push, 2)
     /* 050E */ VisualSlot    m_visual2;
     /* 053A */ BYTE          m_visual2AnimMode;  // = 0; m_visual2 emission m_animMode (+0x2C)
     /* 053B */ BYTE          _pad53B;
@@ -646,6 +655,7 @@ protected:
     /* 0580 */ LONG          m_visual3DensityRampDiv; // = 0x1E (30); emission m_densityRampDiv (+0x40)
     /* 0584 */ BYTE          m_visual3CloudFlag;      // = 0; emission m_cloudFlag (+0x44)
     /* 0585 */ BYTE          _pad585;
+#pragma pack(pop)
     /* 0586 */ CSound        m_sound1;
     /* 05EA */ CSound        m_sound2;
     // m_miniB -- already-struck-target dedup set (binary: std::set<LONG>, ctor
