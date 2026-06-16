@@ -4,14 +4,19 @@
 #include "CAIGroup.h"
 #include "CAIObjectType.h"
 #include "CAIScript.h"
+#include "CAITrigger.h"
 #include "CBaldurChitin.h"
+#include "CDimm.h"
+#include "CCreatureFile.h"
 #include "CGameArea.h"
 #include "CGameEffect.h"
 #include "CGameSprite.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CItem.h"
+#include "CMessage.h"
 #include "CPathSearch.h"
+#include "CProjectile.h"
 #include "CResRef.h"
 #include "CScreenWorld.h"
 #include "CUtil.h"
@@ -1551,18 +1556,82 @@ SHORT CGameContainer::GetNumItems()
 }
 
 // 0x47CBE0
-// HACK: minimal override standing in for the full CGameContainer::AddEffect (498
-// lines @0x47CBE0 -- dispatches container effects via DecodeEffect / CAITrigger /
-// CCreatureFile; not yet recovered). AddEffect is virtual (vtable slot 0x78). With
-// NO override the container inherits CGameAIBase::AddEffect, which casts `this` to
-// CGameSprite and writes m_timedEffectList @this+0x5526 -- past the (smaller)
-// container object, into freed heap (0xDDDDDDDD) -> crash when a Fireball AoE effect
-// reaches a container. Dropping the effect mirrors the base's non-sprite path
-// (delete + return) and is safe for damage effects; replaces 0x47CBE0 until the
-// full container-effect dispatch is recovered.
 void CGameContainer::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
 {
-    if (pEffect != NULL) {
-        delete pEffect;
+    BOOL bTrapTriggered = FALSE;
+
+    switch (pEffect->m_effectID) {
+    case CGAMEEFFECT_KNOCK:
+        if (m_lockDifficulty == 100) {
+            g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(
+                (STRREF)-1, 0x5A81, 0, 0xD7C8A0, (LONG)-1, m_id, m_id);
+            goto cleanup;
+        }
+        m_dwFlags &= ~0x1U;
+        break;
+
+    case CGAMEEFFECT_DETECTTRAPS:
+        if (m_trapActivated == 0)
+            goto cleanup;
+
+        if (m_trapDetected == 0
+                && m_trapDetectionDifficulty < 100
+                && (m_dwFlags & 0x8) != 0) {
+            SHORT triggerType = *reinterpret_cast<SHORT*>(0x847E40);
+            CAITrigger trigger(triggerType, m_typeAI, 0);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
+
+            m_trapDetected = 1;
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageTriggerStatus(m_dwFlags, m_trapActivated, m_trapDetected, m_id, m_id), FALSE);
+            bTrapTriggered = TRUE;
+
+            // HACK: trap-activator animation (vtable slots on activator unknown) — replaces 0x47CE30
+        }
+
+        if (m_trapDetected != 0) {
+            if (m_drawPoly != 400) {
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageSetDrawPoly(400, m_id, m_id), FALSE);
+            }
+            m_drawPoly = 400;
+        }
+
+        if (!bTrapTriggered)
+            goto cleanup;
+        break;
+
+    case CGAMEEFFECT_CASTSPELL: {
+        CAIObjectType acteeType;
+        acteeType.Set(GetAIType());
+
+        CAIAction forceSpell;
+        forceSpell.m_actionID = CAIAction::FORCESPELL;
+        forceSpell.m_acteeID.Set(acteeType);
+
+        CString spellRes;
+        pEffect->m_res.CopyToString(spellRes);
+        forceSpell.SetString1(spellRes);
+        forceSpell.m_specificID = pEffect->m_effectAmount;
+
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(
+            new CMessageAddAction(forceSpell, m_id, pEffect->m_sourceID), FALSE);
+        goto cleanup;
     }
+
+    case CGAMEEFFECT_SUMMON:
+        // HACK: CCreatureFile/CGameSprite spawn unrecovered (FindNearbyPassablePoint sig, CGameSprite
+        // ctor args, CProjectile dispatch unknown) — replaces 0x47D1DC
+        goto cleanup;
+
+    default:
+        goto cleanup;
+    }
+
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+        new CMessageContainerStatus(m_dwFlags, m_trapActivated, m_trapDetected, m_id, m_id), FALSE);
+
+cleanup:
+    delete pEffect;
 }
