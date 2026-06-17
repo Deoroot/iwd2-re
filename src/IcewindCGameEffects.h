@@ -280,6 +280,7 @@ class IcewindCGameEffectCallLightning : public CGameEffect {
 public:
     IcewindCGameEffectCallLightning(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
     CGameEffect* Copy() override;
+    BOOL ApplyEffect(CGameSprite* pSprite) override;
 };
 
 class IcewindCGameEffectCloakOfFear : public CGameEffect {

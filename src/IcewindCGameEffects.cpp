@@ -1,6 +1,7 @@
 #include "IcewindCGameEffects.h"
 
 #include "CCreatureFile.h"
+#include "DebugLog.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CGameObjectArray.h"
@@ -1189,6 +1190,15 @@ CGameEffect* IcewindCGameEffectCallLightning::Copy()
     delete effect;
     copy->CopyFromBase(this);
     return copy;
+}
+
+BOOL IcewindCGameEffectCallLightning::ApplyEffect(CGameSprite* pSprite)
+{
+    Iwd2DebugLog("CALLIGHTNING: IcewindCGameEffectCallLightning::ApplyEffect — sprite=%d done=%d",
+                 pSprite->m_id, m_done);
+    // STUB: the real effect periodically picks an enemy in range, draws the
+    // lightning bolt, and deals damage.  For now just log and return.
+    return TRUE;
 }
 
 // -----------------------------------------------------------------------------

@@ -1601,6 +1601,16 @@ SHORT CGameAIBase::ExecuteAction()
         actionReturn = ACTION_DONE;
     }
 
+    if (actionReturn == ACTION_DONE && m_curAction.m_actionID > 0
+        && m_curAction.m_actionID != 0x24 && m_curAction.m_actionID != 0xB2
+        && m_curAction.m_actionID != 0xEA && m_curAction.m_actionID != 0xF6
+        && m_curAction.m_actionID != CAIAction::TAKEPARTYGOLD
+        && m_curAction.m_actionID != CAIAction::GIVEPARTYGOLD
+        && m_curAction.m_actionID != CAIAction::GIVEGOLDFORCE) {
+        Iwd2DebugLog("CALLIGHTNING: ExecuteAction — unhandled action 0x%X (IDS %d), silently acked",
+                     m_curAction.m_actionID, m_curAction.m_actionID);
+    }
+
     SetLastActionReturn(actionReturn);
     return actionReturn;
 }

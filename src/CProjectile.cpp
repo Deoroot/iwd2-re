@@ -356,6 +356,8 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     IcewindCVisualEffect visualEffect;
 
     if (projectileType > 0x1000) {
+        Iwd2DebugLog("CALLIGHTNING: DecodeProjectile spell-hit type=0x%X (index=%d)",
+                     projectileType, projectileType - 0x1001);
         CProjectile* pSpellHit = CProjectileSummonVFX::DecodeSpellHitProjectile(
             projectileType - 0x1001, pCaster, FALSE);
         if (pSpellHit != NULL) {
