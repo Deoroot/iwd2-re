@@ -2856,6 +2856,8 @@ void CGameAIBase::SpellIdToResRef(int spellId, CString& outResRef)
 //                  ITEM_EFFECT broadcasts.
 SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
 {
+    Iwd2DebugLog("CALLIGHTNING: ForceSpellAction — caster=%d target=%d", m_id, target ? target->m_id : -1);
+
     // Dead casters short-circuit (binary 0x4611BA).
     if (m_typeAI.GetGeneral() == CAIObjectType::G_DEAD) {
         return ACTION_DONE;
@@ -3244,6 +3246,7 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
 
     pSpell->Release();
     delete pSpell;
+    Iwd2DebugLog("CALLIGHTNING: ForceSpellAction DONE — caster=%d", m_id);
     return ACTION_DONE;
 }
 
