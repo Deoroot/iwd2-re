@@ -12855,6 +12855,11 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
     }
 
     m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
+    Iwd2DebugLog("CALLIGHTNING: Spell — missileType=0x%X (index=%d) projectile=%p res=%s",
+                 ability->missileType,
+                 ability->missileType > 0x1000 ? ability->missileType - 0x1001 : -1,
+                 m_curProjectile,
+                 (const char*)spellResRef.GetResRef());
     if (m_curProjectile != NULL) {
         m_curProjectile->m_casterResRef = spellResRef;
         // The binary store (0x7424F4) reads a stack slot no instruction on
