@@ -1406,6 +1406,21 @@ SHORT CGameAIBase::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x13F) {
+        // 0x13F = ForceMarkedSpell (ACTION.IDS 319).  Force-casts a
+        // spell that was previously marked by a duration effect (e.g.
+        // Call Lightning's periodic lightning strike).  Resolves the
+        // target (the spell's designated victim) and dispatches through
+        // the same FireSpell path as ReallyForceSpell.
+        Iwd2DebugLog("CALLIGHTNING: ForceMarkedSpell action 0x13F — caster=%d", m_id);
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
+        if (pObj != NULL) {
+            actionReturn = ForceSpellAction(pObj);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        } else {
+            actionReturn = ACTION_DONE;
+        }
     } else if (m_curAction.m_actionID == 0x13E) {
         // 0x13E = SetCreatureFlag (binary case 0x13e).  Resolves the
         // target sprite and applies AND-clear (specifics2 == 0) or
