@@ -4424,11 +4424,8 @@ void IcewindCProjectileTravellingVFX::AIUpdate()
 // The per-tick integrator (AIUpdate / AimAtPoint) is the base's, shared by the
 // family's delegating overrides.
 //
-// PARTIAL:
-//   * attached trailing object: when field_17E names a resref the original
-//     spawns a trailing object through a CMessage (vtable 0x84D328) and records
-//     it in m_nTargetId. The cone/spray leaves carry an empty field_17E, so the
-//     spawn is skipped; the construction is left unrecovered (documented stub).
+// The trailing-object factory FUN_00554d20 remains a documented stub — all
+// recovered projectile leaves carry field_17E="" so the branch is dead.
 void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
 {
     (void)nHeight;
@@ -5226,14 +5223,10 @@ void IcewindCProjectileSpellHit::AIUpdate()
 // 0x56F410 (vtable slot 28). Arrival: when a call-back projectile was registered,
 // share it and run its CallBack hook, then flip into the detonation state
 // (m_bDetonated = 1, which AIUpdate uses to start strike passes), drop the render
-// gate, and play the arrival sound.
-//
-// PARTIAL: the detonation FX that follow are documented stubs -- they spawn
-// through constructors not yet recovered. The m_visual3CellPool tracker (0x5868E0), the
-// detonation visual carrier (0x56BF30 -- a 546-line CGameObject/CVidCell/CSound
-// composite gated by the three m_visual* slots), and the two looping area sounds
-// m_sound1/m_sound2 (an inlined CRes resource request poking the CSound's request
-// fields, gated by +0x4FA / +0x558) are omitted; their storage is left untouched.
+// gate, and play the arrival sound.  Then spawn the detonation FX: the shared
+// cell pool (IcewindCSpellHitCellPool), the on-ground visual
+// (IcewindCSpellHitVisual), the impact sound from the first emission slot's
+// second resref, and the looping ambience from the ranged slot's second resref.
 void IcewindCProjectileSpellHit::OnArrival()
 {
     if (m_callBackProjectile != CGameObjectArray::INVALID_INDEX) {
