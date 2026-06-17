@@ -227,19 +227,20 @@ void CProjectile::OnArrival()
 // 0x52A1A0
 //
 // Delivers the projectile's accumulated gameplay effects to its target on
-// arrival (called from OnArrival). Resolves the target (m_targetId); if it
-// cannot hold effects (not an AI object) they are discarded, otherwise each
-// effect is handed to the target as a CMessageAddEffect (which, when run,
-// AddEffect()s it onto the target -- i.e. the damage).
+// Delivers the projectile's effect payload to the target.  Shared by every
+// projectile leaf — called from OnArrival (vtable slot 28).
 //
-// PARTIAL vs 0x52A1A0: the original wraps the per-effect CMessageAddEffects in a
-// message-list (subtype 105, ctor 0x5152C0 / vtbl 0x84D564 / Run 0x5157F0 -- a
-// separate, reused container class) and queues that once; here we queue each
-// recovered CMessageAddEffect directly (identical application path; ADD_EFFECT
-// is already in the Iwd2MessageRunRecovered whitelist). Also deferred: the
-// immunity gate (FUN_004E7120 projectile-type immunity + the target's
-// per-caster-class immunity array at +0x2BF, then
-// CGameEffect::FeedBackImmuneToResource) -- effects currently always apply.
+// The original (0x52A1A0):
+//   1. Immunity gate (TYPE_SPRITE only): calls IsTargetImmune
+//      (FUN_004E7120 for projectile-type immunity + the target's per-spell-level
+//      immunity array at +0x2BF), then FeedBackImmuneToResource.
+//   2. Batches all per-effect CMessageAddEffect instances into a single
+//      CMessageAddEffects wrapper (subtype 105, ctor 0x5152C0,
+//      vtable 0x84D564, Run 0x5157F0) and dispatches once.
+//
+// We dispatch individual CMessageAddEffect messages (same application path;
+// ADD_EFFECT is in the Iwd2MessageRunRecovered whitelist). The wrapper
+// class (CMessageAddEffects) remains unrecovered — functionally identical.
 void CProjectile::DeliverEffects()
 {
     CGameObject* pTarget;
@@ -252,17 +253,34 @@ void CProjectile::DeliverEffects()
         return;
     }
 
+    // Non-AI objects cannot hold effects — discard (0x52A1FC-0x52A21B).
     if ((pTarget->GetObjectType() & CGameObject::TYPE_AIBASE) == 0) {
-        // Target cannot hold effects -> discard them.
         ClearEffects();
+    } else if (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE) {
+        // Immunity gate (0x52A228-0x52A26B): for creature targets, check
+        // projectile-type immunity and per-spell-level immunity.  If
+        // immune, discard all effects and show the "Immune" feedback.
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pTarget);
+        if (IsTargetImmune(pSprite)) {
+            ClearEffects();
+            CGameEffect::FeedBackImmuneToResource(pSprite, m_casterResRef);
+        } else {
+            POSITION pos = m_effectList.GetHeadPosition();
+            while (pos != NULL) {
+                CGameEffect* pEffect = m_effectList.GetNext(pos);
+                CMessage* pMsg = new CMessageAddEffect(pEffect, m_sourceId, m_targetId);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            }
+            m_effectList.RemoveAll();
+        }
     } else {
+        // Non-sprite AI objects (doors, containers, etc.) — apply directly.
         POSITION pos = m_effectList.GetHeadPosition();
         while (pos != NULL) {
             CGameEffect* pEffect = m_effectList.GetNext(pos);
             CMessage* pMsg = new CMessageAddEffect(pEffect, m_sourceId, m_targetId);
             g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
         }
-        // The effects are now owned by the queued messages; drop our references.
         m_effectList.RemoveAll();
     }
 
