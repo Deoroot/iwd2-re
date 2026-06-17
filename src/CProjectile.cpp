@@ -1,5 +1,7 @@
 #include "CProjectile.h"
 
+#include "DebugLog.h"
+
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1903,6 +1905,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         break;
     }
     case 45: {  // Call Lightning (SPPR302): CallLiH beam, sound EFF_P19
+        Iwd2DebugLog("CALLIGHTNING: DecodeSpellHitProjectile case 45 — creating CallLiH projectile");
         return new CProjectileCallLightning(
             CResRef("CallLiH"), CResRef("EFF_P19"), 1, 0, 0x14);
     }
@@ -2311,6 +2314,8 @@ CProjectileCallLightning::CProjectileCallLightning(const CResRef& resRef,
 void CProjectileCallLightning::Fire(CGameArea* pArea, LONG source, LONG target,
     CPoint targetPos, LONG nHeight, SHORT nType)
 {
+    Iwd2DebugLog("CALLIGHTNING: Fire called — source=%d target=%d pos=(%d,%d)",
+                 source, target, targetPos.x, targetPos.y);
     m_sourceId = source;
     m_targetId = target;
     m_pArea = pArea;

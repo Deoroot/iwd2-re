@@ -1,6 +1,7 @@
 #include "CInfinity.h"
 
 #include "CBaldurChitin.h"
+#include "DebugLog.h"
 #include "CGameArea.h"
 #include "CGameSprite.h"
 #include "CInfGame.h"
@@ -3079,6 +3080,8 @@ BOOL CInfinity::SetViewPosition(INT x, INT y, BOOLEAN bSetExactScale)
 // 0x5D1340
 void CInfinity::CallLightning(INT xWorldPos, INT yWorldPos)
 {
+    Iwd2DebugLog("CALLIGHTNING: CInfinity::CallLightning — bolt at (%d, %d) for 30 frames",
+                 xWorldPos, yWorldPos);
     m_bStartLightning = TRUE;
     bRenderCallLightning = TRUE;
     cLightningPoint.x = xWorldPos;

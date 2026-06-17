@@ -891,7 +891,9 @@ SHORT CGameAIBase::ExecuteAction()
         // resolves the target, draws the lightning bolt via
         // CInfinity::CallLightning, then queues a Damage(0x0D) effect
         // on the target through CMessageAddEffect.
+        Iwd2DebugLog("CALLIGHTNING: ExecuteAction case 0x1A triggered, caster=%d", m_id);
         CGameObject* pObj = ResolveActionTarget();
+        Iwd2DebugLog("CALLIGHTNING: ResolveActionTarget returned %p", pObj);
         if (pObj != NULL) {
             CPoint ptTarget = pObj->GetPos();
             CGameArea* pArea = pObj->GetArea();
