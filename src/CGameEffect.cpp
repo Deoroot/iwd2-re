@@ -1,5 +1,6 @@
 #include "CGameEffect.h"
 
+#include "DebugLog.h"
 
 #include "CAIScript.h"
 #include "CBaldurChitin.h"
@@ -1246,10 +1247,49 @@ BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
 // m_sourceID, the original takes a share on the source object and posts
 // CMessage feedback back to it.  Name from the BG2 PDB CGameEffect method
 // list (FireSpell).
+void CGameEffect::OnAdd(CGameSprite* pSprite)
+{
+    // Base no-op; subclasses override to react to effect application.
+}
+
 void CGameEffect::FireSpell(CGameSprite* pSprite)
 {
-    // TODO: Unrecovered (CMessage feedback to the effect source, 0x4A3FF0).
-    // No-op keeps delayed effects applying without the source feedback.
+    // 0x4A3FF0.  When a delayed effect (duration type 6/7/8) reaches its
+    // deadline, the binary shares the source object (gate: m_sourceFlags &
+    // 0x400 and valid m_sourceID), conditionally posts two
+    // CMessageAddTrigger messages (vtable 0x847BB8, size 0x62) to the
+    // source for AI script evaluation, then unconditionally calls
+    // OnAdd(pSprite).
+    //
+    // The trigger messages carry CAITrigger objects built from the source's
+    // AI type and globals at 0x847DD8 / 0x847D9C.  The first message is
+    // gated on m_effectID == 12 (opcode 0x0C).  Both are delivered via
+    // CMessageHandler::AddMessage.
+    //
+    // PARTIAL: trigger-message dispatch not yet recovered.  OnAdd is called
+    // so subclasses (e.g. opcode-233 visual spell hit) re-apply.
+
+    // Source feedback (0x4A4016–0x4A42CC): gate on m_sourceFlags & 0x400
+    // and valid m_sourceID.
+    if ((m_sourceFlags & 0x400) != 0 && m_sourceID != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pSource;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+                CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            Iwd2DebugLog("CALLIGHTNING: FireSpell — source=0x%X effectID=0x%X flags=0x%X",
+                         m_sourceID, m_effectID, m_sourceFlags);
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+
+    // Unconditional: re-invoke OnAdd (0x4A42CC–0x4A42D1).
+    OnAdd(pSprite);
 }
 
 // 0x4A3310
