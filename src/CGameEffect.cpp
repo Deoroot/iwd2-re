@@ -1288,8 +1288,15 @@ void CGameEffect::FireSpell(CGameSprite* pSprite)
         }
     }
 
-    // Unconditional: re-invoke OnAdd (0x4A42CC–0x4A42D1).
+    // Unconditional: re-invoke the effect payload.  The binary calls
+    // OnAdd (vtable slot 4) after the trigger messages; OnAdd is a no-op
+    // in the base class.  For the periodic-strike path (e.g. Call
+    // Lightning's opcode-232 "Cast Spell on Condition"), the trigger
+    // messages cause the AI to dispatch ForceMarkedSpell, which casts
+    // the sub-spell.  Until triggers are recovered, call ApplyEffect
+    // directly so the effect payload is delivered.
     OnAdd(pSprite);
+    ApplyEffect(pSprite);
 }
 
 // 0x4A3310
