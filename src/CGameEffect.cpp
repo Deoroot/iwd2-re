@@ -3,6 +3,8 @@
 #include "DebugLog.h"
 
 #include "CAIScript.h"
+#include "CAITrigger.h"
+#include "CMessage.h"
 #include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
 #include "CBlood.h"
@@ -1274,8 +1276,7 @@ void CGameEffect::FireSpell(CGameSprite* pSprite)
     // PARTIAL: trigger-message dispatch not yet recovered.  OnAdd is called
     // so subclasses (e.g. opcode-233 visual spell hit) re-apply.
 
-    // Source feedback (0x4A4016–0x4A42CC): gate on m_sourceFlags & 0x400
-    // and valid m_sourceID.
+    // Source feedback + trigger dispatch (0x4A4016–0x4A42CC).
     if ((m_sourceFlags & 0x400) != 0 && m_sourceID != CGameObjectArray::INVALID_INDEX) {
         CGameObject* pSource;
         BYTE rc;
@@ -1288,20 +1289,33 @@ void CGameEffect::FireSpell(CGameSprite* pSprite)
             Iwd2DebugLog("CALLIGHTNING: FireSpell — source=0x%X effectID=0x%X flags=0x%X",
                          m_sourceID, m_effectID, m_sourceFlags);
 
+            // Binary 0x4A40CB–0x4A41B9: if m_effectID == 12 (Damage), post a
+            // CMessageSetTrigger with trigger ID 0x0020 from global 0x847DD8.
+            if (m_effectID == 12) {
+                const CAIObjectType& aiType = static_cast<CGameAIBase*>(pSource)->GetAIType();
+                CAITrigger trigger(0x0020, aiType, 0);
+                CMessageSetTrigger* pMsg = new CMessageSetTrigger(
+                    trigger, m_sourceID, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            }
+
+            // Binary 0x4A41B9–0x4A4247: always post a CMessageSetTrigger
+            // with trigger ID 0x0002 from global 0x847D9C.
+            {
+                const CAIObjectType& aiType = static_cast<CGameAIBase*>(pSource)->GetAIType();
+                CAITrigger trigger(0x0002, aiType, 0);
+                CMessageSetTrigger* pMsg = new CMessageSetTrigger(
+                    trigger, m_sourceID, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            }
+
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
                 CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
     }
 
-    // Unconditional: re-invoke the effect payload.  The binary calls
-    // OnAdd (vtable slot 4) after the trigger messages; OnAdd is a no-op
-    // in the base class.  For the periodic-strike path (e.g. Call
-    // Lightning's opcode-232 "Cast Spell on Condition"), the trigger
-    // messages cause the AI to dispatch ForceMarkedSpell, which casts
-    // the sub-spell.  Until triggers are recovered, call ApplyEffect
-    // directly so the effect payload is delivered.
+    // Unconditional: re-invoke OnAdd (vtable slot 4, 0x4A42CC–0x4A42D1).
     OnAdd(pSprite);
-    ApplyEffect(pSprite);
 }
 
 // 0x4A3310
