@@ -1182,6 +1182,11 @@ BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
         return FALSE;
     }
 
+    if (m_effectID == 449 || m_effectID == 232 || m_effectID == 233 || m_effectID == 12) {
+        Iwd2DebugLog("CALLIGHTNING: ResolveEffect eid=%d durType=%d dur=%d done=%d sprite=%d",
+                     m_effectID, m_durationType, m_duration, m_done, pSprite->m_id);
+    }
+
     switch (m_durationType) {
     case 0:
         m_durationType = 0x1000;
