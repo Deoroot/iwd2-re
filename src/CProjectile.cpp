@@ -4290,13 +4290,6 @@ void IcewindCProjectileTravellingVFX::AIUpdate()
 // family's delegating overrides.
 //
 // PARTIAL:
-//   * creature-target delta-Z: the original reads the live target's
-//     CGameAnimation::GetHeight (vtable slot 1, unrecovered) into a height rect
-//     and sets delta-Z = DetermineHeight(source) - rectHeight/2. We keep the
-//     default rect the original seeds for a point/non-creature target (top 0x40,
-//     bottom 0). The cone visuals fire at a point target, so they already take
-//     the point path (delta-Z 0); only a homing VFX onto a creature loses the
-//     small arc offset.
 //   * attached trailing object: when field_17E names a resref the original
 //     spawns a trailing object through a CMessage (vtable 0x84D328) and records
 //     it in m_nTargetId. The cone/spray leaves carry an empty field_17E, so the
@@ -4311,9 +4304,14 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
     m_pArea = pArea;
 
     // Target point: the live target position when homing, else the passed point.
-    // bTargetCreature gates the (stubbed) delta-Z height refinement.
+    // bTargetCreature gates the delta-Z height refinement via CalculateFxRect
+    // (CGameAnimationType vtable slot 1); the binary seeds default values for
+    // a point / non-creature target and overrides them from the live animation
+    // when the target is a sprite — see 0x5792BD–0x57931B.
     CPoint ptTarget;
     BOOL bTargetCreature = FALSE;
+    CRect rHeight(0x20, 0x32, 0x40, 0x40);
+    CPoint ptRef(0, 0);
     if (m_targetId == CGameObjectArray::INVALID_INDEX) {
         ptTarget = targetPos;
     } else {
@@ -4328,8 +4326,23 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
         }
         bTargetCreature = (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE);
         ptTarget = pTarget->GetPos();
-        // PARTIAL: a creature target's animation height rect (GetHeight) would be
-        // read here to refine the launch delta-Z; the default rect is retained.
+        if (bTargetCreature) {
+            // The original upgrades to an exclusive lock (GetDeny) to read the
+            // live animation height rect, then releases back to the shared lock
+            // for the remainder of the target block (0x57929E–0x57931B).
+            CGameSprite* pTargetSprite = static_cast<CGameSprite*>(pTarget);
+            BYTE rcDeny;
+            do {
+                rcDeny = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+            } while (rcDeny == CGameObjectArray::SHARED || rcDeny == CGameObjectArray::DENIED);
+            if (rcDeny == CGameObjectArray::SUCCESS) {
+                pTargetSprite->GetAnimation()->CalculateFxRect(rHeight, ptRef, pTargetSprite->m_posZ);
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+            // On deny failure, keep the defaults (rHeight/ptRef already seeded).
+        }
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
             CGameObjectArray::THREAD_ASYNCH, INFINITE);
     }
@@ -4368,8 +4381,55 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
         }
     }
 
-    // PARTIAL: attached trailing object via field_17E -> CMessage (see header).
-    // Empty for the cone/spray leaves, so skipped; m_nTargetId left untouched.
+    // Trailing VFX object: when field_17E carries a resource name the
+    // original creates a trailing game-object (a sprite or VFX that follows
+    // the projectile) through the factory at 0x554D20, stores its id in
+    // m_nTargetId, and dispatches a CMessageProjectileTrailingVFX (vtable
+    // 0x84D328) to attach it — see 0x5794CF–0x5796BC.
+    //
+    // The factory (0x554D20, ~190 bytes of asm):
+    //   Constructs a CResRef from this->field_17E, looks it up in the DIMM
+    //   key table (type 0x3FC), creates a CGameObject, registers it in the
+    //   object array and area at the launch position, seeds its subpixel
+    //   position (+0x28E/+0x292), and returns its id.  The message carries
+    //   the launch parameters (position, height, type, flight distance) and
+    //   is delivered via CMessageHandler::AddMessage; after dispatch the
+    //   target object's fields at +0x82 (projectile type) and +0x9A |= 1
+    //   (the "active" flag) are updated.
+    //
+    // The recovered leaves (cone/spray/Chromatic Orb/Sparkle) all carry an
+    // empty field_17E, so the branch is never taken. Recover the full
+    // factory when a leaf that sets field_17E is needed.
+    if (m_nTargetId == CGameObjectArray::INVALID_INDEX && !field_17E.IsEmpty()) {
+        // STUB: m_nTargetId = CreateTrailingObject(pArea, ptLaunch, nLaunchHeight,
+        //       m_targetId, ptTarget, nHeight, nType);
+        // → 0x554D20.  Currently unrecovered; the branch is dead for
+        //   all recovered projectile leaves (field_17E stays "").
+
+        CMessageProjectileTrailingVFX* pMsg = new CMessageProjectileTrailingVFX(
+            m_targetId, m_flightDistSq, CResRef(field_17E),
+            ptLaunch.x, ptLaunch.y, nLaunchHeight, nType,
+            static_cast<SHORT>(nLaunchHeight));
+
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+
+        // Post-dispatch: mark the trailing object with the projectile type
+        // and the "active" flag (0x579621–0x5796A8). The original also
+        // pauses until the object is available (GetDeny loop).
+        CGameObject* pTrailingObj;
+        BYTE rcMsg;
+        do {
+            rcMsg = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+                m_nTargetId, CGameObjectArray::THREAD_ASYNCH, &pTrailingObj, INFINITE);
+        } while (rcMsg == CGameObjectArray::SHARED || rcMsg == CGameObjectArray::DENIED);
+        if (rcMsg == CGameObjectArray::SUCCESS) {
+            // The binary writes the WORD at projectile+0x70 (m_projectileType)
+            // to the trailing object at +0x82, and sets bit 0 of +0x9A.
+            // These are currently unrecovered fields on the trailing object.
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(
+                m_nTargetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
 
     // Flight distance^2 (y weighted 16/9) -- AIUpdate's arrival metric; drives
     // the distance-based lifetime when armed.
@@ -4383,10 +4443,11 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
 
     // A point / non-creature target overwrites the metric with the in-flight
     // marker 1 and launches flat; a creature target keeps the real distance and
-    // refines the launch delta-Z from its animation height (stubbed -- header).
+    // refines the launch delta-Z from its animation height rect (the bottom
+    // edge minus the reference point's y, halved — 0x57974E–0x579760).
     SHORT nDeltaZ;
     if (bTargetCreature) {
-        nDeltaZ = static_cast<SHORT>(nLaunchHeight - (0x40 - 0) / 2);
+        nDeltaZ = static_cast<SHORT>(nLaunchHeight - (rHeight.bottom - ptRef.y) / 2);
     } else {
         m_flightDistSq = 1;
         nDeltaZ = 0;

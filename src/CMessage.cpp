@@ -313,6 +313,9 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_STOP_ESCAPE_AREA = 82;
 // 0x84CF2C
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_TIME_STOP = 85;
 
+// 0x84CF2D
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PROJECTILE_TRAILING_VFX = 86;
+
 // 0x84CF2E
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_STORE_RELEASE = 87;
 
@@ -17671,4 +17674,67 @@ void CMessageChangeStat::Run()
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
     }
+}
+
+// ---------------------------------------------------------------------------
+// CMessageProjectileTrailingVFX (vtable 0x84D328)
+// ---------------------------------------------------------------------------
+
+// 0x554D20 (factory stub — see CProjectile.cpp)
+CMessageProjectileTrailingVFX::CMessageProjectileTrailingVFX(LONG target, LONG flightDistSq,
+    const CResRef& resRef, LONG launchX, LONG launchY,
+    LONG nHeight, LONG nType, SHORT launchHeight)
+    : CMessage(target, target)
+{
+    // m_sourceId is repurposed as m_flightDistSq.
+    m_sourceId = flightDistSq;
+
+    m_resRef = resRef;
+    m_resRef2 = "";
+    m_launchX = launchX;
+    m_launchY = launchY;
+    m_nHeight = nHeight;
+    m_nType = nType;
+    m_launchHeight = launchHeight;
+}
+
+// 0x4088A0
+SHORT CMessageProjectileTrailingVFX::GetCommType()
+{
+    return CMessage::SEND;
+}
+
+// 0x40A0E0
+BYTE CMessageProjectileTrailingVFX::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x4F6A70
+BYTE CMessageProjectileTrailingVFX::GetMsgSubType()
+{
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PROJECTILE_TRAILING_VFX;
+}
+
+// 0x511D00
+void CMessageProjectileTrailingVFX::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    // STUB: network serialisation not yet recovered (0x511D00, ~100 bytes).
+    // Not exercised by single-player / local-object messages.
+}
+
+// 0x511F40
+BOOL CMessageProjectileTrailingVFX::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    // STUB: network deserialisation not yet recovered (0x511F40, ~111 bytes).
+    // Not exercised by single-player / local-object messages.
+    return FALSE;
+}
+
+// 0x799CA0
+void CMessageProjectileTrailingVFX::Run()
+{
+    // No-op; the message is a data carrier. The actual attachment work
+    // happens in the factory (0x554D20) and the post-dispatch object-flag
+    // modification in IcewindCProjectileTravellingVFX::Fire.
 }
