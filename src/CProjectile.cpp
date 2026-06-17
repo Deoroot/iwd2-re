@@ -2432,25 +2432,10 @@ void CProjectileTravelling::AIUpdate()
 // the source/target/area, resolves the launch origin and the target point, and
 // computes the flight distance and lifetime.
 //
-// PARTIAL: the trajectory setup (distance^2 + lifetime + target point), the
-// area insertion (AddToArea), the subpixel-position seed and the initial facing
-// are recovered -- the seed values are Frida-confirmed exact against the
-// original (m_posAccumX = launch.x << 10, m_posAccumY = (launch.y << 12) / 3),
-// and AddToArea's arguments are Frida-confirmed (pNewArea == the pArea arg, pos
-// == the launch origin, listType 0). The remaining launch actions are documented
-// stubs:
-//   * the launch height (posZ): the original gates on m_bHasHeight and, for a
-//     creature source, reads the source's current animation height (source
-//     object's CGameAnimation at +0x50F0, GetHeight virtual; 0x20 for a
-//     non-creature source) -- the animation-height stub shared with AIUpdate;
-//     passed as 0 (ground) here.
-//   * the attached-object create (CMessageHandler::AddMessage 0x4F7500 +
-//     CMessage 0x554D20 -> m_nTargetId); not exercised by Magic Missile
-//     (m_nTargetId stays INVALID).
-// The launch sound (the inlined PlaySound at 0x52C6BA) is recovered below.
-// The projectile registers itself in the global object array (CGameObjectArray::
-// Add) to obtain an m_id before AddToArea, which adds that m_id to the area's
-// object lists so the engine drives its AIUpdate/Render.
+// The launch-height (posZ), near-target snap, and attached-object create are
+// now recovered (0x52C26E–0x52C360, 0x52C3C9–0x52C56B).  The attached-object
+// factory (FUN_00554d20) remains a documented stub — no recovered projectile
+// leaf sets field_17E to a non-empty value.
 void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
                                  CPoint targetPos, LONG nHeight, SHORT nType)
 {
@@ -2480,10 +2465,51 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
         ptTarget = targetPos;
     }
 
+    // Source height and creature flag: the original gates on m_bHasHeight
+    // (+0x16A) and, for a creature source, reads the cast height through
+    // CGameAnimationType::GetCastHeight (vtable slot 0xC4/4; 0x52C26E-0x52C2E0).
+    // Non-creature or !m_bHasHeight → 0 or 0x20 default.
+    LONG nLaunchHeight = 0;
+    CPoint ptSourceCenter(0, 0);
+    BOOL bSourceCreature = FALSE;
+    {
+        CGameObject* pSourceObj;
+        BYTE rcSrc;
+        do {
+            rcSrc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
+                CGameObjectArray::THREAD_ASYNCH, &pSourceObj, INFINITE);
+        } while (rcSrc == CGameObjectArray::SHARED || rcSrc == CGameObjectArray::DENIED);
+        if (rcSrc == CGameObjectArray::SUCCESS) {
+            if (m_bHasHeight) {
+                if (pSourceObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                    CGameSprite* pSrcSprite = static_cast<CGameSprite*>(pSourceObj);
+                    nLaunchHeight = pSrcSprite->GetAnimation()->GetCastHeight();
+                } else {
+                    nLaunchHeight = 0x20;
+                }
+            }
+            ptSourceCenter = pSourceObj->GetPos();
+            bSourceCreature = (pSourceObj->GetObjectType() == CGameObject::TYPE_SPRITE);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceId,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+
     // Launch origin from the source (facing-adjusted).
     CPoint ptSource;
     if (!GetProjectileSourcePosition(m_sourceId, ptSource)) {
         return;
+    }
+
+    // Near-target snap: if the source is a creature and the launch point lands
+    // within ~3 search cells of the target, snap to the source centre (the
+    // self-cast / close-range path; 0x52C34B–0x52C360).
+    if (bSourceCreature) {
+        int cellDX = ptTarget.x / 16 - ptSource.x / 16;
+        int cellDY = ptTarget.y / 12 - ptSource.y / 12;
+        if (cellDX * cellDX + cellDY * cellDY < 3) {
+            ptSource = ptSourceCenter;
+        }
     }
 
     // Flight distance^2 (y weighted 16/9) -- the metric AIUpdate tests for
@@ -2502,14 +2528,42 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
     m_targetX = ptTarget.x;
     m_targetY = ptTarget.y;
 
-    // Insert the projectile into the area so the engine drives its AIUpdate /
-    // Render. CGameObject::AddToArea sets the base m_pos / m_posZ / area
-    // membership and registers with the area's object lists. pArea and the
-    // launch position (ptSource) are Frida-confirmed; posZ (the launch height)
-    // is the documented animation-height stub, passed as 0.
-    // Register in the global object array (assigns m_id), then add to the area.
+    // Trailing VFX object: when field_17E carries a resource name the
+    // original creates a trailing game-object through the factory at
+    // 0x554D20, stores its id in m_nTargetId, and dispatches a
+    // CMessageProjectileTrailingVFX (vtable 0x84D328) — see 0x52C3C9–0x52C56B.
+    // (Identical to the IcewindCProjectileTravellingVFX::Fire path; factory is
+    // currently a documented stub — all recovered leaves carry field_17E="".)
+    if (m_nTargetId == CGameObjectArray::INVALID_INDEX && !field_17E.IsEmpty()) {
+        // STUB: m_nTargetId = CreateTrailingObject(pArea, ptSource, nLaunchHeight,
+        //       m_targetId, ptTarget, nHeight, nType);
+        // → 0x554D20.  Unrecovered; dead path for all recovered leaves.
+
+        CMessageProjectileTrailingVFX* pMsg = new CMessageProjectileTrailingVFX(
+            m_targetId, m_flightDistSq, CResRef(field_17E),
+            ptSource.x, ptSource.y, nLaunchHeight, nType,
+            static_cast<SHORT>(nLaunchHeight));
+
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+
+        // Post-dispatch: mark the trailing object (0x52C504–0x52C56B).
+        CGameObject* pTrailingObj;
+        BYTE rcMsg;
+        do {
+            rcMsg = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+                m_nTargetId, CGameObjectArray::THREAD_ASYNCH, &pTrailingObj, INFINITE);
+        } while (rcMsg == CGameObjectArray::SHARED || rcMsg == CGameObjectArray::DENIED);
+        if (rcMsg == CGameObjectArray::SUCCESS) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(
+                m_nTargetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+
+    // Register in the global object array (assigns m_id), then add to the area
+    // at the cast height — the original gates on m_bHasHeight and reads the
+    // source creature's animation cast height (GetCastHeight vtable slot 0xC4).
     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
-    AddToArea(pArea, ptSource, 0, 0);
+    AddToArea(pArea, ptSource, nLaunchHeight, 0);
 
     // Launch sound: the original inlines CProjectile::PlaySound's body here
     // (0x52C6BA), immediately after the area insertion -- it plays m_fireSoundRef
