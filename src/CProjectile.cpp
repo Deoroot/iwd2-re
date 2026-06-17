@@ -1902,8 +1902,10 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         p->m_fireSoundRef = CResRef("EFF_P41");
         break;
     }
-    case 45:  // CallLightning projectile (class not recovered)
-        return NULL;
+    case 45: {  // Call Lightning (SPPR302): CallLiH beam, sound EFF_P19
+        return new CProjectileCallLightning(
+            CResRef("CallLiH"), CResRef("EFF_P19"), 1, 0, 0x14);
+    }
     case 46: {
         p = new CProjectileSummonVFX(CResRef("SChargH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
@@ -1940,8 +1942,10 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         p->m_fireSoundRef = CResRef("EFF_M41");
         break;
     }
-    case 52:  // CallLightning projectile (class not recovered)
-        return NULL;
+    case 52: {  // Call Lightning variant: FStrikH beam, sound EFF_P16
+        return new CProjectileCallLightning(
+            CResRef("FStrikH"), CResRef("EFF_P16"), 1, 0, 0x1C);
+    }
     case 53: {
         p = new CProjectileSummonVFX(CResRef("RDeadH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
@@ -2065,8 +2069,10 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         p = new CProjectileSummonVFX(CResRef("PortalH"), IcewindCVisualEffect());
         break;
     }
-    case 72:  // CallLightning projectile (class not recovered)
-        return NULL;
+    case 72: {  // Call Lightning variant: SunscoH beam, sound EFF_P39
+        return new CProjectileCallLightning(
+            CResRef("SunscoH"), CResRef("EFF_P39"), 1, 0, 0x18);
+    }
     case 73: {
         p = new CProjectileSummonVFX(CResRef("BBarrH1"), IcewindCVisualEffect());
         p->m_visualEffect.SetTintFromFlags(TRUE);
@@ -2280,6 +2286,53 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         return NULL;
     }
     return p;
+}
+
+// ---------------------------------------------------------------------------
+// CProjectileCallLightning (SPPR302, vtable 0x84E8C0)
+// ---------------------------------------------------------------------------
+
+// 0x5348C0
+CProjectileCallLightning::CProjectileCallLightning(const CResRef& resRef,
+    const CResRef& soundRef, LONG param5, LONG param6, SHORT projType)
+    : CProjectileTravelling(resRef)
+{
+    m_field290 = param5;
+    m_field294 = param6;
+    m_field298 = projType;
+
+    m_fireSoundRef = soundRef;
+    m_arrivalSoundRef = "";
+    m_bHasHeight = FALSE;
+    m_hasDrift = 0;
+    m_bSparkleTrail = 0;
+
+    m_projectileType = projType;
+}
+
+// 0x534C10 (slot 3)
+void CProjectileCallLightning::AIUpdate()
+{
+    // STUB: defer to base-class flight; the binary also handles beam-specific
+    // rendering and the call-lightning strike logic (0x534C10, ~200 bytes).
+    CProjectileTravelling::AIUpdate();
+}
+
+// 0x535100 (slot 27)
+void CProjectileCallLightning::Fire(CGameArea* pArea, LONG source, LONG target,
+    CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    // STUB: delegate to the base-class launch; the binary (0x535100, ~400 bytes)
+    // adds call-lightning specific setup (beam range, target map).
+    CProjectileTravelling::Fire(pArea, source, target, targetPos, nHeight, nType);
+}
+
+// 0x534DD0 (slot 19)
+void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    // STUB: forward to base-class render; the binary (0x534DD0, ~300 bytes)
+    // handles the beam visual.
+    CProjectileTravelling::Render(pArea, pVidMode, nSurface);
 }
 
 // 0x52AD60

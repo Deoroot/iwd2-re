@@ -1388,4 +1388,30 @@ public:
 // rest of the codebase (see the IcewindCSpellHitVisual 0x6E-vs-0x78 note above).
 // The /* 0xNNN */ comments pin the IWD2.exe offsets.
 
+// ---------------------------------------------------------------------------
+// CProjectileCallLightning (SPPR302, vtable 0x84E8C0)
+//
+// Travelling spell projectile for Call Lightning and its variants (the
+// CallLiH / FStrikH / SunscoH beams).  0x29A bytes in VC6; constructor is
+// FUN_005348c0, a flat GAME-OBJECT init that embeds a CVidCell (+0x192) and
+// CVidPalette (+0x26C) inline rather than through CProjectileTravelling.
+// We model it as a CProjectileTravelling subclass — the virtual dispatch
+// (AIUpdate / Fire / Render) matches, and the DecodeSpellHitProjectile cases
+// need only the BAM resref + sound + projectile-type stamp.
+// ---------------------------------------------------------------------------
+class CProjectileCallLightning : public CProjectileTravelling {
+public:
+    CProjectileCallLightning(const CResRef& resRef, const CResRef& soundRef,
+                             LONG param5, LONG param6, SHORT projType);
+    void AIUpdate() override;      // 0x534C10 (slot 3)
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos,
+              LONG nHeight, SHORT nType) override;   // 0x535100 (slot 27)
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;  // 0x534DD0 (slot 19)
+
+protected:
+    LONG m_field290;    // +0x290 — constructor arg param5
+    LONG m_field294;    // +0x294 — constructor arg param6
+    SHORT m_field298;   // +0x298 — constructor arg param7 (projectile type stamp)
+};
+
 #endif /* CPROJECTILE_H_ */
