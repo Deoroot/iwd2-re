@@ -886,6 +886,35 @@ SHORT CGameAIBase::ExecuteAction()
     } else if (m_curAction.m_actionID == CAIAction::GIVEPARTYGOLD
         || m_curAction.m_actionID == CAIAction::GIVEGOLDFORCE) {
         actionReturn = GivePartyGold();
+    } else if (m_curAction.m_actionID == 0x1A) {
+        // 0x1A = CallLightning (ACTION.IDS 26).  Binary case 0x1a:
+        // resolves the target, draws the lightning bolt via
+        // CInfinity::CallLightning, then queues a Damage(0x0D) effect
+        // on the target through CMessageAddEffect.
+        CGameObject* pObj = ResolveActionTarget();
+        if (pObj != NULL) {
+            CPoint ptTarget = pObj->GetPos();
+            CGameArea* pArea = pObj->GetArea();
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+            // Draw the lightning bolt from the sky.
+            if (pArea != NULL) {
+                pArea->GetInfinity()->CallLightning(ptTarget.x, ptTarget.y);
+            }
+
+            // Queue the damage effect (opcode 0x0D = Damage).
+            // TODO: the damage dice come from m_specificID (spell ability
+            // header); using a placeholder for now.
+            CGameEffect* pEffect = new CGameEffect();
+            pEffect->m_effectID = 0x0D;        // Damage opcode
+            pEffect->m_targetType = 9;          // target type
+            pEffect->m_effectAmount = 0x100;    // TODO: read from action params
+
+            CMessage* pMsg = new CMessageAddEffect(pEffect, m_id, pObj->m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+        }
+        actionReturn = ACTION_DONE;
     } else if (m_curAction.m_actionID == 0x32) {
         // 0x32 = MoveViewObject (ACTION.IDS 50).  Binary case 0x32.
         CGameObject* pObj = ResolveActionTarget();
