@@ -4273,12 +4273,140 @@ void IcewindCProjectileTravellingVFX::AIUpdate()
     CProjectileTravelling::AIUpdate();
 }
 
-// 0x5791D0 (vtable slot 27)
-// UNIMPLEMENTED: the family's own launch; delegate to the recovered
-// CProjectileTravelling launch until it is recovered.
+// 0x5791D0 (vtable slot 27 -- the IcewindCProjectileBAM family's own launch)
+//
+// NOT the base CProjectileTravelling::Fire (that is a different vtable target):
+// this is the VFX family's launch. It diverges from the base in the ways that
+// drive the on-screen result:
+//   * the projectile enters the area at the source's CAST height
+//     (DetermineHeight), so the BAM renders at the caster's body -- the base
+//     adds at ground level (posZ 0), which drops the visual to the feet and, in
+//     isometric projection, shifts it down/forward of the caster's hands;
+//   * the launch origin snaps back to the source centre when the target lands
+//     within ~3 search cells of it (a near / self cast);
+//   * a non-creature (point) target forces m_flightDistSq to the non-zero
+//     in-flight marker 1 and the launch delta-Z to 0.
+// The per-tick integrator (AIUpdate / AimAtPoint) is the base's, shared by the
+// family's delegating overrides.
+//
+// PARTIAL:
+//   * creature-target delta-Z: the original reads the live target's
+//     CGameAnimation::GetHeight (vtable slot 1, unrecovered) into a height rect
+//     and sets delta-Z = DetermineHeight(source) - rectHeight/2. We keep the
+//     default rect the original seeds for a point/non-creature target (top 0x40,
+//     bottom 0). The cone visuals fire at a point target, so they already take
+//     the point path (delta-Z 0); only a homing VFX onto a creature loses the
+//     small arc offset.
+//   * attached trailing object: when field_17E names a resref the original
+//     spawns a trailing object through a CMessage (vtable 0x84D328) and records
+//     it in m_nTargetId. The cone/spray leaves carry an empty field_17E, so the
+//     spawn is skipped; the construction is left unrecovered (documented stub).
 void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
 {
-    CProjectileTravelling::Fire(pArea, source, target, targetPos, nHeight, nType);
+    (void)nHeight;
+    (void)nType;
+
+    m_targetId = target;
+    m_sourceId = source;
+    m_pArea = pArea;
+
+    // Target point: the live target position when homing, else the passed point.
+    // bTargetCreature gates the (stubbed) delta-Z height refinement.
+    CPoint ptTarget;
+    BOOL bTargetCreature = FALSE;
+    if (m_targetId == CGameObjectArray::INVALID_INDEX) {
+        ptTarget = targetPos;
+    } else {
+        CGameObject* pTarget;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+                CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+        bTargetCreature = (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE);
+        ptTarget = pTarget->GetPos();
+        // PARTIAL: a creature target's animation height rect (GetHeight) would be
+        // read here to refine the launch delta-Z; the default rect is retained.
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    // Source: the cast height (the launch posZ) and the centre position (the
+    // near-target snap fallback), plus whether the source is a creature.
+    LONG nLaunchHeight = 0;
+    CPoint ptSourceCenter(0, 0);
+    BOOL bSourceCreature = FALSE;
+    {
+        CGameObject* pSource;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
+                CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+        nLaunchHeight = DetermineHeight(static_cast<CGameSprite*>(pSource));
+        ptSourceCenter = pSource->GetPos();
+        bSourceCreature = (pSource->GetObjectType() == CGameObject::TYPE_SPRITE);
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    // Launch origin: the facing-adjusted source point, snapped to the source
+    // centre when the target lands within ~3 search cells (a near / self cast).
+    CPoint ptLaunch;
+    GetProjectileSourcePosition(m_sourceId, ptLaunch);
+    if (bSourceCreature) {
+        int cellDX = ptTarget.x / 16 - ptLaunch.x / 16;   // 16-wide search cells
+        int cellDY = ptTarget.y / 12 - ptLaunch.y / 12;   // 12-tall search cells
+        if (cellDX * cellDX + cellDY * cellDY < 3) {
+            ptLaunch = ptSourceCenter;
+        }
+    }
+
+    // PARTIAL: attached trailing object via field_17E -> CMessage (see header).
+    // Empty for the cone/spray leaves, so skipped; m_nTargetId left untouched.
+
+    // Flight distance^2 (y weighted 16/9) -- AIUpdate's arrival metric; drives
+    // the distance-based lifetime when armed.
+    int dx = ptTarget.x - ptLaunch.x;
+    int dy = ptTarget.y - ptLaunch.y;
+    m_flightDistSq = dx * dx + (dy * dy * 16) / 9;
+    if (m_distLifetime != 0) {
+        m_lifetime = static_cast<SHORT>(
+            static_cast<int>(sqrt(static_cast<double>(m_flightDistSq))) / m_velocity + 1);
+    }
+
+    // A point / non-creature target overwrites the metric with the in-flight
+    // marker 1 and launches flat; a creature target keeps the real distance and
+    // refines the launch delta-Z from its animation height (stubbed -- header).
+    SHORT nDeltaZ;
+    if (bTargetCreature) {
+        nDeltaZ = static_cast<SHORT>(nLaunchHeight - (0x40 - 0) / 2);
+    } else {
+        m_flightDistSq = 1;
+        nDeltaZ = 0;
+    }
+    m_nDeltaZ = nDeltaZ;
+    m_nDeltaZLast = nDeltaZ;
+
+    // Register (assigns m_id), then add to the area AT THE CAST HEIGHT -- the
+    // difference from the base launch, which adds at ground level (posZ 0).
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
+    AddToArea(pArea, ptLaunch, nLaunchHeight, 0);
+
+    PlaySound(m_fireSoundRef, FALSE, FALSE);
+
+    // Subpixel launch position (1/1024 fixed point), target point, initial facing.
+    m_posAccumX = ptLaunch.x << 10;
+    m_posAccumY = (ptLaunch.y << 12) / 3;
+    m_targetX = ptTarget.x;
+    m_targetY = ptTarget.y;
+    m_facing = GetDirection(ptTarget);
 }
 
 // 0x578ED0 (vtable slot 33)
