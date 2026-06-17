@@ -2370,14 +2370,20 @@ CProjectileTravelling::~CProjectileTravelling()
 // the lifetime (+0x29E) counts down from 0x7FFF, and the trail field (+0xE2)
 // stays 0.
 //
-// PARTIAL: the pause-gate (skip while the engine single-steps another object),
-// the moving-target homing branch (shares the live target and interpolates
-// height from its animation), and the trailing sub-projectile (unrecovered
-// factory 0x51AE40; branch disabled for Magic Missile) are documented stubs.
-// The advance/arrival/expiry/lifetime/sound core is recovered and trace-verified
-// (the per-tick aim step itself, 0x52BD20, is recovered -- see AimAtPoint).
+// Recovered: the Time Stop gate (CInfGame::m_nTimeStop/m_nTimeStopCaster at
+// +0x4B40/+0x4B44), the homing branch (live-target position + height interp
+// via CalculateFxRect / delta-Z linear step), and the sparkle-trail spawn
+// (factory 0x51AE40 — documented stub, dead for Magic Missile).
 void CProjectileTravelling::AIUpdate()
 {
+    // Time Stop gate (0x52B90E–0x52B93B): during Time Stop, only the
+    // caster's own projectiles continue to tick.  The check reads
+    // CInfGame::m_nTimeStop and m_nTimeStopCaster at +0x4B40/+0x4B44.
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
     m_pVidCell->FrameAdvance();
 
     // Arrival: target and position share the same 16-unit x and 12-unit y cell.
@@ -2412,15 +2418,72 @@ void CProjectileTravelling::AIUpdate()
     if (m_targetId == CGameObjectArray::INVALID_INDEX) {
         AimAtPoint(m_targetX, m_targetY);
     } else {
-        // Homing: the original shares the live target, aims at its position and
-        // interpolates the projectile height from its animation. STUB: aim at
-        // the recorded target point; live-target tracking and height interp are
-        // recovered with the rest of the homing path.
-        AimAtPoint(m_targetX, m_targetY);
+        // Homing branch (0x52BBD7–0x52BD07): share the live target, verify
+        // it is still in the same area, read its current position, then
+        // interpolate the projectile height toward the target and aim.
+        CGameObject* pTarget;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+                CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            RemoveSelf();
+            return;
+        }
+
+        // Area check: if the target left the projectile's area, the
+        // projectile self-destructs (0x52BBE5–0x52BBF9).
+        if (m_pArea != pTarget->GetArea()) {
+            RemoveSelf();
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return;
+        }
+
+        CPoint ptLive = pTarget->GetPos();
+
+        // Height interpolation (0x52BC11–0x52BCD4).  When m_hasDrift is
+        // false (plain Magic Missile), linearly step the projectile height
+        // toward the target using the stored delta-Z and distance metric.
+        // When true (drifting/homing projectiles), read the target's live
+        // animation height rect and step m_posZ one unit per tick.
+        if (m_hasDrift == 0) {
+            SHORT stepDeltaZ = static_cast<SHORT>(
+                (static_cast<int>(m_nDeltaZ) * dist) / m_flightDistSq);
+            m_posZ += static_cast<int>(stepDeltaZ - m_nDeltaZLast);
+            m_nDeltaZLast = stepDeltaZ;
+        } else if (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pTargetSprite = static_cast<CGameSprite*>(pTarget);
+            BYTE rcDeny;
+            do {
+                rcDeny = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+            } while (rcDeny == CGameObjectArray::SHARED || rcDeny == CGameObjectArray::DENIED);
+            if (rcDeny == CGameObjectArray::SUCCESS) {
+                CRect rHeight;
+                CPoint ptRef;
+                pTargetSprite->GetAnimation()->CalculateFxRect(rHeight, ptRef, pTargetSprite->m_posZ);
+                LONG targetHeight = (rHeight.bottom - ptRef.y) / 2;
+                if (m_posZ != targetHeight) {
+                    m_posZ += (m_nDeltaZ < 0) ? 1 : -1;
+                }
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+        AimAtPoint(ptLive.x, ptLive.y);
     }
 
-    // Trailing sub-projectile (+0xE2 != 0) via the unrecovered factory 0x51AE40
-    // -- omitted (trace shows it disabled for Magic Missile).
+    // Sparkle trail: when m_bSparkleTrail is set the original spawns a
+    // sub-projectile at the current position through factory 0x51AE40
+    // (0x52BD12–0x52BD5E, new(0xCA) + AddToArea).  Disabled for plain
+    // Magic Missile (m_bSparkleTrail stays 0); factory left unrecovered.
+    // PARTIAL: sparkle-trail factory 0x51AE40 — documented stub.
 
     m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
 }
