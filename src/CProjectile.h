@@ -1392,18 +1392,21 @@ public:
 // CProjectileCallLightning (SPPR302, vtable 0x84E8C0)
 //
 // Instant-effect spell projectile for Call Lightning and its variants
-// (CallLiH / FStrikH / SunscoH beams).  NOT a travelling projectile — Fire
-// calls DeliverEffects immediately, then the object is a short-lived visual
-// marker.  0x29A bytes in VC6; constructor FUN_005348c0 embeds a CVidCell
-// (+0x192) and CVidPalette (+0x26C) inline.
+// (CallLiH / FStrikH / SunscoH beams).  Fire calls DeliverEffects immediately,
+// then the object lives as a visual marker for m_nLifetime ticks with BAM
+// frame animation.  0x29A bytes in VC6 with inline CVidCell (+0x192) and
+// CVidPalette (+0x26C);  modelled as a CProjectileBAM subclass.
 // ---------------------------------------------------------------------------
-class CProjectileCallLightning : public CProjectile {
+class CProjectileCallLightning : public CProjectileBAM {
 public:
     CProjectileCallLightning(const CResRef& resRef, const CResRef& soundRef,
                              LONG param5, LONG param6, SHORT projType);
     void AIUpdate() override;      // 0x534C10 (slot 3)
     void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos,
               LONG nHeight, SHORT nType) override;   // 0x535100 (slot 27)
+
+private:
+    SHORT m_nLifetime;    // tick counter; seed = projType (0x14 = 20 for CallLiH)
 };
 
 #endif /* CPROJECTILE_H_ */

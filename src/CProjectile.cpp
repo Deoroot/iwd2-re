@@ -2295,11 +2295,15 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
 // 0x5348C0
 CProjectileCallLightning::CProjectileCallLightning(const CResRef& resRef,
     const CResRef& soundRef, LONG param5, LONG param6, SHORT projType)
-    : CProjectile()
+    : CProjectileBAM(resRef, "", 0, 0, IcewindCVisualEffect())
 {
     m_fireSoundRef = soundRef;
     m_arrivalSoundRef = "";
     m_projectileType = projType;
+
+    // m_field290 = param5;  // unused in recovered paths
+    // m_field294 = param6;  // gates random vs sequential frame advance
+    m_nLifetime = projType;    // lifetime in ticks (0x14=20 for CallLiH)
 }
 
 // 0x535100 (slot 27).  Instant-effect Fire — calls DeliverEffects immediately
@@ -2358,13 +2362,26 @@ void CProjectileCallLightning::Fire(CGameArea* pArea, LONG source, LONG target,
     }
 }
 
-// 0x534C10 (slot 3).  Lifetime countdown + visual update.
+// 0x534C10 (slot 3).  Lifetime countdown + BAM frame animation.
 void CProjectileCallLightning::AIUpdate()
 {
-    // STUB: the binary handles per-tick visual update and lifetime expiry
-    // (0x534C10, ~200 bytes).  Until recovered, self-destruct immediately
-    // after one tick so the object doesn't linger.
-    RemoveSelf();
+    // Time Stop gate (0x534C11–0x534C33).
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    // Lifetime countdown (0x534C39–0x534C97).
+    if (--m_nLifetime < 1) {
+        RemoveFromArea();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(m_id,
+            CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE);
+        delete this;
+        return;
+    }
+
+    // Delegate frame animation to CProjectileBAM (which advances m_vidCell).
+    CProjectileBAM::AIUpdate();
 }
 
 // 0x52AD60
