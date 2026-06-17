@@ -2295,44 +2295,76 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
 // 0x5348C0
 CProjectileCallLightning::CProjectileCallLightning(const CResRef& resRef,
     const CResRef& soundRef, LONG param5, LONG param6, SHORT projType)
-    : CProjectileTravelling(resRef)
+    : CProjectile()
 {
-    m_field290 = param5;
-    m_field294 = param6;
-    m_field298 = projType;
-
     m_fireSoundRef = soundRef;
     m_arrivalSoundRef = "";
-    m_bHasHeight = FALSE;
-    m_hasDrift = 0;
-    m_bSparkleTrail = 0;
-
     m_projectileType = projType;
 }
 
-// 0x534C10 (slot 3)
-void CProjectileCallLightning::AIUpdate()
-{
-    // STUB: defer to base-class flight; the binary also handles beam-specific
-    // rendering and the call-lightning strike logic (0x534C10, ~200 bytes).
-    CProjectileTravelling::AIUpdate();
-}
-
-// 0x535100 (slot 27)
+// 0x535100 (slot 27).  Instant-effect Fire — calls DeliverEffects immediately
+// (no travel), then registers in the area as a visual marker.
 void CProjectileCallLightning::Fire(CGameArea* pArea, LONG source, LONG target,
     CPoint targetPos, LONG nHeight, SHORT nType)
 {
-    // STUB: delegate to the base-class launch; the binary (0x535100, ~400 bytes)
-    // adds call-lightning specific setup (beam range, target map).
-    CProjectileTravelling::Fire(pArea, source, target, targetPos, nHeight, nType);
+    m_sourceId = source;
+    m_targetId = target;
+    m_pArea = pArea;
+
+    // The binary calls vtable[0x78] = DeliverEffects() immediately (0x535123).
+    DeliverEffects();
+
+    // Register in the global object array.
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        delete this;
+        return;
+    }
+
+    // Resolve the launch point: if homing, read the live target position;
+    // otherwise use the passed point.  The binary adds +13 to Y (0x535181).
+    CPoint ptLaunch;
+    if (m_targetId == CGameObjectArray::INVALID_INDEX) {
+        ptLaunch = targetPos;
+        ptLaunch.y += 13;
+    } else {
+        CGameObject* pTarget;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+                CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc == CGameObjectArray::SUCCESS) {
+            ptLaunch = pTarget->GetPos();
+            ptLaunch.y += 13;
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        } else {
+            ptLaunch = targetPos;
+            ptLaunch.y += 13;
+        }
+    }
+
+    AddToArea(pArea, ptLaunch, 0, CGameObject::LIST_FRONT);
+
+    // Launch sound (0x535213–0x535290).
+    if (m_fireSoundRef != "") {
+        PlaySound(m_fireSoundRef, m_loopFireSound, FALSE);
+    }
+
+    // Arrival / impact sound (0x535295–0x5352E2).
+    if (m_arrivalSoundRef != "") {
+        PlaySound(m_arrivalSoundRef, m_loopArrivalSound, FALSE);
+    }
 }
 
-// 0x534DD0 (slot 19)
-void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+// 0x534C10 (slot 3).  Lifetime countdown + visual update.
+void CProjectileCallLightning::AIUpdate()
 {
-    // STUB: forward to base-class render; the binary (0x534DD0, ~300 bytes)
-    // handles the beam visual.
-    CProjectileTravelling::Render(pArea, pVidMode, nSurface);
+    // STUB: the binary handles per-tick visual update and lifetime expiry
+    // (0x534C10, ~200 bytes).  Until recovered, self-destruct immediately
+    // after one tick so the object doesn't linger.
+    RemoveSelf();
 }
 
 // 0x52AD60
