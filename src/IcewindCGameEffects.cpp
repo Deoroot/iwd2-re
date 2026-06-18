@@ -1211,11 +1211,13 @@ CGameEffect* IcewindCGameEffectCallLightning::Copy()
 //      caster's DetermineHeight (sprite vtable +0x1C) and the projectile's Fire
 //      (slot 27).  ReleaseShare, set m_done-style flag at +0x110, return TRUE.
 //
-// PARTIAL: not recovered.  The strike requires the 1630-byte sky-strike
-// projectile class (ctor 0x574A70 / init 0x5704E0) and the per-strike effect
-// builder 0x586220, all still unrecovered -- recovering them is the next arc.
+// PARTIAL: not recovered.  The strike fires an IcewindCProjectileSpellHit-family
+// bolt (vtable 0x850114, ctor 0x574A70 -> base 0x56EDD0, init 0x5704E0, 1630
+// bytes); IcewindCProjectileSpellHit itself is recovered (Fire 0x56F820 / AIUpdate
+// 0x56FAF0), but this leaf subclass + the per-strike builder 0x586220 are not.
 // Returning TRUE (matching the binary's return) without the work leaves the
-// effect applied but inert: no invented strike.  See [[call-lightning-arc]].
+// effect applied but inert: no invented strike.  Recovering the bolt leaf +
+// 0x564F80 is the next arc.  See [[call-lightning-arc]].
 BOOL IcewindCGameEffectCallLightning::ApplyEffect(CGameSprite* pSprite)
 {
     Iwd2DebugLog("CALLIGHTNING: ApplyEffect — sprite=%d charges(m_effectAmount)=%d done=%d",
