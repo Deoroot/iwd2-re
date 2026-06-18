@@ -384,8 +384,6 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     IcewindCVisualEffect visualEffect;
 
     if (projectileType > 0x1000) {
-        Iwd2DebugLog("CALLIGHTNING: DecodeProjectile spell-hit type=0x%X (index=%d)",
-                     projectileType, projectileType - 0x1001);
         CProjectile* pSpellHit = CProjectileSummonVFX::DecodeSpellHitProjectile(
             projectileType - 0x1001, pCaster, FALSE);
         if (pSpellHit != NULL) {
@@ -1945,7 +1943,6 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         break;
     }
     case 45: {  // Call Lightning (SPPR302): CallLiH beam, sound EFF_P19
-        Iwd2DebugLog("CALLIGHTNING: DecodeSpellHitProjectile case 45 — creating CallLiH projectile");
         return new CProjectileCallLightning(
             CResRef("CallLiH"), CResRef("EFF_P19"), 1, 0, 0x14);
     }
@@ -2354,8 +2351,6 @@ CProjectileCallLightning::CProjectileCallLightning(const CResRef& resRef,
 void CProjectileCallLightning::Fire(CGameArea* pArea, LONG source, LONG target,
     CPoint targetPos, LONG nHeight, SHORT nType)
 {
-    Iwd2DebugLog("CALLIGHTNING: Fire called — source=%d target=%d pos=(%d,%d)",
-                 source, target, targetPos.x, targetPos.y);
     m_sourceId = source;
     m_targetId = target;
     m_pArea = pArea;
@@ -2427,6 +2422,108 @@ void CProjectileCallLightning::AIUpdate()
 
     // Delegate frame animation to CProjectileBAM (which advances m_vidCell).
     CProjectileBAM::AIUpdate();
+}
+
+// 0x534DD0 (vtable slot 19 override). The CALLLIH bolt is a multi-sequence BAM:
+// each sequence (cycle) is one vertical slice of the lightning, and they must be
+// drawn stacked. The single-cell CProjectileBAM::Render would draw only the current
+// slice (the "zoomed" look); this walks every sequence, drawing each one its own
+// center-point height higher than the last (nBaseY climbs by ptRef.y per slice), so
+// the slices stack into the full stroke from the strike point up. Each slice is
+// tile-visibility culled and viewport-clipped; the walk stops the moment a slice
+// leaves the map top (nBaseY < 0), is off-screen, or is fully clipped.
+// Frida-confirmed on the original: SequenceSet 0/1/2 + an FXRender per cycle per frame.
+void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    (void)pArea;   // the override reads m_pArea, not the passed area
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CProjectile.cpp
+    // __LINE__: 9080
+    UTIL_ASSERT(pVidMode != NULL);
+
+    // Viewport clip rect in world coords: scroll origin (nCurrentX/Y) plus the
+    // screen rect (rViewPort), read from the area's embedded CInfinity.
+    CInfinity* pInfinity = m_pArea->GetInfinity();
+    CRect rViewport;
+    rViewport.left = pInfinity->nCurrentX;
+    rViewport.top = pInfinity->nCurrentY;
+    rViewport.right = (pInfinity->rViewPort.right - pInfinity->rViewPort.left)
+                      + pInfinity->nCurrentX;
+    rViewport.bottom = (pInfinity->rViewPort.bottom - pInfinity->rViewPort.top)
+                       + pInfinity->nCurrentY;
+
+    // The strike foot: the cell origin lifted by the terrain height, clamped to the
+    // bottom of the map. nBaseY climbs one slice at a time; nSavedX/nSavedBaseY keep
+    // the foot for the clipping-poly pass.
+    LONG nBaseX = m_pos.x;
+    LONG nBaseY = m_pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y;
+    if (pInfinity->nAreaY <= nBaseY) {
+        nBaseY = pInfinity->nAreaY - 1;
+    }
+    LONG nSavedX = nBaseX;
+    LONG nSavedBaseY = nBaseY;
+
+    if (m_vidCell.GetNumberSequences(FALSE) != 0) {
+        DWORD flags = 0;
+        BYTE seq = 0;
+        do {
+            if (nBaseY < 0) {
+                return;
+            }
+            SHORT nTile = (SHORT)((SHORT)(nBaseY / 32) * m_pArea->m_visibility.m_nWidth
+                                  + (SHORT)(nBaseX / 32));
+            if (!m_pArea->m_visibility.IsTileVisible(nTile)) {
+                return;
+            }
+
+            m_vidCell.SequenceSet(seq);
+            CPoint ptRef;
+            m_vidCell.GetCurrentCenterPoint(ptRef, FALSE);
+            CSize frameSize;
+            m_vidCell.GetCurrentFrameSize(frameSize, FALSE);
+            CRect rFrame;
+            rFrame.SetRect(0, 0, frameSize.cx, frameSize.cy);
+
+            CRect rDraw;
+            rDraw.left = nBaseX - ptRef.x;
+            rDraw.top = (m_posZ - ptRef.y) + nBaseY;
+            rDraw.right = (rFrame.right - rFrame.left) + rDraw.left;
+            rDraw.bottom = (rFrame.bottom - rFrame.top) + rDraw.top;
+
+            CRect rClipped;
+            rClipped.IntersectRect(&rDraw, &rViewport);
+            if (rClipped.IsRectEmpty()) {
+                return;
+            }
+
+            DWORD cycleFlags;
+            if (m_visualEffect.m_dwFlags == 0) {
+                cycleFlags = CInfinity::FXPREP_CLEARFILL | 0x20001;
+            } else {
+                cycleFlags = CInfinity::FXPREP_COPYFROMBACK | 0x20200;
+            }
+            flags |= cycleFlags;
+
+            CPoint newPos(nBaseX, nBaseY);
+            pInfinity->FXPrep(rFrame, flags, nSurface, newPos, ptRef);
+            if (pInfinity->FXLock(rFrame, flags)) {
+                pInfinity->FXRender(&m_vidCell, ptRef.x, ptRef.y, flags, 0);
+                CRect rGCBounds;
+                rGCBounds.left = rDraw.left;
+                rGCBounds.top = m_posZ + rDraw.top;
+                rGCBounds.right = rDraw.right;
+                rGCBounds.bottom = m_posZ + rDraw.bottom;
+                pInfinity->FXRenderClippingPolys(nSavedX, m_posZ + nSavedBaseY, -m_posZ,
+                    ptRef, rGCBounds, FALSE, flags);
+                pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
+                pInfinity->FXBltFrom(nSurface, rFrame, nBaseX, nBaseY,
+                    ptRef.x, ptRef.y, flags);
+            }
+
+            nBaseY -= ptRef.y;
+            seq++;
+        } while (seq < (BYTE)m_vidCell.GetNumberSequences(FALSE));
+    }
 }
 
 // 0x52AD60

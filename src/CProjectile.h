@@ -111,7 +111,7 @@ public:
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;
     void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;
 
-private:
+protected:
     /* 0192 */ CVidCell m_vidCell;
     /* 026C */ IcewindCVisualEffect m_visualEffect;
     /* 032C */ BYTE m_sequenceDelay;
@@ -1440,6 +1440,7 @@ public:
     void AIUpdate() override;      // 0x534C10 (slot 3)
     void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos,
               LONG nHeight, SHORT nType) override;   // 0x535100 (slot 27)
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x534DD0 (slot 19)
 
 private:
     SHORT m_nLifetime;    // tick counter; seed = projType (0x14 = 20 for CallLiH)
