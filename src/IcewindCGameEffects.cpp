@@ -1002,9 +1002,6 @@ CGameEffect* CGameEffectVisualSpellHitIWD::Copy()
 // queue to match SP, exactly as the ForceSpellAction launch path does.
 BOOL CGameEffectVisualSpellHitIWD::ApplyEffect(CGameSprite* pSprite)
 {
-    Iwd2DebugLog("CALLIGHTNING: VisualSpellHit ApplyEffect — dwFlags=0x%X res=%s",
-                 m_dwFlags, (const char*)m_sourceRes.GetResRef());
-
     if (pSprite->m_pArea == NULL) {
         m_done = TRUE;
         return FALSE;
@@ -1276,9 +1273,6 @@ BOOL IcewindCGameEffectCallLightning::ApplyEffect(CGameSprite* pSprite)
         return TRUE;
     }
     (void)pSource;
-
-    Iwd2DebugLog("CALLIGHTNING: ApplyEffect fire — charges=%d sprite=%d",
-                 m_effectAmount, pSprite->m_id);
 
     CProjectileCallLightningStrike* pBolt = new CProjectileCallLightningStrike();
     pBolt->SetStrikeTargetFilter(pSprite);

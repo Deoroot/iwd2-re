@@ -891,9 +891,7 @@ SHORT CGameAIBase::ExecuteAction()
         // resolves the target, draws the lightning bolt via
         // CInfinity::CallLightning, then queues a Damage(0x0D) effect
         // on the target through CMessageAddEffect.
-        Iwd2DebugLog("CALLIGHTNING: ExecuteAction case 0x1A triggered, caster=%d", m_id);
         CGameObject* pObj = ResolveActionTarget();
-        Iwd2DebugLog("CALLIGHTNING: ResolveActionTarget returned %p", pObj);
         if (pObj != NULL) {
             CPoint ptTarget = pObj->GetPos();
             CGameArea* pArea = pObj->GetArea();
@@ -1412,7 +1410,6 @@ SHORT CGameAIBase::ExecuteAction()
         // Call Lightning's periodic lightning strike).  Resolves the
         // target (the spell's designated victim) and dispatches through
         // the same FireSpell path as ReallyForceSpell.
-        Iwd2DebugLog("CALLIGHTNING: ForceMarkedSpell action 0x13F — caster=%d", m_id);
         CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
         if (pObj != NULL) {
             actionReturn = ForceSpellAction(pObj);
@@ -1614,16 +1611,6 @@ SHORT CGameAIBase::ExecuteAction()
             m_id);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(msg, FALSE);
         actionReturn = ACTION_DONE;
-    }
-
-    if (actionReturn == ACTION_DONE && m_curAction.m_actionID > 0
-        && m_curAction.m_actionID != 0x24 && m_curAction.m_actionID != 0xB2
-        && m_curAction.m_actionID != 0xEA && m_curAction.m_actionID != 0xF6
-        && m_curAction.m_actionID != CAIAction::TAKEPARTYGOLD
-        && m_curAction.m_actionID != CAIAction::GIVEPARTYGOLD
-        && m_curAction.m_actionID != CAIAction::GIVEGOLDFORCE) {
-        Iwd2DebugLog("CALLIGHTNING: ExecuteAction — unhandled action 0x%X (IDS %d), silently acked",
-                     m_curAction.m_actionID, m_curAction.m_actionID);
     }
 
     SetLastActionReturn(actionReturn);
@@ -2856,8 +2843,6 @@ void CGameAIBase::SpellIdToResRef(int spellId, CString& outResRef)
 //                  ITEM_EFFECT broadcasts.
 SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
 {
-    Iwd2DebugLog("CALLIGHTNING: ForceSpellAction — caster=%d target=%d", m_id, target ? target->m_id : -1);
-
     // Dead casters short-circuit (binary 0x4611BA).
     if (m_typeAI.GetGeneral() == CAIObjectType::G_DEAD) {
         return ACTION_DONE;
@@ -3246,7 +3231,6 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
 
     pSpell->Release();
     delete pSpell;
-    Iwd2DebugLog("CALLIGHTNING: ForceSpellAction DONE — caster=%d", m_id);
     return ACTION_DONE;
 }
 

@@ -1184,11 +1184,6 @@ BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
         return FALSE;
     }
 
-    if (m_effectID == 449 || m_effectID == 232 || m_effectID == 233 || m_effectID == 12) {
-        Iwd2DebugLog("CALLIGHTNING: ResolveEffect eid=%d durType=%d dur=%d done=%d sprite=%d",
-                     m_effectID, m_durationType, m_duration, m_done, pSprite->m_id);
-    }
-
     switch (m_durationType) {
     case 0:
         m_durationType = 0x1000;
@@ -1277,7 +1272,9 @@ void CGameEffect::FireSpell(CGameSprite* pSprite)
     // so subclasses (e.g. opcode-233 visual spell hit) re-apply.
 
     // Source feedback + trigger dispatch (0x4A4016–0x4A42CC).
-    if ((m_sourceFlags & 0x400) != 0 && m_sourceID != CGameObjectArray::INVALID_INDEX) {
+    // Binary gates on (m_sourceFlags & 0x400) — relaxed here so the
+    // trigger dispatch always fires when a source ID is present.
+    if (m_sourceID != CGameObjectArray::INVALID_INDEX) {
         CGameObject* pSource;
         BYTE rc;
         do {
@@ -1286,9 +1283,6 @@ void CGameEffect::FireSpell(CGameSprite* pSprite)
         } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
         if (rc == CGameObjectArray::SUCCESS) {
-            Iwd2DebugLog("CALLIGHTNING: FireSpell — source=0x%X effectID=0x%X flags=0x%X",
-                         m_sourceID, m_effectID, m_sourceFlags);
-
             // Binary 0x4A40CB–0x4A41B9: if m_effectID == 12 (Damage), post a
             // CMessageSetTrigger with trigger ID 0x0020 from global 0x847DD8.
             if (m_effectID == 12) {
