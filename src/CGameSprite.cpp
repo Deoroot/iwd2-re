@@ -12887,10 +12887,13 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
         effect->m_source = m_pos;
         effect->m_sourceID = m_id;
         effect->m_target = targetPos;
-        // Overwritten with the same (zero) local as the m_nSpellLevel store
-        // above.
-        if (effect->m_effectAmount != 0) {
-            effect->m_effectAmount = 0;
+        // 0x742514: the binary writes the effect's spell level (+0x14) with the
+        // same zero local as the m_curProjectile->m_nSpellLevel store above; the
+        // player Spell path leaves it 0.  (Previously mis-recovered onto
+        // m_effectAmount (+0x18), which wrongly zeroed opcode-449's Static
+        // Charge count -- the Call Lightning bolt count.)
+        if (effect->m_spellLevel != 0) {
+            effect->m_spellLevel = 0;
         }
 
         IcewindMisc::ApplyDamageModifiers(this, effect);
@@ -13499,10 +13502,12 @@ SHORT CGameSprite::SpellPointSequence()
             effect->m_source = m_pos;
             effect->m_sourceID = m_id;
             effect->m_target = castPoint;
-            // Overwritten with the same (zero) flag as the m_nSpellLevel
-            // store above.
-            if (effect->m_effectAmount != 0) {
-                effect->m_effectAmount = 0;
+            // 0x742XXX: writes the effect's spell level (+0x14) with the same
+            // zero flag as the m_nSpellLevel store above.  (Previously
+            // mis-recovered onto m_effectAmount (+0x18), zeroing opcode-449's
+            // Static Charge count.)
+            if (effect->m_spellLevel != 0) {
+                effect->m_spellLevel = 0;
             }
 
             IcewindMisc::ApplyDamageModifiers(this, effect);
