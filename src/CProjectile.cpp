@@ -5957,6 +5957,38 @@ CProjectileCallLightningStrike::~CProjectileCallLightningStrike()
 {
 }
 
+// 0x574AA0 (vtable slot 37 override). The Call Lightning bolt strikes a SINGLE
+// victim, not the whole gather: where the base IcewindCProjectileSpellHit::Strike
+// loops every id GatherTargets collected within m_aoeRange, this leaf delivers one
+// stroke to the lead gathered target. Gated on the caster's area being outdoors
+// (m_areaType bit 0) -- indoors the bolt fizzles to feedback only. With nothing in
+// reach the caster plays the miss sprite-effect plus the same feedback.
+void CProjectileCallLightningStrike::Strike(std::list<LONG>& targets)
+{
+    CGameObject* pSource;
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+            m_sourceId, CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE)
+        == CGameObjectArray::SUCCESS) {
+        CGameSprite* pSprite = NULL;
+        if (pSource->GetObjectType() == 0x31)
+            pSprite = static_cast<CGameSprite*>(pSource);
+
+        if ((pSource->m_pArea->m_header.m_areaType & 1) != 0) {
+            if (!targets.empty()) {
+                StrikeTarget(targets.front());
+            } else if (pSprite != NULL) {
+                pSprite->StartSpriteEffect(2, 0, 0x1E, 0);
+                pSprite->FeedBack(0x5A, 0, 0, 0, -1, 0, 0);
+            }
+        } else {
+            pSprite->FeedBack(0x5A, 0, 0, 0, -1, 0, 0);
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            m_sourceId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x571310
