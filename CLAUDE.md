@@ -107,7 +107,7 @@ Dirs: `2DA/` rule tables · `ARE/` areas · `BAM_DECOMP/` decompressed BAMv1 · 
 |---|---|
 | Action/trigger id N? | `IDS/ACTION.IDS`, `IDS/TRIGGER.IDS` |
 | Stat/state name? | `IDS/STATS.IDS`, `IDS/SPLSTATE.IDS` |
-| Spell SPxxx? / button slot? / qslot layout? | `SPL/SPxxx.SPL` / `CHU/<panel>.CHU` / `2DA/QSLOTS.2DA` |
+| Spell SPxxx? / button slot? / qslot layout? | `SPL/SPxxx.SPL` (dump: `scripts/spell_info.py RESREF`) / `CHU/<panel>.CHU` / `2DA/QSLOTS.2DA` |
 | Area edges? / script usage? | `WMP/WORLDMAP.WMP` / grep `BCS/*.BAF` + `BS/*.BAF` |
 
 ### Asset names / StringRefs
