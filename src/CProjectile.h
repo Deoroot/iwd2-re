@@ -571,6 +571,11 @@ public:
     virtual void Strike(std::list<LONG>& targets);   // 0x5701B0 (vtable slot 37)
     virtual void StrikeTarget(LONG targetId);        // 0x5701E0 (vtable slot 38)
 
+    // 0x5704E0 (non-virtual).  Seed the strike target filter from a source's
+    // allegiance so the bolts hit that source's enemies.  Used by the Call
+    // Lightning / Static Charge engine when arming each strike bolt.
+    void SetStrikeTargetFilter(CGameObject* pSource);
+
 protected:
     // The IE reference-counted string CProjectileCone inlines for its cone-BAM
     // name (share-count byte at block[-1], character data at block + 1); here it

@@ -5455,6 +5455,26 @@ LONG IcewindCProjectileSpellHit::DetermineLifetime(BYTE bFirstCall)
     return m_lifetime;
 }
 
+// 0x5704E0.  Seed the strike's target filter from the source's allegiance so the
+// staggered bolts hit the source's enemies: a good source (EnemyAlly <=
+// GOODCUTOFF) strikes ENEMY, anyone else strikes ALLY.  A local CAIObjectType
+// carries just the EnemyAlly, copied into m_targetType (GatherTargets filters
+// GetCloseObjects with it).
+void IcewindCProjectileSpellHit::SetStrikeTargetFilter(CGameObject* pSource)
+{
+    if (pSource == NULL) {
+        return;
+    }
+
+    CAIObjectType filter;
+    if (pSource->GetAIType().GetEnemyAlly() > CAIObjectType::EA_GOODCUTOFF) {
+        filter.m_nEnemyAlly = CAIObjectType::EA_ALLY;
+    } else {
+        filter.m_nEnemyAlly = CAIObjectType::EA_ENEMY;
+    }
+    m_targetType.Set(filter);
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x56FED0 (vtable slot 36). The gather pass: collect every m_targetType object
