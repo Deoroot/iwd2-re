@@ -1195,12 +1195,31 @@ CGameEffect* IcewindCGameEffectCallLightning::Copy()
     return copy;
 }
 
+// 0x564F80.  The Static Charge engine (opcode 449, res EffCL): one call = one
+// lightning strike, and the first call spreads the remaining strikes over time.
+//
+// Mechanism (binary, charge count at m_effectAmount / effect+0x18):
+//   1. If m_effectAmount > 1, schedule the remaining (m_effectAmount - 1) strikes as
+//      delayed self-copies: Copy() this effect, set the copy's delay to a
+//      staggered offset (+0x46 ticks per strike), its own count to 0, then
+//      hand it to the target sprite's effect queue (CGameSprite vtable +0x78).
+//      This is why the bolts fall one-per-interval over the duration.
+//   2. Fire one bolt now: GetShare(m_sourceID), allocate the sky-strike
+//      projectile (new(0x65E) + ctor 0x574A70 + init 0x5704E0), copy this
+//      effect's payload onto it (CProjectile::AddEffect for each effect in the
+//      list at +0x90 -- the EffCL damage), then Fire it at the target via the
+//      caster's DetermineHeight (sprite vtable +0x1C) and the projectile's Fire
+//      (slot 27).  ReleaseShare, set m_done-style flag at +0x110, return TRUE.
+//
+// PARTIAL: not recovered.  The strike requires the 1630-byte sky-strike
+// projectile class (ctor 0x574A70 / init 0x5704E0) and the per-strike effect
+// builder 0x586220, all still unrecovered -- recovering them is the next arc.
+// Returning TRUE (matching the binary's return) without the work leaves the
+// effect applied but inert: no invented strike.  See [[call-lightning-arc]].
 BOOL IcewindCGameEffectCallLightning::ApplyEffect(CGameSprite* pSprite)
 {
-    Iwd2DebugLog("CALLIGHTNING: IcewindCGameEffectCallLightning::ApplyEffect — sprite=%d done=%d",
-                 pSprite->m_id, m_done);
-    // STUB: the real effect periodically picks an enemy in range, draws the
-    // lightning bolt, and deals damage.  For now just log and return.
+    Iwd2DebugLog("CALLIGHTNING: ApplyEffect — sprite=%d charges(m_effectAmount)=%d done=%d",
+                 pSprite->m_id, m_effectAmount, m_done);
     return TRUE;
 }
 
