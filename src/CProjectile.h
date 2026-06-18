@@ -940,6 +940,19 @@ public:
     ~CProjectileSymbolOfDeath() override;   // slot 0; ICF-folded onto 0x5768A0
 };
 
+// Leaf 0x574A70 -- the Call Lightning / Static Charge strike bolt, created and
+// fired per strike by IcewindCGameEffectCallLightning::ApplyEffect (0x564F80).
+// Own vtable 0x850114 (dtor ICF-folded onto 0x5768A0); inherits Fire/AIUpdate/
+// OnArrival/Strike from IcewindCProjectileSpellHit.  The ctor only sets
+// m_aoeRange = 0x113; the per-strike visual/target/effects are filled by the
+// engine (init 0x5704E0 sets the strike target-AI m_targetType, builder
+// 0x586220 loads the EffCL sub-spell's effects onto it).
+class CProjectileCallLightningStrike /*#guess*/ : public IcewindCProjectileSpellHit {
+public:
+    CProjectileCallLightningStrike();    // 0x574A70
+    ~CProjectileCallLightningStrike() override;   // slot 0; ICF-folded onto 0x5768A0
+};
+
 // Leaf 0x571310 -- Cloudkill (SPWI018, factory type 187/0xBB). Full three-slot cloud
 // leaf in the Stinking Cloud mould (own vtable 0x84F310; dtor ICF-folded onto
 // 0x5768A0): burst "CloudKX"/"RNG_M01", ring "CloudKR", and the persistent gas area

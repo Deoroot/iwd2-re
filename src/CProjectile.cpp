@@ -5922,6 +5922,21 @@ CProjectileSymbolOfDeath::~CProjectileSymbolOfDeath()
 {
 }
 
+// 0x574A70.  The Call Lightning / Static Charge strike bolt.  Unlike the
+// DecodeSpellHitProjectile leaves, the base ctor's SPMAGMIS default cell is
+// kept (the engine swaps the visual per strike); the ctor only sets the
+// detonation radius -- every other field keeps the base-ctor default.
+CProjectileCallLightningStrike::CProjectileCallLightningStrike()
+    : IcewindCProjectileSpellHit(0x100)
+{
+    m_aoeRange = 0x113;
+}
+
+// Slot-0 destructor: empty body chaining to the base, ICF-folded onto 0x5768A0.
+CProjectileCallLightningStrike::~CProjectileCallLightningStrike()
+{
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x571310
