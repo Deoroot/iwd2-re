@@ -87,6 +87,22 @@ public:
     /* 018A */ CResRef m_casterResRef;
 };
 
+// ---------------------------------------------------------------------------
+// CProjectileInstant (vtable 0x84D8B8) -- the "None" projectile (missileType 1).
+//
+// A thin CProjectile that delivers its payload immediately: Fire records the
+// source/target/area, runs OnArrival (which calls DeliverEffects) with no
+// travel and no area registration, then self-deletes.  This is how an instant
+// spell whose effects target the caster/preset point reaches its target
+// (e.g. Call Lightning's opcode-449 Static Charge effect).  Adds no members.
+// ---------------------------------------------------------------------------
+class CProjectileInstant : public CProjectile {
+public:
+    CProjectileInstant();   // 0x529490
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos,
+              LONG nHeight, SHORT nType) override;   // 0x529950 (slot 27)
+};
+
 class CProjectileBAM : public CProjectile {
 public:
     CProjectileBAM(const CResRef& visualResRef, const CResRef& arrivalSoundRef, BYTE sequenceDelay, BYTE initialDelay, const IcewindCVisualEffect& visualEffect);

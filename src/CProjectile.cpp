@@ -342,6 +342,34 @@ void CProjectile::CallBack()
 {
 }
 
+// 0x529490
+CProjectileInstant::CProjectileInstant()
+{
+    // Default-constructs the CProjectile base; the compiler stamps this class's
+    // own vtable (0x84D8B8).  The only override is Fire (instant delivery).
+}
+
+// 0x529950 (slot 27).  Instant delivery -- no travel, no area registration.
+// Records the launch ids/area, runs OnArrival (which calls DeliverEffects)
+// straight away, then self-deletes.  Because the projectile was never added to
+// the global object array, OnArrival's Delete() no-ops, so this trailing delete
+// is the only one (single-shot).
+void CProjectileInstant::Fire(CGameArea* pArea, LONG source, LONG target,
+                              CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)targetPos;
+    (void)nHeight;
+    (void)nType;
+
+    m_targetId = target;
+    m_sourceId = source;
+    m_pArea = pArea;
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+
+    OnArrival();
+    delete this;
+}
+
 // 0x51EAF0
 //
 // Factory that maps a numeric projectile type to a concrete CProjectile
@@ -368,6 +396,16 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
 
     CProjectile* pProjectile = NULL;
     switch (projectileType) {
+    case 0x1:
+        // 0x51EB93: the "None" projectile -- CProjectileInstant delivers its
+        // payload immediately (Fire -> OnArrival -> DeliverEffects, no travel)
+        // then self-deletes.  Used by missileType=1 spells whose effects are
+        // applied at cast (e.g. Call Lightning's opcode-449 Static Charge).
+        // Previously fell through to the default plain CProjectile, whose Fire
+        // is an empty stub -> the effects were silently dropped.
+        pProjectile = new CProjectileInstant();
+        break;
+
     case 0x2:
     case 0x5:
     case 0x6:
