@@ -9,6 +9,7 @@
 #include "CMessage.h"
 #include "CPathSearch.h"
 #include "CProjectile.h"
+#include "CSpell.h"
 #include "CInfGame.h"
 #include "CTimerWorld.h"
 #include "CUtil.h"
@@ -1195,33 +1196,106 @@ CGameEffect* IcewindCGameEffectCallLightning::Copy()
     return copy;
 }
 
-// 0x564F80.  The Static Charge engine (opcode 449, res EffCL): one call = one
-// lightning strike, and the first call spreads the remaining strikes over time.
-//
-// Mechanism (binary, charge count at m_effectAmount / effect+0x18):
-//   1. If m_effectAmount > 1, schedule the remaining (m_effectAmount - 1) strikes as
-//      delayed self-copies: Copy() this effect, set the copy's delay to a
-//      staggered offset (+0x46 ticks per strike), its own count to 0, then
-//      hand it to the target sprite's effect queue (CGameSprite vtable +0x78).
-//      This is why the bolts fall one-per-interval over the duration.
-//   2. Fire one bolt now: GetShare(m_sourceID), allocate the sky-strike
-//      projectile (new(0x65E) + ctor 0x574A70 + init 0x5704E0), copy this
-//      effect's payload onto it (CProjectile::AddEffect for each effect in the
-//      list at +0x90 -- the EffCL damage), then Fire it at the target via the
-//      caster's DetermineHeight (sprite vtable +0x1C) and the projectile's Fire
-//      (slot 27).  ReleaseShare, set m_done-style flag at +0x110, return TRUE.
-//
-// PARTIAL: not recovered.  The strike fires an IcewindCProjectileSpellHit-family
-// bolt (vtable 0x850114, ctor 0x574A70 -> base 0x56EDD0, init 0x5704E0, 1630
-// bytes); IcewindCProjectileSpellHit itself is recovered (Fire 0x56F820 / AIUpdate
-// 0x56FAF0), but this leaf subclass + the per-strike builder 0x586220 are not.
-// Returning TRUE (matching the binary's return) without the work leaves the
-// effect applied but inert: no invented strike.  Recovering the bolt leaf +
-// 0x564F80 is the next arc.  See [[call-lightning-arc]].
+// 0x586220.  Load the sub-spell named by the resource (EffCL) and return its
+// level-appropriate ability's effects -- the per-strike payload (the EffCL
+// visual + electrical damage) each Call Lightning bolt carries.  The spell
+// stores one ability per caster level; the highest whose minimum level is still
+// reached is chosen.  Each built effect is stamped with the caster's position
+// and id before delivery.
+static std::list<CGameEffect*> BuildSubSpellEffects(CGameSprite* pCaster,
+    const CResRef& spellRes, BYTE level)
+{
+    std::list<CGameEffect*> effects;
+
+    CSpell cSpell(spellRes);
+    cSpell.Demand();
+
+    SHORT abilityNum = 0;
+    int count = cSpell.GetAbilityCount();
+    if (count > 0) {
+        int i = 0;
+        while (i < count) {
+            SPELL_ABILITY* pAbility = cSpell.GetAbility(i);
+            if (level < pAbility->minCasterLevel) {
+                break;
+            }
+            ++abilityNum;
+            i = abilityNum;
+            count = cSpell.GetAbilityCount();
+        }
+    }
+
+    SHORT abilityIdx = static_cast<SHORT>(abilityNum - 1);
+    SPELL_ABILITY* pAbility = cSpell.GetAbility(abilityIdx);
+    if (pAbility != NULL && pAbility->effectCount != 0) {
+        for (LONG e = 0; e < pAbility->effectCount; ++e) {
+            CGameEffect* pEffect = cSpell.BuildAbilityEffect(abilityIdx, e, pCaster, 0, 0, 0);
+            pEffect->m_source = pCaster->GetPos();
+            pEffect->m_sourceID = pCaster->m_id;
+            effects.push_back(pEffect);
+        }
+    }
+
+    cSpell.Release();
+    return effects;
+}
+
+// 0x564F80.  The Static Charge engine (opcode 449, res EffCL): one call fires one
+// sky-strike, and the first call (m_effectAmount = the charge count) spreads the
+// remaining strikes over the duration as staggered delayed self-copies.  Each
+// bolt is a CProjectileCallLightningStrike armed to hit the caster's enemies,
+// carrying the EffCL sub-spell's effects, fired at the caster's position (where
+// it gathers and strikes nearby victims within its area).
 BOOL IcewindCGameEffectCallLightning::ApplyEffect(CGameSprite* pSprite)
 {
-    Iwd2DebugLog("CALLIGHTNING: ApplyEffect — sprite=%d charges(m_effectAmount)=%d done=%d",
-                 pSprite->m_id, m_effectAmount, m_done);
+    // 1. Spread the remaining strikes as staggered delayed self-copies (one
+    //    strike per copy; copies carry count 0 so they do not re-spread).
+    if (m_effectAmount > 1) {
+        LONG delay = 0x46;
+        for (LONG i = 1; i < m_effectAmount; ++i) {
+            CGameEffect* pCopy = Copy();
+            pCopy->m_duration = delay;
+            pCopy->m_effectAmount = 0;
+            pCopy->m_durationType = 4;   // delayed timing (DAT_008491b0)
+            pCopy->m_casterLevel = m_casterLevel;
+            pSprite->AddEffect(pCopy, 1, TRUE, TRUE);
+            delay += 0x46;
+        }
+    }
+
+    // 2. Fire one strike now.  Lock the source for the operation (the effect is
+    //    self-applied, so the source is the caster itself).
+    CGameObject* pSource;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+            CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        m_done = TRUE;
+        return TRUE;
+    }
+    (void)pSource;
+
+    Iwd2DebugLog("CALLIGHTNING: ApplyEffect fire — charges=%d sprite=%d",
+                 m_effectAmount, pSprite->m_id);
+
+    CProjectileCallLightningStrike* pBolt = new CProjectileCallLightningStrike();
+    pBolt->SetStrikeTargetFilter(pSprite);
+
+    std::list<CGameEffect*> effects =
+        BuildSubSpellEffects(pSprite, m_res, static_cast<BYTE>(m_casterLevel));
+    for (std::list<CGameEffect*>::iterator it = effects.begin(); it != effects.end(); ++it) {
+        (*it)->m_sourceRes = m_sourceRes;
+        pBolt->AddEffect(*it);
+    }
+
+    CPoint pos = pSprite->GetPos();
+    pBolt->Fire(pSprite->m_pArea, pSprite->m_id, pSprite->m_id, pos, 0, 0);
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    m_done = TRUE;
     return TRUE;
 }
 
