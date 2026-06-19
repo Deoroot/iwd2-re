@@ -2362,11 +2362,18 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         return FALSE;
     }
 
-    // Version check â€” support V2.0, V2.2, etc.
-    if (memcmp(pGame + 4, "V2.", 3) != 0) {
+    // Version.  The signature carries the format version ("GAMEV2.0/1/2"); the
+    // loader upgrades older party-creature records to the V2.2 layout on the
+    // fly.  nVersionMode mirrors the binary's internal tag (0x14=V2.0,
+    // 0x15=V2.1, 0x16=V2.2).
+    int nVersionMode = 0x14;
+    if (memcmp(pGame, "GAMEV2.1", 8) == 0) {
+        nVersionMode = 0x15;
+    } else if (memcmp(pGame, "GAMEV2.2", 8) == 0) {
+        nVersionMode = 0x16;
+    } else if (memcmp(pGame + 4, "V2.", 3) != 0) {
         return FALSE;
     }
-    BOOL bVersion22 = (memcmp(pGame + 4, "V2.2", 4) == 0);
 
     // Game time: pData[2] is elapsed seconds, convert to game ticks (*15)
     m_worldTime.m_gameTime = pData[2] * 15;
@@ -2384,21 +2391,24 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     // Party gold (offset 0x18)
     m_gameSave.m_nPartyGold = *reinterpret_cast<DWORD*>(pGame + 0x18);
 
+    // Nightmare mode (offset 0x6C)
+    m_cOptions.m_nNightmareMode = pData[0x1B];
+
     // View area of party member (offset 0x1C)
     SHORT nViewAreaMember = *reinterpret_cast<SHORT*>(pGame + 0x1C);
 
-    // Weather (offset 0x1E)
+    // Weather flags (offset 0x1E)
+    WORD wWeatherFlags = *reinterpret_cast<WORD*>(pGame + 0x1E);
 
     if (bProgressBarInPlace) {
         ProgressBarCallback(312500, FALSE);
     }
 
-    // Weather Unmarshal
-    // CWeather::Unmarshal(pGame + data);
-
     if (bProgressBarInPlace && pData[9] > 1) {
         // ProgressBarCallback for each area
     }
+
+    g_pBaldurChitin->m_pEngineWorld->m_weather.Unmarshal(wWeatherFlags);
 
     // Number of party members (offset 0x24)
     int nPartyMembers = pData[9]; // offset 0x24 / 4 = index 9
@@ -2414,6 +2424,10 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     m_gameSave.m_cResCurrentWorldArea = CResRef(areaResRef);
     m_gameSave.m_nCurrentWorldLink = static_cast<DWORD>(pData[0x12]);
 
+    // Area notes visibility, from the configuration flags (offset 0x60, bit 7,
+    // inverted).
+    m_bShowAreaNotes = (~(pData[0x18] >> 7)) & 1;
+
     // Reputation (offset 0x54)
     m_nReputation = static_cast<SHORT>(pData[21]); // offset 0x54 / 4 = 21
 
@@ -2427,32 +2441,45 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     // TODO: Load party members from partyOffset with CCreatureFile
     // Each party member is 0x340 (832) bytes in V2.2, 0x220 in V2.1, 0x180 in V2.0
     if (nPartyMembers > 0 && partyOffset > 0) {
-        int memberSize = 0x180; // V2.0 default
-        if (memcmp(pGame + 4, "V2.2", 4) == 0) {
-            memberSize = 0x340;
-        } else if (memcmp(pGame + 4, "V2.1", 4) == 0) {
-            memberSize = 0x220;
-        }
+        int memberSize = (nVersionMode == 0x16) ? 0x340
+                       : (nVersionMode == 0x15) ? 0x220
+                                                : 0x180;
 
         BYTE* pMember = pGame + partyOffset;
         for (int i = 0; i < nPartyMembers && i < 6; i++) {
+            // Upgrade pre-V2.2 records to the canonical 0x340 layout; V2.2 reads
+            // the on-disk record in place.  All field offsets below are V2.2.
+            CSavedGamePartyCreature canonical;
+            BYTE* pRecord;
+            if (nVersionMode == 0x14) {
+                BYTE record21[0x220] = { 0 };
+                UpgradePartyCreatureRecord20To21(pMember, record21);
+                UpgradePartyCreatureRecord21To22(record21, reinterpret_cast<BYTE*>(&canonical));
+                pRecord = reinterpret_cast<BYTE*>(&canonical);
+            } else if (nVersionMode == 0x15) {
+                UpgradePartyCreatureRecord21To22(pMember, reinterpret_cast<BYTE*>(&canonical));
+                pRecord = reinterpret_cast<BYTE*>(&canonical);
+            } else {
+                pRecord = pMember;
+            }
+
             // Verified offsets from hex dump:
             // +0x00: u16 selectionState, +0x02: u16 slotIndex (0-based)
             // +0x04: u32 creOffset, +0x08: u32 creSize
             // +0x14: u32 facing, +0x18: char[8] areaRef
             // +0x20: u16 posX, +0x22: u16 posY
 
-            int slotIndex = *reinterpret_cast<unsigned short*>(pMember + 2);
-            int creOffset = *reinterpret_cast<int*>(pMember + 4);
-            int creSize   = *reinterpret_cast<int*>(pMember + 8);
-            short facing  = static_cast<short>(*reinterpret_cast<int*>(pMember + 0x14));
+            int slotIndex = *reinterpret_cast<unsigned short*>(pRecord + 2);
+            int creOffset = *reinterpret_cast<int*>(pRecord + 4);
+            int creSize   = *reinterpret_cast<int*>(pRecord + 8);
+            short facing  = static_cast<short>(*reinterpret_cast<int*>(pRecord + 0x14));
 
             char areaRef[9];
-            memcpy(areaRef, pMember + 0x18, 8);
+            memcpy(areaRef, pRecord + 0x18, 8);
             areaRef[8] = 0;
 
-            short posX = *reinterpret_cast<short*>(pMember + 0x20);
-            short posY = *reinterpret_cast<short*>(pMember + 0x22);
+            short posX = *reinterpret_cast<short*>(pRecord + 0x20);
+            short posY = *reinterpret_cast<short*>(pRecord + 0x22);
 
             // Create CGameSprite from embedded CRE data
             if (creOffset > 0 && creSize > 0 && creOffset + creSize <= nGame) {
@@ -2467,11 +2494,11 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
                         pSprite->SetResRef(CResRef(reinterpret_cast<char*>(pCreData + 0x280)));
 
                         char szName[SCRIPTNAME_SIZE + 1];
-                        memcpy(szName, pMember + 0x1BE, SCRIPTNAME_SIZE);
+                        memcpy(szName, pRecord + 0x1BE, SCRIPTNAME_SIZE);
                         szName[SCRIPTNAME_SIZE] = '\0';
                         pSprite->m_sName = szName;
 
-                        pSprite->Unmarshal(reinterpret_cast<CSavedGamePartyCreature*>(pMember), TRUE, bProgressBarInPlace);
+                        pSprite->Unmarshal(reinterpret_cast<CSavedGamePartyCreature*>(pRecord), TRUE, bProgressBarInPlace);
 
                         if (i == nViewAreaMember && pSprite->m_pArea != NULL) {
                             m_visibleArea = pSprite->m_pArea->m_id;
