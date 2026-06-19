@@ -11,19 +11,29 @@ binary builds `dir + file`; FindFile never matched -> nDrive lost the resident
 bit -> loading-bar overshoot. parity stayed GREEN. Found only via a Frida diff.
 
   arg_provenance.py 0xADDR|Class::Method      audit one function
-  arg_provenance.py --sweep                   every recovered fn calling the callee
+  arg_provenance.py 0xADDR|Name --check       diff binary order vs source `A + B`
+  arg_provenance.py --sweep [--check]         every recovered fn calling the callee
       [--callee 0xADDR]   order-sensitive target (default 0x7fcdfd =
                           CString operator+(const CString&,const CString&))
       [--args N]          callee arg count (default 3: NRV result + a + b)
       [--nrv]             arg0 is the hidden return slot (default on for operator+)
 
-Per site it prints the operand provenance IN BINARY ORDER. The binary is ground
-truth -- pair the printed order against your source's `a + b` and confirm they
-agree. Provenance classes (param{k} / loc / this+off / ret(fn) / imm) make the
-pairing a one-line eyeball even when both operands are CStrings.
+Default mode prints the operand provenance IN BINARY ORDER (the ground truth);
+provenance classes (param{k} / loc / this+off / ret(fn) / imm, origin-traced)
+make pairing against source a one-line eyeball.
+
+--check parses the source `A + B` operands (param/member/local/ret from the
+signature + CString decls), aligns them with the binary sites in order, and tags
+each OK / review / SWAP?. It is a TRIAGE aid: PARAM stays strict so a real
+param<->x reversal flags, and it never reports SWAP? unless the direct order
+fails AND the reversed order fits -- so false alarms are by-design near zero.
+LIMIT: the source side is a regex parser, not a C++ front-end -- when its concat
+count != the binary's it prints COUNT MISMATCH -> review (the binary order is
+still correct; pair it by hand). Aligned sites are reliable.
 """
 
 import os
+import re
 import sys
 
 import capstone
@@ -348,6 +358,254 @@ def print_hits(lo, name, hits, argc, nrv):
     return len(hits)
 
 
+def site_operand_classes(hits, nrv):
+    """Per operator+ site (address order): (site, [class_a, class_b, ...])."""
+    out = []
+    for site, args in hits:
+        operands = list(reversed(args[:-1])) if nrv else list(reversed(args))
+        out.append((site, [cls(p) for p in operands]))
+    return out
+
+
+# ---- source side: classify `A + B` operands to diff against the binary order ---
+
+def _split_top(expr, sep):
+    """Split on top-level `sep`, respecting (), [], {} and string literals."""
+    out, depth, i, start, instr = [], 0, 0, 0, None
+    while i < len(expr):
+        c = expr[i]
+        if instr:
+            if c == instr:
+                j, bs = i - 1, 0           # even # of preceding backslashes = real close
+                while j >= 0 and expr[j] == "\\":
+                    bs += 1
+                    j -= 1
+                if bs % 2 == 0:
+                    instr = None
+        elif c in ('"', "'"):
+            instr = c
+        elif c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        elif depth == 0 and expr[i:i + len(sep)] == sep:
+            if sep == "+" and (expr[i + 1:i + 2] in ("+", "=") or expr[i - 1:i] == "+"):
+                i += 1
+                continue
+            out.append(expr[start:i])
+            start = i + len(sep)
+            i += len(sep)
+            continue
+        i += 1
+    out.append(expr[start:])
+    return out
+
+
+def _paren_groups(expr):
+    out, depth, start = [], 0, None
+    for i, c in enumerate(expr):
+        if c == "(":
+            if depth == 0:
+                start = i + 1
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0 and start is not None:
+                out.append(expr[start:i])
+                start = None
+    return out
+
+
+def _classify_src(tok, params, locals_):
+    t = tok.strip().strip("()").strip()
+    if not t:
+        return "?"
+    if t[0] in "\"'":
+        return "LITERAL"
+    if t[0].isdigit() or t[0] == "-":
+        return "IMM"
+    if "(" in t:                                    # call / cast result
+        return "RET"
+    m = re.match(r"\w+", t)
+    root = m.group(0) if m else ""
+    if root in params:
+        return "PARAM"
+    if root.startswith("m_") or "->m_" in t or ".m_" in t or t.startswith("this->"):
+        return "MEMBER"
+    if root.startswith("g_") or "::" in t:
+        return "GLOBAL"
+    if root in locals_:
+        return "LOCAL"
+    if "." in t or "->" in t or "[" in t:
+        return "?"
+    return "LOCAL"                                   # bare identifier: assume local
+
+
+def _is_noncstring(tok):
+    """A `+` operand that is pointer/integer arithmetic, not a CString concat."""
+    t = tok.strip()
+    return bool(re.search(r"_cast<|\((?:char|BYTE|unsigned|int|DWORD|WORD|LONG|short)\b", t)) \
+        or t.lstrip("-").isdigit()
+
+
+def _is_cstring_ish(tok, locals_):
+    """An operand plausibly of CString type (so the `+` is a concat, not int/ptr
+    arithmetic): a string literal, a declared CString local, a string-Hungarian
+    name (m_sX / sX / szX / strX), or a call result (may return CString)."""
+    t = tok.strip().strip("()").strip()
+    if t[:1] in ("\"", "'") or "(" in t:
+        return True
+    m = re.match(r"\w+", t)
+    root = m.group(0) if m else ""
+    return (root in locals_ or root.startswith(("m_s", "sz", "str"))
+            or bool(re.match(r"s[A-Z]", root)))
+
+
+def _chain_sites(ops, params, locals_):
+    """ops = top-level `+`-split operand texts. Emit (lclass, rclass) per
+    CString+CString (0x7fcdfd) site: a `+` whose right operand is non-literal and
+    whose left (an operand, or the accumulated temp) is non-literal too. A
+    `+ "lit"` is the LPCTSTR overload (different callee) and does not emit a site,
+    but the running value stays a non-literal temp. Pointer/int `+` is skipped."""
+    sites = []
+    for i in range(1, len(ops)):
+        left_text = ops[0] if i == 1 else ops[i - 1]
+        if _is_noncstring(ops[i]) or (i == 1 and _is_noncstring(ops[0])):
+            continue
+        if not (_is_cstring_ish(left_text, locals_) or _is_cstring_ish(ops[i], locals_)):
+            continue                                # neither operand is a CString -> int/ptr +
+        rclass = _classify_src(ops[i], params, locals_)
+        if i == 1:
+            lclass = _classify_src(ops[0], params, locals_)
+            left_nonlit = lclass != "LITERAL"
+        else:
+            lclass, left_nonlit = "RET", True
+        if rclass != "LITERAL" and left_nonlit:
+            sites.append((lclass, rclass))
+    return sites
+
+
+def _find_concats(expr, params, locals_, sites):
+    ops = [o.strip() for o in _split_top(expr, "+")]
+    if len(ops) >= 2:
+        sites.extend(_chain_sites(ops, params, locals_))
+    for sub in _paren_groups(expr):                 # recurse into call args / groups
+        for arg in _split_top(sub, ","):
+            if "+" in arg:
+                _find_concats(arg, params, locals_, sites)
+
+
+def parse_params(sig, body):
+    text = sig if "(" in sig else body.split("\n", 1)[0]
+    m = re.search(r"\((.*)\)", text)
+    if not m:
+        return set()
+    params = set()
+    for part in _split_top(m.group(1), ","):
+        ids = re.findall(r"\w+", part)
+        if ids and part.strip() not in ("void", ""):
+            params.add(ids[-1])
+    return params
+
+
+def fn_source(name):
+    """(params, CString-locals, comment-stripped body) for a recovered fn, via
+    src_find.py's index line + the .cpp slice. None if not found."""
+    import subprocess
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        out = subprocess.run([sys.executable, os.path.join(repo, "scripts", "src_find.py"), name],
+                             capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return None
+    m = re.search(r"(\S+\.(?:cpp|h)):\d+\s+0x[0-9a-fA-F]+\s+\[(\d+)-(\d+)\]\s+(.*)", out)
+    if not m:
+        return None
+    rel, start, end, sig = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
+    try:
+        lines = open(os.path.join(repo, rel)).read().splitlines()
+    except Exception:
+        return None
+    body = re.sub(r"//.*", "", "\n".join(lines[start - 1:end]))
+    params = parse_params(sig, body)
+    # CString names = CString-typed params + CString locals (incl multi-decl) --
+    # drives both the concat filter and LOCAL classification, so non-Hungarian
+    # CStrings (e.g. `a3`) aren't mistaken for int/ptr operands.
+    cstring = set()
+    sigtext = sig if "(" in sig else body.split("\n", 1)[0]
+    pm = re.search(r"\((.*)\)", sigtext)
+    if pm:
+        for part in _split_top(pm.group(1), ","):
+            if "CString" in part:
+                ids = re.findall(r"\w+", part)
+                if ids:
+                    cstring.add(ids[-1])
+    for decl in re.findall(r"\bCString\s+(\w+(?:\s*,\s*\w+)*)\s*[;=]", body):
+        cstring |= {w for w in re.split(r"\W+", decl) if w}
+    return params, cstring, body
+
+
+def source_concat_sites(name):
+    src = fn_source(name)
+    if not src:
+        return None
+    params, locals_, body = src
+    if "{" in body and "}" in body:                 # isolate fn body from signature
+        body = body[body.find("{") + 1: body.rfind("}")]
+    sites = []
+    for stmt in re.split(r";", body):
+        if "+" in stmt:
+            _find_concats(re.sub(r"\breturn\b", " ", stmt), params, locals_, sites)
+    return sites
+
+
+def _compat(b, s):
+    """Is binary class `b` consistent with source class `s` (loose, to avoid
+    false swaps -- a swap is only reported when the DIRECT order fails)."""
+    if b == "?" or s == "?":
+        return True
+    if b == s:
+        return True
+    # a binary operand origin-traced to a member/global often appears as a plain
+    # local (a copy) in source -- treat those as consistent. PARAM stays strict
+    # (it is the strongest swap signal), so a real param<->x reversal still flags.
+    ok = {("IMM", "LITERAL"), ("GLOBAL", "MEMBER"), ("RET", "LOCAL"),
+          ("GLOBAL", "LOCAL"), ("RET", "MEMBER"), ("MEMBER", "LOCAL")}
+    return (b, s) in ok or (s, b) in ok
+
+
+def cmd_check(addr, callee, argc, nrv, quiet=False):
+    """Diff binary operand order vs source `A + B` order; flag SWAP? on mismatch."""
+    lo, name, hits = audit_fn(addr, callee, argc, nrv)
+    binsites = site_operand_classes(hits, nrv)
+    src = source_concat_sites(name)
+    n_ok = n_rev = n_swap = 0
+    out = []
+    if src is None:
+        out.append("  (no source)")
+        n_rev = len(binsites)
+    elif len(src) != len(binsites):
+        out.append(f"  COUNT MISMATCH binary={len(binsites)} source={len(src)} -> review")
+        n_rev = max(len(binsites), len(src))
+    else:
+        for (site, bcl), (sl, sr) in zip(binsites, src):
+            b = (bcl + ["?", "?"])[:2]
+            direct = _compat(b[0], sl) and _compat(b[1], sr)
+            swap = _compat(b[0], sr) and _compat(b[1], sl)
+            if direct:
+                tag = "OK"; n_ok += 1
+            elif swap:
+                tag = "SWAP?"; n_swap += 1
+            else:
+                tag = "review"; n_rev += 1
+            out.append(f"  +{site - lo:#06x}  bin[{b[0]} {b[1]}]  src[{sl} {sr}]  {tag}")
+    if not quiet or n_swap or n_rev:
+        print(f"{name}  {lo:#x}")
+        for ln in out:
+            print(ln)
+    return n_ok, n_rev, n_swap
+
+
 def main():
     args = sys.argv[1:]
     callee = OP_CONCAT
@@ -365,21 +623,28 @@ def main():
         nrv = True
         args.remove("--nrv")
 
+    check = "--check" in args
+    if check:
+        args.remove("--check")
+
     if "--sweep" in args:
         args.remove("--sweep")
-        sweep(callee, argc, nrv)
+        sweep(callee, argc, nrv, check)
         return
 
     if not args:
         print(__doc__)
         return
     addr = resolve_name(args[0])
+    if check:
+        cmd_check(addr, callee, argc, nrv)
+        return
     lo, name, hits = audit_fn(addr, callee, argc, nrv)
     print(f"{name}  {lo:#x}  ({len(hits)} operator+ site(s))")
     print_hits(lo, name, hits, argc, nrv)
 
 
-def sweep(callee, argc, nrv):
+def sweep(callee, argc, nrv, check=False):
     # all call sites to callee, grouped by containing recovered fn
     import collections
     sites = collections.defaultdict(list)
@@ -398,6 +663,13 @@ def sweep(callee, argc, nrv):
                 if nm and not nm.startswith("FUN_"):
                     sites[(lo, nm)].append(site)
             off = data.find(b"\xe8", off + 1)
+    if check:
+        t_ok = t_rev = t_swap = 0
+        for (lo, nm), sl in sorted(sites.items()):
+            o, r, s = cmd_check(lo, callee, argc, nrv, quiet=True)
+            t_ok += o; t_rev += r; t_swap += s
+        print(f"\n== check: {t_ok} OK, {t_rev} review, {t_swap} SWAP? across {len(sites)} recovered fns ==")
+        return
     total = 0
     for (lo, nm), sl in sorted(sites.items()):
         _, _, hits = audit_fn(lo, callee, argc, nrv)
