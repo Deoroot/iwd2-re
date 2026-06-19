@@ -2582,6 +2582,55 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         ReputationAdjustment(100, TRUE);
     }
 
+    // --- View / interface restore (host, installed) ---------------------------
+    // The host rebuilds the world viewport and the two world-screen panels from
+    // the saved configuration flags (header 0x60).  Bits 0x20 / 0x40 select one
+    // of two mutually-exclusive panel layouts -- each re-derives the view rect
+    // from GetNewViewSize() and a CInfinity reference rect, forces the resize,
+    // and invalidates the UI -- while bit 0x10 independently snaps the view to
+    // the full 800x600 rect.  Gated on m_bIsHost && m_nInstallType.  Untestable
+    // on the slot-3 save (its configuration flags are 0, so every branch skips);
+    // recovered faithfully from 0x5A8F40.
+    if (g_pBaldurChitin->cNetwork.m_bIsHost == 1 && g_pBaldurChitin->m_nInstallType != 0) {
+        CScreenWorld* pScreen = g_pBaldurChitin->m_pEngineWorld;
+        UTIL_ASSERT(pScreen != NULL);
+
+        CRect rViewSize = pScreen->GetNewViewSize();
+        CUIPanel* pPanel1 = pScreen->GetManager()->GetPanel(1);
+        CUIPanel* pPanel2 = pScreen->GetManager()->GetPanel(pScreen->GetPanel_22_0());
+
+        DWORD nConfiguration = static_cast<DWORD>(pData[0x18]); // header offset 0x60
+
+        if (nConfiguration & 0x20) {
+            pScreen->field_11F0 = 0;
+            pScreen->field_11F8 = rViewSize.bottom;
+            pPanel1->m_bActive = FALSE;
+            CInfinity::stru_8E79B8.bottom = CInfinity::stru_8E79E0.bottom;
+            pScreen->SetNewViewSize(
+                CRect(rViewSize.left, rViewSize.top, rViewSize.right, CInfinity::stru_8E79E0.bottom),
+                FALSE);
+            pScreen->GetManager()->InvalidateRect(NULL);
+        } else if (nConfiguration & 0x40) {
+            pScreen->field_11FC = rViewSize.bottom;
+            pScreen->field_11F4 = 0;
+            pPanel2->m_bActive = FALSE;
+            pPanel1->m_ptOrigin.x = pPanel1->m_ptBaseOrigin.x;
+            pPanel1->m_ptOrigin.y = pPanel1->m_ptBaseOrigin.y + pPanel2->m_size.cy;
+            pPanel1->m_bActive = TRUE;
+            CInfinity::stru_8E79B8.bottom = CInfinity::stru_8E79C8.bottom;
+            pScreen->SetNewViewSize(
+                CRect(rViewSize.left, rViewSize.top, rViewSize.right, CInfinity::stru_8E79C8.bottom),
+                FALSE);
+            pScreen->GetManager()->InvalidateRect(NULL);
+        }
+
+        if (nConfiguration & 0x10) {
+            pScreen->GetManager()->m_bHidden = TRUE;
+            pScreen->field_11D0 = rViewSize;
+            pScreen->SetNewViewSize(CInfinity::stru_8E7548, FALSE);
+        }
+    }
+
     // Party inventory (header 0x2C count, 0x14-byte records): the binary accounts
     // its size here but loads it elsewhere.  (cnt += pData[0x2C] * 0x14.)
     cnt += static_cast<DWORD>(pData[0x0B]) * 0x14; // 0x2C / 4 = 0x0B
