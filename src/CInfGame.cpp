@@ -2445,13 +2445,17 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
                             m_visibleArea = pSprite->m_pArea->m_id;
                         }
 
+                        // Party slot -> char-id map for the portrait UI.  The
+                        // visibility-map registration and m_characterPortraits /
+                        // m_nCharacters bookkeeping are done by AddCharacterToParty
+                        // inside pSprite->Unmarshal (called above, before the sprite's
+                        // AddToArea); do NOT pre-bump m_nCharacters here -- doing so
+                        // tripped AddCharacterToParty's `m_nCharacters >= MAX` guard for
+                        // the later party members, so they never registered in the
+                        // visibility map (invisible enemies / unrevealed bolt).
                         LONG nIndex = pSprite->m_id;
                         if (slotIndex >= 0 && slotIndex < 6) {
                             m_characters[slotIndex] = nIndex;
-                            m_characterPortraits[slotIndex] = nIndex;
-                            if (static_cast<SHORT>(slotIndex + 1) > m_nCharacters) {
-                                m_nCharacters = static_cast<SHORT>(slotIndex + 1);
-                            }
                         }
                     }
                 }
