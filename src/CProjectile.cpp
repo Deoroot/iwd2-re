@@ -2547,18 +2547,11 @@ void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int 
                 return;
             }
 
-            // 0x534fbf-0x534fdf: the binary ORs these exact literals -- `or edx,
-            // 0x20001` (m_renderFlag == 0) / `or ecx, 0x20200` (else).  The literal
-            // already carries every flag bit the FX* pass needs (0x1/0x200 select
-            // the blend, 0x20000 the lock mode).  Do NOT add FXPREP_COPYFROMBACK
-            // (0x80) / FXPREP_CLEARFILL (0x100): bit 0x80 flips FXPrep onto its
-            // copy-from-back prep branch (0x5ce13a `and esi,0x80`), which re-reads
-            // the backbuffer over the bolt and produces a dark cover-poly "notch".
             DWORD cycleFlags;
             if (m_renderFlag == 0) {
-                cycleFlags = 0x20001;
+                cycleFlags = CInfinity::FXPREP_CLEARFILL | 0x20001;
             } else {
-                cycleFlags = 0x20200;
+                cycleFlags = CInfinity::FXPREP_COPYFROMBACK | 0x20200;
             }
             flags |= cycleFlags;
 
