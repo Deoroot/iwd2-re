@@ -2544,6 +2544,36 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         m_cJournal.ClearAllEntries();
         m_cJournal.Unmarshal(reinterpret_cast<CSavedGameJournalEntry*>(pGame + nJournalOffset), nJournalCount);
     }
+
+    // Familiars (header offset 0x68).  Section at pGame + offset:
+    //   +0x00  default familiar resrefs (9 x RESREF = 0x48 bytes)
+    //   +0x48  offset (from pGame) to the packed resref data block
+    //   +0x4C  per-list counts (9 alignments x 9 levels = 81 DWORDs)
+    //   data   resref entries, 8 bytes each, packed in [alignment][level] order
+    // and indexed by a single running counter shared across every list.
+    DWORD nFamiliarsOffset = static_cast<DWORD>(pData[0x1A]); // 0x68 / 4 = 0x1A
+    if (nFamiliarsOffset != 0) {
+        BYTE* pFamiliars = pGame + nFamiliarsOffset;
+        memcpy(m_defaultFamiliarResRefs, pFamiliars, sizeof(m_defaultFamiliarResRefs));
+
+        DWORD nResRefDataOffset = *reinterpret_cast<DWORD*>(pFamiliars + 0x48);
+        DWORD* pCounts = reinterpret_cast<DWORD*>(pFamiliars + 0x4C);
+        BYTE* pResRefData = pGame + nResRefDataOffset;
+
+        int nResRef = 0;
+        for (int nAlignment = 0; nAlignment < 9; nAlignment++) {
+            for (int nLevel = 0; nLevel < 9; nLevel++) {
+                for (DWORD nCount = *pCounts; nCount != 0; nCount--) {
+                    CResRef* pResRef = new CResRef(
+                        reinterpret_cast<char*>(pResRefData + nResRef * 8));
+                    m_familiarResRefs[nAlignment][nLevel].AddTail(pResRef);
+                    nResRef++;
+                }
+                pCounts++;
+            }
+        }
+    }
+
     // TODO: Load inventory
 
     return TRUE;
