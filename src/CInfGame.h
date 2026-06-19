@@ -94,6 +94,38 @@ public:
     /* 0048 */ UINT m_nHighestLevel;
 };
 
+// 0x18 bytes.  In-memory node type for CInfGame::field_4BDC, the pocket-plane
+// "stored locations" list (each entry records where a party member was before
+// entering the pocket plane so they can be returned).  BG2 stored the area as a
+// fixed RESREF[8]; IWD2 widened it to a variable-length CString that the on-disk
+// record carries as a length-prefixed blob following the fixed fields.  The
+// odd field offsets (+0x09, +0x0D ...) mean the record is byte-packed.
+#pragma pack(push, 1)
+class CSavedGameStoredLocation {
+public:
+    CSavedGameStoredLocation()
+        : m_areaName(),
+          field_4(0),
+          field_8(0),
+          field_9(0),
+          field_D(0),
+          field_11(0),
+          field_15(0),
+          field_17(0)
+    {
+    }
+
+    /* 0000 */ CString m_areaName;
+    /* 0004 */ DWORD field_4;
+    /* 0008 */ BYTE field_8;
+    /* 0009 */ DWORD field_9;
+    /* 000D */ DWORD field_D;
+    /* 0011 */ DWORD field_11;
+    /* 0015 */ WORD field_15;
+    /* 0017 */ BYTE field_17;
+};
+#pragma pack(pop)
+
 class CInfGame {
 public:
     static const SHORT KILL_INNOCENT;
@@ -483,7 +515,7 @@ public:
     /* 4BD5 */ BOOLEAN m_bExpansion; // NOTE: Can also be BYTE indicating number of expansion pack.
     /* 4BD6 */ BOOLEAN field_4BD6;
     /* 4BD8 */ DWORD m_nDifficultyLevel;
-    /* 4BDC */ CTypedPtrList<CPtrList, CString*> field_4BDC;
+    /* 4BDC */ CTypedPtrList<CPtrList, CSavedGameStoredLocation*> field_4BDC;
     /* 4BF8 */ CSpellResRefList m_spells;
     /* 4C00 */ CSpellResRefList m_innateSpells;
     /* 4C08 */ CSpellResRefList m_songs;

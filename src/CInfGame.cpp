@@ -1372,7 +1372,7 @@ void CInfGame::DestroyGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInP
     POSITION pos = field_4BDC.GetHeadPosition();
     while (pos != NULL) {
         POSITION posOld = pos;
-        CString* node = field_4BDC.GetNext(pos);
+        CSavedGameStoredLocation* node = field_4BDC.GetNext(pos);
         if (node != NULL) {
             delete node;
         }
