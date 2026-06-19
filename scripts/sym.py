@@ -10,8 +10,12 @@
   sym.py vtable 0xADDR [slots=16]      dump vtable slots resolved to names
   sym.py addr2fn 0xADDR                containing function (address_map bisect) + src file:line
   sym.py crash  dump.dmp [N] [--loose]  minidump: exception + symbolicated stack scan (--loose for our-build dumps)
+  sym.py exe                           show resolved binary + md5 + canonical verdict
 
-EXE: host copy (same bytes as VM), ImageBase 0x400000, no ASLR.
+EXE: the CANONICAL pristine IWD2.exe Ghidra imported (md5 25cb3d8a), vendored at
+REPO/.bin/iwd2.exe. The host game install is IWD2EE-modified (patched .data
+strings + .rsrc; .text/.rdata code is byte-identical but .data globals differ),
+so do NOT read it. ImageBase 0x400000, no ASLR.
 Names: .ghidra-exports/address_map.json + src_index.json (file:line join).
 """
 
@@ -23,7 +27,15 @@ import struct
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.environ.get("IWD2_EXE", "/home/wills/Games/Heroic/Icewind Dale 2/IWD2.exe")
+# Canonical = the binary Ghidra imported (md5 below = the VM's pristine
+# C:\GOG Games\Icewind Dale 2\IWD2.exe), vendored at REPO/.bin/iwd2.exe. The host
+# game install is IWD2EE-modified -- code identical, but .data globals/.rsrc/header
+# differ -- so prefer the vendored pristine copy. Override with IWD2_EXE.
+CANONICAL_MD5 = "25cb3d8aa2ec648e94e328d8c467973e"
+_REPO_EXE = os.path.join(REPO, ".bin", "iwd2.exe")
+EXE = os.environ.get("IWD2_EXE") or (
+    _REPO_EXE if os.path.exists(_REPO_EXE)
+    else "/home/wills/Games/Heroic/Icewind Dale 2/IWD2.exe")
 ADDR_MAP = os.path.join(REPO, ".ghidra-exports", "address_map.json")
 SRC_INDEX = os.path.join(REPO, ".ghidra-exports", "src_index.json")
 
@@ -32,11 +44,24 @@ _names = None        # sorted [(va, full_name)]
 _src_loc = None      # full_name -> "file:line"
 
 
+def resolve_exe(path):
+    """Case-insensitive resolve: filesystems vary (IWD2.exe vs iwd2.exe)."""
+    if os.path.exists(path):
+        return path
+    d, base = os.path.split(path)
+    if d and os.path.isdir(d):
+        low = base.lower()
+        for f in os.listdir(d):
+            if f.lower() == low:
+                return os.path.join(d, f)
+    return path  # let pefile raise a clear FileNotFoundError
+
+
 def pe():
     global _pe
     if _pe is None:
         import pefile
-        _pe = pefile.PE(EXE, fast_load=True)
+        _pe = pefile.PE(resolve_exe(EXE), fast_load=True)
     return _pe
 
 
@@ -293,6 +318,25 @@ def cmd_crash(path, frames=12, loose=False):
             print(f"  0x{sa:08x}: 0x{v:08x}  {nm}")
 
 
+def cmd_exe():
+    import hashlib
+    path = resolve_exe(EXE)
+    print(f"path: {path}")
+    if not os.path.exists(path):
+        print("status: MISSING")
+        sys.exit(1)
+    data = open(path, "rb").read()
+    md5 = hashlib.md5(data).hexdigest()
+    print(f"size: {len(data)}  md5: {md5}")
+    if md5 == CANONICAL_MD5:
+        print("status: CANONICAL (matches the binary Ghidra imported)")
+    else:
+        print(f"status: NON-CANONICAL (expected md5 {CANONICAL_MD5})")
+        print("  -> likely the IWD2EE-modified host install; vendor the pristine")
+        print("     VM copy to REPO/.bin/iwd2.exe or set IWD2_EXE.")
+        sys.exit(1)
+
+
 def main():
     args = sys.argv[1:]
     if not args or args[0] in ("-h", "--help"):
@@ -318,6 +362,8 @@ def main():
             cmd_vtable(parse_addr(rest[0]), int(rest[1]) if len(rest) > 1 else 16)
         elif cmd == "addr2fn":
             cmd_addr2fn(parse_addr(rest[0]))
+        elif cmd == "exe":
+            cmd_exe()
         elif cmd == "crash":
             loose = "--loose" in rest
             pos = [a for a in rest if not a.startswith("--")]

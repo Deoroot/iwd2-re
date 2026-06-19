@@ -441,3 +441,7 @@ FodyWeavers.xsd
 /ghidra-bridge.host.yaml
 /data/pdb/bg2_pdb.sqlite
 data/ghidra/IWD2_rep.zip
+
+# Canonical pristine IWD2.exe (md5 25cb3d8a) pulled from VM = the binary Ghidra imported.
+# Host game install is IWD2EE-modified (.data strings/.rsrc differ; code identical).
+/.bin/
