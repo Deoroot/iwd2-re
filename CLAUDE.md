@@ -71,7 +71,7 @@ Don't invent code. Rank of ground truth:
 **"Function not found" / "no export" on a VALID addr** = no fn defined there (vtable-only callee). Fix: ensure `// 0xADDR` in source (stub if new) → `python scripts/reagent_address_map.py --out .ghidra-exports/address_map.json` → `gb export create-functions` (~10 min, re-exports all).
 ⚠️ NEVER `gb build-map` — overwrites the map with an EMPTY one.
 
-**Parity** = faithfulness lint (13 signals + objective verifier). Run from repo root:
+**Parity** = faithfulness lint (14 signals + objective verifier). Run from repo root:
 
 ```bash
 .venv-reagent/bin/re-agent --config re-agent.host.yaml parity --address 0xADDR

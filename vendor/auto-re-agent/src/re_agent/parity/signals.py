@@ -510,6 +510,56 @@ def check_param_swap(
     )
 
 
+def check_concat_swap(
+    source: SourceMatch | None = None,
+    entry: HookEntry | None = None,
+    inline_skip: bool = False,
+    **_kw: object,
+) -> Finding | None:
+    """Operand-ORDER faithfulness at CString operator+ sites. `a + b` and `b + a`
+    call the same operator the same number of times, so call-count signals are
+    blind to a swap (the CDimm::FindFileInDirectoryList dir/file bug that took a
+    Frida diff to find). Delegates to scripts/arg_provenance.py --check, which
+    diffs the binary push order against the source `A + B` order; SWAP? = the
+    direct order fails AND the reversed order fits (PARAM kept strict)."""
+    if source is None or entry is None or inline_skip:
+        return None
+    addr = getattr(entry, "address", None)
+    if not addr:
+        return None
+    import subprocess
+    import sys
+
+    roots = [Path.cwd(), *Path(__file__).resolve().parents]
+    script = next(
+        (r / "scripts" / "arg_provenance.py" for r in roots if (r / "scripts" / "arg_provenance.py").is_file()),
+        None,
+    )
+    if script is None:
+        return None
+    try:
+        out = subprocess.run(
+            [sys.executable, str(script), str(addr), "--check"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+    except Exception:
+        return None
+    swaps = [ln.strip() for ln in out.splitlines() if ln.strip().endswith("SWAP?")]
+    if not swaps:
+        return None
+    return Finding(
+        level="yellow",
+        reason=(
+            "Operand-order swap at a CString operator+ site (binary push order != source "
+            "`A + B` order; call-count signals are blind to this): "
+            + "; ".join(swaps[:3])
+            + f" -- verify with `scripts/arg_provenance.py {addr} --check`"
+        ),
+    )
+
+
 ALL_SIGNALS: list[SignalFn] = [
     check_missing_source,
     check_stub_markers,
@@ -524,4 +574,5 @@ ALL_SIGNALS: list[SignalFn] = [
     check_inline_wrapper,
     check_wrong_member,
     check_param_swap,
+    check_concat_swap,
 ]

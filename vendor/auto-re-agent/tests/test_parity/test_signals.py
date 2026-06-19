@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from re_agent.core.models import GhidraData, HookEntry, SourceMatch
 from re_agent.parity.signals import (
+    ALL_SIGNALS,
     check_call_count_mismatch,
+    check_concat_swap,
     check_fp_sensitivity,
     check_inline_wrapper,
     check_large_asm_tiny_source,
@@ -256,3 +258,18 @@ def test_param_swap_comparison_catches_unbalanced() -> None:
     assert f is not None
     assert f.level == "yellow"
     assert "compares b where the binary compares a" in f.reason
+
+
+def test_concat_swap_registered() -> None:
+    assert check_concat_swap in ALL_SIGNALS
+
+
+def test_concat_swap_guards() -> None:
+    # No source / no entry -> no-op. The positive path (parity flags the
+    # CDimm::FindFileInDirectoryList dir/file operand-order swap) is an integration
+    # test against the binary via scripts/arg_provenance.py --check, validated live.
+    entry = HookEntry(class_path="Cls", fn_name="Fn", address="0x786180",
+                      reversed=True, locked=False, is_virtual=False)
+    assert check_concat_swap(source=None, entry=entry) is None
+    assert check_concat_swap(source=_make_source(), entry=None) is None
+    assert check_concat_swap(source=None, entry=None) is None
