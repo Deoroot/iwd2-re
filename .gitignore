@@ -440,3 +440,4 @@ FodyWeavers.xsd
 /re-agent.host.yaml
 /ghidra-bridge.host.yaml
 /data/pdb/bg2_pdb.sqlite
+data/ghidra/IWD2_rep.zip
