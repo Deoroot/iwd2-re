@@ -2524,6 +2524,14 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         }
     }
 
+    SelectToolbar();
+    SetProtagonist(m_characters[0]);
+    // The reputation is forced to the default (100 == 10.0) on load, except for
+    // a saved campaign (header 0x64 == 3), which keeps the value read above.
+    if (pData[0x19] != 3) {
+        ReputationAdjustment(100, TRUE);
+    }
+
     // TODO: Load non-party characters
 
     DWORD nGlobalVariablesOffset = pData[0x0E];
