@@ -3,7 +3,7 @@
 #
 #   scripts/vm.sh build [--run]        sync+build via remote_build.sh, print ONLY errors/warnings
 #                                      (full log -> tmp_vm_build.log). --run: kill ours + launch s1.
-#   scripts/vm.sh run [slot]           kill ours, launch game in session 1 (default save slot 2)
+#   scripts/vm.sh run [slot]           kill ours, launch game in session 1 (default save slot 3)
 #   scripts/vm.sh smoke [slot]         arc gate: run OUR build + load save (default slot 3) + arm the
 #                                      crash guard; HOLDS the terminal until you've driven the
 #                                      recovered path (press ENTER = RESULT: CLEAN) or it crashes
