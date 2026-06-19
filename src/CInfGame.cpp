@@ -2402,6 +2402,24 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     // Nightmare mode (offset 0x6C)
     m_cOptions.m_nNightmareMode = pData[0x1B];
 
+    // Heart of Fury (nightmare mode == 1) forces the maximum difficulty level on
+    // load and persists it to the INI, so a HoF save can never be reopened at a
+    // lower difficulty.  The difficulty multipliers are reset on the host only.
+    // The m_nDifficultyLevel != 5 guard makes the rewrite idempotent.
+    // (binary 0x5A8035.)
+    if (m_cOptions.m_nNightmareMode == 1 && m_cOptions.m_nDifficultyLevel != 5) {
+        m_cOptions.m_nDifficultyLevel = 5;
+        if (g_pBaldurChitin->cNetwork.m_bIsHost == 1) {
+            m_cOptions.m_nDifficultyMultiplier = 100;
+            m_cOptions.m_nMPDifficultyMultiplier = 100;
+        }
+
+        CString sDifficulty;
+        sDifficulty.Format("%d", 5);
+        WritePrivateProfileStringA("Game Options", "Difficulty Level", sDifficulty,
+            g_pBaldurChitin->GetIniFileName());
+    }
+
     // View area of party member (offset 0x1C)
     SHORT nViewAreaMember = *reinterpret_cast<SHORT*>(pGame + 0x1C);
 
