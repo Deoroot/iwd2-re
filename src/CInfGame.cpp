@@ -1431,7 +1431,67 @@ void CInfGame::ValidateCache()
 // 0x5A04B0
 LONG CInfGame::CachingRequirements(const CString& areaName)
 {
-    return 0;
+    CAreaFile cAreaFile;
+
+    cAreaFile.SetResRef(CResRef(areaName), TRUE, TRUE);
+
+    BYTE* pAreaData = cAreaFile.GetData();
+    if (pAreaData == NULL) {
+        return 0;
+    }
+
+    RESID nWedID = g_pChitin->cDimm.GetResID(CResRef(pAreaData + 8), 1003);
+    CResFile* pResFile = g_pChitin->cDimm.GetResFilePtr(nWedID);
+    cAreaFile.ReleaseData();
+
+    if (pResFile == NULL) {
+        return 0;
+    }
+
+    LONG nTotal;
+
+    if (!g_pChitin->cNetwork.m_bConnectionEstablished) {
+        nTotal = pResFile->GetCacheSize();
+    } else {
+        CString sCacheKey;
+        pResFile->GetCacheKey(sCacheKey);
+
+        CPoint ptLocation;
+        CString sXLabel;
+        CString sYLabel;
+        BOOLEAN bFoundLocation = m_ruleTables.m_tAreaLinkageCaching.Find(sCacheKey, ptLocation, TRUE);
+        BOOLEAN bFoundLabels = m_ruleTables.m_tAreaLinkageCaching.Find(sCacheKey, sXLabel, sYLabel, TRUE);
+        if ((bFoundLocation & bFoundLabels) == 1) {
+            CString sCount = m_ruleTables.m_tAreaLinkageCaching.GetAt(CPoint(0, ptLocation.y));
+            LONG nLinked = atol(sCount.GetBuffer(0));
+            if (nLinked != 0) {
+                // Sum the cache size of every resfile linked to the area.
+                LONG nSum = 0;
+                int nColumn = 0;
+                UINT nResFileID = g_pChitin->cDimm.GetResFileID(sYLabel);
+                if (nLinked >= 0) {
+                    CString sResFile;
+                    do {
+                        CResFile* pLinked = g_pChitin->cDimm.GetResFilePtr(nResFileID);
+                        if (pLinked == NULL) {
+                            break;
+                        }
+                        nSum += pLinked->GetCacheSize();
+                        nColumn++;
+                        sResFile = m_ruleTables.m_tAreaLinkageCaching.GetAt(CPoint(nColumn, ptLocation.y));
+                        nResFileID = g_pChitin->cDimm.GetResFileID(sResFile);
+                    } while (nColumn <= nLinked);
+                }
+                nTotal = nSum;
+            } else {
+                nTotal = pResFile->GetCacheSize();
+            }
+        } else {
+            nTotal = pResFile->GetCacheSize();
+        }
+    }
+
+    return nTotal;
 }
 
 // Loading-screen minibar caching registry.  As an area's linked resfiles are
@@ -1960,19 +2020,7 @@ CGameArea* CInfGame::LoadArea(CString areaName, BYTE nTravelScreenImageToUse, BO
 
                 int v5 = g_pChitin->cDimm.RequestsPendingCount() - v1;
                 if (v5 != v3) {
-                    // HACK: cap this phase's credit at its 5M budget — with
-                    // CacheResFileWithResource (0x5A0950) still a stub, caching
-                    // trickles in DURING this drain loop, so the positive
-                    // deltas sum past v2 and the bar overshoots its end (cap
-                    // mosaic ghosts past the bar) — replaces nothing; remove
-                    // when 0x5A0950 is recovered.
-                    DWORD nCredit = (v3 - v5) * (5000000 / v2);
-                    DWORD nProgress = g_pChitin->cProgressBar.m_nActionProgress;
-                    DWORD nTarget = g_pChitin->cProgressBar.m_nActionTarget;
-                    if (nProgress + nCredit > nTarget) {
-                        nCredit = nTarget > nProgress ? nTarget - nProgress : 0;
-                    }
-                    g_pChitin->cProgressBar.m_nActionProgress += nCredit;
+                    g_pChitin->cProgressBar.m_nActionProgress += (v3 - v5) * (5000000 / v2);
                     v3 = v5;
                     g_pChitin->m_bDisplayStale = TRUE;
                 }
