@@ -176,7 +176,7 @@ BOOL CVidPoly::FillConvexPoly(WORD* pSurface, LONG lPitch, const CRect& rClipRec
         nRightXDir = -1;
         nRightDx = -nRightDx;
     }
-    nRightDy = m_pVertices[nRightIndex].y - nMaxYPt;
+    nRightDy = m_pVertices[nRightIndex].y - nMinYPt;
 
     if (nRightDy > 0) {
         nRightRun = nRightDx / nRightDy;
@@ -193,12 +193,12 @@ BOOL CVidPoly::FillConvexPoly(WORD* pSurface, LONG lPitch, const CRect& rClipRec
         nLeftXDir = -1;
         nLeftDx = -nLeftDx;
     }
-    nLeftDy = m_pVertices[nLeftIndex].y - nMaxYPt;
+    nLeftDy = m_pVertices[nLeftIndex].y - nMinYPt;
 
     if (nLeftDy > 0) {
         nLeftRun = nLeftDx / nLeftDy;
         nLeftAdjUp = nLeftDx % nLeftDy;
-        nLeftErrTerm = nRightAdjUp - nLeftDy;
+        nLeftErrTerm = nLeftAdjUp - nLeftDy;
     } else {
         nLeftRun = nLeftDx;
         nLeftAdjUp = nLeftDx;
