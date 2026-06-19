@@ -11,6 +11,7 @@
 #   scripts/vm.sh log <regex> [-n 50] [-f <vm-path>]
 #                                      Select-String server-side (UTF-16 safe, no iconv), last N
 #   scripts/vm.sh tail [N] [-f <vm-path>]   last N raw lines of the debug log
+#   scripts/vm.sh clearlog [-f <vm-path>]   truncate the debug log (auto-run by run/smoke)
 #   scripts/vm.sh status               cat vm_s1_out.txt (launch/smoke status)
 #   scripts/vm.sh ps                   iwd2/frida processes on the VM
 #   scripts/vm.sh kill [ours|orig|all] taskkill: ours=iwd2-re.exe (default), orig=IWD2.exe.
@@ -34,6 +35,13 @@ ps_quote() { printf "%s" "${1//\'/\'\'}"; }   # double single-quotes for PS sing
 # Feed the PS script over stdin: the VM's default ssh shell is PowerShell itself,
 # so any inline quoting gets a second round of parsing (and eats $_).
 vm_ps() { printf '%s\n' "$1" | ssh "$VM" "powershell -NoProfile -Command -"; }
+
+# Truncate the debug log so the next capture starts clean. Safe to call while the
+# game is down (run/smoke kill our exe first); on a locked file it no-ops.
+clear_log() {
+  local f="${1:-$DEFAULT_LOG}"
+  vm_ps "if (Test-Path '$(ps_quote "$f")') { Clear-Content -Path '$(ps_quote "$f")' -ErrorAction SilentlyContinue }" >/dev/null 2>&1 || true
+}
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
@@ -60,6 +68,7 @@ case "$cmd" in
       scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
     fi
     ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
+    clear_log   # fresh capture each launch (exe is down -> log unlocked)
     ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
     for i in $(seq 1 30); do
       out=$(ssh "$VM" 'cmd /c "type C:\iwd2-re\vm_s1_out.txt 2>nul"' 2>/dev/null || true)
@@ -76,6 +85,7 @@ case "$cmd" in
     sed -i "s/--slot [^ ]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
     scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
     ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
+    clear_log   # fresh capture each launch (exe is down -> log unlocked)
     ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
     echo "==> launching our build (slot $slot), waiting for load..."
     out=""
@@ -143,6 +153,10 @@ case "$cmd" in
     n="${1:-30}"; f="$DEFAULT_LOG"
     [ "${2:-}" = "-f" ] && f="$3"
     vm_ps "Get-Content -Tail $n -Path '$(ps_quote "$f")'"
+    ;;
+  clearlog)
+    f="$DEFAULT_LOG"; [ "${1:-}" = "-f" ] && f="$2"
+    clear_log "$f"; echo "cleared: $f"
     ;;
   status)
     ssh "$VM" 'cmd /c "type C:\iwd2-re\vm_s1_out.txt 2>nul"' || echo "(no vm_s1_out.txt)"
