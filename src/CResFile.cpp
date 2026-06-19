@@ -57,6 +57,71 @@ BOOL CResFile::AddCacheCount()
     return TRUE;
 }
 
+// 0x789a20
+DWORD CResFile::GetCacheSize()
+{
+    CString sCacheDir;
+    CString sResFileName;
+    CString sName;
+    CString sResolvedResFileName;
+    CString sDstFileName;
+    CFile cFile;
+
+    CResCache* pResCache = &g_pChitin->cDimm.cResCache;
+    UTIL_ASSERT(pResCache != NULL);
+    UTIL_ASSERT(pResCache->CacheInitialized());
+
+    if (m_nRefCount != 0) {
+        return 0;
+    }
+
+    char szSavedDirectory[260];
+    if (!_getcwd(szSavedDirectory, sizeof(szSavedDirectory))) {
+        return 0;
+    }
+
+    sCacheDir = pResCache->m_sDirName;
+
+    WORD nDrive;
+    if (!g_pChitin->cDimm.GetResFileName(m_nIndex, sResFileName, nDrive, TRUE)) {
+        return 0;
+    }
+
+    if (g_pChitin->cDimm.m_cKeyTable.m_bInitialized &&
+        m_nIndex < g_pChitin->cDimm.m_cKeyTable.m_nResFiles) {
+        sName = reinterpret_cast<char*>(g_pChitin->cDimm.m_cKeyTable.m_pResFileNameEntries) +
+                g_pChitin->cDimm.m_cKeyTable.m_pResFileNameEntries[m_nIndex].nFileNameOffset;
+    }
+
+    if ((nDrive & 1) != 0 || (nDrive & 0x200) != 0) {
+        return 0;
+    }
+
+    if (!g_pChitin->lAliases.ResolveFileName(sResFileName, sResolvedResFileName)) {
+        return 0;
+    }
+
+    if (!cFile.Open(sResolvedResFileName, CFile::OpenFlags::typeBinary | CFile::OpenFlags::shareDenyWrite, NULL)) {
+        return 0;
+    }
+
+    struct BIFC_HEADER {
+        char szSignature[8];
+        DWORD nUncompressedLength;
+    } bifcHeader;
+
+    DWORD nSize;
+    if (cFile.Read(&bifcHeader, sizeof(bifcHeader)) != sizeof(bifcHeader) ||
+        memcmp(&bifcHeader, "BIFCV1.0", 8) != 0) {
+        nSize = static_cast<DWORD>(cFile.GetLength());
+    } else {
+        nSize = bifcHeader.nUncompressedLength;
+    }
+
+    cFile.Close();
+    return nSize;
+}
+
 // 0x789ce0
 BOOL CResFile::Cache()
 {

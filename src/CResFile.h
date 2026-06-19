@@ -10,6 +10,7 @@ public:
 
     BOOL AddCacheCount();
     BOOL Cache(); // #guess -- inverse of UnCache; caller CInfGame::CacheResFileWithResource
+    DWORD GetCacheSize(); // #guess -- uncompressed/cache size; caller CInfGame::CachingRequirements
     BOOL CloseFile();
     DWORD GetFileSize(RESID resID);
     BOOL OpenFile();
