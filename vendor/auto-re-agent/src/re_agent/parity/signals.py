@@ -407,6 +407,17 @@ def _source_param_names(signature: str) -> list[tuple[str, bool]]:
     return out
 
 
+# A comparison operator with the token as its LEFT operand: `tok <`, `tok >=`, `tok ==`...
+# `<(?!<)` / `>(?!>)` exclude the shift operators; a trailing `->` never matches because the
+# `>` there is preceded by `-`, not the token. Comparisons survive decompilation structurally
+# (unlike arithmetic, which gets reassociated/cast), so this is the stable expression context.
+_CMP_LEFT_RE = "{tok}\\s*(?:==|!=|<=|>=|<(?!<)|>(?!>))"
+
+
+def _is_compared(token: str, body: str) -> bool:
+    return re.search(_CMP_LEFT_RE.format(tok=rf"\b{re.escape(token)}\b"), body) is not None
+
+
 def check_param_swap(
     source: SourceMatch | None = None,
     ghidra: GhidraData | None = None,
@@ -427,50 +438,74 @@ def check_param_swap(
     dbody = full[brace:] if brace >= 0 else full
     m = _decompile_param_max(dhead)
     n = len(params)
-    # Align source slot i to the decompiler's param index. __thiscall -> param_1 is `this`
-    # so src[i] == param_(i+2); a free function -> src[i] == param_(i+1). Any other count
-    # (varargs, decompiler arg-mangling) is not safely alignable -> bail.
-    if m == n + 1:
-        offset = 2
-    elif m == n:
-        offset = 1
-    else:
+    # Align source slot i to the decompiler's param index. Determine the offset from the
+    # CALLING CONVENTION, not the param count: a __thiscall's param_1 is `this` (src[i] ==
+    # param_(i+2)); otherwise src[i] == param_(i+1). Counting is unreliable -- the decompiler
+    # silently drops trailing unused params, so a 3-arg __thiscall can show only param_1..3 and
+    # a count heuristic would misread it as a free function and shift every alignment by one
+    # (the CVidTile::ReadyTexture false positive). Sanity-bail only when the decompiler shows
+    # too few real args to align src[0], or MORE params than the source declares.
+    offset = 2 if "__thiscall" in dhead else 1
+    if m < offset or m > n + offset - 1:
         return None
-    bin_freq = Counter(int(x) for x in _PARAM_TOK_RE.findall(dbody))
     sbody = source.body_no_comments
-    deltas: dict[str, int] = {}
-    for i, (nm, is_scalar) in enumerate(params):
-        # Only by-value scalar params: a swap bug feeds the wrong int into an expression.
-        # Ref/pointer/struct params and any param the source caches into a member or local
-        # (m_x = p; ... use m_x) legitimately diverge in raw count, so they would be spurious
-        # over/under. Skip non-scalars and field/index-accessed names.
-        if not is_scalar or re.search(rf"\b{re.escape(nm)}\s*(?:\.|->|\[)", sbody):
-            continue
-        src_n = len(re.findall(rf"\b{re.escape(nm)}\b", sbody))
-        deltas[nm] = src_n - bin_freq.get(i + offset, 0)
+    # Scalar, by-value, non-field/index-accessed params are the only ones a swap meaningfully
+    # mis-feeds; everything else diverges between source and decompile for benign reasons.
+    considered = [
+        (i, nm)
+        for i, (nm, is_scalar) in enumerate(params)
+        if is_scalar and not re.search(rf"\b{re.escape(nm)}\s*(?:\.|->|\[)", sbody)
+    ]
+
+    bin_freq = Counter(int(x) for x in _PARAM_TOK_RE.findall(dbody))
+    deltas = {nm: len(re.findall(rf"\b{re.escape(nm)}\b", sbody)) - bin_freq.get(i + offset, 0) for i, nm in considered}
+
+    # (1) EXPRESSION MATCHING -- structural, frequency-direction-confirmed. Does each param sit
+    # on the left of a comparison? The binary's `param_(i+offset) <op>` must match the source's
+    # `name_i <op>`. A clean transposition -- exactly one slot the binary compares but the
+    # source does not (Y), and exactly one the source compares but the binary does not (Z) --
+    # is a swapped comparison operand. Comparison structure alone fires on benign idioms
+    # (asserts, member/derived comparisons), so confirm it with the reference shift the swap
+    # must produce: Z is over-referenced (got Y's refs) and Y under-referenced. This is what
+    # catches the nPosZ/nPosY height test regardless of how lopsided the counts are.
+    bin_only: list[str] = []   # binary compares param at this slot, source's name does not
+    src_only: list[str] = []   # source compares this name, binary's param at the slot does not
+    for i, nm in considered:
+        bin_cmp = _is_compared(f"param_{i + offset}", dbody)
+        src_cmp = _is_compared(nm, sbody)
+        if bin_cmp and not src_cmp:
+            bin_only.append(nm)
+        elif src_cmp and not bin_cmp:
+            src_only.append(nm)
+    if (
+        len(bin_only) == 1
+        and len(src_only) == 1
+        and deltas.get(src_only[0], 0) >= 1
+        and deltas.get(bin_only[0], 0) <= -1
+    ):
+        return Finding(
+            level="yellow",
+            reason=(
+                f"Parameter swap in a comparison: source compares {src_only[0]} where the "
+                f"binary compares {bin_only[0]} (aligned param positions, confirmed by the "
+                f"reference shift) -- the wrong argument feeds the test"
+            ),
+        )
+
+    # (2) REFERENCE-FREQUENCY fallback -- catches arithmetic-only swaps with no comparison.
+    # Require exactly ONE over- and ONE under-used scalar param of near-balanced magnitude
+    # (|over+under| <= 1): a swap moves the same refs from one slot to the other. Lopsided or
+    # multi-param imbalance is decompiler-idiom noise (mangled __thiscall, member caching).
     over = sorted(((nm, d) for nm, d in deltas.items() if d >= 2), key=lambda x: -x[1])
     under = sorted(((nm, d) for nm, d in deltas.items() if d <= -2), key=lambda x: x[1])
-    # Require the swap signature: exactly ONE over-used scalar param and exactly ONE
-    # under-used one (the refs that belong to B were spent on A). Magnitudes need NOT be
-    # equal -- a swapped param often has other legit uses too (the real nPosZ/nPosY case is
-    # +2/-3). Multiple over/under = lopsided decompiler noise (mangled __thiscall, inlined
-    # helpers), not a swap; the single-pair + scalar-only gates keep it quiet codebase-wide.
-    if len(over) != 1 or len(under) != 1:
-        return None
-    over_nm, od = over[0]
-    under_nm, ud = under[0]
-    # The over/under magnitudes must be near-balanced (within 1): a swap moves the same
-    # refs from one param's slot to the other, so the gain and the deficit roughly match
-    # (the real nPosZ/nPosY case is +2/-3). A lopsided pair (+2/-11, +6/-2) is one param
-    # legitimately heavy and the other a decompiler-idiom artifact, not a swap.
-    if abs(od + ud) > 1:
+    if len(over) != 1 or len(under) != 1 or abs(over[0][1] + under[0][1]) > 1:
         return None
     return Finding(
         level="yellow",
         reason=(
-            f"Possible parameter swap: source over-references {over_nm}(+{od}) and "
-            f"under-references {under_nm}({ud}) at aligned param positions -- verify the "
-            f"correct argument feeds each expression"
+            f"Possible parameter swap: source over-references {over[0][0]}(+{over[0][1]}) and "
+            f"under-references {under[0][0]}({under[0][1]}) at aligned param positions -- verify "
+            f"the correct argument feeds each expression"
         ),
     )
 

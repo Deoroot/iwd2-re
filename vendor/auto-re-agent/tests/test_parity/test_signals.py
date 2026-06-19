@@ -220,8 +220,39 @@ def test_param_swap_clean_on_faithful() -> None:
     assert check_param_swap(source=src, ghidra=gh) is None
 
 
-def test_param_swap_bails_without_alignment() -> None:
-    # decompiler param count neither n nor n+1 -> not safely alignable
-    gh = _make_ghidra(decompiled="int F(int param_1,int param_2)\n{ param_1; param_2; }")
+def test_param_swap_bails_on_arg_count_mismatch() -> None:
+    # decompiler shows MORE params than the source declares (7) -> wrong fn / arg split, bail
+    dhead = "int F(" + ",".join(f"int param_{i}" for i in range(1, 11)) + ")"
+    gh = _make_ghidra(decompiled=dhead + "\n{ if (param_2 < x) {} }")
     src = _make_source(body_no_comments=_PS_SRC_BUGGY, signature=_PS_SRC_SIG)
     assert check_param_swap(source=src, ghidra=gh) is None
+
+
+def test_param_swap_thiscall_with_dropped_trailing_param() -> None:
+    # __thiscall whose trailing unused arg the decompiler dropped (m == n, NOT n+1). Offset
+    # must still be 2 (param_1 == this); a count heuristic would misalign and false-fire.
+    # CVidTile::ReadyTexture: compares the 1st real arg; source compares the matching name.
+    dec = ("undefined4 __thiscall C__R(int param_1,int param_2,uint param_3)\n"
+           "{ if ((param_2 < 9) && (param_2 != 2)) return 0; w = param_3; }")
+    src_sig = "BOOL C::R(INT nTextureId, DWORD dwFlags, DWORD dwAlpha)"
+    src_body = "if (nTextureId < 9 && nTextureId != 2) return FALSE; x = dwFlags; y = dwAlpha;"
+    src = _make_source(body_no_comments=src_body, signature=src_sig)
+    assert check_param_swap(source=src, ghidra=_make_ghidra(decompiled=dec)) is None
+
+
+def test_param_swap_comparison_catches_unbalanced() -> None:
+    # Frequency is lopsided (no clean over/under pair), but the source compares the WRONG
+    # param -- the expression-matcher must catch it where the frequency gate cannot.
+    dec_sig = "undefined __thiscall C__G(int param_1,int param_2,int param_3)"
+    # binary: param_2 (a) is compared and used in arithmetic; param_3 (b) used once
+    dec_body = "{ if (param_2 < lim) {} m = param_2 * k; w = param_3; }"
+    src_sig = "void C::G(INT a, INT b)"
+    # buggy swap: source compares b and does b's arithmetic where a belongs (b over, a under
+    # by only 1 each -- below the >=2 frequency gate, so ONLY the comparison matcher catches it)
+    src_body = "if (b < lim) {} m = b * k; w = a;"
+    src = _make_source(body_no_comments=src_body, signature=src_sig)
+    gh = _make_ghidra(decompiled=dec_sig + "\n" + dec_body)
+    f = check_param_swap(source=src, ghidra=gh)
+    assert f is not None
+    assert f.level == "yellow"
+    assert "compares b where the binary compares a" in f.reason
