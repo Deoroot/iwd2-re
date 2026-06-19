@@ -8,6 +8,7 @@ from re_agent.parity.signals import (
     check_inline_wrapper,
     check_large_asm_tiny_source,
     check_missing_source,
+    check_param_swap,
     check_short_body,
     check_stub_markers,
     check_trivial_stub,
@@ -170,3 +171,57 @@ def test_inline_wrapper() -> None:
     f = check_inline_wrapper(source=src)
     assert f is not None
     assert f.level == "info"
+
+
+# --- check_param_swap: "right callee/count, WRONG argument" ---------------------------
+
+_PS_DEC_SIG = (
+    "undefined1 __thiscall C__F(int param_1,int param_2,int param_3,int param_4,"
+    "int *param_5,RECT *param_6,char param_7,uint param_8)"
+)
+# decompile body: param_3 used 3x, param_4 used 2x (the faithful binary)
+_PS_DEC_BODY = (
+    "{ x=(param_7!=0)+1; param_8&0x10; param_8&0x20; param_8&0x400; param_8&0x400;"
+    " if(param_3<u)d; (param_2-a)*(b)+(param_3-u)*(c);"
+    " local_78=param_6->bottom+param_4; local_80=param_6->top+param_4;"
+    " local_8c=*param_5+param_2; local_88=param_5[1]+param_3; }"
+)
+_PS_SRC_SIG = (
+    "BOOL C::F(INT nPosX, INT nPosY, INT nPosZ, const CPoint& ptRef, "
+    "const CRect& rGCBounds, BOOLEAN bDithered, DWORD dwBlitFlags)"
+)
+# buggy source: nPosZ fed where nPosY belongs (the Call Lightning canopy notch)
+_PS_SRC_BUGGY = (
+    "dwFillFlags=(bDithered!=0)+1; dwBlitFlags&MIRROR_FX; dwBlitFlags&MIRROR_FX_UPDOWN;"
+    " dwBlitFlags&CLIPPING_IGNORE_VERTICAL; if(nPosZ<pA->y)bDraw;"
+    " (nPosX-pA->x)*(pB->y-pA->y)+(nPosZ-pA->y)*(pA->x-pB->x);"
+    " CRect rClip(rGCBounds.left,rGCBounds.top+nPosZ,rGCBounds.right,rGCBounds.bottom+nPosZ);"
+    " CPoint ptFill(ptRef.x+nPosX,ptRef.y+nPosY);"
+)
+_PS_SRC_FIXED = _PS_SRC_BUGGY.replace("nPosZ<pA->y", "nPosY<pA->y").replace(
+    "(nPosZ-pA->y)", "(nPosY-pA->y)"
+)
+
+
+def test_param_swap_flags_swapped_scalar() -> None:
+    src = _make_source(body_no_comments=_PS_SRC_BUGGY, signature=_PS_SRC_SIG)
+    gh = _make_ghidra(decompiled=_PS_DEC_SIG + "\n" + _PS_DEC_BODY)
+    f = check_param_swap(source=src, ghidra=gh)
+    assert f is not None
+    assert f.level == "yellow"
+    assert "nPosZ" in f.reason and "nPosY" in f.reason
+    # struct/ref params (accessed via . -> []) must not be flagged
+    assert "rGCBounds" not in f.reason and "ptRef" not in f.reason
+
+
+def test_param_swap_clean_on_faithful() -> None:
+    src = _make_source(body_no_comments=_PS_SRC_FIXED, signature=_PS_SRC_SIG)
+    gh = _make_ghidra(decompiled=_PS_DEC_SIG + "\n" + _PS_DEC_BODY)
+    assert check_param_swap(source=src, ghidra=gh) is None
+
+
+def test_param_swap_bails_without_alignment() -> None:
+    # decompiler param count neither n nor n+1 -> not safely alignable
+    gh = _make_ghidra(decompiled="int F(int param_1,int param_2)\n{ param_1; param_2; }")
+    src = _make_source(body_no_comments=_PS_SRC_BUGGY, signature=_PS_SRC_SIG)
+    assert check_param_swap(source=src, ghidra=gh) is None

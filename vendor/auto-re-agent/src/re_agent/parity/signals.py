@@ -320,6 +320,127 @@ def check_wrong_member(
     )
 
 
+# --- parameter-swap parity: "right callee, right count, WRONG argument" --------------
+# Class of bug that callee/count/member signals are all blind to: the recovery feeds the
+# wrong parameter into an expression (e.g. FXRenderClippingPolys used nPosZ where the
+# binary's height test uses param_3 = nPosY; the Call Lightning canopy notch, lived 16
+# days GREEN). A swap is structurally identical -- same callees, same counts, same members
+# -- the only objective tell is reference frequency: the misplaced param is over-used and
+# the starved param under-used by the same amount. We align the source's named params to
+# the decompiler's param_N positions and flag a paired over/under imbalance.
+
+_PARAM_TOK_RE = re.compile(r"\bparam_(\d+)\b")
+_PARAM_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
+
+
+def _decompile_param_max(signature: str) -> int:
+    """Highest param_N index in a decompiler signature -> the decompiler's parameter count
+    (param_1..param_M; for a __thiscall param_1 is `this`)."""
+    nums = [int(n) for n in _PARAM_TOK_RE.findall(signature)]
+    return max(nums) if nums else 0
+
+
+def _source_param_names(signature: str) -> list[str]:
+    """Ordered parameter names from a C++ definition `RetType Name(T a, U b, ...)`. Each
+    top-level comma-separated slot's last identifier is its name (after stripping any
+    default-value tail). Commas inside <>/()/[] are not separators. void/empty -> []."""
+    lp = signature.find("(")
+    if lp < 0:
+        return []
+    depth = 0
+    rp = -1
+    for i in range(lp, len(signature)):
+        c = signature[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                rp = i
+                break
+    if rp < 0:
+        return []
+    inner = signature[lp + 1 : rp].strip()
+    if not inner or inner == "void":
+        return []
+    slots: list[str] = []
+    buf = ""
+    d = 0
+    for c in inner:
+        if c in "<([":
+            d += 1
+        elif c in ">)]":
+            d -= 1
+        if c == "," and d == 0:
+            slots.append(buf)
+            buf = ""
+        else:
+            buf += c
+    slots.append(buf)
+    names: list[str] = []
+    for slot in slots:
+        ids = _PARAM_IDENT_RE.findall(slot.split("=")[0])
+        names.append(ids[-1] if ids else "")
+    return names
+
+
+def check_param_swap(
+    source: SourceMatch | None = None,
+    ghidra: GhidraData | None = None,
+    inline_skip: bool = False,
+    **_kw: object,
+) -> Finding | None:
+    if source is None or ghidra is None or not ghidra.decompiled or not source.signature or inline_skip:
+        return None
+    names = _source_param_names(source.signature)
+    if len(names) < 2 or "" in names:
+        return None
+    # The decompiler's param list (`int param_1,...,uint param_8`) lives in the head of the
+    # decompiled body, NOT the `signature` field (which is often `...(void)`). Split on the
+    # first `{`: head -> param count, body -> per-param reference frequency.
+    full = ghidra.decompiled
+    brace = full.find("{")
+    dhead = full[:brace] if brace >= 0 else full
+    dbody = full[brace:] if brace >= 0 else full
+    m = _decompile_param_max(dhead)
+    n = len(names)
+    # Align source slot i to the decompiler's param index. __thiscall -> param_1 is `this`
+    # so src[i] == param_(i+2); a free function -> src[i] == param_(i+1). Any other count
+    # (varargs, decompiler arg-mangling) is not safely alignable -> bail.
+    if m == n + 1:
+        offset = 2
+    elif m == n:
+        offset = 1
+    else:
+        return None
+    bin_freq = Counter(int(x) for x in _PARAM_TOK_RE.findall(dbody))
+    sbody = source.body_no_comments
+    deltas: dict[str, int] = {}
+    for i, nm in enumerate(names):
+        # Only scalar params: a swap bug feeds the wrong int into an expression. Struct/
+        # pointer/ref params (accessed via . -> []) legitimately diverge in count -- the
+        # decompiler copies `param_6->left` into a local and reuses the local -- so they
+        # would be spurious over/under. Skip them.
+        if re.search(rf"\b{re.escape(nm)}\s*(?:\.|->|\[)", sbody):
+            continue
+        src_n = len(re.findall(rf"\b{re.escape(nm)}\b", sbody))
+        deltas[nm] = src_n - bin_freq.get(i + offset, 0)
+    over = sorted(((nm, d) for nm, d in deltas.items() if d >= 2), key=lambda x: -x[1])
+    under = sorted(((nm, d) for nm, d in deltas.items() if d <= -2), key=lambda x: x[1])
+    if not over or not under:
+        return None
+    over_s = ", ".join(f"{nm}(+{d})" for nm, d in over)
+    under_s = ", ".join(f"{nm}({d})" for nm, d in under)
+    return Finding(
+        level="yellow",
+        reason=(
+            f"Possible parameter swap: source over-references {over_s} and under-references "
+            f"{under_s} relative to the binary's param positions -- verify the correct argument "
+            f"feeds each expression (e.g. a height/offset test reading the wrong param)"
+        ),
+    )
+
+
 ALL_SIGNALS: list[SignalFn] = [
     check_missing_source,
     check_stub_markers,
@@ -333,4 +454,5 @@ ALL_SIGNALS: list[SignalFn] = [
     check_nan_logic,
     check_inline_wrapper,
     check_wrong_member,
+    check_param_swap,
 ]

@@ -126,6 +126,8 @@ def fetch_ghidra_data(address: str, backend: REBackend) -> GhidraData:
         data.callers = dec.callers
         data.callees = dec.callees
         data.decompile_has_nan = "NAN" in dec.decompiled.upper() if dec.decompiled else False
+        data.decompiled = dec.decompiled or ""
+        data.signature = dec.signature or ""
     except Exception as exc:
         data.decompile_ok = False
         data.decompile_error = str(exc)

@@ -259,6 +259,7 @@ class SourceIndexer:
             has_stub_marker=any(marker in body_nc for marker in self.stub_markers),
             has_fp_token=has_fp_token(body_nc),
             is_inline_internal_forwarder=self._is_inline_internal_forwarder(body_nc),
+            signature=txt[idx:open_brace],
         )
 
     def _candidate_keys(self, class_name: str, fn_name: str) -> list[tuple[str, str]]:

@@ -185,6 +185,7 @@ class SourceMatch:
     has_stub_marker: bool
     has_fp_token: bool
     is_inline_internal_forwarder: bool
+    signature: str = ""  # text from the fn name to the body `{` -- the C++ param list
 
 
 @dataclass
@@ -197,6 +198,8 @@ class GhidraData:
     callees: int | None = None
     param_offsets: int = 0
     decompile_has_nan: bool = False
+    decompiled: str = ""  # decompiler pseudo-C body (for the param-swap signal)
+    signature: str = ""  # decompiler signature line (param_1..param_N)
     asm_ok: bool = False
     asm_error: str | None = None
     asm_instruction_count: int = 0
