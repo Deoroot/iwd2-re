@@ -2077,6 +2077,217 @@ CGameEffect* IcewindCGameEffectApplyEffectsList::Copy()
     return copy;
 }
 
+// 0x5675E0.  Opcode 402 "Add Effects List": gate the target against a spell-protection
+// Type (param2, stored in m_dwFlags -- the splprot.2da row), and on a match load the
+// sub-spell named by m_res and apply its level-appropriate effects.  Self-targeting
+// sub-effects land on the caster, the rest on the target.  The Type selector, the m_res
+// resref and the caster level were Frida-confirmed on the original (Sunscorch SPPR113:
+// Types 73/75/31/2 -> EffS3/EffS3/EffS1/EffS2, caster level read from m_casterLevel).
+BOOL IcewindCGameEffectApplyEffectsList::ApplyEffect(CGameSprite* pSprite)
+{
+    m_done = TRUE;
+
+    switch (m_dwFlags) {
+    case 0:     // no restriction
+        break;
+    case 1:     if (!IcewindMisc::IsUndead(pSprite)) return TRUE; break;
+    case 2:     if (IcewindMisc::IsUndead(pSprite)) return TRUE; break;
+    case 3:     if (!IcewindMisc::IsImmuneToFire(pSprite)) return TRUE; break;
+    case 4:     if (IcewindMisc::IsImmuneToFire(pSprite)) return TRUE; break;
+    case 5:     if (!IcewindMisc::IsHumanoid(pSprite)) return TRUE; break;
+    case 6:     if (IcewindMisc::IsHumanoid(pSprite)) return TRUE; break;
+    case 9:     if (!IcewindMisc::IsElemental(pSprite)) return TRUE; break;
+    case 0xa:   if (IcewindMisc::IsElemental(pSprite)) return TRUE; break;
+    case 0xd:   if (!IcewindMisc::IsLarge(pSprite)) return TRUE; break;
+    case 0xe:   if (IcewindMisc::IsLarge(pSprite)) return TRUE; break;
+    case 0xf:   if (!IcewindMisc::IsElf(pSprite)) return TRUE; break;
+    case 0x10:  if (IcewindMisc::IsElf(pSprite)) return TRUE; break;
+    case 0x11:  if (!IcewindMisc::IsUmberhulk(pSprite)) return TRUE; break;
+    case 0x12:  if (IcewindMisc::IsUmberhulk(pSprite)) return TRUE; break;
+    case 0x13:  if (!IcewindMisc::IsHalfElf(pSprite)) return TRUE; break;
+    case 0x14:  if (IcewindMisc::IsHalfElf(pSprite)) return TRUE; break;
+    case 0x15:  // humanoid or animal
+        if (IcewindMisc::IsHumanoid(pSprite)) break;
+        // fall through
+    case 7:
+        if (!IcewindMisc::IsAnimal(pSprite)) return TRUE;
+        break;
+    case 0x16:  // not (humanoid or animal)
+        if (IcewindMisc::IsHumanoid(pSprite)) return TRUE;
+        // fall through
+    case 8:
+        if (IcewindMisc::IsAnimal(pSprite)) return TRUE;
+        break;
+    case 0x17:  if (!IcewindMisc::IsBlind(pSprite)) return TRUE; break;
+    case 0x18:  if (IcewindMisc::IsBlind(pSprite)) return TRUE; break;
+    case 0x1b:  if (!IcewindMisc::IsGolem(pSprite)) return TRUE; break;
+    case 0x1c:  if (IcewindMisc::IsGolem(pSprite)) return TRUE; break;
+    case 0x1d:  if (!IcewindMisc::IsMinotaur(pSprite)) return TRUE; break;
+    case 0x1e:  if (IcewindMisc::IsMinotaur(pSprite)) return TRUE; break;
+    case 0x1f:  // undead or fungus
+        if (IcewindMisc::IsUndead(pSprite)) break;
+        // fall through
+    case 0xb:
+        if (!IcewindMisc::IsFungus(pSprite)) return TRUE;
+        break;
+    case 0x20:  // not (undead or fungus)
+        if (IcewindMisc::IsUndead(pSprite)) return TRUE;
+        // fall through
+    case 0xc:
+        if (IcewindMisc::IsFungus(pSprite)) return TRUE;
+        break;
+    case 0x21:  if (!IcewindMisc::IsGood(pSprite)) return TRUE; break;
+    case 0x22:  if (IcewindMisc::IsGood(pSprite)) return TRUE; break;
+    case 0x23:  if (!IcewindMisc::IsNeutral(pSprite)) return TRUE; break;
+    case 0x24:  if (IcewindMisc::IsNeutral(pSprite)) return TRUE; break;
+    case 0x25:  if (!IcewindMisc::IsEvil(pSprite)) return TRUE; break;
+    case 0x26:  if (IcewindMisc::IsEvil(pSprite)) return TRUE; break;
+    case 0x27:  if (!IcewindMisc::IsPaladin(pSprite)) return TRUE; break;
+    case 0x28:  if (IcewindMisc::IsPaladin(pSprite)) return TRUE; break;
+    case 0x2b:  // must be the source object
+        if (pSprite->m_id != m_sourceID) return TRUE;
+        break;
+    case 0x2c:  // must not be the source object
+        if (pSprite->m_id == m_sourceID) return TRUE;
+        break;
+    case 0x2d:  if (!IcewindMisc::IsAcquatic(pSprite)) return TRUE; break;
+    case 0x2e:  if (IcewindMisc::IsAcquatic(pSprite)) return TRUE; break;
+    case 0x2f:  if (!IcewindMisc::IsLiving(pSprite)) return TRUE; break;
+    case 0x30:  if (IcewindMisc::IsLiving(pSprite)) return TRUE; break;
+    case 0x35:  // fire-immune or cold-immune
+        if (IcewindMisc::IsImmuneToFire(pSprite)) break;
+        // fall through
+    case 0x19:
+        if (!IcewindMisc::IsImmuneToCold(pSprite)) return TRUE;
+        break;
+    case 0x36:  // not (fire-immune or cold-immune)
+        if (IcewindMisc::IsImmuneToFire(pSprite)) return TRUE;
+        // fall through
+    case 0x1a:
+        if (IcewindMisc::IsImmuneToCold(pSprite)) return TRUE;
+        break;
+    case 0x37:  if (!IcewindMisc::sud_585070(pSprite)) return TRUE; break;
+    case 0x38:  if (IcewindMisc::sud_585070(pSprite)) return TRUE; break;
+    case 0x39:  if (!IcewindMisc::IsMale(pSprite)) return TRUE; break;
+    case 0x3a:  if (IcewindMisc::IsMale(pSprite)) return TRUE; break;
+    case 0x3b:  if (!IcewindMisc::IsLawful(pSprite)) return TRUE; break;
+    case 0x3c:  if (IcewindMisc::IsLawful(pSprite)) return TRUE; break;
+    case 0x3d:  if (!IcewindMisc::IsChaotic(pSprite)) return TRUE; break;
+    case 0x3e:  if (IcewindMisc::IsChaotic(pSprite)) return TRUE; break;
+    case 0x3f:  if (pSprite->GetAIType().m_nRace != 0xa0) return TRUE; break;
+    case 0x40:  if (pSprite->GetAIType().m_nRace == 0xa0) return TRUE; break;
+    case 0x41:  // CGameSprite state flag (+0xA10 bit 0x40) -- field not yet named
+        if ((*reinterpret_cast<const BYTE*>(reinterpret_cast<const char*>(pSprite) + 0xa10) & 0x40) == 0) return TRUE;
+        break;
+    case 0x42:
+        if ((*reinterpret_cast<const BYTE*>(reinterpret_cast<const char*>(pSprite) + 0xa10) & 0x40) != 0) return TRUE;
+        break;
+    case 0x47:  // caster effectAmount vs target level (CGameSprite +0x5C0, not yet named)
+        if (static_cast<int>(*reinterpret_cast<const SHORT*>(reinterpret_cast<const char*>(pSprite) + 0x5c0)) <= m_effectAmount) return TRUE;
+        break;
+    case 0x48:
+        if (m_effectAmount <= static_cast<int>(*reinterpret_cast<const SHORT*>(reinterpret_cast<const char*>(pSprite) + 0x5c0))) return TRUE;
+        break;
+    case 0x49:  // race 2, subrace 1
+        if (pSprite->GetAIType().m_nRace != 2 || pSprite->GetAIType().m_nSubRace != 1) return TRUE;
+        break;
+    case 0x4a:
+        if (pSprite->GetAIType().m_nRace == 2 && pSprite->GetAIType().m_nSubRace == 1) return TRUE;
+        break;
+    case 0x4b:  // race 4, subrace 2
+        if (pSprite->GetAIType().m_nRace != 4 || pSprite->GetAIType().m_nSubRace != 2) return TRUE;
+        break;
+    case 0x4c:
+        if (pSprite->GetAIType().m_nRace == 4 && pSprite->GetAIType().m_nSubRace == 2) return TRUE;
+        break;
+    case 0x4d:  // CGameSprite state flag (+0x5BC bit 0x10000000) -- field not yet named
+        if ((*reinterpret_cast<const DWORD*>(reinterpret_cast<const char*>(pSprite) + 0x5bc) & 0x10000000) == 0) return TRUE;
+        break;
+    case 0x4e:
+        if ((*reinterpret_cast<const DWORD*>(reinterpret_cast<const char*>(pSprite) + 0x5bc) & 0x10000000) != 0) return TRUE;
+        break;
+    case 0x4f:  if (pSprite->GetAIType().m_nRace != 0x9b) return TRUE; break;
+    case 0x50:  if (pSprite->GetAIType().m_nRace == 0x9b) return TRUE; break;
+    case 0x51:  if (pSprite->GetAIType().m_nRace != 0x99) return TRUE; break;
+    case 0x52:  if (pSprite->GetAIType().m_nRace == 0x99) return TRUE; break;
+    case 0x53:  if (pSprite->GetAIType().m_nRace != 0xa5) return TRUE; break;
+    case 0x54:  if (pSprite->GetAIType().m_nRace == 0xa5) return TRUE; break;
+    case 0x55:  if (pSprite->GetAIType().m_nRace != 0xbe) return TRUE; break;
+    case 0x56:  if (pSprite->GetAIType().m_nRace == 0xbe) return TRUE; break;
+    case 0x57:  if (pSprite->GetAIType().m_nRace != 1) return TRUE; break;
+    case 0x58:  if (pSprite->GetAIType().m_nRace == 1) return TRUE; break;
+    case 0x59:  if (pSprite->GetAIType().m_nRace != 0xa8) return TRUE; break;
+    case 0x5a:  if (pSprite->GetAIType().m_nRace == 0xa8) return TRUE; break;
+    case 0x5b:  if (!IcewindMisc::IsOutsider(pSprite)) return TRUE; break;
+    case 0x5c:  if (IcewindMisc::IsOutsider(pSprite)) return TRUE; break;
+    default: {
+        // Relational Types (0x29/0x2a alignment-vs-source, 0x31-0x46 ally/enemy/alignment):
+        // these need the caster as the second party, so lock the source first.
+        CGameObject* pRel;
+        BYTE rcRel = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+            CGameObjectArray::THREAD_ASYNCH, &pRel, INFINITE);
+        if (rcRel != CGameObjectArray::SUCCESS) {
+            return FALSE;
+        }
+        CGameSprite* pSource = static_cast<CGameSprite*>(pRel);
+        BOOL reject = FALSE;
+        switch (m_dwFlags) {
+        case 0x29:  if (!IcewindMisc::IsGoodEvilSame(pSprite, pSource)) reject = TRUE; break;
+        case 0x2a:  if (IcewindMisc::IsGoodEvilSame(pSprite, pSource)) reject = TRUE; break;
+        case 0x31:  if (!IcewindMisc::AreAllies(pSprite, pSource)) reject = TRUE; break;
+        case 0x32:  if (IcewindMisc::AreAllies(pSprite, pSource)) reject = TRUE; break;
+        case 0x33:  if (!IcewindMisc::AreEnemies(pSprite, pSource)) reject = TRUE; break;
+        case 0x34:  if (IcewindMisc::AreEnemies(pSprite, pSource)) reject = TRUE; break;
+        case 0x43:  if (!IcewindMisc::IsAlignmentSame(pSprite, pSource)) reject = TRUE; break;
+        case 0x44:  if (IcewindMisc::IsAlignmentSame(pSprite, pSource)) reject = TRUE; break;
+        case 0x45:  if (!IcewindMisc::IsAlignmentSame(pSprite, pSource) || !IcewindMisc::AreAllies(pSprite, pSource)) reject = TRUE; break;
+        case 0x46:  if (IcewindMisc::IsAlignmentSame(pSprite, pSource) && IcewindMisc::AreAllies(pSprite, pSource)) reject = TRUE; break;
+        default:
+            CUtil::UtilAssert(5802, "C:\\Projects\\Icewind2\\src\\Baldur\\IcewindCGameEffects.cpp",
+                "FALSE", "Out-of-range value detected in IcewindCGameEffectApplyEffectsList (-rjf)");
+            break;
+        }
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        if (reject) return TRUE;
+        break;
+    }
+    }
+
+    // The target passed the filter -- apply the sub-spell's effects.  The source is the
+    // caster (this is a self-applied effect rider), so lock it and build its effects.
+    CGameObject* pSource;
+    BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+        CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+    if (rc != CGameObjectArray::SUCCESS) {
+        m_done = TRUE;
+        return TRUE;
+    }
+
+    CGameSprite* pCaster = static_cast<CGameSprite*>(pSource);
+    std::list<CGameEffect*> effects =
+        BuildSubSpellEffects(pCaster, m_res, static_cast<BYTE>(m_casterLevel));
+    for (std::list<CGameEffect*>::iterator it = effects.begin(); it != effects.end(); ++it) {
+        CGameEffect* pEffect = *it;
+        pEffect->m_sourceRes = m_sourceRes;
+        pEffect->m_target = m_target;
+        pEffect->m_casterLevel = m_casterLevel;
+        if (pEffect->m_targetType == 1) {
+            // self-targeting sub-effect -> apply to the caster (only if it is a sprite)
+            if (pCaster->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                pCaster->AddEffect(pEffect, 1, FALSE, TRUE);
+            }
+        } else {
+            pSprite->AddEffect(pEffect, 1, FALSE, TRUE);
+        }
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    m_done = TRUE;
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x4A0A60
