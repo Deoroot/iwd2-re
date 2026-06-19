@@ -450,24 +450,27 @@ def check_param_swap(
         deltas[nm] = src_n - bin_freq.get(i + offset, 0)
     over = sorted(((nm, d) for nm, d in deltas.items() if d >= 2), key=lambda x: -x[1])
     under = sorted(((nm, d) for nm, d in deltas.items() if d <= -2), key=lambda x: x[1])
-    # Require the *conserved-reference* signature of a genuine swap: exactly ONE over-used
-    # and ONE under-used param of EQUAL magnitude (the N refs that belong to param B were
-    # spent on param A instead) -- and no other imbalance anywhere. Unequal/multi-param or
-    # large lopsided deltas are decompiler noise (mangled __thiscall, inlined helpers,
-    # pointer params copied to locals), not a swap. This is what makes nPosZ/nPosY (+2/-2)
-    # stand out and keeps the signal quiet codebase-wide.
+    # Require the swap signature: exactly ONE over-used scalar param and exactly ONE
+    # under-used one (the refs that belong to B were spent on A). Magnitudes need NOT be
+    # equal -- a swapped param often has other legit uses too (the real nPosZ/nPosY case is
+    # +2/-3). Multiple over/under = lopsided decompiler noise (mangled __thiscall, inlined
+    # helpers), not a swap; the single-pair + scalar-only gates keep it quiet codebase-wide.
     if len(over) != 1 or len(under) != 1:
         return None
-    if over[0][1] != -under[0][1]:
+    over_nm, od = over[0]
+    under_nm, ud = under[0]
+    # The over/under magnitudes must be near-balanced (within 1): a swap moves the same
+    # refs from one param's slot to the other, so the gain and the deficit roughly match
+    # (the real nPosZ/nPosY case is +2/-3). A lopsided pair (+2/-11, +6/-2) is one param
+    # legitimately heavy and the other a decompiler-idiom artifact, not a swap.
+    if abs(od + ud) > 1:
         return None
-    over_nm, d = over[0]
-    under_nm = under[0][0]
     return Finding(
         level="yellow",
         reason=(
-            f"Possible parameter swap: source spends {d} reference(s) on {over_nm} that the "
-            f"binary spends on {under_nm} (equal-magnitude swap at aligned param positions) -- "
-            f"verify the correct argument feeds each expression"
+            f"Possible parameter swap: source over-references {over_nm}(+{od}) and "
+            f"under-references {under_nm}({ud}) at aligned param positions -- verify the "
+            f"correct argument feeds each expression"
         ),
     )
 
