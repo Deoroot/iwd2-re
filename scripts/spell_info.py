@@ -211,7 +211,9 @@ def render(s: dict) -> str:
     out = [
         f'{s["name"]} ({s["resref"]}.SPL, strref {s["name_strref"]})',
         f'  type={s["spell_type"]}  school={s["school"]}  level={s["level"]}',
+        f'  desc: {s["description"]}' if s["description"] else '',
     ]
+    out = [line for line in out if line]  # drop empty strings
     if s["casting_features"]:
         out.append("  casting features (on caster):")
         for f in s["casting_features"]:
