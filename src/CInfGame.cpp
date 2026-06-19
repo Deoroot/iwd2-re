@@ -2666,8 +2666,8 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
             int nNameLen   = *reinterpret_cast<int*>(pRecord + 0x04);
 
             CSavedGameStoredLocation* pLocation = new CSavedGameStoredLocation();
-            pLocation->field_4  = *reinterpret_cast<DWORD*>(pRecord + 0x08);
-            pLocation->field_8  = pRecord[0x0C];
+            pLocation->m_flags  = *reinterpret_cast<DWORD*>(pRecord + 0x08);
+            pLocation->m_value  = pRecord[0x0C];
             pLocation->field_9  = *reinterpret_cast<DWORD*>(pRecord + 0x0D);
             pLocation->field_D  = *reinterpret_cast<DWORD*>(pRecord + 0x11);
             pLocation->field_11 = *reinterpret_cast<DWORD*>(pRecord + 0x15);

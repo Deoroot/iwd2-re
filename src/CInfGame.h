@@ -105,8 +105,8 @@ class CSavedGameStoredLocation {
 public:
     CSavedGameStoredLocation()
         : m_areaName(),
-          field_4(0),
-          field_8(0),
+          m_flags(0),
+          m_value(0),
           field_9(0),
           field_D(0),
           field_11(0),
@@ -115,9 +115,16 @@ public:
     {
     }
 
+    // Names from the store side (CGameAIBase::StartCutScene+0x49C) and the
+    // consumer (CGameArea::Unmarshal+0x717), keyed by m_areaName:
+    //   m_flags bit0 -> set a per-area running value to m_value;
+    //   m_flags bit1 -> add m_value to it instead.  m_value is the signed
+    //   operand the store clamps to +/-1.  The +0x09..+0x17 tail is zeroed by
+    //   the store path and untouched by that consumer, so its meaning is not yet
+    //   recovered (a save that populates it is needed).
     /* 0000 */ CString m_areaName;
-    /* 0004 */ DWORD field_4;
-    /* 0008 */ BYTE field_8;
+    /* 0004 */ DWORD m_flags;
+    /* 0008 */ BYTE m_value;
     /* 0009 */ DWORD field_9;
     /* 000D */ DWORD field_D;
     /* 0011 */ DWORD field_11;
