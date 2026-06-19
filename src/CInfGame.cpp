@@ -2438,6 +2438,14 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         ProgressBarCallback(312500, FALSE);
     }
 
+    // Master area (header offset 0x58): load it if the save names one.
+    if (pGame[0x58] != '\0') {
+        char masterArea[9];
+        memcpy(masterArea, pGame + 0x58, 8);
+        masterArea[8] = '\0';
+        LoadArea(CString(masterArea), 0xFF, FALSE, bProgressBarInPlace);
+    }
+
     // TODO: Load party members from partyOffset with CCreatureFile
     // Each party member is 0x340 (832) bytes in V2.2, 0x220 in V2.1, 0x180 in V2.0
     if (nPartyMembers > 0 && partyOffset > 0) {
