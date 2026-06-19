@@ -579,11 +579,16 @@ def cmd_check(addr, callee, argc, nrv, quiet=False):
     lo, name, hits = audit_fn(addr, callee, argc, nrv)
     binsites = site_operand_classes(hits, nrv)
     src = source_concat_sites(name)
-    n_ok = n_rev = n_swap = 0
+    n_ok = n_rev = n_swap = n_stub = 0
     out = []
     if src is None:
         out.append("  (no source)")
         n_rev = len(binsites)
+    elif not src and binsites:
+        # binary concatenates but the source has none -> not (fully) recovered,
+        # or the concat is inlined from a helper. Not a swap, not a parser miss.
+        out.append(f"  STUB/inlined: binary has {len(binsites)} operator+ site(s), source has 0")
+        n_stub = len(binsites)
     elif len(src) != len(binsites):
         out.append(f"  COUNT MISMATCH binary={len(binsites)} source={len(src)} -> review")
         n_rev = max(len(binsites), len(src))
@@ -603,7 +608,7 @@ def cmd_check(addr, callee, argc, nrv, quiet=False):
         print(f"{name}  {lo:#x}")
         for ln in out:
             print(ln)
-    return n_ok, n_rev, n_swap
+    return n_ok, n_rev, n_swap, n_stub
 
 
 def main():
@@ -664,11 +669,12 @@ def sweep(callee, argc, nrv, check=False):
                     sites[(lo, nm)].append(site)
             off = data.find(b"\xe8", off + 1)
     if check:
-        t_ok = t_rev = t_swap = 0
+        t_ok = t_rev = t_swap = t_stub = 0
         for (lo, nm), sl in sorted(sites.items()):
-            o, r, s = cmd_check(lo, callee, argc, nrv, quiet=True)
-            t_ok += o; t_rev += r; t_swap += s
-        print(f"\n== check: {t_ok} OK, {t_rev} review, {t_swap} SWAP? across {len(sites)} recovered fns ==")
+            o, r, s, st = cmd_check(lo, callee, argc, nrv, quiet=True)
+            t_ok += o; t_rev += r; t_swap += s; t_stub += st
+        print(f"\n== check: {t_ok} OK, {t_rev} review, {t_swap} SWAP?, "
+              f"{t_stub} stub/inlined site(s) across {len(sites)} recovered fns ==")
         return
     total = 0
     for (lo, nm), sl in sorted(sites.items()):
