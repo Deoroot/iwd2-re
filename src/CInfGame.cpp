@@ -16,6 +16,7 @@
 #include "CItem.h"
 #include "CMessage.h"
 #include "CPathSearch.h"
+#include "CResFile.h"
 #include "CScreenChapter.h"
 #include "CScreenCharacter.h"
 #include "CScreenInventory.h"
@@ -1433,10 +1434,107 @@ LONG CInfGame::CachingRequirements(const CString& areaName)
     return 0;
 }
 
+// Loading-screen minibar caching registry.  As an area's linked resfiles are
+// cached, their names are recorded here so the loading screen can draw a
+// progress minibar for each.  Slot 0 holds the area name and g_nCachingResFiles
+// counts the valid entries.
+//
+// 0x8FB90C
+CString g_aCachingResFiles[8];
+// 0x8FB92C
+int g_nCachingResFiles;
+
 // 0x5A0950
-void CInfGame::CacheResFileWithResource(const CString& areaName)
+BOOL CInfGame::CacheResFileWithResource(const CString& areaName)
 {
-    // TODO: Incomplete.
+    CAreaFile cAreaFile;
+
+    for (int i = 1; i < 7; i++) {
+        g_aCachingResFiles[i] = "";
+    }
+    g_aCachingResFiles[0] = areaName;
+    g_nCachingResFiles = 1;
+
+    // Demand the area resource and read its file so the WED reference embedded
+    // in the header can be resolved to the resfile that backs the area.
+    cAreaFile.SetResRef(CResRef(areaName), TRUE, TRUE);
+
+    BYTE* pAreaData = cAreaFile.GetData();
+    RESID nWedID = g_pChitin->cDimm.GetResID(CResRef(pAreaData + 8), 1003);
+    CResFile* pResFile = g_pChitin->cDimm.GetResFilePtr(nWedID);
+    cAreaFile.ReleaseData();
+
+    if (pResFile == NULL) {
+        return FALSE;
+    }
+
+    if (g_pChitin->cNetwork.m_bConnectionEstablished) {
+        CString sCacheKey;
+        pResFile->GetCacheKey(sCacheKey);
+
+        CPoint ptLocation;
+        CString sXLabel;
+        CString sYLabel;
+        BOOLEAN bFoundLocation = m_ruleTables.m_tAreaLinkageCaching.Find(sCacheKey, ptLocation, TRUE);
+        BOOLEAN bFoundLabels = m_ruleTables.m_tAreaLinkageCaching.Find(sCacheKey, sXLabel, sYLabel, TRUE);
+        if ((bFoundLocation & bFoundLabels) == 1) {
+            CString sCount = m_ruleTables.m_tAreaLinkageCaching.GetAt(CPoint(0, ptLocation.y));
+            LONG nLinked = atol(sCount.GetBuffer(0));
+            if (nLinked != 0) {
+                CString sResFile;
+
+                // First pass: cache every linked resfile that is not resident.
+                int nColumn = 0;
+                UINT nResFileID = g_pChitin->cDimm.GetResFileID(sYLabel);
+                if (nLinked >= 0) {
+                    do {
+                        CResFile* pLinked = g_pChitin->cDimm.GetResFilePtr(nResFileID);
+                        if (pLinked == NULL) {
+                            return FALSE;
+                        }
+                        if (pLinked->GetCacheSize() == 0) {
+                            if (pLinked->Cache() == 1) {
+                                pLinked->UnCache();
+                            }
+                        }
+                        nColumn++;
+                        sResFile = m_ruleTables.m_tAreaLinkageCaching.GetAt(CPoint(nColumn, ptLocation.y));
+                        nResFileID = g_pChitin->cDimm.GetResFileID(sResFile);
+                    } while (nColumn <= nLinked);
+                }
+
+                // Second pass: register each linked resfile for the minibar and
+                // re-cache those that are already resident.
+                nColumn = 0;
+                nResFileID = g_pChitin->cDimm.GetResFileID(sYLabel);
+                if (nLinked >= 0) {
+                    do {
+                        CResFile* pLinked = g_pChitin->cDimm.GetResFilePtr(nResFileID);
+                        if (pLinked == NULL) {
+                            return FALSE;
+                        }
+                        g_aCachingResFiles[g_nCachingResFiles++] = sResFile;
+                        if (pLinked->GetCacheSize() != 0) {
+                            if (pLinked->Cache() == 1) {
+                                pLinked->UnCache();
+                            }
+                        }
+                        nColumn++;
+                        sResFile = m_ruleTables.m_tAreaLinkageCaching.GetAt(CPoint(nColumn, ptLocation.y));
+                        nResFileID = g_pChitin->cDimm.GetResFileID(sResFile);
+                    } while (nColumn <= nLinked);
+                }
+
+                return TRUE;
+            }
+        }
+    }
+
+    // Fall back to caching only the area's own resfile.
+    if (pResFile->Cache() == 1) {
+        pResFile->UnCache();
+    }
+    return TRUE;
 }
 
 // 0x5A0F50

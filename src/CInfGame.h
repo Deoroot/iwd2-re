@@ -172,7 +172,7 @@ public:
     void DestroyGame(BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace);
     void ValidateCache();
     LONG CachingRequirements(const CString& areaName);
-    void CacheResFileWithResource(const CString& areaName);
+    BOOL CacheResFileWithResource(const CString& areaName);
     LONG ImportCharacter(const CString& sFileName, INT nIndex);
     CString GetDirSounds();
     void CharacterExport(LONG nCharacterId, CString sFileName);
