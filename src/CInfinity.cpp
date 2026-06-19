@@ -1802,11 +1802,11 @@ BOOL CInfinity::FXRenderClippingPolys(INT nPosX, INT nPosY, INT nPosZ, const CPo
                     }
 
                     if (pA->y == pB->y) {
-                        if (nPosZ < pA->y) {
+                        if (nPosY < pA->y) {
                             bDraw = TRUE;
                         }
                     } else if (pA->x != pB->x
-                        && (nPosX - pA->x) * (pB->y - pA->y) + (nPosZ - pA->y) * (pA->x - pB->x) >= 0) {
+                        && (nPosX - pA->x) * (pB->y - pA->y) + (nPosY - pA->y) * (pA->x - pB->x) >= 0) {
                         bDraw = TRUE;
                     }
                 }
