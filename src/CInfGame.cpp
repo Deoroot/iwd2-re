@@ -2375,6 +2375,14 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         return FALSE;
     }
 
+    // Running size accumulator.  The loader walks the GAM strictly in physical
+    // order, advancing cnt past every section and asserting cnt <= nGame at each
+    // step; the final cnt must equal nGame (the whole buffer is consumed).  The
+    // pocket-plane section carries no header offset -- it sits at pGame + cnt --
+    // so the accumulator is the only thing that can locate it.  (binary: the
+    // uStack_6f4 local, seeded with the 0xB4 header size.)
+    DWORD cnt = 0xB4;
+
     // Game time: pData[2] is elapsed seconds, convert to game ticks (*15)
     m_worldTime.m_gameTime = pData[2] * 15;
 
@@ -2446,6 +2454,31 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         LoadArea(CString(masterArea), 0xFF, FALSE, bProgressBarInPlace);
     }
 
+    // --- Non-party / "global" creatures (header 0x34 count, 0x30 offset) ------
+    // Persistent creatures not in the current area; the binary tracks them in
+    // m_lstGlobalCreatures.  They share the party-creature record format (so
+    // creOffset/creSize live at +4/+8 in every version) and the on-disk records
+    // are contiguous at the version's record size.
+    //   The creature-loading body is NOT reproduced: the slot-3 test save holds
+    //   zero of these so it cannot be exercised, and the record-sourcing in the
+    //   Ghidra lift is ambiguous (it appears to alias the party base).  Only the
+    //   size accounting is recovered, which the final cnt == nGame assert needs;
+    //   it is exact for both record kinds (resref records carry creSize == 0).
+    if (nNonParty > 0) {
+        int recordSize = (nVersionMode == 0x16) ? 0x340
+                       : (nVersionMode == 0x15) ? 0x220
+                                                : 0x180;
+        BYTE* pRecord = pGame + pData[0x0C]; // 0x30 / 4 = 0x0C
+        for (int i = 0; i < nNonParty; i++) {
+            cnt += recordSize;
+            UTIL_ASSERT(cnt <= static_cast<DWORD>(nGame));
+            cnt += *reinterpret_cast<DWORD*>(pRecord + 8); // embedded CRE size, 0 if resref
+            UTIL_ASSERT(cnt <= static_cast<DWORD>(nGame));
+            // TODO: instantiate CGameSprite + register in m_lstGlobalCreatures.
+            pRecord += recordSize;
+        }
+    }
+
     // TODO: Load party members from partyOffset with CCreatureFile
     // Each party member is 0x340 (832) bytes in V2.2, 0x220 in V2.1, 0x180 in V2.0
     if (nPartyMembers > 0 && partyOffset > 0) {
@@ -2471,6 +2504,11 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
                 pRecord = pMember;
             }
 
+            // Advance the accumulator past the on-disk record, then (below) past
+            // the embedded CRE blob -- the binary's per-member size accounting.
+            cnt += memberSize;
+            UTIL_ASSERT(cnt <= static_cast<DWORD>(nGame));
+
             // Verified offsets from hex dump:
             // +0x00: u16 selectionState, +0x02: u16 slotIndex (0-based)
             // +0x04: u32 creOffset, +0x08: u32 creSize
@@ -2480,6 +2518,10 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
             int slotIndex = *reinterpret_cast<unsigned short*>(pRecord + 2);
             int creOffset = *reinterpret_cast<int*>(pRecord + 4);
             int creSize   = *reinterpret_cast<int*>(pRecord + 8);
+
+            // Embedded CRE blob size (0 for a resref-loaded record).
+            cnt += creSize;
+            UTIL_ASSERT(cnt <= static_cast<DWORD>(nGame));
             short facing  = static_cast<short>(*reinterpret_cast<int*>(pRecord + 0x14));
 
             char areaRef[9];
@@ -2540,7 +2582,10 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
         ReputationAdjustment(100, TRUE);
     }
 
-    // TODO: Load non-party characters
+    // Party inventory (header 0x2C count, 0x14-byte records): the binary accounts
+    // its size here but loads it elsewhere.  (cnt += pData[0x2C] * 0x14.)
+    cnt += static_cast<DWORD>(pData[0x0B]) * 0x14; // 0x2C / 4 = 0x0B
+    UTIL_ASSERT(cnt <= static_cast<DWORD>(nGame));
 
     DWORD nGlobalVariablesOffset = pData[0x0E];
     DWORD nGlobalVariables = pData[0x0F];
@@ -2552,6 +2597,10 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
             m_variables.AddKey(pVariables[nIndex]);
         }
     }
+    // Each on-disk global variable is 0x54 bytes (the binary advances cnt one
+    // record at a time inside the load loop).
+    cnt += nGlobalVariables * 0x54;
+    UTIL_ASSERT(cnt <= static_cast<DWORD>(nGame));
 
     // Load journal entries (header offsets 0x4C=count, 0x50=offset)
     DWORD nJournalCount = pData[0x13];  // 0x4C/4 = 0x13
@@ -2559,6 +2608,9 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
     if (nJournalCount > 0 && nJournalOffset > 0 && nJournalOffset + nJournalCount * 12 <= (DWORD)nGame) {
         m_cJournal.ClearAllEntries();
         m_cJournal.Unmarshal(reinterpret_cast<CSavedGameJournalEntry*>(pGame + nJournalOffset), nJournalCount);
+        // Each on-disk journal entry is 0xC bytes.
+        cnt += nJournalCount * 0xC;
+        UTIL_ASSERT(cnt <= static_cast<DWORD>(nGame));
     }
 
     // Familiars (header offset 0x68).  Section at pGame + offset:
@@ -2588,9 +2640,61 @@ BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
                 pCounts++;
             }
         }
+
+        // 0x190 = default resrefs (0x48) + data offset (0x04) + 81 counts (0x144);
+        // then 8 bytes per packed resref entry.
+        cnt += 0x190 + static_cast<DWORD>(nResRef) * 8;
+        UTIL_ASSERT(cnt <= static_cast<DWORD>(nGame));
     }
 
-    // TODO: Load inventory
+    // --- Pocket-plane "stored locations" (header offset 0x70/0x74 mirror it, but
+    // the loader reads the section sequentially, at pGame + cnt).  Gated by a
+    // version compare that is always satisfied for an IWD2 save: the binary calls
+    // _stricmp(version, "V1.1") and parses the section when they differ, and the
+    // version is always "V2.x".  ---
+    if (CString(reinterpret_cast<char*>(pGame + 4), 4).CompareNoCase("V1.1") != 0) {
+        // Drop any locations from a previously-loaded game.
+        while (!field_4BDC.IsEmpty()) {
+            delete field_4BDC.RemoveHead();
+        }
+
+        BYTE* pStored = pGame + cnt;
+        int nStored = *reinterpret_cast<int*>(pStored);
+        BYTE* pRecord = pStored + 4; // records follow the count
+        for (int i = 0; i < nStored; i++) {
+            int nTotalSize = *reinterpret_cast<int*>(pRecord + 0x00);
+            int nNameLen   = *reinterpret_cast<int*>(pRecord + 0x04);
+
+            CSavedGameStoredLocation* pLocation = new CSavedGameStoredLocation();
+            pLocation->field_4  = *reinterpret_cast<DWORD*>(pRecord + 0x08);
+            pLocation->field_8  = pRecord[0x0C];
+            pLocation->field_9  = *reinterpret_cast<DWORD*>(pRecord + 0x0D);
+            pLocation->field_D  = *reinterpret_cast<DWORD*>(pRecord + 0x11);
+            pLocation->field_11 = *reinterpret_cast<DWORD*>(pRecord + 0x15);
+            pLocation->field_15 = *reinterpret_cast<WORD*>(pRecord + 0x19);
+            pLocation->field_17 = pRecord[0x1B];
+
+            // The area name is a length-prefixed blob at +0x1C (nNameLen bytes).
+            char* pBuffer = pLocation->m_areaName.GetBufferSetLength(nNameLen);
+            memcpy(pBuffer, pRecord + 0x1C, nNameLen);
+            pLocation->m_areaName.ReleaseBuffer(nNameLen);
+
+            field_4BDC.AddTail(pLocation);
+            pRecord += nTotalSize + 4;
+        }
+
+        // Recompute the section's on-disk size from the loaded list: the count
+        // dword plus, per record, the 0x1C-byte fixed header and the name bytes.
+        DWORD nStoredSize = 4;
+        for (POSITION pos = field_4BDC.GetHeadPosition(); pos != NULL; ) {
+            CSavedGameStoredLocation* pLocation = field_4BDC.GetNext(pos);
+            nStoredSize += 0x1C + pLocation->m_areaName.GetLength();
+        }
+        cnt += nStoredSize;
+    }
+
+    // The whole buffer must have been consumed exactly.
+    UTIL_ASSERT(cnt == static_cast<DWORD>(nGame));
 
     return TRUE;
 }
