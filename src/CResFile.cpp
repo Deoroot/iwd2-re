@@ -1,6 +1,9 @@
 #include "CResFile.h"
 
 #include "CChitin.h"
+#include "CUtil.h"
+
+#include <direct.h>
 
 // NOTE: Inlined in `CDimm::CreateKeyTable`.
 CResFile::CResFile()
@@ -52,6 +55,92 @@ BOOL CResFile::AddCacheCount()
     LeaveCriticalSection(&(g_pChitin->m_critSectResCache));
 
     return TRUE;
+}
+
+// 0x789ce0
+BOOL CResFile::Cache()
+{
+    CString sCacheDir;
+    CString sResFileName;
+    CString sName;
+    CString sSrcFileName;
+    CString sDstFileName;
+
+    CResCache* pResCache = &g_pChitin->cDimm.cResCache;
+    UTIL_ASSERT(pResCache != NULL);
+    UTIL_ASSERT(pResCache->CacheInitialized());
+
+    if (m_nRefCount != 0) {
+        return FALSE;
+    }
+
+    char szSavedDirectory[260];
+    if (!_getcwd(szSavedDirectory, sizeof(szSavedDirectory))) {
+        return FALSE;
+    }
+
+    sCacheDir = pResCache->m_sDirName;
+
+    WORD nDrive;
+    if (!g_pChitin->cDimm.GetResFileName(m_nIndex, sResFileName, nDrive, TRUE)) {
+        return FALSE;
+    }
+
+    if (g_pChitin->cDimm.m_cKeyTable.m_bInitialized &&
+        m_nIndex < g_pChitin->cDimm.m_cKeyTable.m_nResFiles) {
+        sName = reinterpret_cast<char*>(g_pChitin->cDimm.m_cKeyTable.m_pResFileNameEntries) +
+                g_pChitin->cDimm.m_cKeyTable.m_pResFileNameEntries[m_nIndex].nFileNameOffset;
+    }
+
+    if ((nDrive & 1) != 0) {
+        return FALSE;
+    }
+
+    if ((nDrive & 0x200) != 0) {
+        if (AddCacheCount()) {
+            pResCache->AccessFileInCache(m_nIndex);
+            EnterCriticalSection(&g_pChitin->m_critSectResCache);
+            pResCache->m_nBusy = 0;
+            LeaveCriticalSection(&g_pChitin->m_critSectResCache);
+            return TRUE;
+        }
+        return FALSE;
+    }
+
+    if (!g_pChitin->lAliases.ResolveFileName(sResFileName, sSrcFileName)) {
+        return FALSE;
+    }
+
+    if (!g_pChitin->cDimm.WriteSetUp(sCacheDir + sName, sDstFileName)) {
+        return FALSE;
+    }
+
+    while (g_pChitin->m_bInSynchronousUpdate == TRUE || g_pChitin->m_bDisplayStale == TRUE) {
+        SleepEx(5, FALSE);
+    }
+
+    if (!AddCacheCount()) {
+        return FALSE;
+    }
+
+    if (pResCache->CopyFile(m_nIndex, sName, sSrcFileName, sDstFileName)) {
+        EnterCriticalSection(&g_pChitin->m_critSectResCache);
+        pResCache->m_nBusy = 0;
+        LeaveCriticalSection(&g_pChitin->m_critSectResCache);
+        _chdir(szSavedDirectory);
+        return TRUE;
+    }
+
+    EnterCriticalSection(&g_pChitin->m_critSectResCache);
+    if (m_nCacheCount > 1) {
+        m_nCacheCount--;
+    } else {
+        m_nCacheCount = 0;
+    }
+    pResCache->m_nBusy = 0;
+    LeaveCriticalSection(&g_pChitin->m_critSectResCache);
+    _chdir(szSavedDirectory);
+    return FALSE;
 }
 
 // 0x78A080

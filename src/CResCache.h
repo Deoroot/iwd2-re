@@ -18,6 +18,7 @@ public:
 
     void AccessFileInCache(UINT nIndex);
     void AddFileToCache(UINT nIndex, const CTime& cTime, DWORD nSize);
+    BOOL CacheInitialized() const { return m_bInitialized == TRUE; }
     BOOL CopyFile(UINT nIndex, const CString& sName, const CString& sSrcFileName, const CString& sDstFileName);
     BOOL DeleteFileFromCache(UINT nIndex);
     void FlushCache(int a2);

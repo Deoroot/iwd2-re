@@ -9,6 +9,7 @@ public:
     ~CResFile();
 
     BOOL AddCacheCount();
+    BOOL Cache(); // #guess -- inverse of UnCache; caller CInfGame::CacheResFileWithResource
     BOOL CloseFile();
     DWORD GetFileSize(RESID resID);
     BOOL OpenFile();
