@@ -1429,21 +1429,30 @@ public:
 //
 // Instant-effect spell projectile for Call Lightning and its variants
 // (CallLiH / FStrikH / SunscoH beams).  Fire calls DeliverEffects immediately,
-// then the object lives as a visual marker for m_nLifetime ticks with BAM
-// frame animation.  0x29A bytes in VC6 with inline CVidCell (+0x192) and
-// CVidPalette (+0x26C);  modelled as a CProjectileBAM subclass.
+// then the object lives as a visual marker for m_lifetime ticks doing its OWN
+// BAM frame animation -- it is NOT a CProjectileBAM: it carries an inline
+// CVidCell (+0x192) plus a range CVidPalette (+0x26C), with no CVidBitmap or
+// IcewindCVisualEffect.  0x29A bytes in VC6; derives from CProjectileInstant
+// (BG2 PDB) and adds the cell/palette and three trailing fields.
 // ---------------------------------------------------------------------------
-class CProjectileCallLightning : public CProjectileBAM {
+#pragma pack(push, 2)
+class CProjectileCallLightning : public CProjectileInstant {
 public:
     CProjectileCallLightning(const CResRef& resRef, const CResRef& soundRef,
-                             LONG param5, LONG param6, SHORT projType);
+                             BYTE colorIndex, LONG renderFlag, LONG animFlag,
+                             SHORT lifetime);   // 0x5348C0
     void AIUpdate() override;      // 0x534C10 (slot 3)
     void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos,
               LONG nHeight, SHORT nType) override;   // 0x535100 (slot 27)
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x534DD0 (slot 19)
 
 private:
-    SHORT m_nLifetime;    // tick counter; seed = projType (0x14 = 20 for CallLiH)
+    /* 0192 */ CVidCell    m_vidCell;
+    /* 026C */ CVidPalette m_palette;
+    /* 0290 */ LONG        m_renderFlag;   // ctor param5: Render blend -- 0 => FXPREP_CLEARFILL, else FXPREP_COPYFROMBACK
+    /* 0294 */ LONG        m_animFlag;     // ctor param6: AIUpdate frame gate -- 0 => sequential advance, else random flicker
+    /* 0298 */ SHORT       m_lifetime;     // ctor projType: tick counter (0x14 CallLiH / 0x1C FStrikH / 0x18 SunscoH)
 };
+#pragma pack(pop)
 
 #endif /* CPROJECTILE_H_ */

@@ -1944,7 +1944,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 45: {  // Call Lightning (SPPR302): CallLiH beam, sound EFF_P19
         return new CProjectileCallLightning(
-            CResRef("CallLiH"), CResRef("EFF_P19"), 1, 0, 0x14);
+            CResRef("CallLiH"), CResRef("EFF_P19"), 0xFF, 1, 0, 0x14);
     }
     case 46: {
         p = new CProjectileSummonVFX(CResRef("SChargH"), IcewindCVisualEffect());
@@ -1984,7 +1984,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 52: {  // Call Lightning variant: FStrikH beam, sound EFF_P16
         return new CProjectileCallLightning(
-            CResRef("FStrikH"), CResRef("EFF_P16"), 1, 0, 0x1C);
+            CResRef("FStrikH"), CResRef("EFF_P16"), 0xFF, 1, 0, 0x1C);
     }
     case 53: {
         p = new CProjectileSummonVFX(CResRef("RDeadH"), IcewindCVisualEffect());
@@ -2111,7 +2111,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 72: {  // Call Lightning variant: SunscoH beam, sound EFF_P39
         return new CProjectileCallLightning(
-            CResRef("SunscoH"), CResRef("EFF_P39"), 1, 0, 0x18);
+            CResRef("SunscoH"), CResRef("EFF_P39"), 0xFF, 1, 0, 0x18);
     }
     case 73: {
         p = new CProjectileSummonVFX(CResRef("BBarrH1"), IcewindCVisualEffect());
@@ -2334,16 +2334,28 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
 
 // 0x5348C0
 CProjectileCallLightning::CProjectileCallLightning(const CResRef& resRef,
-    const CResRef& soundRef, LONG param5, LONG param6, SHORT projType)
-    : CProjectileBAM(resRef, "", 0, 0, IcewindCVisualEffect())
+    const CResRef& soundRef, BYTE colorIndex, LONG renderFlag, LONG animFlag,
+    SHORT lifetime)
+    : m_palette(CVidPalette::TYPE_RANGE)
 {
-    m_fireSoundRef = soundRef;
-    m_arrivalSoundRef = "";
-    m_projectileType = projType;
+    // CProjectileInstant() / CProjectile() default-construct the base fields
+    // (the binary inlines that initialisation here).
+    m_vidCell.SetResRef(resRef, FALSE, TRUE, TRUE);
 
-    // m_field290 = param5;  // unused in recovered paths
-    // m_field294 = param6;  // gates random vs sequential frame advance
-    m_nLifetime = projType;    // lifetime in ticks (0x14=20 for CallLiH)
+    // Optional palette recolour.  Every shipped Call Lightning variant passes
+    // colorIndex 0xFF (no recolour), so this branch never runs; the master
+    // palette bitmap source (global 0x8CF6DC chain) is left unrecovered.
+    if (colorIndex != (BYTE)0xFF) {
+        // m_palette.SetRange(0, colorIndex, <master palette bitmap>);
+        // m_vidCell.SetPalette(m_palette);
+    }
+    m_vidCell.FrameSet(0);
+
+    m_fireSoundRef = soundRef;
+
+    m_renderFlag = renderFlag;
+    m_animFlag = animFlag;
+    m_lifetime = lifetime;
 }
 
 // 0x535100 (slot 27).  Instant-effect Fire — calls DeliverEffects immediately
@@ -2402,26 +2414,65 @@ void CProjectileCallLightning::Fire(CGameArea* pArea, LONG source, LONG target,
     }
 }
 
-// 0x534C10 (slot 3).  Lifetime countdown + BAM frame animation.
+// 0x534C10 (slot 3).  Lifetime countdown + the bolt's own BAM frame animation.
 void CProjectileCallLightning::AIUpdate()
 {
-    // Time Stop gate (0x534C11–0x534C33).
+    // Time Stop gate (0x534C11–0x534C33): frozen unless this bolt belongs to the
+    // caster who stopped time.
     CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
     if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
         return;
     }
 
     // Lifetime countdown (0x534C39–0x534C97).
-    if (--m_nLifetime < 1) {
+    if (--m_lifetime == 0) {
         RemoveFromArea();
-        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(m_id,
-            CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE);
-        delete this;
+        if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(m_id,
+                CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+            == CGameObjectArray::SUCCESS) {
+            delete this;
+        }
         return;
     }
 
-    // Delegate frame animation to CProjectileBAM (which advances m_vidCell).
-    CProjectileBAM::AIUpdate();
+    // Frame animation (0x534C9D–).  m_animFlag == 0 => sequential advance,
+    // reseeding to frame 0 at the end of the sequence; otherwise => random-frame
+    // lightning flicker.
+    if (m_animFlag == 0) {
+        if (!m_vidCell.IsEndOfSequence(FALSE)) {
+            m_vidCell.FrameAdvance();
+        } else {
+            m_vidCell.FrameSet(0);
+        }
+    } else {
+        BYTE sequenceLength = (BYTE)m_vidCell.GetSequenceLength(0, FALSE);
+        if (sequenceLength == 0) {
+            m_vidCell.FrameSet(0);
+        } else {
+            m_vidCell.FrameSet(rand() % sequenceLength);
+        }
+    }
+
+    // Drop the bolt if its target has left the area (0x534CEB–).
+    if (m_targetId != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pTarget;
+        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+            m_targetId, CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+        if (rc != CGameObjectArray::SUCCESS) {
+            RemoveSelf();
+            return;
+        }
+        if (m_pArea != pTarget->m_pArea) {
+            RemoveSelf();
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return;
+        }
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
 }
 
 // 0x534DD0 (vtable slot 19 override). The CALLLIH bolt is a multi-sequence BAM:
@@ -2497,7 +2548,7 @@ void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int 
             }
 
             DWORD cycleFlags;
-            if (m_visualEffect.m_dwFlags == 0) {
+            if (m_renderFlag == 0) {
                 cycleFlags = CInfinity::FXPREP_CLEARFILL | 0x20001;
             } else {
                 cycleFlags = CInfinity::FXPREP_COPYFROMBACK | 0x20200;
