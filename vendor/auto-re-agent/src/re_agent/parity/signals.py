@@ -340,10 +340,33 @@ def _decompile_param_max(signature: str) -> int:
     return max(nums) if nums else 0
 
 
-def _source_param_names(signature: str) -> list[str]:
-    """Ordered parameter names from a C++ definition `RetType Name(T a, U b, ...)`. Each
-    top-level comma-separated slot's last identifier is its name (after stripping any
-    default-value tail). Commas inside <>/()/[] are not separators. void/empty -> []."""
+_SCALAR_TYPE_TOKENS = frozenset(
+    {
+        "int", "INT", "UINT", "long", "LONG", "ULONG", "short", "SHORT", "USHORT",
+        "char", "CHAR", "byte", "BYTE", "bool", "BOOL", "BOOLEAN", "WORD", "DWORD",
+        "QWORD", "COLORREF", "unsigned", "signed", "size_t", "float", "FLOAT",
+    }
+)
+
+
+def _is_scalar_param(slot: str) -> bool:
+    """A by-value scalar parameter -- the only kind a swap bug meaningfully mis-feeds.
+    Excludes references/pointers (`&`/`*`) and class/struct types (CRect&, CPoint, T*),
+    whose decompile-vs-source reference counts diverge for benign reasons (copied into
+    locals, field access, member caching)."""
+    decl = slot.split("=")[0]
+    if "&" in decl or "*" in decl:
+        return False
+    type_toks = _PARAM_IDENT_RE.findall(decl)[:-1]  # drop the name (last identifier)
+    if not type_toks:
+        return False
+    return all(t in _SCALAR_TYPE_TOKENS or t == "const" for t in type_toks)
+
+
+def _source_param_names(signature: str) -> list[tuple[str, bool]]:
+    """Ordered (name, is_scalar) for each parameter in a C++ definition
+    `RetType Name(T a, U b, ...)`. Name = each top-level comma slot's last identifier
+    (default-value tail stripped). Commas inside <>/()/[] are not separators."""
     lp = signature.find("(")
     if lp < 0:
         return []
@@ -377,11 +400,11 @@ def _source_param_names(signature: str) -> list[str]:
         else:
             buf += c
     slots.append(buf)
-    names: list[str] = []
+    out: list[tuple[str, bool]] = []
     for slot in slots:
         ids = _PARAM_IDENT_RE.findall(slot.split("=")[0])
-        names.append(ids[-1] if ids else "")
-    return names
+        out.append((ids[-1] if ids else "", _is_scalar_param(slot)))
+    return out
 
 
 def check_param_swap(
@@ -392,8 +415,8 @@ def check_param_swap(
 ) -> Finding | None:
     if source is None or ghidra is None or not ghidra.decompiled or not source.signature or inline_skip:
         return None
-    names = _source_param_names(source.signature)
-    if len(names) < 2 or "" in names:
+    params = _source_param_names(source.signature)
+    if len(params) < 2 or any(nm == "" for nm, _ in params):
         return None
     # The decompiler's param list (`int param_1,...,uint param_8`) lives in the head of the
     # decompiled body, NOT the `signature` field (which is often `...(void)`). Split on the
@@ -403,7 +426,7 @@ def check_param_swap(
     dhead = full[:brace] if brace >= 0 else full
     dbody = full[brace:] if brace >= 0 else full
     m = _decompile_param_max(dhead)
-    n = len(names)
+    n = len(params)
     # Align source slot i to the decompiler's param index. __thiscall -> param_1 is `this`
     # so src[i] == param_(i+2); a free function -> src[i] == param_(i+1). Any other count
     # (varargs, decompiler arg-mangling) is not safely alignable -> bail.
@@ -416,27 +439,35 @@ def check_param_swap(
     bin_freq = Counter(int(x) for x in _PARAM_TOK_RE.findall(dbody))
     sbody = source.body_no_comments
     deltas: dict[str, int] = {}
-    for i, nm in enumerate(names):
-        # Only scalar params: a swap bug feeds the wrong int into an expression. Struct/
-        # pointer/ref params (accessed via . -> []) legitimately diverge in count -- the
-        # decompiler copies `param_6->left` into a local and reuses the local -- so they
-        # would be spurious over/under. Skip them.
-        if re.search(rf"\b{re.escape(nm)}\s*(?:\.|->|\[)", sbody):
+    for i, (nm, is_scalar) in enumerate(params):
+        # Only by-value scalar params: a swap bug feeds the wrong int into an expression.
+        # Ref/pointer/struct params and any param the source caches into a member or local
+        # (m_x = p; ... use m_x) legitimately diverge in raw count, so they would be spurious
+        # over/under. Skip non-scalars and field/index-accessed names.
+        if not is_scalar or re.search(rf"\b{re.escape(nm)}\s*(?:\.|->|\[)", sbody):
             continue
         src_n = len(re.findall(rf"\b{re.escape(nm)}\b", sbody))
         deltas[nm] = src_n - bin_freq.get(i + offset, 0)
     over = sorted(((nm, d) for nm, d in deltas.items() if d >= 2), key=lambda x: -x[1])
     under = sorted(((nm, d) for nm, d in deltas.items() if d <= -2), key=lambda x: x[1])
-    if not over or not under:
+    # Require the *conserved-reference* signature of a genuine swap: exactly ONE over-used
+    # and ONE under-used param of EQUAL magnitude (the N refs that belong to param B were
+    # spent on param A instead) -- and no other imbalance anywhere. Unequal/multi-param or
+    # large lopsided deltas are decompiler noise (mangled __thiscall, inlined helpers,
+    # pointer params copied to locals), not a swap. This is what makes nPosZ/nPosY (+2/-2)
+    # stand out and keeps the signal quiet codebase-wide.
+    if len(over) != 1 or len(under) != 1:
         return None
-    over_s = ", ".join(f"{nm}(+{d})" for nm, d in over)
-    under_s = ", ".join(f"{nm}({d})" for nm, d in under)
+    if over[0][1] != -under[0][1]:
+        return None
+    over_nm, d = over[0]
+    under_nm = under[0][0]
     return Finding(
         level="yellow",
         reason=(
-            f"Possible parameter swap: source over-references {over_s} and under-references "
-            f"{under_s} relative to the binary's param positions -- verify the correct argument "
-            f"feeds each expression (e.g. a height/offset test reading the wrong param)"
+            f"Possible parameter swap: source spends {d} reference(s) on {over_nm} that the "
+            f"binary spends on {under_nm} (equal-magnitude swap at aligned param positions) -- "
+            f"verify the correct argument feeds each expression"
         ),
     )
 

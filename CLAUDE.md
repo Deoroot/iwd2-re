@@ -71,7 +71,7 @@ Don't invent code. Rank of ground truth:
 **"Function not found" / "no export" on a VALID addr** = no fn defined there (vtable-only callee). Fix: ensure `// 0xADDR` in source (stub if new) → `python scripts/reagent_address_map.py --out .ghidra-exports/address_map.json` → `gb export create-functions` (~10 min, re-exports all).
 ⚠️ NEVER `gb build-map` — overwrites the map with an EMPTY one.
 
-**Parity** = faithfulness lint (11 signals + objective verifier). Run from repo root:
+**Parity** = faithfulness lint (13 signals + objective verifier). Run from repo root:
 
 ```bash
 .venv-reagent/bin/re-agent --config re-agent.host.yaml parity --address 0xADDR
@@ -86,7 +86,7 @@ PE facts: host IWD2.exe = same bytes as VM, ImageBase `0x400000`, no ASLR → `s
 ## Frida tracing
 
 Throwaway traces to confirm field semantics live BEFORE a recover — ground truth beats guessing. Simple probes (args+fields at entries) = `frida_probe.py` hook-table JSON; complex logic (call-origin filters, list walks) = bespoke script, template `scripts/frida_formation_trace.py`, docs `docs/frida-differential-tracing.md`.
-- **OUR build → `DebugLog.h` (`Iwd2DebugLog(fmt,...)`), NOT Frida**: typed members, zero offset/symbol/ecx fragility (the debug-build +0xA base shift breaks Frida member reads — see `53fe6dccc766`). Enable = touch `.\iwd2-re-debug.enabled` in the game CWD (`C:\GOG Games\Icewind Dale 2`); writes `.\iwd2-re-debug.log`. Frida ONLY for the ORIGINAL (no source) + the our-vs-original differential.
+- **OUR build → `DebugLog.h` (`Iwd2DebugLog(fmt,...)`), NOT Frida**: typed members, zero offset/symbol/ecx fragility (the debug-build +0xA base shift breaks Frida member reads — see `53fe6dccc766`). Enable = touch `.\iwd2-re-debug.enabled` in the game CWD (`C:\GOG Games\Icewind Dale 2`) — assume it is ALREADY present by default (don't recreate); writes `.\iwd2-re-debug.log` (append-only — `Clear-Content` it before a fresh capture or stale lines mislead). Frida ONLY for the ORIGINAL (no source) + the our-vs-original differential.
 - Game in VM session 1; spawn-time hooks → driver as session-1 payload (`vm.sh frida`).
 - **`vm.sh frida` payload gotchas (scheduled-task + fire-and-forget VBS — bite EVERY time):**
   - NO stdin: `sys.stdin.read()`=EOF → driver exits early. Keep alive: `while True: time.sleep(0.5)`.
