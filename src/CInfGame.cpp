@@ -2281,6 +2281,38 @@ void CInfGame::Marshal(BYTE** pGame, DWORD* nGame, BOOLEAN bProgressBarInPlace)
     UTIL_ASSERT(nOffset == nGameSize);
 }
 
+// GAM party/NPC record version upgraders, used by CInfGame::Unmarshal when a
+// loaded save predates the current V2.2 record layout.  Each copies an older
+// fixed-size record into the next version's larger layout in source order,
+// leaving the fields introduced by the newer version untouched -- the caller
+// zero-fills the destination buffer first, so the new fields read back as zero.
+// IWD2 only ever writes V2.2 saves, so these conversions are dead for native
+// saves but are reproduced from the binary.  Offsets are the ground truth
+// (the destination gaps are the fields each version added).
+
+// 0x5A79E0
+// V2.0 party-creature record (0x180 bytes) -> V2.1 layout (0x220 bytes).
+static void UpgradePartyCreatureRecord20To21(const BYTE* pSrc, BYTE* pDst)
+{
+    memcpy(pDst + 0x000, pSrc + 0x000, 0x94); // header .. quick-weapon item slots
+    memcpy(pDst + 0x09C, pSrc + 0x094, 0x08); // quick-weapon ability slots
+    memcpy(pDst + 0x0AC, pSrc + 0x09C, 0x18); // quick spells
+    memcpy(pDst + 0x0DC, pSrc + 0x0B4, 0x0C); // quick items
+    memcpy(pDst + 0x160, pSrc + 0x0C0, 0xC0); // name, stats and kill records
+}
+
+// 0x5A7BF0
+// V2.1 party-creature record (0x220 bytes) -> V2.2 layout (0x340 bytes), the
+// in-memory CSavedGamePartyCreature.
+static void UpgradePartyCreatureRecord21To22(const BYTE* pSrc, BYTE* pDst)
+{
+    memcpy(pDst + 0x000, pSrc + 0x000, 0xDC); // header, quick weapons, leading quick spells
+    memcpy(pDst + 0x0FE, pSrc + 0x0DC, 0x3C); // quick items, leading quick innates
+    memcpy(pDst + 0x152, pSrc + 0x118, 0x30); // leading quick songs
+    memcpy(pDst + 0x19A, pSrc + 0x148, 0x18); // leading custom-button section
+    memcpy(pDst + 0x1BE, pSrc + 0x160, 0xC0); // name, stats and kill records
+}
+
 // 0x5A7E40
 BOOL CInfGame::Unmarshal(BYTE* pGame, LONG nGame, BOOLEAN bProgressBarInPlace)
 {
