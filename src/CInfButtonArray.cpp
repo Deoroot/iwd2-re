@@ -546,6 +546,15 @@ void CInfButtonArray::UpdateButtons()
         } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
     }
 
+    // Shared array-level overlay cells.  GUIBTACT (field_17C2) supplies every
+    // m_bHasOverlay slot's 38x38 action icon -- RenderButtonOverlay picks the
+    // per-button frame (m_nIconNormalFrame) into this one cell.  GUIBTBUT
+    // (field_16E8) supplies the per-button selection marker.  Loaded here
+    // rather than in the ctor because m_bDoubleSize is only known once the
+    // panel exists.
+    field_17C2.SetResRef(CResRef("GUIBTACT"), pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
+    field_16E8.SetResRef(CResRef("GUIBTBUT"), pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
+
     for (INT nButton = 0; nButton < 12; nButton++) {
         CUIControlBase* pControl = pPanel->GetControl(nButton + 6);
         if (pControl == NULL) {
@@ -1078,10 +1087,17 @@ void CInfButtonArray::UpdateButtons()
         settings.m_bActiveWeaponSet = bActiveWeaponSet ? 1 : 0;
         settings.m_nCount = nCount;
         settings.m_bGreyOut = !bEnabled || bGreyOut;
-        settings.m_iconCell.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
-        settings.m_iconCell.SequenceSet(nIconSequence);
-        if (nIconNormalFrame >= 0) {
-            settings.m_iconCell.FrameSet(nIconNormalFrame);
+        // Overlay slots draw their icon from the shared GUIBTACT cell
+        // (field_17C2) at m_nIconNormalFrame, so their per-button m_iconCell
+        // stays empty.  Non-overlay slots carry their own 32x32 icon here.
+        if (bHasOverlay) {
+            settings.m_iconCell.SetResRef(CResRef(""), pPanel->m_pManager->m_bDoubleSize, FALSE, FALSE);
+        } else {
+            settings.m_iconCell.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
+            settings.m_iconCell.SequenceSet(nIconSequence);
+            if (nIconNormalFrame >= 0) {
+                settings.m_iconCell.FrameSet(nIconNormalFrame);
+            }
         }
         // Stash sequence in m_nIconSequence so RenderButton can re-apply it when
         // swapping between normal/selected frames without resetting to 0.
