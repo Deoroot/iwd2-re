@@ -5019,6 +5019,74 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
         FALSE,
         0);
 
+    // Item-state translucent overlays (binary 0x62DDE0, after the icon): each
+    // blits a STORTIN* cell translucent (CVidCell::Render dwFlags=2 nTrans=0xC0,
+    // verified by disasm at 0x62e38f/0x62e43b/0x62e542/0x62e5ca/0x62e677).
+    //   - unidentified (m_flags bit0 clear)         -> STORTIN2
+    //   - usability tint (identified)               -> STORTIN4 (UMD) / STORTINT
+    //   - undroppable marker (m_flags bit3 & bit0)  -> STORTIN3
+    if (pItem != NULL) {
+        BOOL bDoubleSize = m_pPanel->m_pManager->m_bDoubleSize;
+        DWORD dwItemFlags = pItem->m_flags;
+        if ((dwItemFlags & 0x1) == 0) {
+            CVidCell cState(CResRef("STORTIN2"), bDoubleSize);
+            cState.Render(0, pos.x, pos.y, rClip, NULL, 0, 2, 0xC0);
+        } else {
+            // Identified item.  Resolve the inventory's selected sprite and paint
+            // STORTINT (red) if it cannot use the item at all (CanUseItem == 0,
+            // the equip / alignment / stat check the binary gates on via the
+            // 0x5b9c60 portrait->CanUseItem wrapper), otherwise a CheckItemUsable
+            // tint: STORTIN4 (gold) for a UMD-usable scroll/wand, STORTINT (red)
+            // for a type-restricted one.  (The binary resolves the share twice --
+            // once in the wrapper, once for CheckItemUsable -- on the same sprite;
+            // reproduced here as a single share.)
+            CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+            SHORT nPortrait = pInventory->GetSelectedCharacter();
+            LONG nLooterId = -1;
+            if (nPortrait < pGame->m_nCharacters) {
+                nLooterId = pGame->m_characterPortraits[nPortrait];
+            }
+
+            CGameSprite* pLooter;
+            BYTE share;
+            do {
+                pLooter = NULL;
+                share = pGame->GetObjectArray()->GetShare(nLooterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pLooter), INFINITE);
+            } while (share == CGameObjectArray::SHARED || share == CGameObjectArray::DENIED);
+
+            if (share == CGameObjectArray::SUCCESS) {
+                if (pLooter != NULL) {
+                    CResRef cStateOverlay;
+                    STRREF errorCode;
+                    if (pLooter->CanUseItem(pItem, errorCode) == 0) {
+                        cStateOverlay = CResRef("STORTINT");
+                    } else {
+                        INT nUsable = pGame->CheckItemUsable(pLooter, pItem);
+                        if (nUsable == 2) {
+                            cStateOverlay = CResRef("STORTIN4");
+                        } else if (nUsable == 0) {
+                            cStateOverlay = CResRef("STORTINT");
+                        }
+                    }
+
+                    if (cStateOverlay != "") {
+                        CVidCell cTint(cStateOverlay, bDoubleSize);
+                        cTint.Render(0, pos.x, pos.y, rClip, NULL, 0, 2, 0xC0);
+                    }
+                }
+                pGame->GetObjectArray()->ReleaseShare(nLooterId,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
+
+        if ((dwItemFlags & 0x8) != 0 && (dwItemFlags & 0x1) != 0) {
+            CVidCell cState(CResRef("STORTIN3"), bDoubleSize);
+            cState.Render(0, pos.x, pos.y, rClip, NULL, 0, 2, 0xC0);
+        }
+    }
+
     // NOTE: The active-weapon-set border (STONSLOT frame 3) and the drag
     // drop-target frames are painted by the slot's m_cVidCell frame, which
     // CUIControlButtonInventorySlot::TimerAsynchronousUpdate (0x62D4B0) sets
