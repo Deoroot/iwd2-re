@@ -19,6 +19,21 @@ HOST_REPO="$HOME/iwd2-re"
 VM="win11vm"
 VM_REPO='C:/iwd2-re'                    # native Windows path for cmd + scp target
 
+# Guard against incremental-build struct corruption: editing a widely-included
+# layout header (e.g. CGameAnimation.h, pulled in transitively by most of the
+# engine via CGameSprite.h) does NOT reliably recompile every transitive
+# includer, leaving mixed-layout .obj files -> a by-value member past the change
+# point lands at different offsets per TU -> garbage reads / crash (proven by an
+# A/B/C smoke on the CGameAnimation pack(2) fix, 2026-06-20). When any header
+# changed since the last successful build, force a full rebuild so every TU sees
+# the same layout. Code-only (.cpp) edits keep the fast incremental path.
+STAMP="$HOST_REPO/.vm_build_stamp"
+CLEAN_ARG=""
+if [ ! -f "$STAMP" ] || [ -n "$(find "$HOST_REPO/src" -name '*.h' -newer "$STAMP" -print -quit)" ]; then
+  CLEAN_ARG="--clean-first"
+  echo "==> header change since last build -> full rebuild (--clean-first)"
+fi
+
 echo "==> sync source host -> VM (scp -rp keeps mtimes => incremental compile)"
 scp -rpq "$HOST_REPO/src" "$HOST_REPO/CMakeLists.txt" "$VM:$VM_REPO/"
 scp -q  "$HOST_REPO/scripts/vm_build.cmd" "$HOST_REPO/scripts/vm_s1.cmd" \
@@ -26,7 +41,10 @@ scp -q  "$HOST_REPO/scripts/vm_build.cmd" "$HOST_REPO/scripts/vm_s1.cmd" \
         "$VM:$VM_REPO/scripts/"
 
 echo "==> build on VM (VsDevCmd x86 + cmake --build, Debug)"
-ssh "$VM" "cmd /c $VM_REPO/scripts/vm_build.cmd"
+ssh "$VM" "cmd /c $VM_REPO/scripts/vm_build.cmd $CLEAN_ARG"
+# Build succeeded (set -e would have aborted otherwise): record the headers we
+# just built against, so the next build only goes clean if a header changes again.
+touch "$STAMP"
 
 if [ "${1:-}" = "--run" ]; then
   echo "==> deploy + launch in session 1 (renders + input; required for Frida)"

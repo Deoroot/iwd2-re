@@ -10,6 +10,6 @@ if not exist "%VSDEV%" (
 call "%VSDEV%" -arch=x86 -no_logo
 echo ==^> taskkill stale exe
 taskkill /f /im iwd2-re.exe 2>nul
-echo ==^> cmake --build
-cmake --build C:\iwd2-re\build --config Debug
+echo ==^> cmake --build %*
+cmake --build C:\iwd2-re\build --config Debug %*
 exit /b %ERRORLEVEL%
