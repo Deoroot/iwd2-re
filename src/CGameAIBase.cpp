@@ -3359,6 +3359,16 @@ SHORT CGameAIBase::ForceSpellPointAction()
         BYTE nClass = static_cast<BYTE>(m_curAction.m_specificID2 & 0xFF);
         DWORD nSpec = pSprite->m_baseStats.m_specialization;
         BYTE nLevel = static_cast<BYTE>(specificLevel);
+
+        // Pre-build the projectile (binary 0x462102: DecodeProjectile with the
+        // ability's missileType) before the effect dispatch so the targetType-2
+        // gameplay effects can ride the missile (CProjectile::AddEffect) and
+        // deliver on arrival instead of at cast.  Fired directly after the loop.
+        // This mirrors the object-target twin ForceSpellAction (0x461190); the
+        // earlier stopgap here dropped case 2 (no projectile) so projectile
+        // spells -- Fireball: damage targetType-2 + missile 38 -- never fired.
+        CProjectile* pProj = CProjectile::DecodeProjectile(pAbility->missileType, this, 0);
+
         for (LONG e = 0; e < static_cast<LONG>(pAbility->effectCount); ++e) {
             CGameEffect* pEffect = pSpell->BuildAbilityEffect(
                 nAbilityIndex, e, this, nClass, nSpec, nLevel);
@@ -3375,6 +3385,15 @@ SHORT CGameAIBase::ForceSpellPointAction()
                 continue;
             }
             case 2:
+                // targetType 2 (preset target): the effect rides the missile and
+                // delivers on arrival (binary case 2 @0x461953: CProjectile::AddEffect).
+                // A point cast has no object to address, so when the projectile type
+                // is unrecovered (pProj NULL) the effect is dropped rather than fired
+                // at cast.
+                if (pProj != NULL) {
+                    pProj->AddEffect(pEffect);
+                    continue;
+                }
                 break;
             case 3:
                 pSprite->ApplyEffectToParty(pEffect);
@@ -3392,7 +3411,9 @@ SHORT CGameAIBase::ForceSpellPointAction()
             case 8:
                 pSprite->m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, pSprite);
                 break;
+            case 7:
             default:
+                // targetType 7 (binary @0x46213b): no application, just release.
                 break;
             }
             delete pEffect;
@@ -3401,6 +3422,20 @@ SHORT CGameAIBase::ForceSpellPointAction()
         STRREF strSpellName = pSpell->GetGenericName();
         pSprite->FeedBack(CGameSprite::FEEDBACK_SPELL, 0, 0, 0,
             static_cast<LONG>(strSpellName), 0, 0);
+
+        // Projectile launch (binary 0x46146d region): fire the pre-built
+        // projectile via CProjectile::Fire (vtable slot 0x6c, height 0x1e),
+        // carrying the targetType-2 effects attached above.  A point cast has no
+        // target object, so the missile homes on the destination point with an
+        // invalid target id.  The original ALSO queues a broadcast
+        // CMessageFireProjectile (its Run() only fires the visual on remote
+        // machines) and stamps the caster-class scaling byte (proj +0x186 via
+        // FUN_00727720); both are deferred with the rest of MP.  Fire ignores
+        // nHeight.
+        if (pProj != NULL) {
+            pProj->Fire(pSprite->m_pArea, m_id, CGameObjectArray::INVALID_INDEX,
+                targetPos, 0x1E, 0);
+        }
     } else {
         FireSpellPoint(resRef, targetPos);
     }
