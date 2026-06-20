@@ -5101,7 +5101,7 @@ void CUIControlButtonInventorySlot::OnRButtonClick(CPoint pt)
                 WORD wCount;
 
                 if ((m_nID < 68 || m_nID > 72) && m_nID != 81) {
-                    pInventory->MapButtonIdToItemInfo(pInventory->m_nRequesterButtonId,
+                    pInventory->MapButtonIdToItemInfo(m_nID,
                         pItem,
                         description,
                         cResIcon,
