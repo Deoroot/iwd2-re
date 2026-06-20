@@ -21,6 +21,7 @@
 #define CRESUI_CONTROLBUTTONID_INVENTORYCOLOR_LASTCOLOR 33
 
 class CGameButtonList;
+class CGameSprite;
 
 // Reserved item-check record embedded in CScreenInventory at +0x4B0. The ctor
 // (0x623F11) constructs its three CResRefs and seeds every field (-1/0/1), but
@@ -110,7 +111,7 @@ public:
     void DismissPopup();
     void ResetHistoryPanel(CUIPanel* pPanel);
     void ResetAbilitiesPanel(CUIPanel* pPanel);
-    void SelectItemAbility();
+    void SelectItemAbility(CGameSprite* pSprite);
     void OnDoneButtonClick();
     void OnCancelButtonClick();
     void ResetErrorPanel(CUIPanel* pPanel);

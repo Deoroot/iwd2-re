@@ -1734,9 +1734,87 @@ void CScreenInventory::ResetAbilitiesPanel(CUIPanel* pPanel)
 }
 
 // 0x628200
-void CScreenInventory::SelectItemAbility()
+void CScreenInventory::SelectItemAbility(CGameSprite* pSprite)
 {
-    // TODO: Incomplete.
+    CButtonData cButtonData;
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 2587
+    UTIL_ASSERT(pGame != NULL);
+
+    INT nButton = static_cast<INT>(m_nRequesterButtonId);
+    INT nAbility = m_nCurrentAbility;
+    INT nInventoryId = MapButtonIdToInventoryId(nButton);
+
+    if (nAbility >= 0) {
+        switch (nButton) {
+        case 5:
+        case 6:
+        case 7: {
+            CGameButtonList* pButtons = pSprite->GetItemUsages(static_cast<SHORT>(nInventoryId), 3, static_cast<SHORT>(nAbility));
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+            // __LINE__: 2679
+            UTIL_ASSERT(pButtons->GetCount() <= 1);
+
+            if (!pButtons->IsEmpty()) {
+                cButtonData = *pButtons->GetHead();
+                pSprite->SetQuickItem(static_cast<BYTE>(nButton - 5), cButtonData);
+            }
+
+            POSITION pos = pButtons->GetHeadPosition();
+            while (pos != NULL) {
+                delete pButtons->GetNext(pos);
+            }
+            pButtons->RemoveAll();
+            delete pButtons;
+            break;
+        }
+        case 101:
+        case 102:
+        case 103:
+        case 104:
+        case 105:
+        case 106:
+        case 107:
+        case 108: {
+            // Commit the chosen ability into the per-slot button array held in the
+            // bonus stats (CDerivedStats member unrecovered; offset taken from 0x6282CE).
+            CButtonData* pBonusButton =
+                reinterpret_cast<CButtonData*>(reinterpret_cast<BYTE*>(pSprite) + 0x2A18)
+                + (nInventoryId & 0xFF);
+            if (pBonusButton->m_abilityId.m_itemNum == (nInventoryId & 0xFF)) {
+                pBonusButton->m_abilityId.m_abilityNum = static_cast<SHORT>(nAbility);
+            }
+
+            if ((nButton - 101) / 2 == pSprite->m_nWeaponSet) {
+                pSprite->SetWeaponSet(pSprite->m_nWeaponSet);
+            }
+
+            CGameButtonList* pButtons = pSprite->GetItemUsages(static_cast<SHORT>(nInventoryId), 1, static_cast<SHORT>(nAbility));
+
+            if (!pButtons->IsEmpty()) {
+                cButtonData = *pButtons->GetHead();
+                pSprite->SetQuickWeapon(static_cast<BYTE>(nButton - 101), cButtonData);
+            }
+
+            POSITION pos = pButtons->GetHeadPosition();
+            while (pos != NULL) {
+                delete pButtons->GetNext(pos);
+            }
+            pButtons->RemoveAll();
+            delete pButtons;
+            break;
+        }
+        }
+    }
+
+    SHORT nPortrait = pGame->GetCharacterPortraitNum(pSprite->m_id);
+    if (static_cast<CBaldurEngine*>(g_pBaldurChitin->pActiveEngine)->GetSelectedCharacter() == nPortrait) {
+        pGame->m_cButtonArray.UpdateState();
+    }
 }
 
 // 0x6285B0
@@ -1804,7 +1882,7 @@ void CScreenInventory::OnDoneButtonClick()
             DismissPopup();
             break;
         case 6:
-            SelectItemAbility();
+            SelectItemAbility(pSprite);
             if (m_pAbilities != NULL) {
                 POSITION pos = m_pAbilities->GetHeadPosition();
                 while (pos != NULL) {
