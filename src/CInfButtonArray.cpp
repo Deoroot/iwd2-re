@@ -1260,15 +1260,20 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
                 CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
 
-        // UMD-usable items (CheckItemUsable == 2) get a yellow icon tint.
-        COLORREF rgbTint = nUsable == 2 ? 0x0000FFFF : 0;
+        // Binary 0x5955a6: rgbTint = (nUsable == 2) ? *(COLORREF*)0x84ebb0 : 0,
+        // and *(COLORREF*)0x84ebb0 == 0x0000FFFF (yellow).  The UMD-usable icon
+        // is tinted yellow; a normal/unusable icon is not.
+        COLORREF rgbTint = (nUsable == 2) ? 0x0000FFFF : 0;
         CIcon::RenderIcon(0, ptIcon, size, rClipIcon, settings.m_iconCell.GetResRef(),
             nScale == 2, dwFlags, static_cast<WORD>(settings.m_nCount), FALSE, 0, FALSE, rgbTint);
 
         if (nUsable == 2 || nUsable == 0) {
+            // Both overlays blit translucent (binary 0x595662 / 0x595714 both
+            // push dwFlags=2=CVIDIMG_TRANSLUCENT, nTransVal=0xC0) -- the STORTINT
+            // path hardcodes 2, not nUsable.
             CVidCell cTint(CResRef(nUsable == 2 ? "STORTIN4" : "STORTINT"),
                 g_pBaldurChitin->m_pEngineWorld->GetManager()->m_bDoubleSize);
-            cTint.Render(0, ptIcon.x, ptIcon.y, rClipIcon, NULL, 0, nUsable, 0xC0);
+            cTint.Render(0, ptIcon.x, ptIcon.y, rClipIcon, NULL, 0, 2, 0xC0);
         }
     } else {
         CIcon::RenderIcon(0, ptIcon, size, rClipIcon, settings.m_iconCell.GetResRef(),

@@ -833,7 +833,7 @@ BOOL CVidCell::Render(WORD* pSurface, LONG lPitch, INT nRefPointX, INT nRefPoint
                     nTransVal);
                 break;
             case 32:
-                bSuccess = sub_7D0950(reinterpret_cast<DWORD*>(pSurface)
+                bSuccess = Blt8To32Translucent(reinterpret_cast<DWORD*>(pSurface)
                         + lPitch / 4 * (nRefPointY - m_pFrame->nCenterY)
                         + (nRefPointX - m_pFrame->nCenterX),
                     lPitch,
@@ -1026,7 +1026,7 @@ BOOL CVidCell::Render(INT nSurface, int x, int y, const CRect& rClip, CVidPoly* 
                     nTransVal);
                 break;
             case 32:
-                bSuccess = sub_7D0950(reinterpret_cast<DWORD*>(ddsd.lpSurface),
+                bSuccess = Blt8To32Translucent(reinterpret_cast<DWORD*>(ddsd.lpSurface),
                     ddsd.lPitch,
                     dwFlags,
                     nTransVal);
@@ -2117,9 +2117,104 @@ BOOL CVidCell::Blt8To32Brightest(DWORD* pSurface, LONG lPitch, DWORD dwFlags)
 }
 
 // 0x7D0950
-BOOL CVidCell::sub_7D0950(DWORD* pSurface, LONG lPitch, DWORD dwFlags, INT nTransVal)
+BOOL CVidCell::Blt8To32Translucent(DWORD* pSurface, LONG lPitch, DWORD dwFlags, INT nTransVal)
 {
-    // TODO: Incomplete.
+    int nWidth = m_pFrame->nWidth;
+    int nHeight = m_pFrame->nHeight;
+
+    if (nWidth == 0 || nHeight == 0) {
+        return TRUE;
+    }
+
+    DWORD dwColorKey = g_pChitin->GetCurrentVideoMode()->m_dwColorKey;
+    int nInvTrans = 256 - nTransVal;
+
+    // __FILE__: C:\Projects\Icewind2\src\chitin\ChVidImage.cpp
+    // __LINE__: 6515
+    UTIL_ASSERT(nTransVal < 256);
+
+    if (!m_bPaletteChanged) {
+        m_cPalette.SetPalette(pRes->m_pPalette, 256, CVidPalette::TYPE_RESOURCE);
+    }
+
+    m_cPalette.Realize(CVidImage::rgbTempPal, 32, dwFlags, &m_paletteAffects, 255);
+
+    if (!m_bShadowOn) {
+        CVidImage::rgbTempPal[CVidPalette::SHADOW_ENTRY] = dwColorKey;
+    }
+
+    BYTE* pFrameData = pRes->GetFrameData(m_pFrame, m_bDoubleSize);
+    BAMHEADER* pBamHeader = pRes->m_bCacheHeader
+        ? pRes->m_pBamHeaderCopy
+        : pRes->m_pBamHeader;
+    BYTE nTransparentColor = pBamHeader->nTransparentColor;
+
+    // Translucent twin of Blt8To32: the cell colour is alpha-blended onto the
+    // destination (already holding the background) as
+    //   out = (src * (256 - nTransVal) + dst * nTransVal) >> 8   per channel.
+    if (pRes->GetCompressed(m_pFrame, m_bDoubleSize)) {
+        int nRunLength = 0;
+        int pos = 0;
+        for (int y = 0; y < nHeight; y++) {
+            int nRemainingWidth = nWidth;
+            while (nRemainingWidth != 0) {
+                BYTE nColor = pFrameData[pos];
+                if (nColor == nTransparentColor) {
+                    if (nRunLength == 0) {
+                        nRunLength = pFrameData[pos + 1] + 1;
+                    }
+
+                    if (nRemainingWidth == nRunLength) {
+                        pos += 2;
+
+                        pSurface += nRemainingWidth;
+                        nRunLength = 0;
+                        nRemainingWidth = 0;
+                    } else if (nRemainingWidth > nRunLength) {
+                        pos += 2;
+
+                        pSurface += nRunLength;
+                        nRemainingWidth -= nRunLength;
+                        nRunLength = 0;
+                    } else {
+                        pSurface += nRemainingWidth;
+                        nRunLength -= nRemainingWidth;
+                        nRemainingWidth = 0;
+                    }
+                } else {
+                    pos++;
+
+                    DWORD src = CVidImage::rgbTempPal[nColor] & 0xFFFFFF;
+                    if (src != dwColorKey) {
+                        DWORD dst = *pSurface;
+                        DWORD b = ((src & 0xFF) * nInvTrans + (dst & 0xFF) * nTransVal) >> 8;
+                        DWORD g = (((src >> 8) & 0xFF) * nInvTrans + ((dst >> 8) & 0xFF) * nTransVal) >> 8;
+                        DWORD r = (((src >> 16) & 0xFF) * nInvTrans + ((dst >> 16) & 0xFF) * nTransVal) >> 8;
+                        src = (r << 16) | (g << 8) | b;
+                    }
+                    *pSurface++ = src;
+                    nRemainingWidth--;
+                }
+            }
+            pSurface += lPitch / 4 - nWidth;
+        }
+    } else {
+        for (int y = 0; y < nHeight; y++) {
+            for (int x = 0; x < nWidth; x++) {
+                BYTE nColor = *pFrameData;
+                if (nColor != nTransparentColor) {
+                    DWORD dst = *pSurface;
+                    DWORD b = ((CVidImage::rgbTempPal[nColor] & 0xFF) * nInvTrans + (dst & 0xFF) * nTransVal) >> 8;
+                    DWORD g = (((CVidImage::rgbTempPal[nColor] >> 8) & 0xFF) * nInvTrans + ((dst >> 8) & 0xFF) * nTransVal) >> 8;
+                    DWORD r = (((CVidImage::rgbTempPal[nColor] >> 16) & 0xFF) * nInvTrans + ((dst >> 16) & 0xFF) * nTransVal) >> 8;
+                    *pSurface = (dst & 0xFF000000) | (r << 16) | (g << 8) | b;
+                }
+                pFrameData++;
+                pSurface++;
+            }
+            pSurface += lPitch / 4 - nWidth;
+        }
+    }
 
     return TRUE;
 }
