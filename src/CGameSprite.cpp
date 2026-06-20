@@ -8631,6 +8631,7 @@ void CGameSprite::InitQuickItemData(SHORT itemNum, SHORT abilityNum, int a3, CBu
                     && (ability->type != 2 || CheckLauncherType(ability, NULL))) {
                     cButtonData.m_icon = CString(ability->quickSlotIcon);
                     cButtonData.m_name = pItem->GetGenericName();
+                    cButtonData.m_abilityId.m_itemType = 2;
                     cButtonData.m_abilityId.m_itemNum = itemNum;
                     cButtonData.m_abilityId.m_abilityNum = abilityNum;
                     cButtonData.m_abilityId.m_targetType = ability->actionType;
