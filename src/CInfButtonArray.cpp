@@ -1255,6 +1255,81 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
     return TRUE;
 }
 
+// 0x5957C0
+//
+// Overlay-bezel companion to RenderButton, called first by
+// CUIControlButtonAction::Render.  It paints the 38x38 bezel layer and
+// reports (via the return value) whether the caller still needs to paint the
+// plain GUIBTBUT base bezel underneath:
+//   - GUIBTACT-style action slots (m_bHasOverlay, normal frame >= 0) bake
+//     their own bezel into field_17C2 -> paint it, return TRUE (skip base).
+//   - other slots paint nothing here unless selected, in which case the
+//     selection marker (field_16E8) is drawn and TRUE returned (so the base
+//     bezel -- which would otherwise show its own selection square -- is
+//     skipped).  Unselected non-overlay slots return FALSE so the caller
+//     paints the base bezel and RenderButton lays the icon on top.
+// A greyed-out slot tints both overlay cells grey (0x00B4B4B4).
+BOOL CInfButtonArray::RenderButtonOverlay(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton)
+{
+    if (nButton < 0 || nButton >= 12) {
+        return TRUE;
+    }
+
+    CInfButtonSettings& settings = m_buttonArray[nButton];
+
+    DWORD dwFlags;
+    if (settings.m_bGreyOut != 0) {
+        field_17C2.SetTintColor(0x00B4B4B4);
+        field_16E8.SetTintColor(0x00B4B4B4);
+        dwFlags = 0xA0000;
+    } else {
+        dwFlags = 0;
+    }
+
+    // Display not live yet -> paint nothing, let the caller draw the base.
+    if (g_pBaldurChitin->pActiveEngine == NULL
+        || g_pBaldurChitin->pActiveEngine->pVidMode == NULL) {
+        return FALSE;
+    }
+
+    INT nScale = g_pBaldurChitin->field_4A2C != 0 ? 2 : 1;
+    CRect rOverlay(pt, CSize(38 * nScale, 38 * nScale));
+    CRect rClipOverlay;
+    rClipOverlay.IntersectRect(rOverlay, rClip);
+
+    if (settings.field_0 == 0) {
+        return TRUE;
+    }
+
+    if (settings.m_bHasOverlay != 0 && settings.m_nIconNormalFrame >= 0) {
+        // Action slot: the bezel + icon are one BAM in field_17C2.
+        field_17C2.SequenceSet(0);
+        INT nFrame = settings.m_bSelected != 0
+            ? settings.m_nIconSelectedFrame
+            : settings.m_nIconNormalFrame;
+        if (bPressed) {
+            nFrame++;
+        }
+        field_17C2.FrameSet(static_cast<SHORT>(nFrame));
+        field_17C2.Render(0, pt.x, pt.y, rClipOverlay, NULL, 0, dwFlags, -1);
+        return TRUE;
+    }
+
+    // Non-overlay slot: only the selection marker, and only while selected.
+    if (settings.m_bSelected == 0) {
+        return FALSE;
+    }
+
+    field_16E8.SequenceSet(0);
+    INT nFrame = nButton * 2 + 0x18;
+    if (bPressed) {
+        nFrame++;
+    }
+    field_16E8.FrameSet(static_cast<SHORT>(nFrame));
+    field_16E8.Render(0, pt.x, pt.y, rClipOverlay, NULL, 0, dwFlags, -1);
+    return TRUE;
+}
+
 // 0x595E70
 void CInfButtonArray::SetCustomButtonTypes(const INT* pButtonList)
 {
