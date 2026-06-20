@@ -66,7 +66,6 @@ public:
     BOOL SetState(INT nState, int a2);
     void UpdateButtons();
     BOOL RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
-    BOOL RenderButtonOverlay(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
     void SetCustomButtonTypes(const INT* pButtonList);
     void SetQuickWeaponSlot(BYTE nSlot);
     void OnLButtonPressed(int buttonID);
