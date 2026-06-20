@@ -5155,7 +5155,6 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
             cResIcon,
             cResItem,
             wCount)) {
-        InvalidateRect();
         return TRUE;
     }
 
@@ -5208,7 +5207,6 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
                 FALSE,
                 0);
         }
-        InvalidateRect();
         return TRUE;
     }
 
