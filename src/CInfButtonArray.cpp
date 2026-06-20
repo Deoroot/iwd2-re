@@ -3,9 +3,11 @@
 #include "CBaldurChitin.h"
 #include "CButtonData.h"
 #include "CGameButtonList.h"
+#include "CGameObjectArray.h"
 #include "CGameSave.h"
 #include "CGameSprite.h"
 #include "CGameSpriteEquipment.h"
+#include "CIcon.h"
 #include "CInfGame.h"
 #include "CItem.h"
 #include "CScreenWorld.h"
@@ -1123,82 +1125,131 @@ void CInfButtonArray::UpdateButtons()
     }
 }
 
-// 0x5950F0 / 0x5957C0
+// 0x5950F0
+//
+// Paint one action-bar slot.  Faithful reconstruction of the binary:
+//   1. Gate on the active engine + its video mode being live.
+//   2. Compute the icon rect (slot + 3px, + another 2px while pressed) and
+//      clip it to the dirty rect.
+//   3. Skip inactive slots (field_0 == 0); a live slot with no button
+//      (m_bActive == 0) bails out.
+//   4. Active-weapon-set highlight ring (HIGHLGHT) when selected-off.
+//   5. Background cell (m_countCell, normally empty) painted first.
+//   6. Foreground icon (m_iconCell) via CIcon::RenderIcon, branched on the
+//      slot's button type (m_buttonTypes):
+//        - spell / ability / song (0x46-0x4E, 0x5A-0x62): count badge, with a
+//          forced count digit for the generic STONSPEL / STONSPEC slot art.
+//        - quick item (0x50-0x52): resolve the looter's quick item, run
+//          CheckItemUsable, then tint -- UMD-usable (==2) gets a yellow icon
+//          tint plus a STORTIN4 overlay, unusable (==0) gets a STORTINT
+//          overlay, freely usable (==1) gets neither.
+//        - anything else: a plain icon.
+// The greyout flag is the value 2, which CIcon::RenderIcon maps to its
+// TINT_INVALID path -- it suppresses the yellow tint, so a greyed quick item
+// reads grey, not yellow.
 BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton)
 {
-    // TODO: Incomplete.
+    INT nScale = g_pBaldurChitin->field_4A2C != 0 ? 2 : 1;
+    CSize size(nScale * CIcon::ICON_SIZE_SM.cx, nScale * CIcon::ICON_SIZE_SM.cy);
 
     if (nButton < 0 || nButton >= 12) {
         return TRUE;
     }
 
     CInfButtonSettings& settings = m_buttonArray[nButton];
-    if (settings.field_0 == 0 || settings.m_iconCell.pRes == NULL) {
+
+    // Display not live yet -> paint nothing.
+    if (g_pBaldurChitin->pActiveEngine == NULL
+        || g_pBaldurChitin->pActiveEngine->pVidMode == NULL) {
+        return FALSE;
+    }
+
+    CPoint ptIcon(pt.x + 3 * nScale, pt.y + 3 * nScale);
+    if (bPressed) {
+        ptIcon.x += 2 * nScale;
+        ptIcon.y += 2 * nScale;
+    }
+
+    CRect rIcon(ptIcon, size);
+    CRect rClipIcon;
+    rClipIcon.IntersectRect(rIcon, rClip);
+
+    if (settings.field_0 == 0) {
         return TRUE;
     }
+    if (settings.m_bActive == 0) {
+        return FALSE;
+    }
 
-    INT nScale = g_pBaldurChitin->field_4A2C != 0 ? 2 : 1;
-    // Two render origins per Ghidra:
-    //   - FUN_005957C0 (GUIBTACT overlay, m_bHasOverlay != 0): draws at pt+0 with
-    //     full 38x38 (scaled) button rect â€” the action BAM bakes its bezel.
-    //   - FUN_005950F0 (STON*/item BG, m_bHasOverlay == 0): draws at pt+3 (scaled)
-    //     with 32x32 frames that sit inside the GUIBTBUT bezel.
-    BOOL bOverlay = settings.m_bHasOverlay != 0;
-    CPoint ptIcon = bOverlay ? pt : CPoint(pt.x + 3 * nScale, pt.y + 3 * nScale);
-
-    // Active-weapon-set green ring overlay.  Original FUN_005950F0 loads BAM
-    // "HIGHLGHT" inline when settings.m_bActiveWeaponSet != 0 && settings.m_bSelected == 0
-    // (the selection-highlight always takes precedence).  We construct the
-    // CVidCell inline here too â€” this is a UI render path called only when the
-    // bar is visible, so the cost is amortized.
+    // Active-weapon-set highlight ring (HIGHLGHT), suppressed while selected.
+    // The original also clears m_bCacheHeader on the loaded cell, but that is
+    // always FALSE here (the resref is never empty), so it is a no-op.
     if (settings.m_bActiveWeaponSet != 0 && settings.m_bSelected == 0) {
         CVidCell cHighlight;
-        cHighlight.SetResRef(CResRef("HIGHLGHT"), nScale == 2, TRUE, FALSE);
-        cHighlight.SequenceSet(0);
-        cHighlight.FrameSet(0);
-        cHighlight.Render(0, pt.x + 3 * nScale, pt.y + 3 * nScale, rClip, NULL, 0, 0, -1);
+        cHighlight.SetResRef(CResRef("HIGHLGHT"), TRUE, TRUE, FALSE);
+        cHighlight.Render(0, ptIcon.x, ptIcon.y, rClipIcon, NULL, 0, 0, -1);
     }
 
-    SHORT nFrame = settings.m_nIconNormalFrame;
-    if (settings.m_bSelected != 0 && settings.m_nIconSelectedFrame >= 0) {
-        nFrame = settings.m_nIconSelectedFrame;
-    }
-    if (bPressed && nFrame >= 0 && settings.m_nIconNormalFrame != settings.m_nIconSelectedFrame) {
-        nFrame++;
-    }
+    // m_bGreyOut -> CIcon::RenderIcon flag 2 (TINT_INVALID), else no flags.
+    DWORD dwFlags = settings.m_bGreyOut ? 2 : 0;
 
-    if (nFrame >= 0) {
-        settings.m_iconCell.SequenceSet(static_cast<SHORT>(settings.m_nIconSequence));
-        settings.m_iconCell.FrameSet(nFrame);
-    }
+    // Background cell, painted first.  m_countCell is the slot's secondary
+    // layer (UpdateButtons leaves it empty for most slots, so this no-ops).
+    CIcon::RenderIcon(0, ptIcon, size, rClipIcon, settings.m_countCell.GetResRef(),
+        nScale == 2, dwFlags, 0, FALSE, 0, FALSE, 0);
 
-    DWORD dwFlags = settings.m_bGreyOut ? 0xA0000 : 0;
-    settings.m_iconCell.Render(0, ptIcon.x, ptIcon.y, rClip, NULL, 0, dwFlags, -1);
-
-    // Memorize / charge count badge.  Matches Ghidra FUN_005950F0 spell &
-    // ability branch and the count-render loop inside CIcon::RenderIcon
-    // (0x4E66E0): right-justified digits drawn at LAST_DIGIT_OFFSET (25,25
-    // scaled), each digit a frame in NUMBER.BAM, walking left while the
-    // remainder is non-zero.  Only quick spells / abilities / songs and
-    // picker entries set m_nCount > 0; everyone else gets 0 and skips.
-    if (settings.m_nCount > 0) {
-        CVidCell cNumber;
-        cNumber.SetResRef(CResRef("NUMBER"), nScale == 2, TRUE, TRUE);
-        if (cNumber.pRes != NULL) {
-            cNumber.SequenceSet(0);
-            LONG x = pt.x + 25 * nScale;
-            LONG y = pt.y + 25 * nScale;
-            WORD wRemaining = static_cast<WORD>(settings.m_nCount);
-            do {
-                SHORT digit = static_cast<SHORT>(wRemaining % 10);
-                wRemaining = wRemaining / 10;
-                if (digit > 0 || wRemaining > 0) {
-                    cNumber.FrameSet(digit);
-                    cNumber.Render(0, x, y, rClip, NULL, 0, 0, -1);
-                }
-                x -= 5 * nScale;
-            } while (wRemaining > 0);
+    INT nType = m_buttonTypes[nButton];
+    if ((nType >= 0x46 && nType <= 0x4E) || (nType >= 0x5A && nType <= 0x62)) {
+        // Spell / ability / song.  The generic STONSPEL / STONSPEC slot art
+        // forces the count digit to render even at zero.
+        BOOL bForceCount = settings.m_iconCell.GetResRef() == CResRef("STONSPEL")
+            || settings.m_iconCell.GetResRef() == CResRef("STONSPEC");
+        CIcon::RenderIcon(0, ptIcon, size, rClipIcon, settings.m_iconCell.GetResRef(),
+            nScale == 2, dwFlags, static_cast<WORD>(settings.m_nCount), bForceCount, 0, FALSE, 0);
+    } else if (nType == 0x50 || nType == 0x51 || nType == 0x52) {
+        // Quick item.  Resolve the looter (selected portrait's sprite),
+        // fetch the quick item in this slot and check usability.
+        CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+        SHORT nPortrait = g_pBaldurChitin->m_pEngineWorld->GetSelectedCharacter();
+        LONG nLooterId = -1;
+        if (nPortrait < pGame->m_nCharacters) {
+            nLooterId = pGame->m_characterPortraits[nPortrait];
         }
+
+        INT nUsable = 1;
+        CGameSprite* pLooter;
+        BYTE share;
+        do {
+            pLooter = NULL;
+            share = pGame->GetObjectArray()->GetShare(nLooterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pLooter), INFINITE);
+        } while (share == CGameObjectArray::SHARED || share == CGameObjectArray::DENIED);
+
+        if (share == CGameObjectArray::SUCCESS) {
+            if (pLooter != NULL) {
+                CItem* pItem = pLooter->GetQuickItem(static_cast<BYTE>(nType - 0x50));
+                if (pItem != NULL) {
+                    nUsable = pGame->CheckItemUsable(pLooter, pItem);
+                }
+            }
+            pGame->GetObjectArray()->ReleaseShare(nLooterId,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+
+        // UMD-usable items (CheckItemUsable == 2) get a yellow icon tint.
+        COLORREF rgbTint = nUsable == 2 ? 0x0000FFFF : 0;
+        CIcon::RenderIcon(0, ptIcon, size, rClipIcon, settings.m_iconCell.GetResRef(),
+            nScale == 2, dwFlags, static_cast<WORD>(settings.m_nCount), FALSE, 0, FALSE, rgbTint);
+
+        if (nUsable == 2 || nUsable == 0) {
+            CVidCell cTint(CResRef(nUsable == 2 ? "STORTIN4" : "STORTINT"),
+                g_pBaldurChitin->m_pEngineWorld->GetManager()->m_bDoubleSize);
+            cTint.Render(0, ptIcon.x, ptIcon.y, rClipIcon, NULL, 0, nUsable, 0xC0);
+        }
+    } else {
+        CIcon::RenderIcon(0, ptIcon, size, rClipIcon, settings.m_iconCell.GetResRef(),
+            nScale == 2, dwFlags, static_cast<WORD>(settings.m_nCount), FALSE, 0, FALSE, 0);
     }
 
     return TRUE;
