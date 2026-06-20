@@ -447,8 +447,8 @@ BOOL CVidPoly::FillConvexPoly3d(const CRect& rClip, DWORD dwColor, DWORD dwFlags
     }
 
     CVideo3d::glColor4f(static_cast<float>(GetRValue(dwColor)) / 255.0f,
-        static_cast<float>(GetRValue(dwColor)) / 255.0f,
-        static_cast<float>(GetRValue(dwColor)) / 255.0f,
+        static_cast<float>(GetGValue(dwColor)) / 255.0f,
+        static_cast<float>(GetBValue(dwColor)) / 255.0f,
         static_cast<float>(dwColor >> 24) / 255.0f);
     g_pChitin->GetCurrentVideoMode()->CheckResults3d(0);
 
