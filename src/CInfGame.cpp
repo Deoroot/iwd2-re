@@ -6047,6 +6047,36 @@ INT CInfGame::CheckItemUsable(CGameSprite* pSprite, CItem* pItem)
     return 0;
 }
 
+// 0x5B9C60
+// Resolves the character shown at portrait slot nPortrait (m_characterPortraits) and
+// reports whether they can use pItem. a4 selects the GetShare thread (THREAD_ASYNCH
+// when non-zero, else THREAD_1) and is forwarded to CanUseItem, which ignores it.
+INT CInfGame::CanCharacterUseItem(SHORT nPortrait, CItem* pItem, STRREF& errorCode, BOOL a4)
+{
+    LONG nObjectId = CGameObjectArray::INVALID_INDEX;
+    if (nPortrait < m_nCharacters) {
+        nObjectId = m_characterPortraits[nPortrait];
+    }
+
+    BYTE threadNum = (a4 == 0) ? CGameObjectArray::THREAD_1 : CGameObjectArray::THREAD_ASYNCH;
+
+    CGameSprite* pSprite;
+    BYTE share;
+    do {
+        share = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+            nObjectId, threadNum, reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
+    } while (share == CGameObjectArray::SHARED || share == CGameObjectArray::DENIED);
+
+    if (share != CGameObjectArray::SUCCESS) {
+        errorCode = 0x249D;
+        return 0;
+    }
+
+    INT nResult = pSprite->CanUseItem(pSprite, pItem, errorCode, a4);
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nObjectId, threadNum, INFINITE);
+    return nResult;
+}
+
 // 0x5BACE0
 SHORT CInfGame::GetNumQuickWeaponSlots(SHORT nPortrait)
 {

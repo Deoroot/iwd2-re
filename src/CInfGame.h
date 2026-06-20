@@ -231,6 +231,7 @@ public:
     WORD GetContainerType(LONG nContainerId);
     void CompressContainer(LONG nContainerId);
     INT CheckItemUsable(CGameSprite* pSprite, CItem* pItem);
+    INT CanCharacterUseItem(SHORT nPortrait, CItem* pItem, STRREF& errorCode, BOOL a4);
     SHORT GetNumQuickWeaponSlots(SHORT nPortrait);
     BOOL SwapItemPersonal(SHORT nPortraitNum, SHORT nSlotNum, CItem*& pItem, STRREF& errorCode, WORD wCount, BOOLEAN bFromServer);
     SHORT FindFirstFreeInventorySlot(SHORT nPortrait);
