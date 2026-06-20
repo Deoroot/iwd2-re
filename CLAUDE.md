@@ -44,7 +44,7 @@ scripts/vm.sh frida script.py # ship + run as session-1 payload, ready-to-log
 ```
 - Kill policy: `build` never kills; `run` kills our exe only; original `IWD2.exe` only via explicit `vm.sh kill orig` (Frida sessions survive builds).
 - GUI over SSH = session 0 (never renders); session 1 via `vm_s1.cmd` required for render/input/Frida. Smoke timeout there = no desktop, not a crash.
-- Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one commit. Build fail → stop.
+- Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one commit. Build fail → stop. `git push` periodically — commits pile up unpushed on `main`.
 
 ## Truth hierarchy (the decompile is a fallible lift)
 
