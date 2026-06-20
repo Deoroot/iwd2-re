@@ -62,6 +62,7 @@ public:
     BYTE GetMinCONRequired();
     BYTE GetMinCHRRequired();
     void FormatItemDescription(CUIControlTextDisplay* pText, COLORREF rgbColor);
+    void FormatItemStats(CUIControlTextDisplay* pText, COLORREF rgbColor); // #guess: 0x4EA750
 
     CItem& operator=(const CItem& other);
     bool operator==(const CItem& other);

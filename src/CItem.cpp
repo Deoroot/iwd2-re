@@ -1,6 +1,7 @@
 #include "CItem.h"
 
 #include "CBaldurChitin.h"
+#include "CBaldurEngine.h"
 #include "CGameAnimationType.h"
 #include "CGameEffect.h"
 #include "CGameEffectList.h"
@@ -1347,6 +1348,21 @@ BYTE CItem::GetMinCHRRequired()
 
 // 0x4EA580
 void CItem::FormatItemDescription(CUIControlTextDisplay* pText, COLORREF rgbColor)
+{
+    // NOTE: Uninline. Return value discarded.
+    GetItemType();
+    // NOTE: Uninline. Refreshes m_nAbilities for FormatItemStats().
+    GetAbilityCount();
+
+    if (g_pBaldurChitin->pActiveEngine != NULL) {
+        CBaldurEngine::UpdateText(pText, "%s", CBaldurEngine::FetchString(GetDescription()));
+        CBaldurEngine::UpdateText(pText, "");
+        FormatItemStats(pText, RGB(200, 200, 0));
+    }
+}
+
+// 0x4EA750
+void CItem::FormatItemStats(CUIControlTextDisplay* pText, COLORREF rgbColor)
 {
     // TODO: Incomplete.
 }
