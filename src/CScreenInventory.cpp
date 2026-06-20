@@ -5308,7 +5308,6 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
     // CUIControlButtonInventorySlot::TimerAsynchronousUpdate (0x62D4B0) sets
     // and CUIControlButton::Render draws -- not here.
 
-    InvalidateRect();
     return TRUE;
 }
 
