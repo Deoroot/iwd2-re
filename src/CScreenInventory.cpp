@@ -2811,7 +2811,87 @@ void CScreenInventory::PlaySwapSound(CItem* pOldItem, CItem* pNewItem)
 // 0x62C4E0
 void CScreenInventory::CancelEngine()
 {
-    // TODO: Incomplete.
+    while (GetTopPopup() != NULL) {
+        OnCancelButtonClick();
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    CItem* pItem;
+    STRREF description;
+    CResRef cResIcon;
+    CResRef cResItem;
+    WORD wCount;
+
+    if (m_pTempItem != NULL) {
+        INT nSavedCharacter = m_nSelectedCharacter;
+        m_nSelectedCharacter = field_510;
+        field_528 = 1;
+
+        BOOL bResolved = FALSE;
+
+        MapButtonIdToItemInfo(field_514, pItem, description, cResIcon, cResItem, wCount);
+        if (pItem == NULL) {
+            BeginSwap();
+            BOOL bSwapped = SwapWithSlot(field_514, FALSE, 0xFFFF, TRUE);
+            EndSwap();
+            bResolved = bSwapped && m_pTempItem == NULL;
+        }
+
+        if (!bResolved) {
+            BOOL bPlaced = FALSE;
+            for (INT nSlot = 0x1E; nSlot <= 0x50 && !bPlaced; nSlot++) {
+                if (MapButtonIdToItemInfo(nSlot, pItem, description, cResIcon, cResItem, wCount)
+                    && ((nSlot >= 0x1E && nSlot <= 0x2D) || (nSlot >= 0x49 && nSlot <= 0x50))
+                    && pItem == NULL) {
+                    BeginSwap();
+                    bPlaced = SwapWithSlot(nSlot, FALSE, 0xFFFF, TRUE);
+                    EndSwap();
+                }
+            }
+
+            bResolved = bPlaced && m_pTempItem == NULL;
+            if (!bResolved) {
+                LONG nGroundPile = FetchGroundPile(static_cast<SHORT>(m_nSelectedCharacter), TRUE);
+                BOOL bGroundDropped = FALSE;
+                if (nGroundPile != -1) {
+                    STRREF errorCode;
+                    bGroundDropped = pGame->SwapItemGround(nGroundPile, SHORT_MAX, m_pTempItem, errorCode, 0xFFFF, FALSE);
+
+                    CMessage* message = new CMessageContainerAddItem(CItem(), SHORT_MAX, TRUE, nGroundPile, nGroundPile);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                }
+
+                bResolved = bGroundDropped && m_pTempItem == NULL;
+                if (!bResolved) {
+                    if ((m_pTempItem->GetFlagsFile() & 1) != 0) {
+                        BOOL bSwapped2 = FALSE;
+                        for (INT nSlot = 0x1E; nSlot <= 0x50 && !bSwapped2; nSlot++) {
+                            if (MapButtonIdToItemInfo(nSlot, pItem, description, cResIcon, cResItem, wCount)
+                                && ((nSlot >= 0x1E && nSlot <= 0x2D) || (nSlot >= 0x49 && nSlot <= 0x50))
+                                && (pItem->GetFlagsFile() & 1) == 0) {
+                                BeginSwap();
+                                bSwapped2 = SwapWithSlot(nSlot, FALSE, 0xFFFF, TRUE);
+                                EndSwap();
+                            }
+                        }
+                        bResolved = bSwapped2 && m_pTempItem == NULL;
+                    }
+
+                    if (!bResolved) {
+                        pGame->AddDisposableItem(m_pTempItem);
+                        m_pTempItem = NULL;
+                    }
+                }
+            }
+        }
+
+        m_nSelectedCharacter = nSavedCharacter;
+        field_510 = -1;
+        field_514 = -1;
+    }
+
+    FlushGroundPiles();
 }
 
 // 0x62C900
