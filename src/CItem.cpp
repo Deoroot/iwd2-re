@@ -1364,7 +1364,158 @@ void CItem::FormatItemDescription(CUIControlTextDisplay* pText, COLORREF rgbColo
 // 0x4EA750
 void CItem::FormatItemStats(CUIControlTextDisplay* pText, COLORREF rgbColor)
 {
-    // TODO: Incomplete.
+    DWORD dwNotUsableBy = GetNotUsableBy();
+    DWORD dwNotUsableBy2 = GetNotUsableBy2();
+
+    CString sUsableBy;
+    CString sNotUsableBy;
+    CString sLine;
+    CString sAbjurer;
+    CString sConjurer;
+    CString sDiviner;
+    CString sEnchanter;
+    CString sEvoker;
+    CString sIllusionist;
+    CString sNecromancer;
+    CString sTransmuter;
+
+    if ((dwNotUsableBy == 0 && dwNotUsableBy2 == 0) ||
+        g_pBaldurChitin->pActiveEngine == NULL) {
+        return;
+    }
+
+    // Re-read after the early-out, matching the binary.
+    dwNotUsableBy = GetNotUsableBy();
+
+    // Set once the item proves usable by a "key" category; selects which list
+    // (Usable By / Not Usable By) is shown and suppresses redundant Not-Usable lines.
+    int nUsable = 0;
+
+    // Alignment, good axis.
+    if (dwNotUsableBy & 0xE000) {
+        CString sGood    = "  " + CBaldurEngine::FetchString(0x7B2C) + "\n";  // Good
+        CString sNeutral = "  " + CBaldurEngine::FetchString(0x7B2E) + "\n";  // Neutral
+        CString sEvil    = "  " + CBaldurEngine::FetchString(0x7B30) + "\n";  // Evil
+        if (dwNotUsableBy & 0x4000) sNotUsableBy += sGood;    else sUsableBy += sGood;
+        if (dwNotUsableBy & 0x8000) sNotUsableBy += sNeutral; else sUsableBy += sNeutral;
+        if (dwNotUsableBy & 0x2000) sNotUsableBy += sEvil;    else sUsableBy += sEvil;
+    }
+
+    // Alignment, law axis.
+    if (dwNotUsableBy & 0x31000) {
+        CString sLawful  = "  " + CBaldurEngine::FetchString(0x7B2D) + "\n";  // Lawful
+        CString sNeutral = "  " + CBaldurEngine::FetchString(0x7B2E) + "\n";  // Neutral
+        CString sChaotic = "  " + CBaldurEngine::FetchString(0x7B2F) + "\n";  // Chaotic
+        if (dwNotUsableBy & 0x10000) sNotUsableBy += sLawful;  else sUsableBy += sLawful;
+        if (dwNotUsableBy & 0x20000) sNotUsableBy += sNeutral; else sUsableBy += sNeutral;
+        if (dwNotUsableBy & 0x1000)  sNotUsableBy += sChaotic; else sUsableBy += sChaotic;
+    }
+
+    // Race.
+    if (dwNotUsableBy & 0x3F800000) {
+        CString sElves     = "  " + CBaldurEngine::FetchString(0x7B52) + "\n";  // Elves
+        CString sDwarves   = "  " + CBaldurEngine::FetchString(0x7B56) + "\n";  // Dwarves
+        CString sHalfElves = "  " + CBaldurEngine::FetchString(0x7B55) + "\n";  // Half-elves
+        CString sHalflings = "  " + CBaldurEngine::FetchString(0x7B53) + "\n";  // Halflings
+        CString sHalfOrcs  = "  " + CBaldurEngine::FetchString(0x7B58) + "\n";  // Half-orcs
+        CString sHumans    = "  " + CBaldurEngine::FetchString(0x7B51) + "\n";  // Humans
+        CString sGnomes    = "  " + CBaldurEngine::FetchString(0x7B54) + "\n";  // Gnomes
+
+        if (dwNotUsableBy & 0x800000) sNotUsableBy += sElves; else sUsableBy += sElves;
+        if (dwNotUsableBy & 0x1000000) {
+            sNotUsableBy += sDwarves;
+        } else {
+            sUsableBy += sDwarves;
+            nUsable = 1;
+        }
+        if (dwNotUsableBy & 0x2000000)  sNotUsableBy += sHalfElves; else sUsableBy += sHalfElves;
+        if (dwNotUsableBy & 0x4000000)  sNotUsableBy += sHalflings; else sUsableBy += sHalflings;
+        if (dwNotUsableBy & 0x8000000)  sNotUsableBy += sHumans;    else sUsableBy += sHumans;
+        if (dwNotUsableBy & 0x10000000) sNotUsableBy += sGnomes;    else sUsableBy += sGnomes;
+        if (dwNotUsableBy & 0x20000000) sNotUsableBy += sHalfOrcs;  else sUsableBy += sHalfOrcs;
+    }
+
+    // Single classes. A restricted class is listed only while nothing usable has been found.
+    sLine = "  " + CBaldurEngine::FetchString(0x22) + "\n";  // Barbarian
+    if ((dwNotUsableBy & 0x1) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x43B) + "\n";  // Bard
+    if ((dwNotUsableBy & 0x2) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x437) + "\n";  // Cleric
+    if ((dwNotUsableBy & 0x4) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x438) + "\n";  // Druid
+    if ((dwNotUsableBy & 0x8) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x419F) + "\n";  // Fighter
+    if ((dwNotUsableBy & 0x10) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x21) + "\n";  // Monk
+    if ((dwNotUsableBy & 0x20) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x436) + "\n";  // Paladin
+    if ((dwNotUsableBy & 0x40) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x435) + "\n";  // Ranger
+    if ((dwNotUsableBy & 0x80) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x43A) + "\n";  // Rogue
+    if ((dwNotUsableBy & 0x100) == 0) sUsableBy += sLine; else if (nUsable == 0) sNotUsableBy += sLine;
+
+    sLine = "  " + CBaldurEngine::FetchString(0x20) + "\n";  // Sorcerer
+    if ((dwNotUsableBy & 0x200) == 0) {
+        sUsableBy += sLine;
+        nUsable = 1;
+    } else if (nUsable == 0) {
+        sNotUsableBy += sLine;
+    }
+
+    // Wizard and the eight specialist schools (school flags live in GetNotUsableBy2).
+    sLine        = "  " + CBaldurEngine::FetchString(0x2703) + "\n";  // Wizard
+    sAbjurer     = "  " + CBaldurEngine::FetchString(0x1F6) + "\n";   // Abjurer
+    sConjurer    = "  " + CBaldurEngine::FetchString(0x1F8) + "\n";   // Conjurer
+    sDiviner     = "  " + CBaldurEngine::FetchString(0x7DC) + "\n";   // Diviner
+    sEnchanter   = "  " + CBaldurEngine::FetchString(0x7E6) + "\n";   // Enchanter
+    sEvoker      = "  " + CBaldurEngine::FetchString(0x31F2) + "\n";  // Evoker
+    sIllusionist = "  " + CBaldurEngine::FetchString(0x31F1) + "\n";  // Illusionist
+    sNecromancer = "  " + CBaldurEngine::FetchString(0x31F3) + "\n";  // Necromancer
+    sTransmuter  = "  " + CBaldurEngine::FetchString(0x31F4) + "\n";  // Transmuter
+
+    CString sHeader;
+    if ((dwNotUsableBy & 0x400) == 0) {
+        // Usable by wizards: list each restricted school under Not Usable By.
+        if (dwNotUsableBy2 & 0x40)   sNotUsableBy += sAbjurer;
+        if (dwNotUsableBy2 & 0x80)   sNotUsableBy += sConjurer;
+        if (dwNotUsableBy2 & 0x100)  sNotUsableBy += sDiviner;
+        if (dwNotUsableBy2 & 0x200)  sNotUsableBy += sEnchanter;
+        if (dwNotUsableBy2 & 0x400)  sNotUsableBy += sEvoker;
+        if (dwNotUsableBy2 & 0x800)  sNotUsableBy += sIllusionist;
+        if (dwNotUsableBy2 & 0x1000) sNotUsableBy += sNecromancer;
+        if (dwNotUsableBy2 & 0x2000) sNotUsableBy += sTransmuter;
+        sUsableBy += sLine;  // Wizard
+        sHeader = CBaldurEngine::FetchString(nUsable != 0 ? 0x7B2B : 0x7B2A);
+    } else {
+        // Not usable by wizards: list each usable school under Usable By.
+        if ((dwNotUsableBy2 & 0x40) == 0)   { sUsableBy += sAbjurer;     nUsable = 1; }
+        if ((dwNotUsableBy2 & 0x80) == 0)   { sUsableBy += sConjurer;    nUsable = 1; }
+        if ((dwNotUsableBy2 & 0x100) == 0)  { sUsableBy += sDiviner;     nUsable = 1; }
+        if ((dwNotUsableBy2 & 0x200) == 0)  { sUsableBy += sEnchanter;   nUsable = 1; }
+        if ((dwNotUsableBy2 & 0x400) == 0)  { sUsableBy += sEvoker;      nUsable = 1; }
+        if ((dwNotUsableBy2 & 0x800) == 0)  { sUsableBy += sIllusionist; nUsable = 1; }
+        if ((dwNotUsableBy2 & 0x1000) == 0) { sUsableBy += sNecromancer; nUsable = 1; }
+        if ((dwNotUsableBy2 & 0x2000) == 0) { sUsableBy += sTransmuter;  nUsable = 1; }
+        if (nUsable == 0) {
+            sNotUsableBy += sLine;  // Wizard
+            sHeader = CBaldurEngine::FetchString(0x7B2A);  // Not Usable By:
+        } else {
+            sHeader = CBaldurEngine::FetchString(0x7B2B);  // Usable By:
+        }
+    }
+
+    CBaldurEngine::UpdateTextForceColor(pText, rgbColor, "%s", (LPCSTR)sHeader);
+    const CString& sList = (nUsable != 0) ? sUsableBy : sNotUsableBy;
+    CBaldurEngine::UpdateTextNoTrim(pText, "%s", (LPCSTR)sList);
 }
 
 // 0x464130
