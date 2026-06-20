@@ -5247,7 +5247,7 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
                 if (pLooter != NULL) {
                     CResRef cStateOverlay;
                     STRREF errorCode;
-                    if (pLooter->CanUseItem(pItem, errorCode) == 0) {
+                    if (pLooter->CanUseItem(pLooter, pItem, errorCode, TRUE) == 0) {
                         cStateOverlay = CResRef("STORTINT");
                     } else {
                         INT nUsable = pGame->CheckItemUsable(pLooter, pItem);

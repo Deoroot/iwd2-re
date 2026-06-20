@@ -529,7 +529,7 @@ public:
     CItem* GetLauncher(const ITEM_ABILITY* ability, SHORT& launcherSlot);
     SHORT GetLauncherSlot(SHORT slotNum, SHORT abilityNum);
     BOOL CheckLauncherType(const ITEM_ABILITY* ability, CItem* pLauncher);
-    INT CanUseItem(CItem* pItem, STRREF& errorCode);
+    INT CanUseItem(CGameSprite* pUser, CItem* pItem, STRREF& errorCode, BOOL a4);
     INT CanEquipItemInSlot(INT nSlotNum, CItem*& pItem, STRREF& errorCode);
     BOOL ReadyCursor();
     void ReadySpell(SHORT buttonNum, INT nType, BOOLEAN firstCall);

@@ -9345,7 +9345,10 @@ static BOOL IsItemUsableByClass(DWORD nClassMask, DWORD nKitMask, CItem* pItem)
 }
 
 // 0x5B9D20
-INT CGameSprite::CanUseItem(CItem* pItem, STRREF& errorCode)
+// pUser = the wearer (first stack arg). this(ecx) and a4 are supplied by callers but
+// never read by the body -- faithful to the binary's __thiscall + 4-stack-arg ABI
+// (ret 0x10); verified via Frida trace + disassembly.
+INT CGameSprite::CanUseItem(CGameSprite* pUser, CItem* pItem, STRREF& errorCode, BOOL a4)
 {
     if (pItem != NULL) {
         pItem->GetItemType();
@@ -9360,7 +9363,7 @@ INT CGameSprite::CanUseItem(CItem* pItem, STRREF& errorCode)
     DWORD nNotUsableBy = pItem->GetNotUsableBy();
 
     CAIObjectType cType;
-    cType.Set(GetAIType());
+    cType.Set(pUser->GetAIType());
 
     BOOL bUsable = g_pBaldurChitin->GetObjectGame()->GetRuleTables().IsUsableByAlignment(nNotUsableBy, cType.m_nAlignment);
     if (!bUsable) {
@@ -9401,7 +9404,7 @@ INT CGameSprite::CanUseItem(CItem* pItem, STRREF& errorCode)
     }
 
     if (g_pBaldurChitin->GetObjectGame()->GetRuleTables().ShouldCheckItemRequirements(pItem)) {
-        CDerivedStats* pStats = GetActiveStats();
+        CDerivedStats* pStats = pUser->GetActiveStats();
         if (pStats->m_nLevel < pItem->GetMinLevelRequired()) {
             bUsable = FALSE;
             errorCode = 0x24A6;
@@ -9436,8 +9439,8 @@ INT CGameSprite::CanUseItem(CItem* pItem, STRREF& errorCode)
         return 0;
     }
 
-    CDerivedStats* pStats = GetActiveStats();
-    INT nResult = IsItemUsableByClass(pStats->m_classMask, GetActiveStats()->m_nSpecialization, pItem);
+    CDerivedStats* pStats = pUser->GetActiveStats();
+    INT nResult = IsItemUsableByClass(pStats->m_classMask, pUser->GetActiveStats()->m_nSpecialization, pItem);
     if (nResult != 0) {
         return nResult;
     }
@@ -9463,7 +9466,7 @@ INT CGameSprite::CanEquipItemInSlot(INT nSlotNum, CItem*& pItem, STRREF& errorCo
         return 0;
     }
 
-    INT nResult = CanUseItem(pItem, errorCode);
+    INT nResult = CanUseItem(this, pItem, errorCode, TRUE);
     if (nResult == 0) {
         return 0;
     }
