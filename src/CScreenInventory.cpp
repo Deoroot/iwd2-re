@@ -5154,7 +5154,7 @@ void CUIControlButtonInventorySlot::OnRButtonClick(CPoint pt)
         CSingleLock renderLock(&(pInventory->GetManager()->m_critSect), FALSE);
         renderLock.Lock(INFINITE);
 
-        LONG nCharacterId = pInventory->GetSelectedCharacter();
+        LONG nCharacterId = pGame->GetCharacterId(pInventory->GetSelectedCharacter());
 
         CGameSprite* pSprite;
 
