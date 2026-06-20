@@ -1201,9 +1201,12 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
     // The original also clears m_bCacheHeader on the loaded cell, but that is
     // always FALSE here (the resref is never empty), so it is a no-op.
     if (settings.m_bActiveWeaponSet != 0 && settings.m_bSelected == 0) {
+        // dwFlags = m_bGreyOut ? 0x80000 : 0 (binary 0x5951a5: edi loaded from
+        // m_bGreyOut, neg/sbb/and 0x80000, reused at the HIGHLGHT Render).
+        DWORD dwHighlightFlags = settings.m_bGreyOut ? 0x80000 : 0;
         CVidCell cHighlight;
         cHighlight.SetResRef(CResRef("HIGHLGHT"), TRUE, TRUE, FALSE);
-        cHighlight.Render(0, ptIcon.x, ptIcon.y, rClipIcon, NULL, 0, 0, -1);
+        cHighlight.Render(0, ptIcon.x, ptIcon.y, rClipIcon, NULL, 0, dwHighlightFlags, -1);
     }
 
     // m_bGreyOut -> CIcon::RenderIcon flag 2 (TINT_INVALID), else no flags.
