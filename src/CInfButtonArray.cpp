@@ -1205,7 +1205,11 @@ BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed,
         // m_bGreyOut, neg/sbb/and 0x80000, reused at the HIGHLGHT Render).
         DWORD dwHighlightFlags = settings.m_bGreyOut ? 0x80000 : 0;
         CVidCell cHighlight;
-        cHighlight.SetResRef(CResRef("HIGHLGHT"), TRUE, TRUE, FALSE);
+        // bDoubleSize tracks the display double-size mode (binary 0x5952d9 reads
+        // g_pBaldurChitin->field_4A2C into the cell), NOT a constant -- hardcoding
+        // TRUE loaded the 2x HIGHLGHT in single-size mode, so the border rendered
+        // twice button size (only its top-left quarter visible inside the slot).
+        cHighlight.SetResRef(CResRef("HIGHLGHT"), nScale == 2, TRUE, FALSE);
         cHighlight.Render(0, ptIcon.x, ptIcon.y, rClipIcon, NULL, 0, dwHighlightFlags, -1);
     }
 
@@ -2266,7 +2270,13 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             if (pGame->GetState() == 0) {
                 SetSelectedButton(100);
             }
-            UpdateButtons();
+            // No UpdateButtons() here. The binary quick-item ready path
+            // (DispatchActionBarClick 0x594280 case 0x50) sets m_nSelectedButton
+            // but never re-syncs, so the slot's m_bSelected stays clear -- a quick
+            // item shows NO red selection square (Frida on the original 2026-06-20:
+            // m_nSelectedButton=0x50 yet the button's m_bSelected=0). The eventual
+            // cast-completion UpdateState resets selection. Calling UpdateButtons
+            // here lit a red square that then persisted.
             return;
         }
         case 0x5A:
