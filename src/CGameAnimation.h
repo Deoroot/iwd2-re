@@ -64,4 +64,9 @@ public:
 };
 #pragma pack(pop)
 
+// Root class (own vtable, no base) -> exactly vptr4 + ptr4 + short2 packed to 2.
+// Must be 0xA: every by-value embedder (CGameSprite, CProjectile, CGameTemporal,
+// CScreenCreateChar, CScreenInventory) pins its tail at this stride vs IWD2.exe.
+static_assert(sizeof(CGameAnimation) == 0xA, "CGameAnimation must pack(2) to 0xA to match IWD2.exe");
+
 #endif /* CGAMEANIMATION_H_ */
