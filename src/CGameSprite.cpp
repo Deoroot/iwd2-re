@@ -15601,6 +15601,7 @@ void CGameSprite::FeedBack(WORD nFeedBackId, LONG a3, LONG a4, LONG a5, LONG a6,
                 rgbNameColor,
                 RGB(215, 215, 190));
         }
+        break;
     case FEEDBACK_SEARCHSTART:
         if ((g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nEffectTextLevel & 0x10) != 0) {
             DisplayTextRef(GetNameRef(),
