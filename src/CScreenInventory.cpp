@@ -2044,9 +2044,40 @@ void CScreenInventory::SetAbilitiesButtonMode(INT nMode)
 // 0x629740
 BOOL CScreenInventory::IsUseButtonActive()
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    UTIL_ASSERT(pGame != NULL);
 
-    return FALSE;
+    BOOL bActive = FALSE;
+
+    CItem* pItem;
+    STRREF description;
+    CResRef cResIcon;
+    CResRef cResItem;
+    WORD wCount;
+    MapButtonIdToItemInfo(m_nRequesterButtonId, pItem, description, cResIcon, cResItem, wCount);
+
+    if (pItem != NULL) {
+        switch (m_nUseButtonMode) {
+        case 0:
+        case 2:
+        case 3:
+        case 4:
+            if ((pItem->GetItemType() == 9 || pItem->GetItemType() == 0x3A || pItem->GetItemType() == 0x47)
+                && pGame->CanCharacterUseItem(static_cast<SHORT>(m_nSelectedCharacter), pItem, description, TRUE) != 0) {
+                bActive = TRUE;
+            }
+            break;
+        case 1:
+            // Spell-scroll learn check (use-button mode 1): unrecovered. The original (from
+            // 0x6297D2) demands the scroll's spell through a CResHelper<CResSpell> accessor
+            // (0x4699F0), then gates the button on CSpell::CheckUsableBy, the caster's spell
+            // level (0x5456C0) and whether the spell is already known (CGameSpriteSpellList::Find).
+            // Left a faithful no-op until that resource-demand chain is recovered.
+            break;
+        }
+    }
+
+    return bActive;
 }
 
 // 0x629B90
