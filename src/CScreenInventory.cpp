@@ -1742,7 +1742,88 @@ void CScreenInventory::SelectItemAbility()
 // 0x6285B0
 void CScreenInventory::OnDoneButtonClick()
 {
-    // TODO: Incomplete.
+    CUIPanel* pTopPanel = GetTopPopup();
+    if (pTopPanel != NULL) {
+        switch (pTopPanel->m_nID) {
+        case 7:
+        case 8:
+        case 50:
+            OnErrorButtonClick(0);
+            return;
+        case 9:
+            return;
+        }
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 2785
+    UTIL_ASSERT(pGame != NULL);
+
+    CSingleLock renderLock(&(m_cUIManager.m_critSect), FALSE);
+    renderLock.Lock(INFINITE);
+
+    LONG nCharacterId = pGame->GetCharacterId(m_nSelectedCharacter);
+
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetDeny(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        CUIPanel* pPanel = GetTopPopup();
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+        // __LINE__: 2808
+        UTIL_ASSERT(pPanel != NULL);
+
+        switch (pPanel->m_nID) {
+        case 3:
+            // TODO: Apply the chosen paperdoll colours (the binary sets the
+            // selected character's animation palette ranges from the portrait
+            // colour popup). The Ghidra lift of that block is garbled
+            // (uninitialised registers); only the dismissal is recovered.
+            DismissPopup();
+            break;
+        case 4:
+            if (m_nRequesterAmount > 0) {
+                BeginSwap();
+                SwapWithSlot(m_nRequesterButtonId, FALSE, static_cast<WORD>(m_nRequesterAmount), TRUE);
+                EndSwap();
+                m_nRequesterButtonId = -1;
+            }
+            DismissPopup();
+            break;
+        case 5:
+            m_nRequesterButtonId = -1;
+            DismissPopup();
+            break;
+        case 6:
+            SelectItemAbility();
+            if (m_pAbilities != NULL) {
+                POSITION pos = m_pAbilities->GetHeadPosition();
+                while (pos != NULL) {
+                    delete m_pAbilities->GetNext(pos);
+                }
+                m_pAbilities->RemoveAll();
+                m_pAbilities = NULL;
+            }
+            m_pAbilities = NULL;
+            DismissPopup();
+            break;
+        }
+
+        pGame->GetObjectArray()->ReleaseDeny(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    renderLock.Unlock();
 }
 
 // 0x628D20
