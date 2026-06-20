@@ -1839,35 +1839,17 @@ void CGameAIBase::AddAction(const CAIAction& action)
 // 0x44CE20
 void CGameAIBase::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
 {
-    // TODO: Incomplete.  Reconstructed minimum for CGameSprite/item effects.
-    if (pEffect == NULL) {
-        return;
-    }
-
-    if ((GetObjectType() & CGameObject::TYPE_SPRITE) == 0) {
+    // The base handler for the non-sprite CGameAIBase leaves -- doors, containers,
+    // triggers, regions, the AI-area/-game singletons (the binary COMDAT-folds the
+    // eight identical overrides into one body). Those objects cannot hold effects,
+    // so an effect delivered to them is simply discarded. CGameSprite overrides this
+    // virtual (slot 0x78, 0x733050) with the real timed/equipped list management, so
+    // a sprite victim never reaches here. The earlier stopgap wrongly ran the sprite
+    // list path in this base, static_cast-ing a non-sprite to CGameSprite and
+    // AddTail-ing onto a garbage list -- the Fireball-on-non-sprite heap fault
+    // (GatherTargets(ANYONE) strikes any blast object; the original discards here).
+    if (pEffect != NULL) {
         delete pEffect;
-        return;
-    }
-
-    CGameSprite* pSprite = static_cast<CGameSprite*>(this);
-    CGameEffectList* pList = NULL;
-    switch (list) {
-    case EFFECT_LIST_TIMED:
-        pList = pSprite->GetTimedEffectList();
-        break;
-    case EFFECT_LIST_EQUIPED:
-        pList = pSprite->GetEquipedEffectList();
-        break;
-    default:
-        delete pEffect;
-        return;
-    }
-
-    pList->AddTail(pEffect);
-    pList->m_newEffect = TRUE;
-
-    if (immediateApply) {
-        pEffect->ResolveEffect(pSprite);
     }
 }
 
