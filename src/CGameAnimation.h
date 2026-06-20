@@ -7,6 +7,10 @@ class CGameAnimationType;
 class CInfinity;
 class CVidMode;
 
+// IE packs to 2; without this sizeof is 0xC (vtbl4+ptr4+short2, /Zp8 rounds 10->12)
+// instead of the binary's 0xA, shifting the tail of every by-value embedder
+// (CGameSprite, CProjectile, CGameTemporal, CScreenCreateChar, CScreenInventory).
+#pragma pack(push, 2)
 class CGameAnimation {
 public:
     CGameAnimation();
@@ -58,5 +62,6 @@ public:
     /* 0004 */ CGameAnimationType* m_animation;
     /* 0008 */ SHORT m_nSequence;
 };
+#pragma pack(pop)
 
 #endif /* CGAMEANIMATION_H_ */
