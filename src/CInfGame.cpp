@@ -5966,7 +5966,7 @@ void CInfGame::CompressContainer(LONG nContainerId)
 INT CInfGame::CheckItemUsable(CGameSprite* pSprite, CItem* pItem)
 {
     INT nType = pItem->GetItemType();
-    if (nType != 35 || nType != 11) {
+    if (nType != 35 && nType != 11) {
         return 1;
     }
 

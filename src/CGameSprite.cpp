@@ -13747,13 +13747,24 @@ SHORT CGameSprite::UseItemPoint()
     }
 
     CInfGame* game = g_pBaldurChitin->GetObjectGame();
-    // UNIMPLEMENTED: result 2 (use-magic-device gated) -- the binary rolls
-    // FUN_005468B0(this, item); on failure FeedBack(0x41) plus a no-save
-    // piercing backfire of 2 x level d6 (level = FUN_004EA3F0, the item's
-    // highest effect spell level) that still consumes the charge; on
-    // success FeedBack(0x42).  Both helpers are unrecovered, so result 2
-    // proceeds as a plain success without feedback.
-    game->CheckItemUsable(this, m_curItem);
+    INT usable = game->CheckItemUsable(this, m_curItem);
+    if (usable == 2) {
+        if (CRuleTables::CheckUseMagicDevice(this, m_curItem)) {
+            FeedBack(0x42, 0, 0, 0, -1, 0, 0);
+        } else {
+            FeedBack(0x41, 0, 0, 0, -1, 0, 0);
+
+            INT backfireLevel = m_curItem->GetMaxEffectSpellLevel();
+            DWORD backfireDice = 2 * (backfireLevel < 1 ? 1 : backfireLevel);
+            CGameEffect* backfireEffect = IcewindMisc::CreatePiercingDamageEffect(
+                this, backfireDice, 6, 0, static_cast<BYTE>(backfireLevel), 0);
+            backfireEffect->m_flags |= 2;
+
+            CMessage* backfireMessage = new CMessageAddEffect(backfireEffect, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(backfireMessage, FALSE);
+            goto consumeCharge;
+        }
+    }
 
     ITEM_EFFECT effect;
     if (!CheckInvisibility(FALSE)) {
@@ -13825,22 +13836,24 @@ SHORT CGameSprite::UseItemPoint()
         delete itemEffect;
     }
 
-    CMessageFireProjectile* message = new CMessageFireProjectile(
-        m_curProjectile->m_projectileType,
-        CGameObjectArray::INVALID_INDEX,
-        castPoint,
-        m_curProjectile->DetermineHeight(this),
-        m_id,
-        m_id,
-        0);
-    if (m_curProjectile->m_projectileType == 0x130) {
-        // Seed the whirlwind's deterministic wander chain, and replicate it
-        // through the message for multiplayer.
-        LONG wanderSeed = rand() % 1000000;
-        static_cast<CProjectileWhirlwind*>(m_curProjectile)->m_wanderSeed = wanderSeed;
-        message->field_20 = wanderSeed;
+    {
+        CMessageFireProjectile* message = new CMessageFireProjectile(
+            m_curProjectile->m_projectileType,
+            CGameObjectArray::INVALID_INDEX,
+            castPoint,
+            m_curProjectile->DetermineHeight(this),
+            m_id,
+            m_id,
+            0);
+        if (m_curProjectile->m_projectileType == 0x130) {
+            // Seed the whirlwind's deterministic wander chain, and replicate it
+            // through the message for multiplayer.
+            LONG wanderSeed = rand() % 1000000;
+            static_cast<CProjectileWhirlwind*>(m_curProjectile)->m_wanderSeed = wanderSeed;
+            message->field_20 = wanderSeed;
+        }
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
     }
-    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
     // The binary re-derives the height for the direct fire.
     m_curProjectile->Fire(
@@ -13852,6 +13865,7 @@ SHORT CGameSprite::UseItemPoint()
         0);
     m_curProjectile = NULL;
 
+consumeCharge:
     WORD usageCount = m_curItem->GetUsageCount(field_55A0);
     m_curItem->SetUsageCount(field_55A0, usageCount - 1);
     m_curItem->Release();

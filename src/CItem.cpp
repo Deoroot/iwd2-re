@@ -804,6 +804,36 @@ WORD CItem::GetItemType()
     return nType;
 }
 
+// 0x4EA3F0
+INT CItem::GetMaxEffectSpellLevel()
+{
+    DWORD nMaxLevel = 0;
+
+    for (DWORD i = 0; i < (DWORD)m_nAbilities; i++) {
+        if (cResRef != "" && pRes != NULL) {
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\CItem.cpp
+            // __LINE__: 1478
+            UTIL_ASSERT(pRes->GetDemands() > 0);
+
+            ITEM_ABILITY* pAbility = pRes->GetAbility(i);
+            if (pAbility != NULL && pAbility->type != 0) {
+                for (INT j = 0;; j++) {
+                    CGameEffect* pEffect = GetAbilityEffect(i, j, NULL);
+                    if (pEffect == NULL) {
+                        break;
+                    }
+
+                    if (pEffect->m_spellLevel > nMaxLevel) {
+                        nMaxLevel = pEffect->m_spellLevel;
+                    }
+                }
+            }
+        }
+    }
+
+    return (INT)nMaxLevel;
+}
+
 // 0x4E9910
 DWORD CItem::GetCriticalHitMultiplier()
 {

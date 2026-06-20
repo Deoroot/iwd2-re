@@ -35,6 +35,7 @@ public:
     WORD GetAnimationType();
     ITEM_ABILITY* GetAbility(INT nAbility);
     CGameEffect* GetAbilityEffect(LONG abilityNum, LONG effectNum, CGameObject* pObject);
+    INT GetMaxEffectSpellLevel();
     WORD GetItemType();
     DWORD GetCriticalHitMultiplier();
     DWORD GetWeight();
