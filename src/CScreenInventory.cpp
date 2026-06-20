@@ -204,6 +204,26 @@ CScreenInventory::CScreenInventory()
     field_11E = 0;
     field_11F = 0;
     m_nCurrentAbility = 0;
+
+    // Seed the reserved +0x4B0 item-check record (0x623F11). Its three CResRefs
+    // default-construct empty; the scalar fields take the binary's -1/0/1 seed.
+    // Never read in IWD2 (see INVENTORY_ITEM_CHECK).
+    m_cItemCheck.field_08 = -1;
+    m_cItemCheck.field_14 = -1;
+    m_cItemCheck.field_18 = 0;
+    m_cItemCheck.field_1A = -1;
+    m_cItemCheck.field_1C = -1;
+    m_cItemCheck.field_1E = -1;
+    m_cItemCheck.field_28 = 0;
+    m_cItemCheck.field_2A = -1;
+    m_cItemCheck.field_2E = -1;
+    m_cItemCheck.field_32 = -1;
+    m_cItemCheck.field_36 = 0;
+    m_cItemCheck.field_37 = 0;
+    m_cItemCheck.field_38 = 0;
+    m_cItemCheck.field_3A = 0;
+    m_cItemCheck.field_3B = 1;
+
     m_pAbilities = NULL;
     m_bPauseWarningDisplayed = FALSE;
     field_510 = -1;

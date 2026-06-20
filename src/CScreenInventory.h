@@ -22,6 +22,37 @@
 
 class CGameButtonList;
 
+// Reserved item-check record embedded in CScreenInventory at +0x4B0. The ctor
+// (0x623F11) constructs its three CResRefs and seeds every field (-1/0/1), but
+// nothing in IWD2 ever reads it back -- vestigial state. BG2's analog is the
+// delayed learn-spell / item-identify check (PDB: m_cCheckLearnSpellRes,
+// DelayLearnSpellCheck, CheckItemIdentify); IWD2 carries the storage but not the
+// feature. pack(2): the int fields at +0x2A/+0x2E/+0x32 land on 2-byte-aligned
+// offsets, so the whole record must pack to 2 to keep its 0x3C-byte size.
+#pragma pack(push, 2)
+struct INVENTORY_ITEM_CHECK {
+    /* 0x00 */ CResRef cRes0;
+    /* 0x08 */ int     field_08;
+    /* 0x0C */ CResRef cRes1;
+    /* 0x14 */ int     field_14;
+    /* 0x18 */ WORD    field_18;
+    /* 0x1A */ WORD    field_1A;
+    /* 0x1C */ WORD    field_1C;
+    /* 0x1E */ WORD    field_1E;
+    /* 0x20 */ CResRef cRes2;
+    /* 0x28 */ WORD    field_28;
+    /* 0x2A */ int     field_2A;
+    /* 0x2E */ int     field_2E;
+    /* 0x32 */ int     field_32;
+    /* 0x36 */ BYTE    field_36;
+    /* 0x37 */ BYTE    field_37;
+    /* 0x38 */ WORD    field_38;
+    /* 0x3A */ BYTE    field_3A;
+    /* 0x3B */ BYTE    field_3B;
+};
+#pragma pack(pop)
+static_assert(sizeof(INVENTORY_ITEM_CHECK) == 0x3C, "INVENTORY_ITEM_CHECK must be 0x3C to keep m_pAbilities at +0x4EC");
+
 class CScreenInventory : public CBaldurEngine {
 public:
     static const DWORD SLOT_ID[];
@@ -139,6 +170,7 @@ public:
     /* 048C */ DWORD m_nRequesterButtonId;
     /* 0490 */ CTypedPtrList<CPtrList, CUIPanel*> m_lPopupStack;
     /* 04AC */ int m_nCurrentAbility;
+    /* 04B0 */ INVENTORY_ITEM_CHECK m_cItemCheck;
     /* 04EC */ CGameButtonList* m_pAbilities;
     /* 04F0 */ INT m_nErrorState;
     /* 04F4 */ STRREF m_strErrorText;
