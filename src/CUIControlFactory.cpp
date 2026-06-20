@@ -4271,45 +4271,25 @@ BOOL CUIControlButtonAction::Render(BOOL bForce)
     INT nButton = m_nID - 6;
     CInfButtonArray* pArray = g_pBaldurChitin->GetObjectGame()->GetButtonArray();
 
-    BOOL bIsActionSlot = nButton >= 0 && nButton < 12;
-    CInfButtonSettings* pSettings = bIsActionSlot ? &pArray->m_buttonArray[nButton] : NULL;
-
-    // Inactive slot (settings.field_0 == 0): both FUN_005957C0 and
-    // FUN_005950F0 short-circuit, leaving the panel BG (GACTN008 strip)
-    // visible.  Reproduce: skip every paint path here.  Important for
-    // group state 0x6E slots 8-11 (type 100) to render blank as in the
-    // original screenshots.
-    if (pSettings != NULL && pSettings->field_0 == 0) {
-        return 1;
-    }
-
-    // Active slot.  m_bHasOverlay selects the bezel-handling path:
-    //   != 0 â†’ GUIBTACT-style 38Ã—38 BAM bakes its own stone bezel; skip
-    //          CUIControlButton::Render (would be painted then immediately
-    //          covered up).
-    //   == 0 â†’ STON*-/FORM*-/item-style 32Ã—32 icon centred inside a regular
-    //          GUIBTBUT bezel.  Paint the base GUIBTBUT first, then the
-    //          small icon over it.
-    BOOL bIconCoversBezel = pSettings != NULL
-        && pSettings->m_bHasOverlay != 0
-        && pSettings->m_nIconNormalFrame >= 0;
-
-    BOOL bResult = TRUE;
-    if (!bIconCoversBezel) {
-        bResult = CUIControlButton::Render(bForce);
-    }
-
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
     CRect rControlFrame(pt, m_size);
     CRect rClip;
     rClip.IntersectRect(rControlFrame, m_rDirty);
 
-    pArray->RenderButton(pt,
-        rClip,
-        m_bPressed,
-        nButton);
+    // The overlay companion paints the 38x38 bezel layer: the action-slot
+    // GUIBTACT BAM (which bakes its own bezel), or -- for a selected
+    // non-overlay slot -- the selection marker.  When it returns FALSE it
+    // painted no bezel, so draw the plain GUIBTBUT base underneath; when it
+    // returns TRUE the base (and its own selection square) is skipped.
+    if (!pArray->RenderButtonOverlay(pt, rClip, m_bPressed, nButton)) {
+        if (!CUIControlButton::Render(bForce)) {
+            return FALSE;
+        }
+    }
 
-    return bResult;
+    pArray->RenderButton(pt, rClip, m_bPressed, nButton);
+
+    return TRUE;
 }
 
 // 0x77A2F0
