@@ -56,6 +56,7 @@ public:
     /* 00C4 */ void TimerSynchronousUpdate() override;
     /* 00E0 */ void OnPortraitLClick(DWORD nPortrait) override;
     /* 00E8 */ void UpdateContainerStatus(LONG nContainerId, SHORT nSlotNum) override;
+    /* 00EC */ void UpdatePersonalItemStatus(LONG nCharacterId) override;
     /* 00F0 */ void OnRestButtonClick() override;
     /* 0104 */ void CancelEngine() override;
     /* 0108 */ void UpdateCharacterStatus(LONG nCharacterId) override;
@@ -64,7 +65,6 @@ public:
     INT GetSlotByPosition(CPoint pt);
     INT GetPortraitByPosition(CPoint pt);
     void SetErrorString(STRREF strError, COLORREF rgb);
-    void UpdatePersonalItemStatus(LONG nCharacterId);
     void UpdateCursorShape();
     LONG FetchGroundPile(SHORT nPortraitId, BOOL bEvenIfDead);
     void FlushGroundPiles();
