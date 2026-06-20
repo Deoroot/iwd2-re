@@ -1884,9 +1884,96 @@ void CScreenInventory::OnRestButtonClick()
 // 0x629230
 BOOL CScreenInventory::IsAbilitiesButtonActive()
 {
-    // TODO: Incomplete.
+    BOOL bActive = FALSE;
 
-    return FALSE;
+    CItem* pItem;
+    STRREF description;
+    CResRef cResIcon;
+    CResRef cResItem;
+    WORD wCount;
+
+    MapButtonIdToItemInfo(m_nRequesterButtonId, pItem, description, cResIcon, cResItem, wCount);
+    if (pItem == NULL) {
+        return FALSE;
+    }
+
+    if (m_nAbilitiesButtonMode != 0) {
+        if (m_nAbilitiesButtonMode == 1) {
+            return TRUE;
+        }
+        return FALSE;
+    }
+
+    if (pItem->GetItemType() == 0xB) {
+        return FALSE;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    LONG nCharacterId = pGame->GetCharacterId(m_nSelectedCharacter);
+
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    switch (m_nRequesterButtonId) {
+    case 5:
+    case 6:
+    case 7: {
+        INT nInventoryId = MapButtonIdToInventoryId(m_nRequesterButtonId);
+        CGameButtonList* pList = pSprite->GetItemUsages(static_cast<SHORT>(nInventoryId), 3, -1);
+        bActive = pList->GetCount() > 1;
+
+        POSITION pos = pList->GetHeadPosition();
+        while (pos != NULL) {
+            delete pList->GetNext(pos);
+        }
+        pList->RemoveAll();
+        delete pList;
+        break;
+    }
+    case 0x65:
+    case 0x66:
+    case 0x67:
+    case 0x68:
+    case 0x69:
+    case 0x6A:
+    case 0x6B:
+    case 0x6C: {
+        pItem->Demand();
+        ITEM_ABILITY* pAbility = pItem->GetAbility(0);
+        BOOL bLauncher = pAbility != NULL && pAbility->type == 4;
+        pItem->Release();
+
+        if (!bLauncher) {
+            INT nInventoryId = MapButtonIdToInventoryId(m_nRequesterButtonId);
+            CGameButtonList* pList = pSprite->GetItemUsages(static_cast<SHORT>(nInventoryId), 1, -1);
+            bActive = pList->GetCount() > 1;
+
+            POSITION pos = pList->GetHeadPosition();
+            while (pos != NULL) {
+                delete pList->GetNext(pos);
+            }
+            pList->RemoveAll();
+            delete pList;
+        }
+        break;
+    }
+    }
+
+    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return bActive;
 }
 
 // 0x6294D0
