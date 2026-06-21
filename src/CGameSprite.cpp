@@ -14792,98 +14792,122 @@ int CGameSprite::sub_75E930(int a1)
 // 0x72DE60
 BOOL CGameSprite::ProcessEffectList()
 {
-    // PARTIAL: this function is huge.  Recovered: effect handling, the AC
-    // derivation, the per-tick derived-stat re-derivation (0x71C0C0, now called
-    // below), the encumbrance check (0x72F2B3) and the persistant effect tick.
-    // Still DEFERRED: the early effect/class pre-pass (0x72DE60..0x72E754, which
-    // includes CheckEffects and the class/armour checks), the animation
-    // palette/sequence refresh and the movement interpolation.
-    BOOL bResult = HandleEffects();
+    // PARTIAL: this function is huge.  Recovered: the re-entrancy / deferred-tick
+    // gate (below), effect handling, the AC derivation, the per-tick derived-stat
+    // re-derivation (0x71C0C0), the encumbrance check (0x72F2B3) and the
+    // persistant effect tick.  Still DEFERRED: the multiplayer-ownership head
+    // gate (0x72DE7C -- returns 0 for sprites this client does not own; a
+    // single-player client always owns and so always passes), the early
+    // effect/class pre-pass (CheckEffects and the class/armour checks), the
+    // animation palette/sequence refresh and the movement interpolation.
+    BOOL bResult = TRUE;
+
+    // 0x72DEC4: re-entrancy / deferred-tick guard.  m_bAllowEffectListCall is set
+    // TRUE once at construction (0x6F06D3) and re-armed at the tail of every pass
+    // (0x72FB9D), so in steady state it is TRUE on entry and the body below runs
+    // exactly once per tick (field_72A2 stays 0).  It is cleared only for the
+    // duration of a pass; a call that re-enters while a pass is in flight is
+    // deferred -- it bumps the catch-up counter field_72A2 and returns, and the
+    // in-flight pass drains those deferred ticks (re-processing the body) before
+    // it re-arms.  While the flag is clear, external stat readers (GetActiveStats
+    // and the m_bAllowEffectListCall ? m_derivedStats : m_tempStats sites) fall
+    // back to m_tempStats, the stable base, rather than the mid-rebuild
+    // m_derivedStats.
+    if (!m_bAllowEffectListCall) {
+        field_72A2++;
+        return TRUE;
+    }
 
     const CRuleTables& ruleTables = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
-
-    if (m_derivedStats.m_nACArmorBonus == 0
-        && m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
-        m_derivedStats.m_nACArmorBonus += static_cast<SHORT>(m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetEquippedACBonus());
-    }
-
-    INT nOffHandSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet + 1;
-    if (m_derivedStats.m_nACDeflectionBonus == 0
-        && nOffHandSlot >= 0
-        && nOffHandSlot < CGameSpriteEquipment::NUM_SLOT
-        && m_equipment.m_items[nOffHandSlot] != NULL) {
-        WORD nItemType = m_equipment.m_items[nOffHandSlot]->GetItemType();
-        if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
-            m_derivedStats.m_nACDeflectionBonus = static_cast<SHORT>(m_equipment.m_items[nOffHandSlot]->GetEquippedACBonus());
-        }
-    }
-
-    // 0x71C0C0: the per-tick re-derivation the binary performs here -- the
-    // saving throws, hit-point/Constitution bonus and per-class spellcasting
-    // limits.  This supersedes the saving-throw block that was previously
-    // inlined above (the binary applies it only inside this call).
-    //
-    // FAITHFULNESS GAP (confirmed via Frida @0x71C0C0 on retail): the original
-    // gates this whole pass at the top of ProcessEffectList on
-    // m_bAllowEffectListCall (+0x72A4) -- the list is re-derived only when a
-    // stat-changing operation has set that flag, which the pass then clears (a
-    // clear flag early-returns after bumping field_72A2, capped at 5), so
-    // sub_71C0C0 almost never fires in steady state.  We call it unconditionally
-    // because the code that *sets* m_bAllowEffectListCall on change is not yet
-    // recovered (our build only sets it once at init); adding the gate now would
-    // stop the re-derivation after the first tick.  sub_71C0C0 is idempotent, so
-    // the over-eager call is value-correct (verified: identical stats vs retail),
-    // just not frequency-faithful.  Restore the gate once the dirty-flag setters
-    // are recovered.
-    sub_71C0C0();
-
-    m_derivedStats.CheckLimits();
-
-    // 0x72F2B3: per-tick encumbrance for party PCs.  Compare the carried weight
-    // to the STR-based maximum load (STRENGTH_MODIFIERS column 3,
-    // WEIGHT_ALLOWANCE, scaled by the encumbrance modifier percent).  Over 120%
-    // of capacity the sprite cannot move (m_nEncumberance = 2, walk scale 0);
-    // over capacity it is slowed to half (m_nEncumberance = 1, walk scale >> 1);
-    // otherwise it walks normally.  The 0x142 game mode leaves the walk scale
-    // untouched.
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-    if (pGame->GetCharacterPortraitNum(m_id) != -1) {
-        INT nWeight = static_cast<INT>(GetCarriedWeight());
-        INT nMaxWeight = static_cast<INT>(
-            static_cast<float>(ruleTables.GetEncumbranceMod(this)) / 100.0f
-            * static_cast<float>(atol(ruleTables.m_tStrengthMod.GetAt(CPoint(3, m_derivedStats.m_nSTR)))));
 
-        // The walk scale is recomputed from the animation's default each tick.
-        // In the original this is split across the (here deferred) per-tick
-        // refresh -- which calls ResetMoveScale (m_moveScaleCurrent = base) when
-        // the encumbrance state changes -- and this block, which then halves the
-        // freshly-reset scale.  Collapsed here to an idempotent set off the
-        // default so the half-speed slow does not compound to zero every tick.
-        if (nWeight > nMaxWeight * 120 / 100) {
-            if (pGame->m_gameSave.m_mode != 0x142) {
-                m_animation.m_animation->SetMoveScale(0);
-                m_derivedStats.m_nEncumberance = 2;
-            }
-        } else if (nWeight > nMaxWeight) {
-            if (pGame->m_gameSave.m_mode != 0x142) {
-                m_animation.m_animation->SetMoveScale(m_animation.m_animation->GetMoveScaleDefault() >> 1);
-                m_derivedStats.m_nEncumberance = 1;
-            }
-        } else {
-            if (m_animation.m_animation->GetMoveScale() < m_animation.m_animation->GetMoveScaleDefault()) {
-                m_animation.m_animation->ResetMoveScale();
-            }
-            m_derivedStats.m_nEncumberance = 0;
+    do {
+        // 0x72DEF7: enter the pass -- suppress re-entrant processing and clamp
+        // the deferred-tick counter to 5.
+        m_bAllowEffectListCall = FALSE;
+        if (field_72A2 > 4) {
+            field_72A2 = 5;
         }
-    }
 
-    // Tail of the original (0x72FBC3): the persistant-effect tick only runs
-    // while world time advances (not on pause).
-    if (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active) {
-        ProcessPersistantEffects(1);
-    }
+        bResult = HandleEffects();
 
-    return bResult;
+        if (m_derivedStats.m_nACArmorBonus == 0
+            && m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
+            m_derivedStats.m_nACArmorBonus += static_cast<SHORT>(m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetEquippedACBonus());
+        }
+
+        INT nOffHandSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet + 1;
+        if (m_derivedStats.m_nACDeflectionBonus == 0
+            && nOffHandSlot >= 0
+            && nOffHandSlot < CGameSpriteEquipment::NUM_SLOT
+            && m_equipment.m_items[nOffHandSlot] != NULL) {
+            WORD nItemType = m_equipment.m_items[nOffHandSlot]->GetItemType();
+            if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
+                m_derivedStats.m_nACDeflectionBonus = static_cast<SHORT>(m_equipment.m_items[nOffHandSlot]->GetEquippedACBonus());
+            }
+        }
+
+        // 0x71C0C0: the per-tick re-derivation the binary performs here -- the
+        // saving throws, hit-point/Constitution bonus and per-class spellcasting
+        // limits.  This supersedes the saving-throw block that was previously
+        // inlined above (the binary applies it only inside this call).  It reads
+        // m_derivedStats directly (it does not consult m_bAllowEffectListCall),
+        // so the cleared flag above does not perturb the re-derivation itself.
+        sub_71C0C0();
+
+        m_derivedStats.CheckLimits();
+
+        // 0x72F2B3: per-tick encumbrance for party PCs.  Compare the carried
+        // weight to the STR-based maximum load (STRENGTH_MODIFIERS column 3,
+        // WEIGHT_ALLOWANCE, scaled by the encumbrance modifier percent).  Over
+        // 120% of capacity the sprite cannot move (m_nEncumberance = 2, walk
+        // scale 0); over capacity it is slowed to half (m_nEncumberance = 1, walk
+        // scale >> 1); otherwise it walks normally.  The 0x142 game mode leaves
+        // the walk scale untouched.
+        if (pGame->GetCharacterPortraitNum(m_id) != -1) {
+            INT nWeight = static_cast<INT>(GetCarriedWeight());
+            INT nMaxWeight = static_cast<INT>(
+                static_cast<float>(ruleTables.GetEncumbranceMod(this)) / 100.0f
+                * static_cast<float>(atol(ruleTables.m_tStrengthMod.GetAt(CPoint(3, m_derivedStats.m_nSTR)))));
+
+            // The walk scale is recomputed from the animation's default each
+            // tick.  In the original this is split across the (here deferred)
+            // per-tick refresh -- which calls ResetMoveScale (m_moveScaleCurrent
+            // = base) when the encumbrance state changes -- and this block, which
+            // then halves the freshly-reset scale.  Collapsed here to an
+            // idempotent set off the default so the half-speed slow does not
+            // compound to zero every tick.
+            if (nWeight > nMaxWeight * 120 / 100) {
+                if (pGame->m_gameSave.m_mode != 0x142) {
+                    m_animation.m_animation->SetMoveScale(0);
+                    m_derivedStats.m_nEncumberance = 2;
+                }
+            } else if (nWeight > nMaxWeight) {
+                if (pGame->m_gameSave.m_mode != 0x142) {
+                    m_animation.m_animation->SetMoveScale(m_animation.m_animation->GetMoveScaleDefault() >> 1);
+                    m_derivedStats.m_nEncumberance = 1;
+                }
+            } else {
+                if (m_animation.m_animation->GetMoveScale() < m_animation.m_animation->GetMoveScaleDefault()) {
+                    m_animation.m_animation->ResetMoveScale();
+                }
+                m_derivedStats.m_nEncumberance = 0;
+            }
+        }
+
+        // 0x72FB85: tail.  When no deferred ticks remain, re-arm the gate
+        // (0x72FB9D) and run the persistant-effect tick -- which only advances
+        // while world time does (not on pause) -- then return.  Otherwise drain
+        // one deferred tick and re-process the body.
+        if (field_72A2 < 1) {
+            m_bAllowEffectListCall = TRUE;
+            if (g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active) {
+                ProcessPersistantEffects(1);
+            }
+            return bResult;
+        }
+        field_72A2--;
+    } while (TRUE);
 }
 
 // 0x733290
