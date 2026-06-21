@@ -449,6 +449,14 @@ target_compile_definitions(${EXECUTABLE_NAME} PUBLIC
     _MBCS
 )
 
+# Treat C4103 ("alignment changed after including header") as a hard error. A
+# header that leaves #pragma pack unbalanced silently packs every class parsed
+# downstream -- in some TUs only -> the same class gets two sizes (cross-TU ODR)
+# -> a write past a heap block -> STATUS_HEAP_CORRUPTION that builds perfectly
+# clean (regression 1d329bb0). scripts/lint_pragma_pack_balance.py is the cheap
+# host-side pre-build net; this is the authoritative compile-time gate.
+target_compile_options(${EXECUTABLE_NAME} PRIVATE /we4103)
+
 # TODO: Use winsdkver.h?
 target_compile_definitions(${EXECUTABLE_NAME} PUBLIC
     _WIN32_WINNT=0x0501
