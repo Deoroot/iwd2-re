@@ -2328,8 +2328,10 @@ BOOLEAN CBaldurMessage::SwapItemRequest(BYTE nArea, LONG nObjectID, SHORT nSlotN
 // 0x4319C0
 BOOLEAN CBaldurMessage::OnSwapItemRequest(INT nMsgFrom, BYTE* pMessage, DWORD dwSize)
 {
-    // TODO: Incomplete.
-
+    // MULTIPLAYER: host-side handler for a client's inventory item-swap request.
+    // UNRECOVERED — pairs with SwapItemReply / OnSwapItemReply and the
+    // CMessageStore* bag-sync. The single-player give-to-portrait / inventory
+    // swap paths work without it; this only matters in multiplayer sessions.
     return FALSE;
 }
 
