@@ -23,6 +23,7 @@ public:
     static const SHORT NO_ACTION;
     static const SHORT ATTACK;
     static const SHORT DIALOGUE;
+    static const SHORT MOVETOOBJECT;
     static const SHORT MOVETOPOINT;
     static const SHORT PROTECTPOINT;
     static const SHORT REMOVETRAPS;

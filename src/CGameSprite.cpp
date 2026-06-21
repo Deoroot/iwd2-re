@@ -14564,6 +14564,27 @@ void CGameSprite::SetCurrAction(const CAIAction& action)
     m_moveCount = 0;
     m_bInCasting = FALSE;
 
+    // 0x733D6B / 0x734056: a new action clears the encumbrance feedback latch,
+    // then -- for a movement action -- re-announces the sprite's encumbrance so
+    // "Encumbered: Slowed/Can not move" prints once per move command (the only
+    // emitter of the SLOWED line; STOPPED is also emitted by MoveTo*).
+    m_bPlayedEncumberedStopped = 0;
+    m_bPlayedEncumberedSlowed = 0;
+
+    SHORT nActionID = action.GetActionID();
+    if (nActionID == CAIAction::MOVETOPOINT
+        || nActionID == CAIAction::MOVETOOBJECT
+        || nActionID == CAIAction::FOLLOW
+        || nActionID == CAIAction::MOVETOPOINTNORECTICLE
+        || nActionID == CAIAction::PROTECTPOINT
+        || nActionID == 215) { // engine-internal move action (0x847920, not in ACTION.IDS)
+        if (m_derivedStats.m_nEncumberance == 2) {
+            FeedBack(FEEDBACK_TOOHEAVY_STOPPED, 0, 0, 0, -1, 0, 0);
+        } else if (m_derivedStats.m_nEncumberance == 1) {
+            FeedBack(FEEDBACK_TOOHEAVY_SLOWED, 0, 0, 0, -1, 0, 0);
+        }
+    }
+
     CGameAIBase::SetCurrAction(action);
 }
 

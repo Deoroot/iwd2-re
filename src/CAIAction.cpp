@@ -12,6 +12,9 @@ const SHORT CAIAction::ATTACK = 3;
 // 0x847792
 const SHORT CAIAction::DIALOGUE = 8;
 
+// 0x8477AE
+const SHORT CAIAction::MOVETOOBJECT = 22;
+
 // 0x8477B0
 const SHORT CAIAction::MOVETOPOINT = 23;
 
