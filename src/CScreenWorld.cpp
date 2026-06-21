@@ -4116,12 +4116,70 @@ BOOL CUIControlButtonWorldContainerSlot::Render(BOOL bForce)
             FALSE,
             0);
 
-        // NOTE: original paints STORTIN2/STORTINT/STORTIN4/STORTIN3 tint
-        // overlays (CVidCell BAM blits, CVidCell::Render mode 2 trans 0xC0)
-        // over the icon when pItem != NULL, keyed on CItem::m_flags bits 0x1
-        // (stolen) / 0x8 and the looter's usability (FUN_005b9c60 +
-        // CheckItemUsable).  Deferred: those tints only decorate stolen /
-        // unusable loot and need the looter-share predicate recovered first.
+        // Item-state translucent overlays (CVidCell::Render dwFlags=2 nTrans=0xC0),
+        // painted over the loot icon when the slot has a backing item:
+        //   - unidentified (m_flags bit0 clear)             -> STORTIN2
+        //   - container owner cannot use it at all          -> STORTINT (red)
+        //   - else by the selected looter's CheckItemUsable -> STORTIN4 (UMD) / STORTINT
+        //   - undroppable marker (m_flags bit3 & bit0)      -> STORTIN3
+        if (pItem != NULL) {
+            CPoint pos = rControlFrame.TopLeft();
+            BOOL bDoubleSize = m_pPanel->m_pManager->m_bDoubleSize;
+            DWORD dwItemFlags = pItem->m_flags;
+            STRREF errorCode = -1;
+
+            if ((dwItemFlags & 0x1) == 0) {
+                CVidCell cState(CResRef("STORTIN2"), bDoubleSize);
+                cState.Render(0, pos.x, pos.y, rClip, NULL, 0, 2, 0xC0);
+            } else if (pGame->CanCharacterUseItem(nPortrait, pItem, errorCode, FALSE) == 0) {
+                CVidCell cState(CResRef("STORTINT"), bDoubleSize);
+                cState.Render(0, pos.x, pos.y, rClip, NULL, 0, 2, 0xC0);
+            } else {
+                // Resolve the currently-selected looter and refine the tint:
+                // STORTIN4 (gold) for a UMD-usable item, STORTINT (red) for one
+                // its class cannot use at all.
+                SHORT nSelected = static_cast<SHORT>(pWorld->GetSelectedCharacter());
+                LONG nLooterId = CGameObjectArray::INVALID_INDEX;
+                if (nSelected < pGame->m_nCharacters) {
+                    nLooterId = pGame->m_characterPortraits[nSelected];
+                }
+
+                if (nLooterId != CGameObjectArray::INVALID_INDEX) {
+                    CGameSprite* pLooter;
+                    BYTE share;
+                    do {
+                        pLooter = NULL;
+                        share = pGame->GetObjectArray()->GetShare(nLooterId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            reinterpret_cast<CGameObject**>(&pLooter), INFINITE);
+                    } while (share == CGameObjectArray::SHARED || share == CGameObjectArray::DENIED);
+
+                    if (share == CGameObjectArray::SUCCESS) {
+                        INT nUsable = pGame->CheckItemUsable(pLooter, pItem);
+
+                        CResRef cStateOverlay;
+                        if (nUsable == 2) {
+                            cStateOverlay = CResRef("STORTIN4");
+                        } else if (nUsable == 0) {
+                            cStateOverlay = CResRef("STORTINT");
+                        }
+
+                        if (cStateOverlay != "") {
+                            CVidCell cTint(cStateOverlay, bDoubleSize);
+                            cTint.Render(0, pos.x, pos.y, rClip, NULL, 0, 2, 0xC0);
+                        }
+
+                        pGame->GetObjectArray()->ReleaseShare(nLooterId,
+                            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    }
+                }
+            }
+
+            if ((dwItemFlags & 0x8) != 0 && (dwItemFlags & 0x1) != 0) {
+                CVidCell cState(CResRef("STORTIN3"), bDoubleSize);
+                cState.Render(0, pos.x, pos.y, rClip, NULL, 0, 2, 0xC0);
+            }
+        }
     }
 
     SetToolTipStrRef(description, -1, -1);
