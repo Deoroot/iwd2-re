@@ -15136,7 +15136,10 @@ void CGameSprite::FeedBack(WORD nFeedBackId, LONG a3, LONG a4, LONG a5, LONG a6,
         break;
     case FEEDBACK_TOOHEAVY_SLOWED:
         if ((g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nEffectTextLevel & 0x10) != 0) {
-            if (m_bPlayedEncumberedSlowed || a3 == 1) {
+            // Debounced once per action: shown only while the flag is clear (or
+            // forced with a3 == 1), then latched.  SetCurrAction clears it.
+            if (m_bPlayedEncumberedSlowed == 0 || a3 == 1) {
+                m_bPlayedEncumberedSlowed = 1;
                 g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(GetNameRef(),
                     19503, // "Encumbered: Slowed"
                     rgbNameColor,
@@ -15149,7 +15152,8 @@ void CGameSprite::FeedBack(WORD nFeedBackId, LONG a3, LONG a4, LONG a5, LONG a6,
         break;
     case FEEDBACK_TOOHEAVY_STOPPED:
         if ((g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nEffectTextLevel & 0x10) != 0) {
-            if (m_bPlayedEncumberedStopped || a3 == 1) {
+            if (m_bPlayedEncumberedStopped == 0 || a3 == 1) {
+                m_bPlayedEncumberedStopped = 1;
                 g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(GetNameRef(),
                     19504, // "Encumbered: Can not move"
                     rgbNameColor,
