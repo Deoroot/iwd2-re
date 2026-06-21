@@ -14731,10 +14731,54 @@ void CGameSprite::sub_71CC90()
 }
 
 // 0x71CEA0
+//
+// Apply the weapon-specialization damage bonus for one hand.  The proficiency
+// level of the wielded weapon (taking the better of the weapon and its launcher
+// for ammunition) indexes the WEAPSPEC table; the resulting bonus is added to
+// the main-hand (a2 == 0) or off-hand (a2 != 0) damage bonus.
 void CGameSprite::sub_71CEA0(CItem* pItem, int a2)
 {
-    // UNRECOVERED: applies the equipped weapon's proficiency THAC0/damage
-    // contribution for the given hand (a2: 0 = main hand, 1 = off hand).
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    SHORT nDamageBonus = 0;
+
+    if (pItem == NULL) {
+        return;
+    }
+
+    pItem->Demand();
+    ITEM_ABILITY* pAbility = pItem->GetAbility(m_equipment.m_selectedWeaponAbility);
+    if (pAbility != NULL) {
+        SHORT nLauncherSlot;
+        CItem* pLauncher = GetLauncher(pAbility, nLauncherSlot);
+        if (pLauncher != NULL) {
+            pLauncher->Demand();
+            pLauncher->GetAbility(0);
+        }
+
+        SHORT nProficiency = GetProficiencyTHAC0Bonus(pItem);
+        if (pLauncher != NULL) {
+            SHORT nLauncherProficiency = GetProficiencyTHAC0Bonus(pLauncher);
+            if (nProficiency < nLauncherProficiency) {
+                nProficiency = GetProficiencyTHAC0Bonus(pLauncher);
+            }
+            pLauncher->Release();
+        }
+
+        if (pItem->GetItemType() == 0x1C && nProficiency < 2) {
+            nProficiency = 1;
+        }
+        if (nProficiency >= 1) {
+            nDamageBonus = static_cast<SHORT>(
+                atol(pGame->GetRuleTables().m_tWeaponSpecialization.GetAt(CPoint(1, nProficiency))));
+        }
+    }
+
+    pItem->Release();
+    if (a2 != 0) {
+        m_derivedStats.m_DamageBonusLeft += nDamageBonus;
+    } else {
+        m_derivedStats.m_DamageBonusRight += nDamageBonus;
+    }
 }
 
 // 0x75E930
