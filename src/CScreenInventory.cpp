@@ -6023,9 +6023,15 @@ BOOL CUIControlButtonInventoryColorChoice::GetColorRange(BYTE& colorRange)
         }
         return FALSE;
     case 3:
+        if (static_cast<INT>(m_nID) >= pInventory->m_tSkinColor.GetHeight()) {
+            return FALSE;
+        }
         colorRange = static_cast<BYTE>(atol(pInventory->m_tSkinColor.GetAt(CPoint(0, m_nID))));
         return TRUE;
     case 6:
+        if (static_cast<INT>(m_nID) >= pInventory->m_tHairColor.GetHeight()) {
+            return FALSE;
+        }
         colorRange = static_cast<BYTE>(atol(pInventory->m_tHairColor.GetAt(CPoint(0, m_nID))));
         return TRUE;
     default:
