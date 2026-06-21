@@ -7,6 +7,7 @@
 #include "CGameButtonList.h"
 #include "CGameSprite.h"
 #include "CIcon.h"
+#include "CMessage.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CScreenWorld.h"
@@ -1862,11 +1863,40 @@ void CScreenInventory::OnDoneButtonClick()
 
         switch (pPanel->m_nID) {
         case 3:
-            // TODO: Apply the chosen paperdoll colours (the binary sets the
-            // selected character's animation palette ranges from the portrait
-            // colour popup). The Ghidra lift of that block is garbled
-            // (uninitialised registers); only the dismissal is recovered.
-            DismissPopup();
+            if (field_11E == 7) {
+                // Portrait-colour preset: remaps field_11F through portcolr.2DA
+                // and writes the slot field_11F selects. Murky lift (2DA search
+                // key built via FUN_007FAA72/FUN_007FCD57) and not reached by the
+                // in-game colour buttons (they use slots 1/2/3/6); left unrecovered.
+                DismissPopup();
+                break;
+            } else {
+                // Paperdoll colour apply (verified by Frida trace of 0x6285B0
+                // case 3 on the original): store the chosen colour, push it into
+                // the live animation's palette ranges, broadcast the change.
+                BYTE* pColors = reinterpret_cast<BYTE*>(pSprite) + 0x5C8;
+                pColors[field_11E] = field_11F;
+
+                pSprite->m_animation.SetColorRange(field_11E, field_11F);
+
+                SHORT nPortrait = static_cast<SHORT>(GetSelectedCharacter());
+                if (pGame->GetAnimationBam(nPortrait, 0x20) != "") {
+                    pSprite->m_animation.SetColorRange(static_cast<BYTE>(0x20 | field_11E), field_11F);
+                }
+                if (pGame->GetAnimationBam(nPortrait, 0x30) != "") {
+                    pSprite->m_animation.SetColorRange(static_cast<BYTE>(0x30 | field_11E), field_11F);
+                }
+                if (pGame->GetAnimationBam(nPortrait, 0x10) != "") {
+                    pSprite->m_animation.SetColorRange(static_cast<BYTE>(0x10 | field_11E), field_11F);
+                }
+
+                CMessageColorChange* pMessage =
+                    new CMessageColorChange(pColors, pSprite->m_id, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+
+                UpdateAppearance();
+                DismissPopup();
+            }
             break;
         case 4:
             if (m_nRequesterAmount > 0) {
