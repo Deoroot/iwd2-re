@@ -292,7 +292,12 @@ def cmd_crash(path, frames=12, loose=False):
         r = exc.exception_records[0]
         tid = r.ThreadId
         ea = r.ExceptionRecord.ExceptionAddress
-        print(f"exception 0x{r.ExceptionRecord.ExceptionCode:08x} at 0x{ea:08x}  {addr2name(ea) or ''}  tid={tid}")
+        # minidump lib may return ExceptionCode as an IntEnum (or its str name); coerce to int.
+        _code = r.ExceptionRecord.ExceptionCode
+        code = getattr(_code, "value", _code)
+        if not isinstance(code, int):
+            code = int(str(code), 0) if str(code).lower().startswith("0x") else 0
+        print(f"exception 0x{code:08x} at 0x{ea:08x}  {addr2name(ea) or ''}  tid={tid}")
     reader = md.get_reader()
     for th in md.threads.threads:
         if tid is not None and th.ThreadId != tid:
