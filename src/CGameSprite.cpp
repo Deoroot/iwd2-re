@@ -14389,10 +14389,11 @@ BOOL CGameSprite::ProcessPersistantEffects(LONG deltaT)
 // 0x72DE60
 BOOL CGameSprite::ProcessEffectList()
 {
-    // TODO: Incomplete.
-
-    // NOTE: This functions is huge. The next function call is necessary to
-    // move on with character editor.
+    // PARTIAL: this function is huge.  Recovered so far: effect handling, the
+    // save/AC derivations, the encumbrance check (0x72F2B3) and the persistant
+    // effect tick.  Still DEFERRED: the bulk of the per-tick derived-stat
+    // re-derivation, the animation palette/sequence refresh and the movement
+    // interpolation that make up the rest of the original.
     BOOL bResult = HandleEffects();
 
     const CRuleTables& ruleTables = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
@@ -14427,6 +14428,35 @@ BOOL CGameSprite::ProcessEffectList()
     }
 
     m_derivedStats.CheckLimits();
+
+    // 0x72F2B3: per-tick encumbrance for party PCs.  Compare the carried weight
+    // to the STR-based maximum load (STRENGTH_MODIFIERS column 3,
+    // WEIGHT_ALLOWANCE, scaled by the encumbrance modifier percent).  Over 120%
+    // of capacity the sprite cannot move (m_nEncumberance = 2, walk scale 0);
+    // over capacity it is slowed to half (m_nEncumberance = 1, walk scale >> 1);
+    // otherwise it walks normally.  The 0x142 game mode leaves the walk scale
+    // untouched.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->GetCharacterPortraitNum(m_id) != -1) {
+        INT nWeight = static_cast<INT>(GetCarriedWeight());
+        INT nMaxWeight = static_cast<INT>(
+            static_cast<float>(ruleTables.GetEncumbranceMod(this)) / 100.0f
+            * static_cast<float>(atol(ruleTables.m_tStrengthMod.GetAt(CPoint(3, m_derivedStats.m_nSTR)))));
+
+        if (nWeight > nMaxWeight * 120 / 100) {
+            if (pGame->m_gameSave.m_mode != 0x142) {
+                m_animation.m_animation->SetMoveScale(0);
+                m_derivedStats.m_nEncumberance = 2;
+            }
+        } else if (nWeight > nMaxWeight) {
+            if (pGame->m_gameSave.m_mode != 0x142) {
+                m_animation.m_animation->SetMoveScale(m_animation.m_animation->GetMoveScale() >> 1);
+                m_derivedStats.m_nEncumberance = 1;
+            }
+        } else {
+            m_derivedStats.m_nEncumberance = 0;
+        }
+    }
 
     // Tail of the original (0x72FBC3): the persistant-effect tick only runs
     // while world time advances (not on pause).
