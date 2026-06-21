@@ -797,6 +797,7 @@ public:
     /* 0920 */ CDerivedStats m_derivedStats;
     /* 1778 */ CDerivedStats m_tempStats;
     /* 25D0 */ CDerivedStats m_bonusStats;
+    /* 3428 */ int field_3428;
     /* 342C */ CButtonData m_quickWeapons[8];
     /* 360C */ CButtonData m_quickSpells[9];
     /* 3828 */ CButtonData m_quickItems[3];
@@ -853,6 +854,7 @@ public:
     /* 4F90 */ CSound m_sndSpriteEffect;
     /* 4FF4 */ int m_nNumberOfTimesTalkedTo;
     /* 4FF8 */ BOOL m_bSeenPartyBefore;
+    /* 4FFC */ int field_4FFC[2];
     /* 5004 */ LONG m_nNumberOfTimesInteractedWith[24];
     /* 5064 */ SHORT m_nHappiness;
     /* 5066 */ CAIObjectType m_interactingWith;
@@ -1013,6 +1015,7 @@ public:
     /* 70FF */ BOOLEAN field_70FF;
     /* 7100 */ BOOLEAN field_7100;
     /* 7101 */ BOOLEAN field_7101;
+    /* 7102 */ BYTE field_7102[4];
     /* 7106 */ int field_7106;
     /* 710A */ SHORT field_710A;
     /* 710C */ SHORT field_710C;
@@ -1049,6 +1052,7 @@ public:
     /* 7282 */ unsigned char field_7282;
     /* 7283 */ unsigned char field_7283;
     /* 7284 */ unsigned char field_7284;
+    /* 7285 */ BYTE field_7285[9];
     /* 728E */ int field_728E;
     /* 7292 */ BOOL m_bForceVisualEffects;
     /* 7296 */ SHORT m_currentActionId;
@@ -1068,6 +1072,7 @@ public:
     /* 72DE */ int field_72DE;
     /* 72E2 */ LONG field_72E2;
     /* 72E6 */ CGameButtonList* m_internalButtonList;
+    /* 72EA */ BYTE field_72EA[6];
     /* 72F0 */ CList<CGameSpriteSoundEntry, CGameSpriteSoundEntry> field_72F0;
     /* 730C */ CList<CGameSpriteSoundEntry, CGameSpriteSoundEntry> field_730C;
     /* 7328 */ CList<CGameSpriteSoundEntry, CGameSpriteSoundEntry> field_7328;
@@ -1093,7 +1098,7 @@ public:
     /* 752E */ BOOL m_bSendSpriteUpdate;
     /* 7532 */ int field_7532;
     /* 7536 */ int field_7536;
-    /* 753A */ int field_753A;
+    /* 753A */ short field_753A;
     /* 753C */ int field_753C;
     /* 7540 */ int field_7540;
     /* 7544 */ int field_7544;
