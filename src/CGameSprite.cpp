@@ -14554,12 +14554,108 @@ void CGameSprite::sub_71C0C0()
 }
 
 // 0x737990
+//
+// Reputation-driven loss of paladin or ranger status.  When a creature that can
+// fall from grace (creature flag 0x800) drops below the reputation threshold
+// (70), its class collapses into Fighter: the granted innate abilities are
+// stripped, the class levels are folded into Fighter, the experience is reset
+// to the start of the current level and the improved saving throws are added to
+// the base saves.  Shared with CInfGame::ReputationAdjustment.
 void CGameSprite::sub_737990()
 {
-    // UNRECOVERED: re-derives the saving throws, class levels and
-    // XP-to-next-level, prunes innate spells past their new maxima and
-    // broadcasts the updated character slot.  Shared with
-    // CInfGame::ReputationAdjustment.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    UTIL_ASSERT(pGame != NULL);
+
+    const CRuleTables& ruleTables = pGame->GetRuleTables();
+
+    if ((m_baseStats.m_flags & 0x800) == 0) {
+        return;
+    }
+
+    INT nOldFortitude = ruleTables.GetSavingThrow(m_startTypeAI, m_derivedStats, m_baseStats.m_CONBase, CRuleTables::FORTITUDE);
+    INT nOldReflex = ruleTables.GetSavingThrow(m_startTypeAI, m_derivedStats, m_baseStats.m_DEXBase, CRuleTables::REFLEX);
+    INT nOldWill = ruleTables.GetSavingThrow(m_startTypeAI, m_derivedStats, m_baseStats.m_WISBase, CRuleTables::WILL);
+
+    BOOL bFell = FALSE;
+
+    // Paladin (class-mask bit 0x40) falls when reputation drops below 70.
+    if ((m_typeAI.m_nClassMask & 0x40) != 0 && m_derivedStats.m_nReputation < 70) {
+        DWORD nXP = ruleTables.GetNextLevelXP(static_cast<BYTE>(GetEffectiveCharacterLevel()));
+        m_baseStats.m_xp = nXP;
+        m_derivedStats.m_nXP = nXP;
+
+        CResRef resRef;
+        resRef = "SPIN109"; RemoveInnateSpell(resRef, 1, 0, 0); // Lay on Hands
+        resRef = "SPIN120"; RemoveInnateSpell(resRef, 1, 0, 0); // Detect Evil
+        resRef = "SPIN121"; RemoveInnateSpell(resRef, 1, 0, 0); // Protection From Evil
+        resRef = "SPIN125"; RemoveInnateSpell(resRef, 1, 0, 0); // Remove Disease
+        resRef = "SPIN152"; RemoveInnateSpell(resRef, 1, 0, 0); // Smite Evil
+
+        INT nPaladinLevel = m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_PALADIN);
+        m_derivedStats.SetClassLevel(CAIOBJECTTYPE_C_PALADIN, 0);
+        m_derivedStats.SetClassLevel(CAIOBJECTTYPE_C_FIGHTER,
+            nPaladinLevel + m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_FIGHTER));
+
+        m_typeAI.m_nClass = CAIOBJECTTYPE_C_FIGHTER;
+        m_liveTypeAI.m_nClass = CAIOBJECTTYPE_C_FIGHTER;
+        m_startTypeAI.m_nClass = CAIOBJECTTYPE_C_FIGHTER;
+        m_typeAI.m_nClassMask = m_derivedStats.m_classMask;
+        m_liveTypeAI.m_nClassMask = m_derivedStats.m_classMask;
+        m_startTypeAI.m_nClassMask = m_derivedStats.m_classMask;
+
+        FeedBack(FEEDBACK_16, 0, 0, 0, 0x4CA4, 0, 0); // "fallen paladin" message
+        m_baseStats.m_flags |= 0x200;
+        bFell = TRUE;
+    }
+
+    // Ranger (class-mask bit 0x80) collapses the same way; its levels are folded
+    // through the creature-file level bytes rather than the derived class table.
+    if (m_derivedStats.HasClassMask(0x80) && m_derivedStats.m_nReputation < 70) {
+        DWORD nXP = ruleTables.GetNextLevelXP(static_cast<BYTE>(GetEffectiveCharacterLevel()));
+        m_baseStats.m_xp = nXP;
+        m_derivedStats.m_nXP = nXP;
+
+        CResRef resRef;
+        resRef = "SPIN108"; RemoveInnateSpell(resRef, 1, 0, 0); // Charm Animal
+        resRef = "SPIN139"; RemoveInnateSpell(resRef, 1, 0, 0); // Tracking
+
+        BYTE nRangerLevel = m_baseStats.m_rangerLevel;
+        m_baseStats.m_characterLevel -= nRangerLevel;
+        m_baseStats.m_rangerLevel = 0;
+        BYTE nFighterLevel = nRangerLevel + m_baseStats.m_fighterLevel;
+        m_baseStats.m_characterLevel += (nFighterLevel - m_baseStats.m_fighterLevel);
+        m_baseStats.m_fighterLevel = nFighterLevel;
+
+        m_typeAI.m_nClass = CAIOBJECTTYPE_C_FIGHTER;
+        m_liveTypeAI.m_nClass = CAIOBJECTTYPE_C_FIGHTER;
+        m_startTypeAI.m_nClass = CAIOBJECTTYPE_C_FIGHTER;
+        m_typeAI.m_nClassMask = m_derivedStats.m_classMask;
+        m_liveTypeAI.m_nClassMask = m_derivedStats.m_classMask;
+        m_startTypeAI.m_nClassMask = m_derivedStats.m_classMask;
+
+        FeedBack(FEEDBACK_16, 0, 0, 0, 0x4CA5, 0, 0); // "fallen ranger" message
+        m_baseStats.m_flags |= 0x400;
+    } else if (!bFell) {
+        return;
+    }
+
+    // Re-derive the saving throws as a Fighter and credit any improvement to the
+    // base saves (a drop is ignored).
+    INT nNewFortitude = ruleTables.GetSavingThrow(m_startTypeAI, m_derivedStats, m_baseStats.m_CONBase, CRuleTables::FORTITUDE);
+    INT nNewReflex = ruleTables.GetSavingThrow(m_startTypeAI, m_derivedStats, m_baseStats.m_DEXBase, CRuleTables::REFLEX);
+    INT nNewWill = ruleTables.GetSavingThrow(m_startTypeAI, m_derivedStats, m_baseStats.m_WISBase, CRuleTables::WILL);
+    m_baseStats.m_saveVSFortitudeBase += static_cast<BYTE>(nNewFortitude - nOldFortitude < 0 ? 0 : nNewFortitude - nOldFortitude);
+    m_baseStats.m_saveVSReflexBase += static_cast<BYTE>(nNewReflex - nOldReflex < 0 ? 0 : nNewReflex - nOldReflex);
+    m_baseStats.m_saveVSWillBase += static_cast<BYTE>(nNewWill - nOldWill < 0 ? 0 : nNewWill - nOldWill);
+
+    field_562C = 1;
+    ProcessEffectList();
+
+    // The original then notifies the engine of the class change and, in a
+    // multiplayer session, broadcasts the updated character slot to the other
+    // clients (a g_pBaldurChitin sub-object virtual call followed by an
+    // m_characters[] scan and CBaldurMessage::BroadcastUpdateCharacterSlot).
+    // That engine/multiplayer tail is deferred with the rest of the MP path.
 }
 
 // 0x71CC90
