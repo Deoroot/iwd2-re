@@ -1874,7 +1874,11 @@ void CScreenInventory::OnDoneButtonClick()
                 // Paperdoll colour apply (verified by Frida trace of 0x6285B0
                 // case 3 on the original): store the chosen colour, push it into
                 // the live animation's palette ranges, broadcast the change.
-                BYTE* pColors = reinterpret_cast<BYTE*>(pSprite) + 0x5C8;
+                // The binary's `sprite+0x5C8` is m_baseStats.m_colors; reach it by
+                // member (GetBaseStats()) rather than the absolute offset -- our
+                // CGameSprite lays m_baseStats past the binary's +0x5A4, so a raw
+                // +0x5C8 misses the field and reads/writes zeroes.
+                BYTE* pColors = pSprite->GetBaseStats()->m_colors;
                 pColors[field_11E] = field_11F;
 
                 pSprite->m_animation.SetColorRange(field_11E, field_11F);
