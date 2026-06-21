@@ -61,7 +61,7 @@ public:
     void Clear();
 
     /* 0000 */ CGameSpriteSpellList m_lists[CSPELLLIST_MAX_LEVELS];
-    /* 0048 */ UINT m_nHighestLevel;
+    /* 00FC */ UINT m_nHighestLevel;
 };
 
 class CGameSpriteSpells {
