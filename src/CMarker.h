@@ -8,6 +8,11 @@
 class CGameSprite;
 class CInfinity;
 
+// Binary-mirror class: IE packs to 2. Without this, COLORREF m_rgbColor @0x06
+// 4-aligns to 0x08 and the tail drifts (sizeof 0x28 vs binary 0x24).
+#pragma pack(push)
+#pragma pack(2)
+
 class CMarker {
 public:
     static const BYTE RECTICLE;
@@ -40,5 +45,7 @@ public:
     /* 000A */ CVIDMODE_RECTICLE_DESCRIPTION m_recticleDesc;
     /* 0022 */ BOOLEAN m_bTalking;
 };
+
+#pragma pack(pop)
 
 #endif /* CMARKER_H_ */

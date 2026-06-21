@@ -9,6 +9,12 @@
 
 class CGameSprite;
 
+// Binary-mirror classes: IE packs to 2. Without it CGameStatsRes (CObject
+// vtable + CResRef + SHORT) rounds 0x0E -> 0x10, over-sizing the m_pSpellStats
+// /m_pWeaponStats arrays (sizeof 0xA4 vs binary 0x94).
+#pragma pack(push)
+#pragma pack(2)
+
 class CGameStatsRes : public CObject {
 public:
     CGameStatsRes();
@@ -47,5 +53,7 @@ public:
     /* 0024 */ CGameStatsRes m_pSpellStats[CGAMESAVECHARACTER_NUM_STATS_SPELLS];
     /* 005C */ CGameStatsRes m_pWeaponStats[CGAMESAVECHARACTER_NUM_STATS_WEAPONS];
 };
+
+#pragma pack(pop)
 
 #endif /* CGAMESTATSSPRITE_H_ */

@@ -37,6 +37,7 @@ public:
     BOOL RenderDirect3d(INT x, INT y, const CRect& rClip, DWORD dwFlags, BOOLEAN bDemanded);
 
     /* 00B0 */ SHORT m_nBitCount;
+    /* 00B2 */ int field_B2;
     /* 00B6 */ BOOL m_bDoubleSize;
 };
 #pragma pack(pop)
