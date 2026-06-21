@@ -14792,27 +14792,15 @@ int CGameSprite::sub_75E930(int a1)
 // 0x72DE60
 BOOL CGameSprite::ProcessEffectList()
 {
-    // PARTIAL: this function is huge.  Recovered so far: effect handling, the
-    // save/AC derivations, the encumbrance check (0x72F2B3) and the persistant
-    // effect tick.  Still DEFERRED: the bulk of the per-tick derived-stat
-    // re-derivation, the animation palette/sequence refresh and the movement
-    // interpolation that make up the rest of the original.
+    // PARTIAL: this function is huge.  Recovered: effect handling, the AC
+    // derivation, the per-tick derived-stat re-derivation (0x71C0C0, now called
+    // below), the encumbrance check (0x72F2B3) and the persistant effect tick.
+    // Still DEFERRED: the early effect/class pre-pass (0x72DE60..0x72E754, which
+    // includes CheckEffects and the class/armour checks), the animation
+    // palette/sequence refresh and the movement interpolation.
     BOOL bResult = HandleEffects();
 
     const CRuleTables& ruleTables = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
-
-    m_derivedStats.m_nSaveVSFortitude += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nCON);
-    m_derivedStats.m_nSaveVSReflex += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nDEX);
-    m_derivedStats.m_nSaveVSWill += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nWIS);
-
-    if (m_typeAI.IsClassValid(CAIOBJECTTYPE_C_PALADIN)) {
-        INT nCharismaBonus = ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nCHR);
-        if (nCharismaBonus > 0) {
-            m_derivedStats.m_nSaveVSFortitude += static_cast<SHORT>(nCharismaBonus);
-            m_derivedStats.m_nSaveVSReflex += static_cast<SHORT>(nCharismaBonus);
-            m_derivedStats.m_nSaveVSWill += static_cast<SHORT>(nCharismaBonus);
-        }
-    }
 
     if (m_derivedStats.m_nACArmorBonus == 0
         && m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
@@ -14829,6 +14817,12 @@ BOOL CGameSprite::ProcessEffectList()
             m_derivedStats.m_nACDeflectionBonus = static_cast<SHORT>(m_equipment.m_items[nOffHandSlot]->GetEquippedACBonus());
         }
     }
+
+    // 0x71C0C0: the per-tick re-derivation the binary performs here -- the
+    // saving throws, hit-point/Constitution bonus and per-class spellcasting
+    // limits.  This supersedes the saving-throw block that was previously
+    // inlined above (the binary applies it only inside this call).
+    sub_71C0C0();
 
     m_derivedStats.CheckLimits();
 
