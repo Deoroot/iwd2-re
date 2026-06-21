@@ -527,7 +527,7 @@ void CDerivedStats::BonusInit()
 
     // TODO: Incomplete.
 
-    field_DA8 = 0;
+    field_CAC.m_nHighestLevel = 0;
 
     m_barbarianLevel = 0;
     m_bardLevel = 0;

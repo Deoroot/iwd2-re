@@ -584,7 +584,7 @@ public:
     /* 0574 */ CColorRanges m_appliedColorRanges;
     /* 0590 */ CColorEffects m_appliedColorEffects;
     /* 05AC */ CGameSpriteSpells m_spells;
-    /* 0DA8 */ int field_DA8;
+    /* 0CAC */ CGameSpriteGroupedSpellList field_CAC;
     /* 0DAC */ BOOL m_disabledButtons[40];
     /* 0E4C */ BOOL m_disabledSpellTypes[3];
 };
