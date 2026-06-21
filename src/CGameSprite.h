@@ -173,6 +173,12 @@ typedef struct {
     INT field_4;
 } CGameSpriteSoundEntry;
 
+// IE packs binary-mirror classes to 2 (see CLAUDE.md). Without this, sub-4
+// aligned LONG/WORD tails silently 4-align -> +2 drifts vs the /* 0xNNN */
+// binary offsets. Balanced pop precedes #endif (guarded by /we4103).
+#pragma pack(push)
+#pragma pack(2)
+
 class CGameSpriteLastUpdate {
 public:
     void Initialize(BOOL bFullUpdateRequired);
@@ -1061,5 +1067,7 @@ public:
     /* 9D14 */ unsigned char field_9D14;
     /* 9D15 */ unsigned char field_9D15;
 };
+
+#pragma pack(pop)
 
 #endif /* CGAMESPRITE_H_ */
