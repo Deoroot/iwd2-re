@@ -780,6 +780,11 @@ public:
     /* 3D39 */ BYTE m_nLastSpellbookSpellLevel;
     /* 3D3A */ unsigned char field_3D3A[8];
     /* 3D42 */ BYTE m_nLastSong;
+    // Unrecovered POD region (memset-zeroed in ctor; not enumerated by ctor
+    // ctor-calls or DebugDump, and BG2 diverges here -- IWD2 bard-song state).
+    // Sized placeholder pins downstream members at their binary offsets;
+    // itemize as fields are identified.
+    /* 3D43 */ BYTE field_3D43[0xB7];
     /* 3DFA */ CAIObjectType m_liveTypeAI;
     /* 3E36 */ CAIObjectType m_startTypeAI;
     /* 3E72 */ WORD m_type;
@@ -788,6 +793,12 @@ public:
     /* 3E7A */ WORD m_followRange;
     /* 3E7C */ CPoint m_posStart;
     /* 3E84 */ DWORD m_timeOfDayVisible;
+    // Unrecovered region. BG2 PDB places CCreatureFileHeader m_baseStats +
+    // known/memorized spell-list containers here; IWD2 reorganized (base stats
+    // moved to CGameAIBase@0x5A4). 0x3E88 is touched by the ctor (+0x166) and
+    // dtor (container cleanup) -> at least the head is a list/container. Sized
+    // placeholder pins m_spells @0x4284; itemize later.
+    /* 3E88 */ BYTE field_3E88[0x3FC];
     /* 4284 */ CGameSpriteSpells m_spells;
     /* 4984 */ CGameSpriteGroupedSpellList m_domainSpells;
     /* 4A84 */ CGameSpriteSpellList m_innateSpells;
