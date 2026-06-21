@@ -73,7 +73,7 @@ def bam_to_images(m):
         img.putdata(data); imgs.append(img)
     return imgs
 
-def images_to_bam(imgs, m, scale=2, transparent=(0, 255, 0)):
+def images_to_bam(imgs, m, scale=2, transparent=(0, 255, 0), cx_off=0, cy_off=0):
     """Rebuild a BAM from HD RGBA frames (already scaled by `scale`), reusing the cycle/
     lookup tables + transparent index from the source meta `m`. One global 255-colour
     palette (idx0 = transparent key); frames stored raw (bit31 set)."""
@@ -114,7 +114,7 @@ def images_to_bam(imgs, m, scale=2, transparent=(0, 255, 0)):
         for i, (r, g, bb, a) in enumerate(rd):
             if a < 128:
                 ip[i] = 0                                  # transparent -> idx0
-        new_frames_meta.append((w, h, srcf["cx"]*scale, srcf["cy"]*scale, base, bytes(ip)))
+        new_frames_meta.append((w, h, srcf["cx"]*scale + cx_off, srcf["cy"]*scale + cy_off, base, bytes(ip)))
         base += len(ip)
     # assemble: header(0x18) + frame entries + cycles + lookup + palette + data
     nframes = len(imgs); ncycles = m["ncycles"]

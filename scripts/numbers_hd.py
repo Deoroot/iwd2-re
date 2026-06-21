@@ -71,6 +71,8 @@ def main():
     ap.add_argument("infile"); ap.add_argument("outfile")
     ap.add_argument("--ttf", default="/home/wills/Downloads/lycheesoda/LycheeSoda.ttf")
     ap.add_argument("--size", type=int, default=18)
+    ap.add_argument("--cx", type=int, default=0, help="shift digits RIGHT by N px (negative cx anchor)")
+    ap.add_argument("--cy", type=int, default=0, help="shift digits DOWN by N px (negative cy anchor)")
     ap.add_argument("--sheet", default=None)
     a = ap.parse_args()
     m = parse_bam(open(a.infile, "rb").read())
@@ -83,7 +85,7 @@ def main():
             frames.append(render_glyph(ft, str(i), cw, ch))
         else:
             frames.append(scale2x(orig[i]) if f["w"] > 0 else Image.new("RGBA", (max(cw, 1), max(ch, 1)), (0, 0, 0, 0)))
-    out = images_to_bam(frames, m, scale=2)
+    out = images_to_bam(frames, m, scale=2, cx_off=-a.cx, cy_off=-a.cy)
     open(a.outfile, "wb").write(out)
     print(f"wrote {a.outfile}: {m['nframes']} frames, digit cell={m['frames'][0]['w']*2}x{m['frames'][0]['h']*2}")
     if a.sheet:
