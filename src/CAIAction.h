@@ -122,4 +122,6 @@ public:
     DWORD m_internalFlags;
 };
 
+#pragma pack(pop)
+
 #endif /* CAIACTION_H_ */
