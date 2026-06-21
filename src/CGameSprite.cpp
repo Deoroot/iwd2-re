@@ -14822,6 +14822,19 @@ BOOL CGameSprite::ProcessEffectList()
     // saving throws, hit-point/Constitution bonus and per-class spellcasting
     // limits.  This supersedes the saving-throw block that was previously
     // inlined above (the binary applies it only inside this call).
+    //
+    // FAITHFULNESS GAP (confirmed via Frida @0x71C0C0 on retail): the original
+    // gates this whole pass at the top of ProcessEffectList on
+    // m_bAllowEffectListCall (+0x72A4) -- the list is re-derived only when a
+    // stat-changing operation has set that flag, which the pass then clears (a
+    // clear flag early-returns after bumping field_72A2, capped at 5), so
+    // sub_71C0C0 almost never fires in steady state.  We call it unconditionally
+    // because the code that *sets* m_bAllowEffectListCall on change is not yet
+    // recovered (our build only sets it once at init); adding the gate now would
+    // stop the re-derivation after the first tick.  sub_71C0C0 is idempotent, so
+    // the over-eager call is value-correct (verified: identical stats vs retail),
+    // just not frequency-faithful.  Restore the gate once the dirty-flag setters
+    // are recovered.
     sub_71C0C0();
 
     m_derivedStats.CheckLimits();
