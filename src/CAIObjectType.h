@@ -241,6 +241,12 @@
 class CGameAIBase;
 class CGameObject;
 
+// Binary-mirror layout (IE packs to 2): without pack(2) MSVC 4-aligns the sub-aligned
+// int tails (m_nInstance @0x0A, m_nClassMask @0x18), inflating the class to 0x40 vs the
+// binary's 0x3C. The +4 propagates x16 through CGameAIBase's embedded CAIObjectType
+// members, shifting CGameSprite::m_baseStats off 0x5A4.
+#pragma pack(push)
+#pragma pack(2)
 class CAIObjectType {
 public:
     static const BYTE EA_ALL;
@@ -458,5 +464,7 @@ public:
     /* 0028 */ int m_nRadius;
     /* 002C */ CRect m_rect;
 };
+
+#pragma pack(pop)
 
 #endif /* CAIOBJECTTYPE_H_ */
