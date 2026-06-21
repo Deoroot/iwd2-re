@@ -14829,69 +14829,96 @@ BOOL CGameSprite::ProcessEffectList()
             field_72A2 = 5;
         }
 
-        bResult = HandleEffects();
+        // 0x72E1AE: the pre-pass guard.  The binary runs the whole re-derivation
+        // body only when there is work to do; otherwise it skips straight to the
+        // tail (0x72FB24).  Without this guard the body -- HandleEffects and the
+        // heavy per-tick re-derivation sub_71C0C0 -- ran on every sprite every
+        // tick (~52 sprites in a populated area), which dropped the frame rate to
+        // a crawl.  The original enters the body when either effect list has a
+        // pending effect, the field_562C dirty flag is set, or the
+        // HP/Constitution-bonus recompute is pending.
+        //
+        // FAITHFULNESS GAP: the binary also enters on an encumbrance/move-scale
+        // change detected in the (still deferred) head pre-pass (0x72E197, the
+        // edi term).  That term is omitted here, so a pure carried-weight change
+        // with no pending effect does not refresh the walk scale until the next
+        // body run.  Recover the head detection to close this.
+        BOOL bEffectsPending = m_timedEffectList.CheckEffects()
+            || m_equipedEffectList.CheckEffects()
+            || field_562C != 0
+            || m_bHPCONBonusTotalUpdate != 0;
+        if (bEffectsPending) {
+            // 0x72E1E2: snapshot the live derived stats into the base copy and
+            // clear the dirty flag.  While m_bAllowEffectListCall is clear (set
+            // above) external readers see this stable m_tempStats snapshot rather
+            // than the m_derivedStats the body is about to rebuild.
+            m_tempStats = m_derivedStats;
+            field_562C = 0;
 
-        if (m_derivedStats.m_nACArmorBonus == 0
-            && m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
-            m_derivedStats.m_nACArmorBonus += static_cast<SHORT>(m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetEquippedACBonus());
-        }
+            bResult = HandleEffects();
 
-        INT nOffHandSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet + 1;
-        if (m_derivedStats.m_nACDeflectionBonus == 0
-            && nOffHandSlot >= 0
-            && nOffHandSlot < CGameSpriteEquipment::NUM_SLOT
-            && m_equipment.m_items[nOffHandSlot] != NULL) {
-            WORD nItemType = m_equipment.m_items[nOffHandSlot]->GetItemType();
-            if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
-                m_derivedStats.m_nACDeflectionBonus = static_cast<SHORT>(m_equipment.m_items[nOffHandSlot]->GetEquippedACBonus());
+            if (m_derivedStats.m_nACArmorBonus == 0
+                && m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
+                m_derivedStats.m_nACArmorBonus += static_cast<SHORT>(m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetEquippedACBonus());
             }
-        }
 
-        // 0x71C0C0: the per-tick re-derivation the binary performs here -- the
-        // saving throws, hit-point/Constitution bonus and per-class spellcasting
-        // limits.  This supersedes the saving-throw block that was previously
-        // inlined above (the binary applies it only inside this call).  It reads
-        // m_derivedStats directly (it does not consult m_bAllowEffectListCall),
-        // so the cleared flag above does not perturb the re-derivation itself.
-        sub_71C0C0();
-
-        m_derivedStats.CheckLimits();
-
-        // 0x72F2B3: per-tick encumbrance for party PCs.  Compare the carried
-        // weight to the STR-based maximum load (STRENGTH_MODIFIERS column 3,
-        // WEIGHT_ALLOWANCE, scaled by the encumbrance modifier percent).  Over
-        // 120% of capacity the sprite cannot move (m_nEncumberance = 2, walk
-        // scale 0); over capacity it is slowed to half (m_nEncumberance = 1, walk
-        // scale >> 1); otherwise it walks normally.  The 0x142 game mode leaves
-        // the walk scale untouched.
-        if (pGame->GetCharacterPortraitNum(m_id) != -1) {
-            INT nWeight = static_cast<INT>(GetCarriedWeight());
-            INT nMaxWeight = static_cast<INT>(
-                static_cast<float>(ruleTables.GetEncumbranceMod(this)) / 100.0f
-                * static_cast<float>(atol(ruleTables.m_tStrengthMod.GetAt(CPoint(3, m_derivedStats.m_nSTR)))));
-
-            // The walk scale is recomputed from the animation's default each
-            // tick.  In the original this is split across the (here deferred)
-            // per-tick refresh -- which calls ResetMoveScale (m_moveScaleCurrent
-            // = base) when the encumbrance state changes -- and this block, which
-            // then halves the freshly-reset scale.  Collapsed here to an
-            // idempotent set off the default so the half-speed slow does not
-            // compound to zero every tick.
-            if (nWeight > nMaxWeight * 120 / 100) {
-                if (pGame->m_gameSave.m_mode != 0x142) {
-                    m_animation.m_animation->SetMoveScale(0);
-                    m_derivedStats.m_nEncumberance = 2;
+            INT nOffHandSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet + 1;
+            if (m_derivedStats.m_nACDeflectionBonus == 0
+                && nOffHandSlot >= 0
+                && nOffHandSlot < CGameSpriteEquipment::NUM_SLOT
+                && m_equipment.m_items[nOffHandSlot] != NULL) {
+                WORD nItemType = m_equipment.m_items[nOffHandSlot]->GetItemType();
+                if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
+                    m_derivedStats.m_nACDeflectionBonus = static_cast<SHORT>(m_equipment.m_items[nOffHandSlot]->GetEquippedACBonus());
                 }
-            } else if (nWeight > nMaxWeight) {
-                if (pGame->m_gameSave.m_mode != 0x142) {
-                    m_animation.m_animation->SetMoveScale(m_animation.m_animation->GetMoveScaleDefault() >> 1);
-                    m_derivedStats.m_nEncumberance = 1;
+            }
+
+            // 0x71C0C0: the per-tick re-derivation the binary performs here -- the
+            // saving throws, hit-point/Constitution bonus and per-class spellcasting
+            // limits.  This supersedes the saving-throw block that was previously
+            // inlined above (the binary applies it only inside this call).  It reads
+            // m_derivedStats directly (it does not consult m_bAllowEffectListCall),
+            // so the cleared flag above does not perturb the re-derivation itself.
+            sub_71C0C0();
+
+            m_derivedStats.CheckLimits();
+
+            // 0x72F2B3: per-tick encumbrance for party PCs.  Compare the carried
+            // weight to the STR-based maximum load (STRENGTH_MODIFIERS column 3,
+            // WEIGHT_ALLOWANCE, scaled by the encumbrance modifier percent).  Over
+            // 120% of capacity the sprite cannot move (m_nEncumberance = 2, walk
+            // scale 0); over capacity it is slowed to half (m_nEncumberance = 1, walk
+            // scale >> 1); otherwise it walks normally.  The 0x142 game mode leaves
+            // the walk scale untouched.
+            if (pGame->GetCharacterPortraitNum(m_id) != -1) {
+                INT nWeight = static_cast<INT>(GetCarriedWeight());
+                INT nMaxWeight = static_cast<INT>(
+                    static_cast<float>(ruleTables.GetEncumbranceMod(this)) / 100.0f
+                    * static_cast<float>(atol(ruleTables.m_tStrengthMod.GetAt(CPoint(3, m_derivedStats.m_nSTR)))));
+
+                // The walk scale is recomputed from the animation's default each
+                // tick.  In the original this is split across the (here deferred)
+                // per-tick refresh -- which calls ResetMoveScale (m_moveScaleCurrent
+                // = base) when the encumbrance state changes -- and this block, which
+                // then halves the freshly-reset scale.  Collapsed here to an
+                // idempotent set off the default so the half-speed slow does not
+                // compound to zero every tick.
+                if (nWeight > nMaxWeight * 120 / 100) {
+                    if (pGame->m_gameSave.m_mode != 0x142) {
+                        m_animation.m_animation->SetMoveScale(0);
+                        m_derivedStats.m_nEncumberance = 2;
+                    }
+                } else if (nWeight > nMaxWeight) {
+                    if (pGame->m_gameSave.m_mode != 0x142) {
+                        m_animation.m_animation->SetMoveScale(m_animation.m_animation->GetMoveScaleDefault() >> 1);
+                        m_derivedStats.m_nEncumberance = 1;
+                    }
+                } else {
+                    if (m_animation.m_animation->GetMoveScale() < m_animation.m_animation->GetMoveScaleDefault()) {
+                        m_animation.m_animation->ResetMoveScale();
+                    }
+                    m_derivedStats.m_nEncumberance = 0;
                 }
-            } else {
-                if (m_animation.m_animation->GetMoveScale() < m_animation.m_animation->GetMoveScaleDefault()) {
-                    m_animation.m_animation->ResetMoveScale();
-                }
-                m_derivedStats.m_nEncumberance = 0;
             }
         }
 
