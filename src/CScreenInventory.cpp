@@ -5282,8 +5282,6 @@ void CUIControlButtonInventorySlot::OnRButtonClick(CPoint pt)
 // 0x62DDE0
 BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
 {
-    // TODO: Incomplete.
-
     if (!m_bActive && !m_bInactiveRender) {
         return FALSE;
     }
@@ -5292,15 +5290,42 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
         return FALSE;
     }
 
-    if (!CUIControlButton::Render(bForce)) {
-        return FALSE;
-    }
-
     CScreenInventory* pInventory = g_pBaldurChitin->m_pEngineInventory;
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
-    // __LINE__: 6826
+    // __LINE__: 6882
     UTIL_ASSERT(pInventory != NULL);
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+    // __LINE__: 6890
+    UTIL_ASSERT(pGame != NULL);
+
+    // Quick-weapon slots (101-108) past the character's weapon-set count render
+    // nothing: clear the tooltip, drop a pending render, and bail.
+    if (m_nID > 100 && m_nID < 109) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
+        // __LINE__: 8646
+        UTIL_ASSERT(g_pBaldurChitin->GetObjectGame() != NULL);
+
+        SHORT nNumQuickWeapons = pGame->GetNumQuickWeaponSlots(
+            static_cast<SHORT>(pInventory->GetSelectedCharacter()));
+        if (static_cast<INT>(m_nID) - 101 >= nNumQuickWeapons) {
+            if (m_nRenderCount != 0) {
+                CSingleLock lock(&(m_pPanel->m_pManager->field_56), FALSE);
+                lock.Lock(INFINITE);
+                m_nRenderCount--;
+                lock.Unlock();
+            }
+            SetToolTipStrRef(-1, -1, -1);
+            return FALSE;
+        }
+    }
+
+    if (!CUIControlButton::Render(bForce)) {
+        return FALSE;
+    }
 
     CItem* pItem = NULL;
     STRREF description;
@@ -5415,7 +5440,6 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
             // for a type-restricted one.  (The binary resolves the share twice --
             // once in the wrapper, once for CheckItemUsable -- on the same sprite;
             // reproduced here as a single share.)
-            CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
             SHORT nPortrait = pInventory->GetSelectedCharacter();
             LONG nLooterId = -1;
             if (nPortrait < pGame->m_nCharacters) {
@@ -5467,6 +5491,7 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
     // CUIControlButtonInventorySlot::TimerAsynchronousUpdate (0x62D4B0) sets
     // and CUIControlButton::Render draws -- not here.
 
+    SetToolTipStrRef(-1, -1, -1);
     return TRUE;
 }
 
