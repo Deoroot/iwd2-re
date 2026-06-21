@@ -182,6 +182,33 @@ typedef struct {
 class CGameSpriteLastUpdate {
 public:
     void Initialize(BOOL bFullUpdateRequired);
+
+    // Cached "last sent" sprite state, diffed in CMessageSpriteUpdate
+    // (0x50C260). Prefix names + offsets from the BG2 PDB cross-checked against
+    // Initialize (0x723B20). sizeof = 0xFC (m_cLastSpriteUpdate@0x7432 ->
+    // m_bSendSpriteUpdate@0x752E in CGameSprite).
+    /* 0000 */ long* m_pPath;
+    /* 0004 */ short m_nPath;
+    /* 0006 */ short m_currPath;
+    /* 0008 */ CPoint m_ptDest;
+    /* 0010 */ unsigned char m_nMoveScale;
+    /* 0012 */ short m_nSequence;
+    /* 0014 */ CPoint m_ptPosition;
+    /* 001C */ short m_nFacing;
+    /* 001E */ unsigned long m_dwState;
+    /* 0022 */ short m_nHitPoints;
+    /* 0024 */ short m_nMaxHitPoints;
+    /* 0026 */ short m_nArmorClass;
+    /* 0028 */ short m_nACCrushingMod;
+    /* 002A */ short m_nACMissileMod;
+    /* 002C */ short m_nACPiercingMod;
+    /* 002E */ short m_nACSlashingMod;
+    // 0x0030-0x00F7: IWD2-specific cached fields (portrait-icon list, area
+    // string, spell-state array, status flags). Initialize zeroes most but
+    // does not disambiguate field widths; not fully itemized. Sized
+    // placeholder keeps the trailing flag + total size binary-faithful.
+    /* 0030 */ BYTE field_30[0xC8];
+    /* 00F8 */ int m_bFullUpdateRequired;
 };
 
 class CGameSprite : public CGameAIBase {
