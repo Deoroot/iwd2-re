@@ -26,7 +26,9 @@ import glob
 import struct
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.environ.get("IWD2_EXE", "/home/wills/Games/Heroic/Icewind Dale 2/IWD2.exe")
+# Default to the CANONICAL pristine IWD2.exe (md5 25cb3d8a) vendored at REPO/.bin/,
+# NOT the host's IWD2EE-modded install whose .data/.text bytes differ. IWD2_EXE overrides.
+EXE = os.environ.get("IWD2_EXE", os.path.join(REPO, ".bin", "iwd2.exe"))
 SRC = os.path.join(REPO, "src")
 
 # The recovered-code address MARKER: a comment line that STARTS with the address
