@@ -774,6 +774,11 @@ INT CScreenInventory::GetPortraitByPosition(CPoint pt)
     // __LINE__: 1202
     UTIL_ASSERT(pGame != NULL);
 
+    // Convert the manager-space point to panel-1-local before hit-testing the
+    // portrait controls (whose m_ptOrigin is panel-relative).
+    pt.x -= pPanel->m_ptOrigin.x;
+    pt.y -= pPanel->m_ptOrigin.y;
+
     for (INT nIndex = 0; nIndex < pGame->GetNumCharacters(); nIndex++) {
         CUIControlBase* pControl = pPanel->GetControl(nIndex);
 
