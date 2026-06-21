@@ -3463,7 +3463,7 @@ void CScreenInventory::UpdateAbilitiesPanel()
         POSITION pos = m_pAbilities != NULL
             ? m_pAbilities->GetHeadPosition()
             : NULL;
-        for (INT nIndex = 1; nIndex < 3; nIndex++) {
+        for (INT nIndex = 0; nIndex < 3; nIndex++) {
             CUIControlButtonInventoryAbilitiesAbility* pAbility = static_cast<CUIControlButtonInventoryAbilitiesAbility*>(pPanel->GetControl(nIndex + 1));
 
             // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenInventory.cpp
