@@ -14386,6 +14386,189 @@ BOOL CGameSprite::ProcessPersistantEffects(LONG deltaT)
     return TRUE;
 }
 
+// 0x71C0C0
+//
+// Per-tick re-derivation of the spellcasting limits, hit points and saving
+// throws.  In the original this is the bulk of the work called by
+// CGameSprite::ProcessEffectList (0x72DE60); ProcessEffectList is currently a
+// partial reconstruction that inlines part of this (the saving-throw block), so
+// wiring this in -- and removing that duplicated inline work -- is left as a
+// follow-up to avoid applying the derivation twice.
+void CGameSprite::sub_71C0C0()
+{
+    sub_737990();
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    const CRuleTables& ruleTables = pGame->GetRuleTables();
+
+    // Recompute the per-class, per-level known-spell limits.  Each slot's
+    // maximum becomes (max + bonus); the currently memorised total is clamped
+    // down if it now exceeds that maximum.
+    for (UINT nClassIndex = 0; nClassIndex < CSPELLLIST_NUM_CLASSES; nClassIndex++) {
+        for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
+            BYTE nClass = pGame->GetSpellcasterClass(nClassIndex);
+            INT nBonus = 0;
+            INT nMaxKnown = ruleTables.GetMaxKnownSpells(nClass, m_startTypeAI, m_derivedStats,
+                m_baseStats.m_specialization, nLevel + 1, nBonus);
+
+            CGameSpriteSpellList& list = m_spells.m_spellsByClass[nClassIndex].m_lists[nLevel];
+            list.m_nSharedMax = nBonus + nMaxKnown;
+            if (list.m_nSharedMax < list.m_nSharedTotal) {
+                list.m_nSharedTotal = list.m_nSharedMax;
+            }
+        }
+    }
+
+    // Turn Undead (SPIN970) innate attempts scale with the Charisma modifier
+    // (+3 base, floored at 1) plus the Extra Turning feat.  Grow or shrink the
+    // granted count to match the recomputed target.
+    const CResRef resRefTurnUndead("SPIN970");
+    UINT nTurnUndeadID = 0;
+    if (pGame->m_innateSpells.Find(resRefTurnUndead, nTurnUndeadID)) {
+        for (UINT i = 0; i < m_innateSpells.m_List.size(); i++) {
+            if (m_innateSpells.m_List[i].m_nID != nTurnUndeadID) {
+                continue;
+            }
+
+            INT nTarget = ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nCHR) + 3;
+            if (nTarget < 1) {
+                nTarget = 1;
+            }
+            if (HasFeat(CGAMESPRITE_FEAT_EXTRA_TURNING) == 1) {
+                nTarget += GetFeatValue(CGAMESPRITE_FEAT_EXTRA_TURNING);
+            }
+
+            INT nDelta = nTarget - static_cast<INT>(m_innateSpells.m_List[i].m_nMax);
+            if (nDelta >= 1) {
+                UINT nID = 0;
+                if (pGame->m_innateSpells.Find(resRefTurnUndead, nID)) {
+                    m_innateSpells.Add(nID, nDelta, 0, 0);
+                }
+                if (pGame->m_innateSpells.Find(resRefTurnUndead, nID)) {
+                    m_innateSpells.AddToCurrentCount(nID, nDelta, FALSE);
+                }
+            } else if (nDelta < 0) {
+                UINT nID = 0;
+                if (pGame->m_innateSpells.Find(resRefTurnUndead, nID)) {
+                    UINT nIndex = 0;
+                    if (m_innateSpells.Find(nID, nIndex)) {
+                        INT nNewCurrent = static_cast<INT>(m_innateSpells.m_List[nIndex].m_nCurrent) + nDelta;
+                        if (nNewCurrent < 0) {
+                            nNewCurrent = 0;
+                        }
+                        m_innateSpells.m_nSharedCurrent -= m_innateSpells.m_List[nIndex].m_nCurrent;
+                        m_innateSpells.m_List[nIndex].m_nCurrent = nNewCurrent;
+                        m_innateSpells.m_nSharedCurrent += nNewCurrent;
+                    }
+                }
+                if (pGame->m_innateSpells.Find(resRefTurnUndead, nID)) {
+                    m_innateSpells.Remove(nID, FALSE, -nDelta, 0);
+                }
+            }
+            break;
+        }
+    }
+
+    // Hit points: re-derive the Constitution bonus and apply the change to the
+    // current HP, the derived maximum and the creature-file base maximum.  A
+    // creature in a death state has its current HP zeroed when the bonus rises
+    // and floored at 1 when it falls.
+    const DWORD nDeathStates = STATE_DEAD | STATE_STONE_DEATH | STATE_FROZEN_DEATH;
+    INT nHPCONBonus = ruleTables.GetHPCONBonusTotal(m_typeAI, m_derivedStats,
+        static_cast<BYTE>(m_derivedStats.m_nCON));
+    SHORT nHPDelta = static_cast<SHORT>(nHPCONBonus) - static_cast<SHORT>(m_nHPCONBonusTotalOld);
+    if (m_nHPCONBonusTotalOld < nHPCONBonus) {
+        if ((m_derivedStats.m_generalState & nDeathStates) == 0) {
+            m_baseStats.m_hitPoints += nHPDelta;
+        } else {
+            m_baseStats.m_hitPoints = 0;
+        }
+        m_derivedStats.m_nMaxHitPoints += nHPDelta;
+        m_baseStats.m_maxHitPointsBase += nHPDelta;
+    } else if (nHPCONBonus < m_nHPCONBonusTotalOld) {
+        if ((m_derivedStats.m_generalState & nDeathStates) == 0) {
+            m_baseStats.m_hitPoints += nHPDelta;
+            if (m_baseStats.m_hitPoints < 1) {
+                m_baseStats.m_hitPoints = 1;
+            }
+        }
+        m_derivedStats.m_nMaxHitPoints += nHPDelta;
+        m_baseStats.m_maxHitPointsBase += nHPDelta;
+    }
+
+    // The maximum HP never drops below the character level.
+    WORD wMaxHP = static_cast<BYTE>(m_derivedStats.m_nLevel);
+    if (static_cast<SHORT>(static_cast<BYTE>(m_derivedStats.m_nLevel)) < m_derivedStats.m_nMaxHitPoints) {
+        wMaxHP = m_derivedStats.m_nMaxHitPoints;
+    }
+    m_derivedStats.m_nMaxHitPoints = wMaxHP;
+
+    // Saving throws gain the relevant ability modifier; a paladin's positive
+    // Charisma modifier adds to all three.
+    m_derivedStats.m_nSaveVSFortitude += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nCON);
+    m_derivedStats.m_nSaveVSReflex += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nDEX);
+    m_derivedStats.m_nSaveVSWill += ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nWIS);
+    if (m_typeAI.IsClassValid(CAIOBJECTTYPE_C_PALADIN)) {
+        INT nCharismaBonus = ruleTables.GetAbilityScoreModifier(m_derivedStats.m_nCHR);
+        if (nCharismaBonus > 0) {
+            m_derivedStats.m_nSaveVSFortitude += static_cast<SHORT>(nCharismaBonus);
+            m_derivedStats.m_nSaveVSReflex += static_cast<SHORT>(nCharismaBonus);
+            m_derivedStats.m_nSaveVSWill += static_cast<SHORT>(nCharismaBonus);
+        }
+    }
+
+    m_nHPCONBonusTotalOld = nHPCONBonus;
+    m_bHPCONBonusTotalUpdate = FALSE;
+
+    if (m_derivedStats.m_nMaxHitPoints < m_baseStats.m_hitPoints) {
+        m_baseStats.m_hitPoints = m_derivedStats.m_nMaxHitPoints;
+    }
+    if (field_7110 < static_cast<INT>(static_cast<SHORT>(m_baseStats.m_hitPoints))) {
+        field_7110 = static_cast<SHORT>(m_baseStats.m_hitPoints);
+    }
+
+    // Party members: clamp experience to the cap and announce a level-up.
+    if (pGame->GetCharacterPortraitNum(m_id) != -1) {
+        CDerivedStats nextLevelStats;
+
+        DWORD nXPCap = ruleTables.GetXPCap();
+        if (nXPCap < m_derivedStats.m_nXP) {
+            m_derivedStats.m_nXP = nXPCap;
+        }
+
+        nextLevelStats = m_derivedStats;
+        ruleTables.GetNextLevel(m_startTypeAI.m_nClass, nextLevelStats, this);
+
+        BOOL bLevelChanged = nextLevelStats.m_nLevel != m_derivedStats.m_nLevel;
+        // The original additionally requires single-player, or that this sprite
+        // belongs to the local player (the g_pBaldurChitin multiplayer flag /
+        // local-player id compared against m_remotePlayerID); that sub-clause is
+        // deferred with the rest of the multiplayer path.
+        if (bLevelChanged && !m_bLevelUp) {
+            FeedBack(FEEDBACK_LEVELUP, 0, 0, 0, -1, 0, 0);
+        }
+        m_bLevelUp = bLevelChanged;
+    }
+
+    sub_71CC90();
+}
+
+// 0x737990
+void CGameSprite::sub_737990()
+{
+    // UNRECOVERED: re-derives the saving throws, class levels and
+    // XP-to-next-level, prunes innate spells past their new maxima and
+    // broadcasts the updated character slot.  Shared with
+    // CInfGame::ReputationAdjustment.
+}
+
+// 0x71CC90
+void CGameSprite::sub_71CC90()
+{
+    // UNRECOVERED: refreshes the selected weapon ability across the equipped
+    // items after the stat re-derivation.
+}
+
 // 0x72DE60
 BOOL CGameSprite::ProcessEffectList()
 {

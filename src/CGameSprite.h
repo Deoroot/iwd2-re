@@ -609,6 +609,9 @@ public:
     INT GetAttacksPerRound();
     void sub_72DE60();
     void sub_71E760(CDerivedStats& DStats, int a2);
+    void sub_71C0C0();
+    void sub_737990();
+    void sub_71CC90();
     int GetBaseMovementRate();
     const CString& GetName();
     STRREF GetNameRef();
