@@ -573,8 +573,15 @@ public:
     /* 041C */ CImmunitiesProjectile field_41C;
     /* 0438 */ CImmunitiesItemEquipList m_cImmunitiesItemUse;
     /* 0454 */ CImmunitiesItemTypeEquipList m_cImmunitiesItemTypeUse;
+    // 0x0470-0x0490: ctor-untouched (default-zero containers, not itemized).
+    /* 0470 */ BYTE field_470[0x20];
+    // ctor 0x443B30 writes _Myhead@0x494 / _Mysize@0x498 -> the set core sits
+    // at 0x490 (the old /* 0480 */ comment was wrong). Used: find/insert in
+    // CGameEffect / IcewindCGameEffects, so it must stay a real std::set<int>.
+    /* 0490 */ std::set<int> m_naturalImmunities;
+    // 0x049C-0x04AC: 2nd container core zeroed by ctor (byte + three dwords).
+    /* 049C */ BYTE field_49C[0x10];
     /* 04AC */ CPtrList field_4AC;
-    /* 0480 */ std::set<int> m_naturalImmunities;
     /* 04C8 */ CPtrList field_4C8;
     /* 04E4 */ CPtrList field_4E4;
     /* 0500 */ CPtrList field_500;
