@@ -14443,6 +14443,12 @@ BOOL CGameSprite::ProcessEffectList()
             static_cast<float>(ruleTables.GetEncumbranceMod(this)) / 100.0f
             * static_cast<float>(atol(ruleTables.m_tStrengthMod.GetAt(CPoint(3, m_derivedStats.m_nSTR)))));
 
+        // The walk scale is recomputed from the animation's default each tick.
+        // In the original this is split across the (here deferred) per-tick
+        // refresh -- which calls ResetMoveScale (m_moveScaleCurrent = base) when
+        // the encumbrance state changes -- and this block, which then halves the
+        // freshly-reset scale.  Collapsed here to an idempotent set off the
+        // default so the half-speed slow does not compound to zero every tick.
         if (nWeight > nMaxWeight * 120 / 100) {
             if (pGame->m_gameSave.m_mode != 0x142) {
                 m_animation.m_animation->SetMoveScale(0);
@@ -14450,10 +14456,13 @@ BOOL CGameSprite::ProcessEffectList()
             }
         } else if (nWeight > nMaxWeight) {
             if (pGame->m_gameSave.m_mode != 0x142) {
-                m_animation.m_animation->SetMoveScale(m_animation.m_animation->GetMoveScale() >> 1);
+                m_animation.m_animation->SetMoveScale(m_animation.m_animation->GetMoveScaleDefault() >> 1);
                 m_derivedStats.m_nEncumberance = 1;
             }
         } else {
+            if (m_animation.m_animation->GetMoveScale() < m_animation.m_animation->GetMoveScaleDefault()) {
+                m_animation.m_animation->ResetMoveScale();
+            }
             m_derivedStats.m_nEncumberance = 0;
         }
     }
