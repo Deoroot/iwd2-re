@@ -12,6 +12,12 @@ class CVidMode;
 #define CGAMEOBJECT_LIST_BACK 1
 #define CGAMEOBJECT_LIST_FLIGHT 2
 
+// Binary-mirror layout (IE packs to 2): the 2-aligned LONG/pointer/DWORD members
+// (m_pos @0x06, m_posZ @0x0E, m_pArea @0x12, m_remotePlayerID @0x62, ...) get
+// 4-aligned by MSVC without pack(2), inflating this base from 0x6E to 0x74 and
+// shifting every CGameObject-derived class (e.g. CGameSprite::m_baseStats off 0x5A4).
+#pragma pack(push)
+#pragma pack(2)
 class CGameObject {
 public:
     static const BYTE TYPE_NONE;
@@ -88,5 +94,7 @@ public:
     /* 006B */ unsigned char m_bLocalControl;
     /* 006C */ BYTE m_AIInhibitor;
 };
+
+#pragma pack(pop)
 
 #endif /* CGAMEOBJECT_H_ */

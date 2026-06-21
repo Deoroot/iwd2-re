@@ -12,6 +12,12 @@
 
 class CGameAIBase;
 
+// Binary-mirror layout (IE packs to 2): size is 0xD6 (CGameAIBase m_curAction @0x476 ->
+// field_54C @0x54C). Without pack(2) MSVC 4-aligns the LONG/CString/CPoint/DWORD tail after
+// the three CAIObjectType members, inflating it to 0xD8 and shifting the CGameAIBase members
+// after m_curAction.
+#pragma pack(push)
+#pragma pack(2)
 class CAIAction {
 public:
     static const SHORT NO_ACTION;

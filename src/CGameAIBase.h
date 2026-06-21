@@ -21,6 +21,13 @@ class CResRef;
 class CSpell;
 class CVariable;
 
+// Binary-mirror layout (IE packs to 2): total size is 0x598 (CGameSprite::m_resRef @0x598).
+// Without pack(2) MSVC 4-aligns the 2-aligned LONG/pointer tails (m_lAttackStyle @0xAA, the
+// CAIScript* block @0x3F6.., m_interrupt @0x470, m_actionCount @0x474, m_curAction @0x476,
+// field_54C @0x54C, m_randValue @0x584, ...), inflating the base and shifting every member
+// of every derived sprite (CGameSprite::m_baseStats off 0x5A4).
+#pragma pack(push)
+#pragma pack(2)
 class CGameAIBase : public CGameObject {
 public:
     static const SHORT ACTION_DONE;
@@ -195,6 +202,8 @@ public:
     /* 0595 */ unsigned char field_595;
     /* 0596 */ unsigned char field_596;
 };
+
+#pragma pack(pop)
 
 class CGameAIArea : public CGameAIBase {
 public:
