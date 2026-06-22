@@ -12055,13 +12055,14 @@ void CGameSprite::sub_71E760(CDerivedStats& DStats, int a2)
 // it runs the passive secret-door / trap detection sweep, then dispatches the
 // active modal ability by m_nModalState.
 //
-// Only the stagger frame and the modal dispatch are recovered here.  Each body
-// gathers objects with a GetCloseObjects + GetAllInRangeBack targeting pair
-// whose argument set-up the Ghidra lift renders as unresolved virtual calls,
-// and then applies effects party-wide -- so the bodies are left as marked
-// no-ops pending disasm-verified recovery (a wrong port crashes).  The function
-// was entirely absent before, so this is additive: it does not yet change
-// behaviour beyond ticking m_modalCounter as the binary does.
+// The stagger frame, the m_nModalState dispatch, and the bard-song case
+// (modal state 1) are recovered.  The bard-song case re-applies the song's
+// ability effects to nearby allies each cycle via a CMessage105 effect-list
+// message -- the per-round party buff.  The passive secret-door / trap sweep
+// and the search / stealth / turn-undead cases remain marked no-ops (they gather
+// objects through a similar targeting pass and apply effects party-wide; left
+// for disasm-verified recovery).  The singer's own song-marker effect is also
+// still unrecovered (see case 0).
 void CGameSprite::sub_72FD20()
 {
     // Process this sprite's modal abilities only on the AI tick where the frame
@@ -12078,18 +12079,109 @@ void CGameSprite::sub_72FD20()
     }
 
     switch (m_nModalState - 1) {
-    case 0:
-        // Unrecovered: per-round BARD SONG party buff (the user-visible portrait
-        // buff).  Gated on the singer not being STATE_SILENCED.  Posts a song
-        // marker effect on the singer (CGameEffect::ClearItemEffect 0x88 ->
-        // DecodeEffect -> CMessageAddEffect to self), then -- once the song spell
-        // (m_songs[m_nLastSong]) confirms CSpell::GetCasterType() == 5 -- shows
-        // the BATTLESONGSTART feedback and, for each ally in range 400, builds
-        // the song ability's effects (CSpell::BuildAbilityEffect, sourced at the
-        // singer, instant effects converted to expire at game time + 100) and
-        // applies them through a CMessage105 effect-list message.  Needs
-        // disasm-verified GetCloseObjects/GetAllInRangeBack targeting.
+    case 0: {  // bard song -- re-apply the song to nearby allies this cycle
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+        // A silenced singer (derived or base general state) cannot sing; the
+        // game flag at +0x43E6 (store/dialog/cutscene gate) also suppresses it.
+        if ((m_derivedStats.m_generalState & STATE_SILENCED) == 0
+            && (m_baseStats.m_generalState & STATE_SILENCED) == 0
+            && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x43E6) != 1) {
+            if (!CheckInvisibility(FALSE)) {
+                // Unrecovered: the singer's own song-marker effect
+                // (CGameEffect::ClearItemEffect 0x88 -> DecodeEffect ->
+                // CMessageAddEffect to self) -- needs the ITEM_EFFECT 0x88 field
+                // layout.  The singer still receives the song buff below, as an
+                // ally in range.
+            }
+
+            UTIL_ASSERT(m_nLastSong < pGame->m_songs.m_nCount);
+            // (The binary also asserts the resolved song ResRef is non-empty.)
+            CResRef songRes = pGame->m_songs.Get636(m_nLastSong);
+
+            CSpell spell(songRes);
+            spell.Demand();
+            if (spell.GetCasterType() == 5) {
+                FeedBack(FEEDBACK_BATTLESONGSTART, 0, 0, 0, spell.GetGenericName(), 0, 0);
+                SPELL_ABILITY* pAbility = spell.GetAbility(0);
+
+                // Gather everyone within 400 of the singer, plus the singer.
+                CTypedPtrList<CPtrList, LONG*> targets;
+                m_pArea->GetCloseObjects(GetVertListPos(), GetPos(), CAIObjectType::ANYONE,
+                    400, GetTerrainTable(), targets, TRUE, FALSE);
+                m_pArea->GetAllInRangeBack(GetPos(), CAIObjectType::ANYONE, 400,
+                    GetTerrainTable(), targets, TRUE, FALSE, FALSE);
+                targets.AddTail(reinterpret_cast<LONG*>(m_id));
+
+                // SPELL_ABILITY effect count.
+                SHORT nEffects = *reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(pAbility) + 0x1E);
+
+                POSITION pos = targets.GetHeadPosition();
+                while (pos != NULL) {
+                    LONG allyId = reinterpret_cast<LONG>(targets.GetNext(pos));
+
+                    CGameObject* pAlly;
+                    BYTE rc = pGame->GetObjectArray()->GetShare(allyId,
+                        CGameObjectArray::THREAD_ASYNCH, &pAlly, INFINITE);
+                    if (rc != CGameObjectArray::SUCCESS) {
+                        continue;
+                    }
+
+                    if (pAlly->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                        // Build one CMessageAddEffect per song effect, addressed
+                        // singer -> ally, into a local list, then deliver the
+                        // whole list to the ally through a CMessage105.
+                        CMessage105::Node localHead;
+                        localHead.m_pNext = &localHead;
+                        localHead.m_pPrev = &localHead;
+
+                        for (SHORT i = 0; i < nEffects; i++) {
+                            CGameEffect* pEff = spell.BuildAbilityEffect(0, i, this, 0, 0, 0);
+                            // Source the effect at the singer's position and id.
+                            *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x7C) = m_pos.x;
+                            *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x80) = m_pos.y;
+                            pEff->m_sourceID = m_id;
+                            IcewindMisc::ApplyDamageModifiers(this, pEff);
+                            // Convert an instant effect into one expiring a round
+                            // later (game time + 100) so the buff persists across
+                            // cycles instead of flickering.
+                            if (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) == 0
+                                && *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) == 7) {
+                                *reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) = 0x1000;
+                                *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) =
+                                    *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pGame) + 0x1B78) + 100;
+                            }
+
+                            CMessageAddEffect* pSub = new CMessageAddEffect(pEff, m_id, allyId);
+                            CMessage105::Node* pNode = new CMessage105::Node;
+                            pNode->m_pMessage = pSub;
+                            pNode->m_pNext = &localHead;
+                            pNode->m_pPrev = localHead.m_pPrev;
+                            localHead.m_pPrev->m_pNext = pNode;
+                            localHead.m_pPrev = pNode;
+                        }
+
+                        CMessage* pMsg = new CMessage105(&localHead, m_id, allyId);
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+
+                        // Free the local list nodes; the sub-messages are now
+                        // owned (and freed) by the CMessage105.
+                        CMessage105::Node* p = localHead.m_pNext;
+                        while (p != &localHead) {
+                            CMessage105::Node* pNext = p->m_pNext;
+                            delete p;
+                            p = pNext;
+                        }
+                    }
+
+                    pGame->GetObjectArray()->ReleaseShare(allyId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                }
+            }
+            spell.Release();
+        }
         break;
+    }
     case 1:
         // Unrecovered: per-round detect-traps / search sweep.
         break;
