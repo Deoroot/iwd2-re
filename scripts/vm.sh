@@ -4,10 +4,10 @@
 #   scripts/vm.sh build [--run]        sync+build via remote_build.sh, print ONLY errors/warnings
 #                                      (full log -> tmp_vm_build.log). --run: kill ours + launch s1.
 #   scripts/vm.sh run [slot]           kill ours, launch game in session 1 (default save slot 3)
-#   scripts/vm.sh smoke [slot]         arc gate: run OUR build + load save (default slot 3) + arm the
-#                                      crash guard; HOLDS the terminal until you've driven the
-#                                      recovered path (press ENTER = RESULT: CLEAN) or it crashes
-#                                      (symbolized backtrace prints automatically). No timer (AFK-safe).
+#   scripts/vm.sh smoke [slot] [secs]  arc gate: run OUR build + load save (default slot 3) + arm the
+#                                      crash guard; interactive HOLDS until ENTER (= RESULT: CLEAN) or a
+#                                      fault. Non-TTY (piped/backgrounded) auto-ends CLEAN after [secs]
+#                                      of no fault (default 90s) so it never hangs. Symbolized bt on crash.
 #   scripts/vm.sh log <regex> [-n 50] [-f <vm-path>]
 #                                      Select-String server-side (UTF-16 safe, no iconv), last N
 #   scripts/vm.sh tail [N] [-f <vm-path>]   last N raw lines of the debug log
@@ -80,8 +80,14 @@ case "$cmd" in
   smoke)
     # Arc gate: exercise the recovered path on OUR build with the crash oracle armed.
     # Closes the gap that shipped the Fireball crashes (validated on the original only,
-    # never run on our exe). No timer: holds until you confirm the cast or it faults.
+    # never run on our exe). Interactive: holds until you confirm the cast or it faults.
     slot="${1:-3}"
+    # Optional auto-hold (seconds): end with RESULT: CLEAN after N seconds of no
+    # fault, for a non-interactive driver. Defaults to 90s whenever stdin is not a
+    # TTY, so a backgrounded/piped smoke can never hang the way the old ENTER-only
+    # loop did ([ -t 0 ] rejected piped ENTER -> spun on `while kill -0 gpid`).
+    hold="${2:-}"
+    if [ ! -t 0 ] && [ -z "$hold" ]; then hold=90; fi
     sed -i "s/--slot [^ ]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
     scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
     ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
@@ -113,20 +119,25 @@ case "$cmd" in
     echo
     echo "==> CRASH GUARD ARMED on pid $pid (slot $slot loaded)."
     echo "    Drive the recovered path in the VM window now (cast the spell / trigger the code)."
-    echo "    Press ENTER here when done with NO crash  ->  RESULT: CLEAN."
+    if [ -n "$hold" ]; then
+      echo "    Auto-hold: ${hold}s with no fault  ->  RESULT: CLEAN (non-interactive)."
+    else
+      echo "    Press ENTER here when done with NO crash  ->  RESULT: CLEAN."
+    fi
     echo "    If it faults, the symbolized backtrace prints here automatically."
     echo
     verdict=""
+    end=0
+    [ -n "$hold" ] && end=$(( $(date +%s) + hold ))
     while kill -0 "$gpid" 2>/dev/null; do
       if grep -q "EXCEPTION" "$glog" 2>/dev/null; then verdict="CRASH"; break; fi
-      if [ -t 0 ]; then
-        if read -t 3 -r _; then
-          sleep 1
-          grep -q "EXCEPTION" "$glog" 2>/dev/null && verdict="CRASH" || verdict="CLEAN"
-          break
-        fi
-      else
+      if [ -n "$hold" ]; then
+        [ "$(date +%s)" -ge "$end" ] && { verdict="CLEAN"; break; }
         sleep 3
+      elif read -t 3 -r _; then
+        sleep 1
+        grep -q "EXCEPTION" "$glog" 2>/dev/null && verdict="CRASH" || verdict="CLEAN"
+        break
       fi
     done
     [ -z "$verdict" ] && { grep -q "EXCEPTION" "$glog" 2>/dev/null && verdict="CRASH" || verdict="CLEAN"; }
