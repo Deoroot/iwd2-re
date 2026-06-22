@@ -14793,13 +14793,15 @@ int CGameSprite::sub_75E930(int a1)
 BOOL CGameSprite::ProcessEffectList()
 {
     // PARTIAL: this function is huge.  Recovered: the re-entrancy / deferred-tick
-    // gate (below), effect handling, the AC derivation, the per-tick derived-stat
+    // gate (below), the staggered head pre-pass (regeneration timestamp, per-tick
+    // random scratch and the encumbrance-change detection that feeds the body
+    // guard), effect handling, the AC derivation, the per-tick derived-stat
     // re-derivation (0x71C0C0), the encumbrance check (0x72F2B3) and the
     // persistant effect tick.  Still DEFERRED: the multiplayer-ownership head
     // gate (0x72DE7C -- returns 0 for sprites this client does not own; a
-    // single-player client always owns and so always passes), the early
-    // effect/class pre-pass (CheckEffects and the class/armour checks), the
-    // animation palette/sequence refresh and the movement interpolation.
+    // single-player client always owns and so always passes), the remaining body
+    // class/armour AC refinements, the animation palette/sequence refresh and the
+    // movement interpolation.
     BOOL bResult = TRUE;
 
     // 0x72DEC4: re-entrancy / deferred-tick guard.  m_bAllowEffectListCall is set
@@ -14829,23 +14831,60 @@ BOOL CGameSprite::ProcessEffectList()
             field_72A2 = 5;
         }
 
+        // 0x72DF1D: head pre-pass.  On every 16th AI frame -- staggered per
+        // sprite id off field_44A, the same phase the caller (0x72DA32) uses to
+        // tick CheckTimers -- or whenever a derived-stat (field_562C) or
+        // HP/Constitution recompute is already pending, refresh the regeneration
+        // timestamp and re-roll the per-tick random scratch bytes
+        // (field_70F6..field_70FA, which effect application consumes), then, for a
+        // party PC, detect whether the carried weight implies a walk-scale change.
+        // That detection feeds the guard below so a pure carried-weight change
+        // (no pending effect) still refreshes the walk scale on its next staggered
+        // frame rather than waiting for the next body run.
+        BOOL bEncumbranceChanged = FALSE;
+        if (((m_id ^ field_44A) & 0xF) == 0 || field_562C != 0 || m_bHPCONBonusTotalUpdate != 0) {
+            m_lastRegenerationTime = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime;
+            field_70F6 = rand() % 20 + 1;
+            field_70F7 = rand() % 20 + 1;
+            field_70F8 = rand() % 20 + 1;
+            field_70F9 = rand() % 20 + 1;
+            field_70FA = rand() % 100;
+
+            if (pGame->GetCharacterPortraitNum(m_id) != -1) {
+                INT nWeight = static_cast<INT>(GetCarriedWeight());
+                INT nMaxWeight = static_cast<INT>(
+                    static_cast<float>(ruleTables.GetEncumbranceMod(this)) / 100.0f
+                    * static_cast<float>(atol(ruleTables.m_tStrengthMod.GetAt(CPoint(3, m_derivedStats.m_nSTR)))));
+
+                // The body's encumbrance block (0x72F2B3) sets the move scale to 0
+                // over 120% of capacity, to half the default over 100%, and to the
+                // default otherwise; here detect whether that target differs from
+                // the animation's current scale.
+                if (nWeight > nMaxWeight * 120 / 100) {
+                    bEncumbranceChanged = (m_animation.m_animation->GetMoveScale() != 0);
+                } else if (nWeight > nMaxWeight) {
+                    bEncumbranceChanged = (m_animation.m_animation->GetMoveScale()
+                        != (m_animation.m_animation->GetMoveScaleDefault() >> 1));
+                } else {
+                    bEncumbranceChanged = (m_animation.m_animation->GetMoveScale()
+                        < m_animation.m_animation->GetMoveScaleDefault());
+                }
+            }
+        }
+
         // 0x72E1AE: the pre-pass guard.  The binary runs the whole re-derivation
         // body only when there is work to do; otherwise it skips straight to the
         // tail (0x72FB24).  Without this guard the body -- HandleEffects and the
         // heavy per-tick re-derivation sub_71C0C0 -- ran on every sprite every
         // tick (~52 sprites in a populated area), which dropped the frame rate to
         // a crawl.  The original enters the body when either effect list has a
-        // pending effect, the field_562C dirty flag is set, or the
-        // HP/Constitution-bonus recompute is pending.
-        //
-        // FAITHFULNESS GAP: the binary also enters on an encumbrance/move-scale
-        // change detected in the (still deferred) head pre-pass (0x72E197, the
-        // edi term).  That term is omitted here, so a pure carried-weight change
-        // with no pending effect does not refresh the walk scale until the next
-        // body run.  Recover the head detection to close this.
+        // pending effect, the field_562C dirty flag is set, the carried weight
+        // implies a walk-scale change, or the HP/Constitution-bonus recompute is
+        // pending.
         BOOL bEffectsPending = m_timedEffectList.CheckEffects()
             || m_equipedEffectList.CheckEffects()
             || field_562C != 0
+            || bEncumbranceChanged
             || m_bHPCONBonusTotalUpdate != 0;
         if (bEffectsPending) {
             // 0x72E1E2: snapshot the live derived stats into the base copy and
