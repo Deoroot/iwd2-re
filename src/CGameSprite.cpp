@@ -14792,18 +14792,26 @@ int CGameSprite::sub_75E930(int a1)
 // 0x72DE60
 BOOL CGameSprite::ProcessEffectList()
 {
-    // PARTIAL: this function is huge.  Recovered: the re-entrancy / deferred-tick
-    // gate (below), the staggered head pre-pass (regeneration timestamp, per-tick
-    // random scratch and the encumbrance-change detection that feeds the body
-    // guard), effect handling, the AC derivation, the per-tick derived-stat
-    // re-derivation (0x71C0C0), the body-entry move-scale re-derivation
-    // (0x72E221 -- barbarian/monk/Dash class movement bonuses), the encumbrance
-    // check (0x72F2B3), the animation colour/palette refresh (0x72E3A8 -- the
-    // base colour-range re-apply and the colour-effect clear) and the persistant
-    // effect tick.  Still DEFERRED: the multiplayer-ownership head gate (0x72DE7C
-    // -- returns 0 for sprites this client does not own; a single-player client
-    // always owns and so always passes), the UnequipAll/shapeshift block and the
-    // movement interpolation.
+    // PARTIAL: this function is huge.  Recovered: the multiplayer-ownership head
+    // gate (0x72DE7C, below), the re-entrancy / deferred-tick gate, the staggered
+    // head pre-pass (regeneration timestamp, per-tick random scratch and the
+    // encumbrance-change detection that feeds the body guard), effect handling,
+    // the AC derivation, the per-tick derived-stat re-derivation (0x71C0C0), the
+    // body-entry move-scale re-derivation (0x72E221 -- barbarian/monk/Dash class
+    // movement bonuses), the encumbrance check (0x72F2B3), the animation
+    // colour/palette refresh (0x72E3A8), the shapeshift / animation-rebuild block
+    // (0x72E437) and the persistant effect tick.  Still DEFERRED: the movement
+    // interpolation.
+
+    // 0x72DE7C: multiplayer-ownership head gate.  In a network session a client
+    // only ticks the effect list of the sprites it owns; one owned by a different
+    // player is left to its owning client.  With no service provider (single
+    // player) the test is transparent -- the sprite is always processed.
+    if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+        && g_pChitin->cNetwork.m_idLocalPlayer != m_remotePlayerID) {
+        return FALSE;
+    }
+
     BOOL bResult = TRUE;
 
     // 0x72DEC4: re-entrancy / deferred-tick guard.  m_bAllowEffectListCall is set
