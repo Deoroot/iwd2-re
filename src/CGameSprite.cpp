@@ -15117,6 +15117,51 @@ BOOL CGameSprite::ProcessEffectList()
                         * m_animation.m_animation->GetMoveScale()) / scale;
                 }
             }
+
+            // 0x72F8EC: multiplayer-peer state broadcast.  When the sprite is
+            // in an area and this host owns it -- single-player (no service
+            // provider) or the local player matches m_remotePlayerID -- flag a
+            // sprite-update and push a fresh CMessage for each derived-stat
+            // group whose contents changed since the last tick.  Each message
+            // is dirty-checked against a per-group cache so an unchanged group
+            // sends nothing.  AddMessage(_, FALSE) queues without forcing a
+            // flush.
+            if (m_pArea != NULL
+                && (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                    || g_pChitin->cNetwork.m_idLocalPlayer == m_remotePlayerID)) {
+                m_bSendSpriteUpdate = TRUE;
+
+                // Colour: keyed on the applied colour-effect count; the cache
+                // also stores the colour-range count.
+                if (m_derivedStats.m_appliedColorEffects.GetCount() != field_7536
+                    || m_derivedStats.m_appliedColorEffects.GetCount() != field_7532) {
+                    CMessage* message = new CMessageColorUpdate(this, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    field_7536 = m_derivedStats.m_appliedColorEffects.GetCount();
+                    field_7532 = m_derivedStats.m_appliedColorRanges.GetCount();
+                }
+
+                // Weapon immunities.
+                if (m_derivedStats.m_cImmunitiesWeapon.GetCount() != field_9D08) {
+                    CMessage* message = new CMessageWeaponImmumityUpdate(this, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    field_9D08 = m_derivedStats.m_cImmunitiesWeapon.GetCount();
+                }
+
+                // Projectile immunities.
+                if (m_derivedStats.m_cImmunitiesProjectile.GetCount() != field_9D0C) {
+                    CMessage* message = new CMessageProjectileImmumityUpdate(this, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    field_9D0C = m_derivedStats.m_cImmunitiesProjectile.GetCount();
+                }
+
+                // Spell-level immunities (keyed on the packed level mask).
+                if (m_derivedStats.m_cImmunitiesSpellLevel.GetMask() != field_9D10) {
+                    CMessage* message = new CMessageSpellLevelImmumityUpdate(this, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    field_9D10 = m_derivedStats.m_cImmunitiesSpellLevel.GetMask();
+                }
+            }
         }
 
         // 0x72FB85: tail.  When no deferred ticks remain, re-arm the gate

@@ -28,6 +28,7 @@ public:
 class CImmunitiesSpellLevel {
 public:
     void ClearAll();
+    int GetMask() const;
     CImmunitiesSpellLevel& operator=(const CImmunitiesSpellLevel& other);
 
     /* 0000 */ BOOL m_levels[10];
