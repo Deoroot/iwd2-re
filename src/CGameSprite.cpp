@@ -10979,7 +10979,51 @@ void CGameSprite::GetNumInventoryPersonalSlots(INT& nUsedSlots, INT& nTotalSlots
 // 0x71FC00
 void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
 {
-    // TODO: Incomplete.
+    if (modalState == m_nModalState) {
+        return;
+    }
+
+    // Stop the current modal mode before switching.  Modal states (MODAL.IDS):
+    // 1 = bard song, 2 = detect traps / search, 3 = stealth, 4 = turn undead.
+    WORD nFeedback;
+    switch (m_nModalState) {
+    case 1:
+        // Bard song.  With the Lingering Song feat the song lingers one more
+        // round, re-applying its ability effects to nearby allies and showing
+        // no "song ended" feedback.  That re-application posts the effects
+        // through the composite effect-list message constructed at 0x5152C0
+        // (message subtype 105), which is not yet recovered; leave the lingering
+        // effect unimplemented rather than invent it -- the modal still stops
+        // correctly below.  Faithful range left unrecovered: 0x71FC41-0x720245.
+        if (HasFeat(CGAMESPRITE_FEAT_LINGERING_SONG) == 1) {
+            goto updateState;
+        }
+        nFeedback = FEEDBACK_BATTLESONGEND;
+        break;
+    case 2:
+        nFeedback = FEEDBACK_SEARCHEND;
+        break;
+    case 3:
+        if (m_bHiding) {
+            FeedBack(FEEDBACK_LEAVING_SHADOWS, 0, 0, 0, -1, 0, 0);
+            m_bHiding = FALSE;
+        }
+        goto updateState;
+    case 4:
+        nFeedback = FEEDBACK_TURNUNDEADEND;
+        break;
+    default:
+        goto updateState;
+    }
+    FeedBack(nFeedback, 0, 0, 0, -1, 0, 0);
+
+updateState:
+    m_nModalState = modalState;
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (bUpdateToolbar && pGame->m_group.GetGroupLeader() == m_id) {
+        pGame->m_cButtonArray.UpdateButtons();
+    }
 }
 
 // 0x7202E0
