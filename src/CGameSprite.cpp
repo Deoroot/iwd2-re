@@ -14798,12 +14798,12 @@ BOOL CGameSprite::ProcessEffectList()
     // guard), effect handling, the AC derivation, the per-tick derived-stat
     // re-derivation (0x71C0C0), the body-entry move-scale re-derivation
     // (0x72E221 -- barbarian/monk/Dash class movement bonuses), the encumbrance
-    // check (0x72F2B3) and the persistant effect tick.  Still DEFERRED: the
-    // multiplayer-ownership head gate (0x72DE7C -- returns 0 for sprites this
-    // client does not own; a single-player client always owns and so always
-    // passes), the animation colour/palette refresh (0x72E3A8 -- the vtable
-    // slot-0xA4 colour loop and the slot-0x98 refresh), the UnequipAll/shapeshift
-    // block and the movement interpolation.
+    // check (0x72F2B3), the animation colour/palette refresh (0x72E3A8 -- the
+    // base colour-range re-apply and the colour-effect clear) and the persistant
+    // effect tick.  Still DEFERRED: the multiplayer-ownership head gate (0x72DE7C
+    // -- returns 0 for sprites this client does not own; a single-player client
+    // always owns and so always passes), the UnequipAll/shapeshift block and the
+    // movement interpolation.
     BOOL bResult = TRUE;
 
     // 0x72DEC4: re-entrancy / deferred-tick guard.  m_bAllowEffectListCall is set
@@ -14920,6 +14920,19 @@ BOOL CGameSprite::ProcessEffectList()
                     nScale += 1;
                 }
                 m_animation.m_animation->SetMoveScale(nScale);
+            }
+
+            // 0x72E3A8: re-apply the creature's base colour ranges and clear any
+            // per-frame colour effects so HandleEffects below rebuilds the tint
+            // from the current effect list.  m_hasColorRangeEffects re-pushes the
+            // seven CRE colour indices; m_hasColorEffects clears the colour effects.
+            if (m_hasColorRangeEffects) {
+                for (INT i = 0; i < 7; i++) {
+                    m_animation.m_animation->SetColorRange(static_cast<BYTE>(i), m_baseStats.m_colors[i]);
+                }
+            }
+            if (m_hasColorEffects) {
+                m_animation.m_animation->ClearColorEffectsAll();
             }
 
             bResult = HandleEffects();
