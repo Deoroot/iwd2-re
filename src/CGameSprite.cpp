@@ -11986,6 +11986,11 @@ void CGameSprite::ProcessAI()
         CheckTimers(1);
     }
 
+    // 0x72D816: per-round modal / passive-ability update (bard song, search,
+    // stealth, turn undead).  The binary also runs a nearest-enemy acquisition
+    // pass (0x72FBF0) immediately before this; that remains unrecovered.
+    sub_72FD20();
+
     if (ProcessEffectList()
         && m_pArea != NULL
         && (m_dialogWait < 1
@@ -12040,6 +12045,63 @@ void CGameSprite::ProcessAI()
 void CGameSprite::sub_71E760(CDerivedStats& DStats, int a2)
 {
     // TODO: Incomplete.
+}
+
+// 0x72FD20
+//
+// Per-round modal / passive-ability update, called once per active AI tick from
+// ProcessAI.  Self-staggered: a sprite processes on the tick where the shared
+// AI frame counter aligns with its id (once per 100 ticks).  For a party member
+// it runs the passive secret-door / trap detection sweep, then dispatches the
+// active modal ability by m_nModalState.
+//
+// Only the stagger frame and the modal dispatch are recovered here.  Each body
+// gathers objects with a GetCloseObjects + GetAllInRangeBack targeting pair
+// whose argument set-up the Ghidra lift renders as unresolved virtual calls,
+// and then applies effects party-wide -- so the bodies are left as marked
+// no-ops pending disasm-verified recovery (a wrong port crashes).  The function
+// was entirely absent before, so this is additive: it does not yet change
+// behaviour beyond ticking m_modalCounter as the binary does.
+void CGameSprite::sub_72FD20()
+{
+    // Process this sprite's modal abilities only on the AI tick where the frame
+    // counter aligns with its id (a once-per-100-ticks stagger).
+    if (static_cast<DWORD>(field_44A) % 100 != static_cast<DWORD>(m_id) % 100) {
+        return;
+    }
+    m_modalCounter++;
+
+    if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1) {
+        // Unrecovered: passive secret-door / trap detection sweep -- GetAllInRange
+        // of nearby doors (range 400), revealing trapped/secret ones with an
+        // ACT_09 cue and a CMessageDoorStatus.
+    }
+
+    switch (m_nModalState - 1) {
+    case 0:
+        // Unrecovered: per-round BARD SONG party buff (the user-visible portrait
+        // buff).  Gated on the singer not being STATE_SILENCED.  Posts a song
+        // marker effect on the singer (CGameEffect::ClearItemEffect 0x88 ->
+        // DecodeEffect -> CMessageAddEffect to self), then -- once the song spell
+        // (m_songs[m_nLastSong]) confirms CSpell::GetCasterType() == 5 -- shows
+        // the BATTLESONGSTART feedback and, for each ally in range 400, builds
+        // the song ability's effects (CSpell::BuildAbilityEffect, sourced at the
+        // singer, instant effects converted to expire at game time + 100) and
+        // applies them through a CMessage105 effect-list message.  Needs
+        // disasm-verified GetCloseObjects/GetAllInRangeBack targeting.
+        break;
+    case 1:
+        // Unrecovered: per-round detect-traps / search sweep.
+        break;
+    case 2:
+        // Unrecovered: per-round stealth upkeep.
+        break;
+    case 3:
+        // Unrecovered: per-round turn-undead sweep.
+        break;
+    default:
+        break;
+    }
 }
 
 // 0x71F6E0
