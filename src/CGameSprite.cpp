@@ -14804,9 +14804,10 @@ BOOL CGameSprite::ProcessEffectList()
     // re-pace (0x72F476), the per-tick intoxication-decay and fatigue/morale luck
     // penalties (0x72F07A), the death-state colour re-push (0x72F72B), the
     // multiplayer-peer state broadcast (0x72F8EC) and the end-of-tick UI/state
-    // snapshot (0x72FB24).  Still DEFERRED, inside the effects-pending body: the
-    // post-HandleEffects forced-action / party-ally / helpless / visual-refresh
-    // block (0x72E759-0x72F07A).
+    // snapshot (0x72FB24), the post-HandleEffects visual-refresh flag (0x72E770)
+    // and the helpless animation gate (0x72EFF2).  Still DEFERRED, inside the
+    // effects-pending body: the berserk/panic forced-action injection (0x72E759)
+    // and the party-ally membership re-derivation (0x72EC3A).
 
     // 0x72DE7C: multiplayer-ownership head gate.  In a network session a client
     // only ticks the effect list of the sprites it owns; one owned by a different
@@ -15014,10 +15015,39 @@ BOOL CGameSprite::ProcessEffectList()
 
             bResult = HandleEffects();
 
-            // 0x72E759-0x72F07A: DEFERRED -- after HandleEffects the binary sets
-            // m_bForceVisualEffects (0x72E770), injects the berserk/panic forced
-            // action, re-derives party-ally membership from the EA and gates the
-            // animation on the helpless state.  Not yet recovered.
+            // 0x72E770: force the visual-effect system to re-push this tick.
+            m_bForceVisualEffects = TRUE;
+
+            // 0x72E759-0x72EC3A: DEFERRED -- the berserk / panic forced-action
+            // injection (Berserk() / Panic() from ACTION.IDS, gated by
+            // STATE_BERSERK + m_berserkActive and the current action id).  Not yet
+            // recovered.
+
+            // 0x72EC3A: DEFERRED -- party-ally membership re-derivation from the
+            // EA (controlled/charmed -> add to CInfGame::m_allies, GOODCUTOFF ->
+            // remove).  Reads the allegiance byte at this+0x24; not yet recovered.
+
+            // 0x72EFF2: animation-active gate.  An alive, un-held sprite that a
+            // time stop does not freeze out keeps its animation marked live; a
+            // helpless, caster-held or timed-out sprite has its movement animation
+            // frozen instead.
+            if (!IsHelpless()
+                && !m_derivedStats.m_bCasterHold
+                && (pGame->m_nTimeStop == 0 || pGame->m_nTimeStopCaster == m_id)) {
+                // 0x72F020: keep the animation live unless the sprite is a corpse
+                // (dead / petrified / frozen) that is no longer mid-death -- the
+                // DIE sequence still plays the death animation out.
+                if ((m_derivedStats.m_generalState
+                        & (STATE_DEAD | STATE_STONE_DEATH | STATE_FROZEN_DEATH)) == 0
+                    || m_nSequence == 5) {   // 5 = SEQ_DIE (SEQUENCE.IDS)
+                    m_animationRunning = TRUE;
+                }
+            } else {
+                // 0x72F048: freeze the movement animation and drop the live flag.
+                UTIL_ASSERT(m_animation.m_animation != NULL);
+                m_animation.m_animation->SetMoveScale(0);
+                m_animationRunning = FALSE;
+            }
 
             // 0x72F07A: per-tick intoxication and fatigue penalties, applied just
             // before the derived-stat re-derivation.  While the derived
