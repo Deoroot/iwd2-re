@@ -160,11 +160,21 @@ The repo uses [code-review-graph](https://github.com/tirth8205/code-review-graph
 
 ## Idle CPU yield (deliberate divergence from the binary)
 
-The original `IWD2.exe` busy-waits its idle loop: `CChitin::WinMain` (0x7926B0) spins on `PeekMessage` between ~33 ms AI ticks, and in windowed mode (no vsync throttle) that pegs one core — ~6-10% of a modern multi-core CPU — purely to keep a fan-spinning poll alive. Our build instead parks the main thread with `MsgWaitForMultipleObjects(..., 1, QS_ALLINPUT)` whenever no frame is pending, dropping idle CPU to near zero.
+The original `IWD2.exe` busy-waits its idle loop: `CChitin::WinMain` (0x7926B0) spins on `PeekMessage` between the ~33 ms AI ticks with no CPU yield. There is no `Sleep` anywhere in that loop (confirmed against the binary's call set), so it pegs roughly one core **in both windowed and fullscreen** — fullscreen does *not* throttle it via vsync; the "fullscreen idles at 0%" intuition simply does not hold for IWD2. Our build instead parks the main thread with `MsgWaitForMultipleObjects(0, NULL, FALSE, 1, QS_ALLINPUT)` whenever no frame is pending, eliminating that spin.
 
-This is safe because the main thread is only a *render-on-stale consumer*: the frame cadence is owned by the `timeSetEvent` timer thread (`TimerFunction` → `SetEvent`) and the AI thread (`AsynchronousUpdate` → sets `m_bDisplayStale`). Yielding the consumer for ≤1 ms cannot change AI timing, frame rate, or render output — only idle wall-clock — so runtime traces stay call-for-call identical to the original.
+This is safe because the main thread is only a *render-on-stale consumer*: the frame cadence is owned by the `timeSetEvent` timer thread (`TimerFunction` → `SetEvent(m_eventTimer)`) and the AI thread (`CBaldurChitin` AI loop → `AsynchronousUpdate` → sets `m_bDisplayStale`). Yielding the consumer for ≤1 ms cannot change AI timing, frame rate, or render output — only idle wall-clock — so runtime traces stay call-for-call identical to the original.
 
-It is the one **intentional divergence** from `IWD2.exe`, kept out of the way of reverse-engineering: drop an empty marker file `iwd2-re-busywait.enabled` in the game directory to disable the yield and restore the exact original busy-wait for faithful timing / Frida differential runs.
+Measured on an 8-core VM, same in-world save, mouse idle:
+
+| Build / mode                              | CPU (% of all 8 cores) |
+| ----------------------------------------- | ---------------------- |
+| `IWD2.exe` original, **fullscreen**       | 10.3 % (~0.8 core)     |
+| our build, windowed, marker present       | 11.7 % (~0.9 core)     |
+| our build, windowed, **yield (default)**  | **6.0 % (~0.5 core)**  |
+
+The yield removes ~one core of pure spin and already idles below the original in *every* mode. The remaining ~6 % is the engine's real 30 Hz AI+render cycle, which runs unconditionally while a game is loaded (the original pays it *on top of* the spin). Driving idle CPU to literal zero would mean skipping renders when the frame is unchanged and AI ticks when paused — a frame-model rewrite IWD2 never does — so it is intentionally not attempted.
+
+This is the one **intentional divergence** from `IWD2.exe`, kept clear of reverse-engineering: drop an empty marker file `iwd2-re-busywait.enabled` in the game directory (the process CWD) to disable the yield and restore the exact original busy-wait for faithful timing / Frida differential runs. With the marker present the added branch is dead and the loop is behaviorally identical to `0x7926B0` — so parity on that address reads RED by design.
 
 ---
 
