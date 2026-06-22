@@ -728,6 +728,7 @@ class CGameEffectBaseAttackBonus : public CGameEffect {
 public:
     CGameEffectBaseAttackBonus(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
     CGameEffect* Copy() override;
+    BOOL ApplyEffect(CGameSprite* pSprite) override;
 };
 
 class CGameEffectSlay : public CGameEffect {

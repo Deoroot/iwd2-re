@@ -5355,6 +5355,50 @@ CGameEffect* CGameEffectBaseAttackBonus::Copy()
     return copy;
 }
 
+// 0x4B2D20
+BOOL CGameEffectBaseAttackBonus::ApplyEffect(CGameSprite* pSprite)
+{
+    switch (m_dwFlags) {
+    case 0:
+        if (m_durationType == 1) {
+            pSprite->GetBaseStats()->m_attackBase = min(max(pSprite->GetBaseStats()->m_attackBase + static_cast<SHORT>(m_effectAmount), 1), 40);
+            m_forceRepass = TRUE;
+            m_done = TRUE;
+        } else {
+            // NOTE: Uninline.
+            AdjustTHAC0(pSprite, static_cast<SHORT>(m_effectAmount));
+            m_done = FALSE;
+        }
+        break;
+    case 1:
+        if (m_durationType == 1) {
+            pSprite->GetBaseStats()->m_attackBase = min(max(static_cast<SHORT>(m_effectAmount), 1), 40);
+            m_forceRepass = TRUE;
+            m_done = TRUE;
+        } else {
+            pSprite->GetDerivedStats()->m_nTHAC0 = min(max(static_cast<SHORT>(m_effectAmount), 1), 40);
+            m_done = FALSE;
+        }
+        break;
+    case 2:
+        if (m_durationType == 1) {
+            pSprite->GetBaseStats()->m_attackBase = min(max(pSprite->GetBaseStats()->m_attackBase * static_cast<SHORT>(m_effectAmount) / 100, 1), 40);
+            m_forceRepass = TRUE;
+            m_done = TRUE;
+        } else {
+            pSprite->GetDerivedStats()->m_nTHAC0 = min(max(pSprite->GetBaseStats()->m_attackBase * static_cast<SHORT>(m_effectAmount) / 100, 1), 40);
+            m_done = FALSE;
+        }
+        break;
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameEffect.cpp
+        // __LINE__: 11968
+        UTIL_ASSERT(FALSE);
+    }
+
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // NOTE: Inlined.
