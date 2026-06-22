@@ -5424,7 +5424,8 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_NUM_TIMES_TALKED_TO
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_IN_CUT_SCENE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FIRE_PROJECTILE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME;
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_105;
 }
 
 // 0x4F7620

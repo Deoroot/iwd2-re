@@ -12142,14 +12142,20 @@ void CGameSprite::sub_72FD20()
                             *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x80) = m_pos.y;
                             pEff->m_sourceID = m_id;
                             IcewindMisc::ApplyDamageModifiers(this, pEff);
-                            // Convert an instant effect into one expiring a round
-                            // later (game time + 100) so the buff persists across
-                            // cycles instead of flickering.
+                            // Re-tag a "Duration"-timed song effect so it expires a
+                            // round later (game time + 100), keeping the per-cycle
+                            // buff alive instead of letting ResolveEffect treat it
+                            // as already past.  The binary writes the raw effect
+                            // bytes at +0x20/+0x24, but those map to m_duration /
+                            // m_probabilityUpper in our field layout; write through
+                            // the typed members so ResolveEffect / CheckExpiration
+                            // (which read m_durationType / m_duration) see a future
+                            // expiry.
                             if (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) == 0
                                 && *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) == 7) {
-                                *reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) = 0x1000;
-                                *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) =
-                                    *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pGame) + 0x1B78) + 100;
+                                pEff->m_durationType = 0x1000;
+                                pEff->m_duration =
+                                    g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + 100;
                             }
 
                             CMessageAddEffect* pSub = new CMessageAddEffect(pEff, m_id, allyId);
