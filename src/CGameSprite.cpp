@@ -15019,9 +15019,23 @@ BOOL CGameSprite::ProcessEffectList()
             m_bForceVisualEffects = TRUE;
 
             // 0x72E759-0x72EC3A: DEFERRED -- the berserk / panic forced-action
-            // injection (Berserk() / Panic() from ACTION.IDS, gated by
-            // STATE_BERSERK + m_berserkActive and the current action id).  Not yet
-            // recovered.
+            // override.  Four coupled CAIAction injections share one stack action
+            // and the ClearActions(FALSE) / m_interrupt = TRUE / AddAction(action)
+            // idiom (cf. ReadyItem at 0x719860).  Action opcode templates:
+            // 0x847784 = 0 (none), 0x84778A = 3 (Attack), 0x8477B2 = 24 (Panic),
+            // 0x84786C = 124 (Berserk).  Sketch:
+            //   * 0x72E759: STATE_BERSERK && m_berserkActive && m_curAction is
+            //     neither Attack nor Berserk -> ClearActions, DropPath, inject
+            //     Berserk(124).
+            //   * 0x72EA5B: when the cached state (field_72EC) was panicking:
+            //     STATE_PANIC -> inject Panic(24) (0x72EC32); else if m_moraleFailure
+            //     is clear, post a status message (vtable 0x84C44C) and push the
+            //     GetNextAction NoAction(0).
+            //   * 0x72EC25: STATE_PANIC -> inject Panic(24); else if m_curAction is
+            //     Berserk/Panic, copy the static action template at 0x8C6118.
+            // Needs each site's CAIAction construction (constructor choice +
+            // specific-id fields) reversed from the asm, and the 0x8C6118 template
+            // and 0x84C44C message identified, before authoring.
 
             // 0x72EC3A: re-derive party-ally membership from the allegiance.  A
             // controlled sprite (or one at EA 7) that the game is not already
