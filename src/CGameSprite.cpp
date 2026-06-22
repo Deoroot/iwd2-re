@@ -15200,6 +15200,15 @@ BOOL CGameSprite::ProcessEffectList()
                     field_9D10 = m_derivedStats.m_cImmunitiesSpellLevel.GetMask();
                 }
             }
+
+            // 0x72FB24: end-of-tick UI refresh + interpolation/state snapshot.
+            // Push the freshly recomputed stats to the active engine's on-screen
+            // character status, then cache this tick's move scale and general
+            // state so the next tick's interpolation re-pace (0x72F476) and
+            // state-change detection can see what changed.
+            static_cast<CBaldurEngine*>(g_pBaldurChitin->pActiveEngine)->UpdateCharacterStatus(m_id);
+            field_72EA = GetAnimation()->GetMoveScale();
+            field_72EC = m_derivedStats.m_generalState;
         }
 
         // 0x72FB85: tail.  When no deferred ticks remain, re-arm the gate
