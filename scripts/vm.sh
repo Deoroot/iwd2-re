@@ -144,6 +144,10 @@ case "$cmd" in
     # teardown: stop the (possibly still-attached) remote guard so it can't block the next smoke
     kill "$gpid" 2>/dev/null || true
     ssh "$VM" 'powershell -NoProfile -Command "Stop-Process -Name python -Force -ErrorAction SilentlyContinue"' >/dev/null 2>&1 || true
+    # leave no idle game behind: stop OUR exe now (a later run/smoke would only kill
+    # it at start anyway, so it would otherwise sit burning CPU between sessions).
+    # Per kill policy smoke owns iwd2-re.exe; the original IWD2.exe is never touched.
+    ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null 2>&1 || true
     echo
     if [ "$verdict" = "CRASH" ]; then
       echo "===================== RESULT: CRASH ====================="
