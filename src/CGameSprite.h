@@ -787,6 +787,7 @@ public:
     void GetQuickSong(BYTE buttonNum, CButtonData& buttonData);
     CGameButtonList* GetSpellsButtonList(const BYTE& nClass);
     CGameButtonList* GetDomainSpellsButtonList(const BYTE& nClass, DWORD nSpecialization);
+    BOOL BuildAbilityButtonData(const CResRef& res, BYTE nClass, DWORD nSpecialization, CButtonData& cButtonData);
     INT CountClassesWithSpells();
     void SetQuickWeapon(BYTE buttonNum, CButtonData buttonData);
     void SetQuickWeapon(BYTE buttonNum, BYTE index);

@@ -9127,6 +9127,58 @@ CGameButtonList* CGameSprite::GetItemUsages(SHORT slotNum, WORD buttonType, SHOR
     return buttons;
 }
 
+// Populate a single CButtonData from a spell/ability resref: demand the spell,
+// pick the highest ability whose minimum caster level is within reach, then copy
+// its icon, name and ability identity into the button.  Returns FALSE when the
+// spell cannot be loaded or has no usable ability.
+//
+// 0x718390
+BOOL CGameSprite::BuildAbilityButtonData(const CResRef& res, BYTE nClass, DWORD nSpecialization, CButtonData& cButtonData)
+{
+    CSpell cSpell;
+    cSpell.SetResRef(res, TRUE, TRUE);
+
+    if (cSpell.Demand() == NULL) {
+        return FALSE;
+    }
+
+    if (cSpell.GetRes() == NULL) {
+        cSpell.Release();
+        return FALSE;
+    }
+
+    SHORT nCasterLevel = GetCasterLevel(&cSpell, nClass, nSpecialization);
+    if (nCasterLevel <= 1) {
+        nCasterLevel = 1;
+    }
+
+    SPELL_ABILITY* pBestAbility = NULL;
+    for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+        if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+            break;
+        }
+
+        // FIXME: Calls `GetAbility` one more time.
+        pBestAbility = cSpell.GetAbility(nAbility);
+    }
+
+    BOOL bResult = FALSE;
+    if (pBestAbility != NULL) {
+        cButtonData.m_icon = CString(pBestAbility->quickSlotIcon);
+        cButtonData.m_name = cSpell.GetGenericName();
+        cButtonData.m_abilityId.m_itemType = 1;
+        cButtonData.m_abilityId.m_res = res;
+        cButtonData.m_abilityId.m_targetType = pBestAbility->actionType;
+        cButtonData.m_abilityId.m_strDescription = cSpell.GetGenericName();
+        cButtonData.m_bDisabled = FALSE;
+        cButtonData.m_count = 0;
+        bResult = TRUE;
+    }
+
+    cSpell.Release();
+    return bResult;
+}
+
 // 0x718650
 CItem* CGameSprite::GetLauncher(const ITEM_ABILITY* ability, SHORT& launcherSlot)
 {
