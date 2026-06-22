@@ -15118,6 +15118,44 @@ BOOL CGameSprite::ProcessEffectList()
                 }
             }
 
+            // 0x72F72B: death-state colour-range re-push.  A creature that died
+            // by petrification or freezing keeps its body recoloured to the
+            // stone / ice palette.  The derived colour-range list is wiped each
+            // tick by the derived-stats refresh (0x71C0C0), so the seven ranges
+            // are re-pushed here -- both into m_appliedColorRanges (for the
+            // colour broadcast in block E) and straight onto a false-colour
+            // animation via SetColorRange.  m_hasColorRangeEffects flags the
+            // override.  Frozen death additionally forces every range at once.
+            if ((m_derivedStats.m_generalState & STATE_STONE_DEATH) != 0) {
+                if (GetAnimation()->IsFalseColor()) {
+                    m_hasColorRangeEffects = TRUE;
+
+                    for (BYTE range = 0; range < 7; range++) {
+                        CColorRange* pColorRange = new CColorRange();
+                        pColorRange->m_range = range;
+                        pColorRange->m_color = CVidPalette::STONE;
+                        m_derivedStats.m_appliedColorRanges.AddTail(pColorRange);
+
+                        GetAnimation()->SetColorRange(range, CVidPalette::STONE);
+                    }
+                }
+            } else if ((m_derivedStats.m_generalState & STATE_FROZEN_DEATH) != 0) {
+                if (GetAnimation()->IsFalseColor()) {
+                    m_hasColorRangeEffects = TRUE;
+
+                    for (BYTE range = 0; range < 7; range++) {
+                        CColorRange* pColorRange = new CColorRange();
+                        pColorRange->m_range = range;
+                        pColorRange->m_color = CVidPalette::ICE;
+                        m_derivedStats.m_appliedColorRanges.AddTail(pColorRange);
+
+                        GetAnimation()->SetColorRange(range, CVidPalette::ICE);
+                    }
+
+                    GetAnimation()->SetColorRangeAll(CVidPalette::ICE);
+                }
+            }
+
             // 0x72F8EC: multiplayer-peer state broadcast.  When the sprite is
             // in an area and this host owns it -- single-player (no service
             // provider) or the local player matches m_remotePlayerID -- flag a
