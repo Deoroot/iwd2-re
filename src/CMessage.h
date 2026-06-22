@@ -119,6 +119,7 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_SCREENSHAKE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_STORE_DEMAND;
     static const BYTE MSG_SUBTYPE_CMESSAGE_WEAPON_IMMUNITIES_UPDATE;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_SPELL_LEVEL_IMMUNITIES_UPDATE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_101;
     static const BYTE MSG_SUBTYPE_CMESSAGE_103;
     static const BYTE MSG_SUBTYPE_CMESSAGE_TOGGLE_INTERFACE;
@@ -1735,6 +1736,34 @@ public:
     void Run() override;
 
     /* 000C */ CImmunitiesWeapon m_weaponImmunities;
+};
+
+class CMessageSpellLevelImmumityUpdate : public CMessage {
+public:
+    CMessageSpellLevelImmumityUpdate(CGameSprite* pSprite, LONG caller, LONG target);
+    ~CMessageSpellLevelImmumityUpdate() override;
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ CImmunitiesSpellLevel m_spellLevelImmunities;
+};
+
+class CMessageProjectileImmumityUpdate : public CMessage {
+public:
+    CMessageProjectileImmumityUpdate(CGameSprite* pSprite, LONG caller, LONG target);
+    ~CMessageProjectileImmumityUpdate() override;
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ CImmunitiesProjectile m_projectileImmunities;
 };
 
 class CMessage103 : public CMessage {
