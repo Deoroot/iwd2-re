@@ -9,6 +9,8 @@
 #include "CGameSpriteEquipment.h"
 #include "CIcon.h"
 #include "CInfGame.h"
+#include "CMessage.h"
+#include "CSound.h"
 #include "CItem.h"
 #include "CScreenWorld.h"
 #include "CUIControlBase.h"
@@ -241,6 +243,71 @@ BYTE CInfButtonArray::GetButtonId(INT buttonType)
         }
     }
     return -1;
+}
+
+// Toggle the group leader's bard song from a song CButtonData: locate the song,
+// and -- unless the leader is silenced -- either stop an active song (modal
+// state 1) or start one (set the last-song index, enter modal state 1, play the
+// ACT_01 cue and queue a SmallWait so the singer pauses).  A silenced leader
+// just gets the "cannot sing" feedback and the bar resets.
+//
+// 0x588820
+BOOL CInfButtonArray::UseSongAction(const CButtonData* pButtonData, CGameSprite* pCaster)
+{
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_group.m_memberList.GetCount() == 0) {
+        return FALSE;
+    }
+
+    LONG nLeader = pGame->m_group.GetGroupLeader();
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->m_cObjectArray.GetDeny(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    UINT nSongID = 0;
+    if (pGame->m_songs.Find(pButtonData->m_abilityId.m_res, nSongID) && pCaster != NULL) {
+        if ((pSprite->m_derivedStats.m_generalState & STATE_SILENCED) == 0
+            && (pSprite->m_baseStats.m_generalState & STATE_SILENCED) == 0) {
+            if (pSprite->m_nModalState == 1) {
+                pSprite->SetModalState(0, FALSE);
+                m_nSelectedButton = 100;
+            } else {
+                pSprite->m_nLastSong = static_cast<BYTE>(nSongID);
+                pSprite->SetModalState(1, FALSE);
+                m_nSelectedButton = 2;
+
+                CSound sound;
+                sound.SetResRef(CResRef("ACT_01"), TRUE, TRUE);
+                sound.SetFireForget(TRUE);
+                sound.SetChannel(5, 0);
+                sound.Play(FALSE);
+
+                CAIAction action(CAIAction::SMALLWAIT,
+                    CAIObjectType(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0),
+                    1, -1, -1);
+                CMessage* pMessage = new CMessageAddAction(action, pSprite->m_id, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+            }
+        } else {
+            pSprite->FeedBack(51 /* 0x85C10C */, 0, 0, 0, -1, 0, 0);
+            pSprite->SetModalState(0, FALSE);
+            m_nSelectedButton = 100;
+            pGame->m_nState = 0;
+            UpdateButtons();
+        }
+    }
+
+    pGame->m_cObjectArray.ReleaseDeny(nLeader, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    return TRUE;
 }
 
 // 0x588FF0
@@ -1528,9 +1595,10 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     } else if (m_nState == 0x6A || m_nState == 0x6B) {
                         pSprite->UseInnateAction(pEntry, m_nState == 0x6A);
                     } else {
-                        // Songs (0x70/0x7A) and the 0x7B catch-all still use
-                        // the generic dispatcher until UseSongAction is recovered.
-                        pSprite->UseButtonAction(*pEntry, 0);
+                        // Songs (0x70/0x7A): toggle the bard song via the
+                        // dedicated handler rather than the generic spell
+                        // dispatcher (which asserts on the song's caster type).
+                        UseSongAction(pEntry, pSprite);
                     }
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,

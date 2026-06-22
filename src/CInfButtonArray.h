@@ -5,6 +5,7 @@
 
 class CButtonData;
 class CGameButtonList;
+class CGameSprite;
 
 // CInfButtonArray is the 12-slot action bar on the bottom-left of the
 // in-game HUD.  Its state machine (m_nState) drives which 12 button types
@@ -61,6 +62,7 @@ public:
     static void GetSelectedQuickWeaponData(CButtonData& cButtonData);
     static BYTE GetSelectedModalMode();
     BYTE GetButtonId(INT buttonType);
+    BOOL UseSongAction(const CButtonData* pButtonData, CGameSprite* pCaster);
     BOOL ResetState();
     void UpdateState();
     BOOL SetState(INT nState, int a2);
