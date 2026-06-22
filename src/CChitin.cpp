@@ -533,9 +533,30 @@ int CChitin::WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     DuplicateHandle(hCurrentProcess, hCurrentThread, hCurrentProcess, &hCopy, 0, FALSE, DUPLICATE_SAME_ACCESS);
     field_B4 = hCopy;
     InitInstance();
+
+    // ENHANCEMENT (intentional divergence from IWD2.exe @ 0x7926B0) -- idle CPU.
+    // The original spins this idle loop with no yield: in windowed mode (no vsync)
+    // it pegs one core (~6-10% of a modern multi-core CPU) between AI ticks.
+    // m_bDisplayStale is raised by the AI thread (CBaldurChitin AI loop, set right
+    // after AsynchronousUpdate), itself paced by the timeSetEvent timer thread
+    // (TimerFunction @ 0x792920 -> SetEvent(m_eventTimer)). The main thread is a
+    // pure render-on-stale consumer, so parking it briefly while idle cannot
+    // affect AI cadence, frame rate, or render output -- only idle CPU drops to
+    // near zero. We wait up to 1 ms for input OR the next stale frame instead of
+    // busy-polling (returns instantly on input; << the ~33 ms AI tick).
+    //
+    // RE caveat: this is our-build-only scaffolding and must not perturb faithful
+    // recovery. To restore the exact original busy-wait for timing/Frida runs,
+    // drop a marker file ".\iwd2-re-busywait.enabled" in the game CWD -- the yield
+    // branch then goes dead and the loop is behaviorally identical to 0x7926B0.
+    // See README "Known limitation: CPU usage at idle".
+    const BOOL bIdleYield =
+        GetFileAttributesA(".\\iwd2-re-busywait.enabled") == INVALID_FILE_ATTRIBUTES;
+
     MSG msg;
     while (1) {
         while (!PeekMessageA(&msg, NULL, 0, 0, 0)) {
+            BOOL bDidUpdate = FALSE;
             if (field_1932 == 0) {
                 if (m_bDisplayStale == TRUE) {
                     m_bDisplayStale = FALSE;
@@ -545,7 +566,14 @@ int CChitin::WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     m_bInSynchronousUpdate = FALSE;
 
                     m_bAIStale = TRUE;
+                    bDidUpdate = TRUE;
                 }
+            }
+
+            // ENHANCEMENT (see note above 0x7926B0 message loop): yield the main
+            // thread when idle so windowed mode does not burn a full CPU core.
+            if (bIdleYield && !bDidUpdate) {
+                MsgWaitForMultipleObjects(0, NULL, FALSE, 1, QS_ALLINPUT);
             }
         }
 

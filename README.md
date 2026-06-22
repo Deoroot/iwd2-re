@@ -158,9 +158,13 @@ The repo uses [code-review-graph](https://github.com/tirth8205/code-review-graph
 
 ---
 
-## Known limitation: CPU usage at idle (~6-7% windowed)
+## Idle CPU yield (deliberate divergence from the binary)
 
-The original `IWD2.exe` shows identical idle CPU on the same hardware — this is **not** a regression. `CChitin::WinMain` (0x7926B0) uses a `PeekMessage` spin loop between ~33 ms AI ticks; in windowed mode there is no vsync throttle. Fixes (`MsgWaitForMultipleObjects`, or fullscreen `DDFLIP_WAIT`) would cut idle CPU to near zero but **diverge from the original binary**, so they are intentionally not applied.
+The original `IWD2.exe` busy-waits its idle loop: `CChitin::WinMain` (0x7926B0) spins on `PeekMessage` between ~33 ms AI ticks, and in windowed mode (no vsync throttle) that pegs one core — ~6-10% of a modern multi-core CPU — purely to keep a fan-spinning poll alive. Our build instead parks the main thread with `MsgWaitForMultipleObjects(..., 1, QS_ALLINPUT)` whenever no frame is pending, dropping idle CPU to near zero.
+
+This is safe because the main thread is only a *render-on-stale consumer*: the frame cadence is owned by the `timeSetEvent` timer thread (`TimerFunction` → `SetEvent`) and the AI thread (`AsynchronousUpdate` → sets `m_bDisplayStale`). Yielding the consumer for ≤1 ms cannot change AI timing, frame rate, or render output — only idle wall-clock — so runtime traces stay call-for-call identical to the original.
+
+It is the one **intentional divergence** from `IWD2.exe`, kept out of the way of reverse-engineering: drop an empty marker file `iwd2-re-busywait.enabled` in the game directory to disable the yield and restore the exact original busy-wait for faithful timing / Frida differential runs.
 
 ---
 
