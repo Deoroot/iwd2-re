@@ -1077,7 +1077,8 @@ public:
     /* 72DE */ int field_72DE;
     /* 72E2 */ LONG field_72E2;
     /* 72E6 */ CGameButtonList* m_internalButtonList;
-    /* 72EA */ BYTE field_72EA[6];
+    /* 72EA */ WORD field_72EA;
+    /* 72EC */ DWORD field_72EC;
     /* 72F0 */ CList<CGameSpriteSoundEntry, CGameSpriteSoundEntry> field_72F0;
     /* 730C */ CList<CGameSpriteSoundEntry, CGameSpriteSoundEntry> field_730C;
     /* 7328 */ CList<CGameSpriteSoundEntry, CGameSpriteSoundEntry> field_7328;

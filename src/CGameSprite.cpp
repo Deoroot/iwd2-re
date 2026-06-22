@@ -14796,12 +14796,14 @@ BOOL CGameSprite::ProcessEffectList()
     // gate (below), the staggered head pre-pass (regeneration timestamp, per-tick
     // random scratch and the encumbrance-change detection that feeds the body
     // guard), effect handling, the AC derivation, the per-tick derived-stat
-    // re-derivation (0x71C0C0), the encumbrance check (0x72F2B3) and the
-    // persistant effect tick.  Still DEFERRED: the multiplayer-ownership head
-    // gate (0x72DE7C -- returns 0 for sprites this client does not own; a
-    // single-player client always owns and so always passes), the remaining body
-    // class/armour AC refinements, the animation palette/sequence refresh and the
-    // movement interpolation.
+    // re-derivation (0x71C0C0), the body-entry move-scale re-derivation
+    // (0x72E221 -- barbarian/monk/Dash class movement bonuses), the encumbrance
+    // check (0x72F2B3) and the persistant effect tick.  Still DEFERRED: the
+    // multiplayer-ownership head gate (0x72DE7C -- returns 0 for sprites this
+    // client does not own; a single-player client always owns and so always
+    // passes), the animation colour/palette refresh (0x72E3A8 -- the vtable
+    // slot-0xA4 colour loop and the slot-0x98 refresh), the UnequipAll/shapeshift
+    // block and the movement interpolation.
     BOOL bResult = TRUE;
 
     // 0x72DEC4: re-entrancy / deferred-tick guard.  m_bAllowEffectListCall is set
@@ -14893,6 +14895,32 @@ BOOL CGameSprite::ProcessEffectList()
             // than the m_derivedStats the body is about to rebuild.
             m_tempStats = m_derivedStats;
             field_562C = 0;
+
+            // 0x72E221: cache the animation's current move scale and the live
+            // general state, then reset the move scale to the animation's default
+            // before re-deriving the per-tick class movement bonuses below.
+            field_72EA = static_cast<WORD>(m_animation.m_animation->GetMoveScale());
+            field_72EC = m_derivedStats.m_generalState;
+            m_animation.m_animation->ResetMoveScale();
+
+            // 0x72E29C: while the sprite is moving (non-zero scale), re-derive the
+            // move scale from class movement bonuses -- a barbarian out of heavy
+            // armour moves at 1.2x (0x84EB58), a monk out of body armour adds its
+            // monk level / 3, and the Dash feat adds one.
+            if (m_animation.m_animation->GetMoveScale() != 0) {
+                INT nScale = m_animation.m_animation->GetMoveScale();
+                if (m_typeAI.IsClassValid(CAIOBJECTTYPE_C_BARBARIAN) && !HasArmorType(3)) {
+                    nScale = static_cast<INT>(static_cast<float>(nScale) * 1.2f);
+                }
+                if (GetAIType().IsClassValid(CAIOBJECTTYPE_C_MONK)
+                    && (m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] == NULL || HasArmorType(0))) {
+                    nScale += m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_MONK) / 3;
+                }
+                if (HasFeat(12)) {   // FEAT_DASH
+                    nScale += 1;
+                }
+                m_animation.m_animation->SetMoveScale(nScale);
+            }
 
             bResult = HandleEffects();
 
