@@ -12088,11 +12088,19 @@ void CGameSprite::sub_72FD20()
             && (m_baseStats.m_generalState & STATE_SILENCED) == 0
             && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x43E6) != 1) {
             if (!CheckInvisibility(FALSE)) {
-                // Unrecovered: the singer's own song-marker effect
-                // (CGameEffect::ClearItemEffect 0x88 -> DecodeEffect ->
-                // CMessageAddEffect to self) -- needs the ITEM_EFFECT 0x88 field
-                // layout.  The singer still receives the song buff below, as an
-                // ally in range.
+                // Singing is a visible action: a non-invisible singer re-asserts
+                // visibility this cycle by delivering a FORCEVISIBLE effect (0x88)
+                // to itself, mirroring the spell-cast path.
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_FORCEVISIBLE);
+                effect.durationType = 1;
+                CGameEffect* visibleEffect = CGameEffect::DecodeEffect(
+                    &effect,
+                    m_pos,
+                    m_id,
+                    CPoint(-1, -1));
+                CMessage* message = new CMessageAddEffect(visibleEffect, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
             }
 
             UTIL_ASSERT(m_nLastSong < pGame->m_songs.m_nCount);
