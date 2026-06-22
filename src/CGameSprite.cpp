@@ -14801,11 +14801,12 @@ BOOL CGameSprite::ProcessEffectList()
     // movement bonuses), the encumbrance check (0x72F2B3), the animation
     // colour/palette refresh (0x72E3A8), the shapeshift / animation-rebuild block
     // (0x72E437), the persistant effect tick and the movement-interpolation
-    // re-pace (0x72F476).  Still DEFERRED, all inside the effects-pending body:
-    // the pre-re-derivation intoxication decay and fatigue/morale table lookups
-    // (just before 0x71C0C0), the animation colour-range re-push loops
-    // (0x72F72B), the multiplayer-peer state-change messages (0x72F7F3) and the
-    // trailing move-scale / general-state cache (0x72FB24).
+    // re-pace (0x72F476), the per-tick intoxication-decay and fatigue/morale luck
+    // penalties (0x72F07A), the death-state colour re-push (0x72F72B), the
+    // multiplayer-peer state broadcast (0x72F8EC) and the end-of-tick UI/state
+    // snapshot (0x72FB24).  Still DEFERRED, inside the effects-pending body: the
+    // post-HandleEffects forced-action / party-ally / helpless / visual-refresh
+    // block (0x72E759-0x72F07A).
 
     // 0x72DE7C: multiplayer-ownership head gate.  In a network session a client
     // only ticks the effect list of the sprites it owns; one owned by a different
@@ -15013,20 +15014,60 @@ BOOL CGameSprite::ProcessEffectList()
 
             bResult = HandleEffects();
 
-            if (m_derivedStats.m_nACArmorBonus == 0
-                && m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR] != NULL) {
-                m_derivedStats.m_nACArmorBonus += static_cast<SHORT>(m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR]->GetEquippedACBonus());
+            // 0x72E759-0x72F07A: DEFERRED -- after HandleEffects the binary sets
+            // m_bForceVisualEffects (0x72E770), injects the berserk/panic forced
+            // action, re-derives party-ally membership from the EA and gates the
+            // animation on the helpless state.  Not yet recovered.
+
+            // 0x72F07A: per-tick intoxication and fatigue penalties, applied just
+            // before the derived-stat re-derivation.  While the derived
+            // intoxication level is positive the stored intoxication decays toward
+            // sobriety on a staggered schedule; intoxication and fatigue then each
+            // index a rule table to apply a luck penalty and raise the matching
+            // status portrait icon, and intoxication additionally shifts the base
+            // morale.
+            if (m_derivedStats.m_nIntoxication > 0) {
+                // 0x72F087: once every (0x84EC0C * 0x84EC0D * 0x84EC0E) = 15*60*5
+                // AI frames, staggered per sprite by field_44A, recover the stored
+                // intoxication toward zero by the Constitution-based recovery rate
+                // from GetIntoxicationInfo.
+                if (field_44A % (15 * 60 * 5) == 0 && m_baseStats.m_intoxication != 0) {
+                    INT nIntoxRate, nRecoveryRate, nIntoxCap;
+                    ruleTables.GetIntoxicationInfo(static_cast<BYTE>(m_derivedStats.m_nCON),
+                                                   nIntoxRate, nRecoveryRate, nIntoxCap);
+                    INT nNewIntox = m_baseStats.m_intoxication - nRecoveryRate;
+                    m_baseStats.m_intoxication = static_cast<BYTE>(nNewIntox < 1 ? 0 : nNewIntox);
+                }
+
+                // 0x72F102: INTOXICATION_MODIFIERS luck penalty, indexed by the
+                // derived intoxication level; a non-zero penalty also raises the
+                // intoxicated status portrait icon (5).
+                char cIntoxLuck = static_cast<char>(
+                    atol(ruleTables.m_tIntoxicationMod.GetAt(CPoint(0, m_derivedStats.m_nIntoxication))));
+                m_derivedStats.m_nLuck += static_cast<SHORT>(cIntoxLuck);
+                if (cIntoxLuck != 0) {
+                    AddPortraitIcon(5);
+                }
+
+                // 0x72F179: the same INTOXICATION_MODIFIERS entry shifts the base
+                // morale, clamped to the 0..20 morale range.
+                char cIntoxMorale = static_cast<char>(
+                    atol(ruleTables.m_tIntoxicationMod.GetAt(CPoint(0, m_derivedStats.m_nIntoxication))));
+                BYTE nNewMorale = static_cast<BYTE>(m_baseStats.m_morale + cIntoxMorale);
+                if (nNewMorale > 0x13) {
+                    nNewMorale = 0x14;
+                }
+                m_baseStats.m_morale = nNewMorale;
             }
 
-            INT nOffHandSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet + 1;
-            if (m_derivedStats.m_nACDeflectionBonus == 0
-                && nOffHandSlot >= 0
-                && nOffHandSlot < CGameSpriteEquipment::NUM_SLOT
-                && m_equipment.m_items[nOffHandSlot] != NULL) {
-                WORD nItemType = m_equipment.m_items[nOffHandSlot]->GetItemType();
-                if (nItemType == 41 || nItemType == 47 || nItemType == 49 || nItemType == 53) {
-                    m_derivedStats.m_nACDeflectionBonus = static_cast<SHORT>(m_equipment.m_items[nOffHandSlot]->GetEquippedACBonus());
-                }
+            // 0x72F1FF: FATIGUE_MODIFIERS luck penalty, indexed by the derived
+            // fatigue level; a non-zero penalty raises the fatigued status portrait
+            // icon (0x27).  Applied even when the intoxication level is zero.
+            char cFatigueLuck = static_cast<char>(
+                atol(ruleTables.m_tFatigueMod.GetAt(CPoint(0, m_derivedStats.m_nFatigue))));
+            m_derivedStats.m_nLuck += static_cast<SHORT>(cFatigueLuck);
+            if (cFatigueLuck != 0) {
+                AddPortraitIcon(0x27);
             }
 
             // 0x71C0C0: the per-tick re-derivation the binary performs here -- the
