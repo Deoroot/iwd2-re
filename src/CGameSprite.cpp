@@ -14792,24 +14792,22 @@ int CGameSprite::sub_75E930(int a1)
 // 0x72DE60
 BOOL CGameSprite::ProcessEffectList()
 {
-    // PARTIAL: this function is huge.  Recovered: the multiplayer-ownership head
-    // gate (0x72DE7C, below), the re-entrancy / deferred-tick gate, the staggered
-    // head pre-pass (regeneration timestamp, per-tick random scratch and the
+    // This function is huge.  Recovered: the multiplayer-ownership head gate
+    // (0x72DE7C, below), the re-entrancy / deferred-tick gate, the staggered head
+    // pre-pass (regeneration timestamp, per-tick random scratch and the
     // encumbrance-change detection that feeds the body guard), effect handling,
-    // the AC derivation, the per-tick derived-stat re-derivation (0x71C0C0), the
-    // body-entry move-scale re-derivation (0x72E221 -- barbarian/monk/Dash class
-    // movement bonuses), the encumbrance check (0x72F2B3), the animation
-    // colour/palette refresh (0x72E3A8), the shapeshift / animation-rebuild block
-    // (0x72E437), the persistant effect tick and the movement-interpolation
-    // re-pace (0x72F476), the per-tick intoxication-decay and fatigue/morale luck
-    // penalties (0x72F07A), the death-state colour re-push (0x72F72B), the
-    // multiplayer-peer state broadcast (0x72F8EC) and the end-of-tick UI/state
-    // snapshot (0x72FB24), the post-HandleEffects visual-refresh flag (0x72E770),
-    // the berserk / panic forced-action injections (0x72E759, 0x72EC32), the
-    // null-action clear (0x72EC25), the party-ally membership re-derivation
-    // (0x72EC3A) and the helpless animation gate (0x72EFF2).  Still DEFERRED,
-    // inside the effects-pending body: the panic-exit idle (0x72EA81 -- drop-path
-    // plus SetCurrAction(GetNextAction(CAIAction::NULL_ACTION))).
+    // the per-tick derived-stat re-derivation (0x71C0C0), the body-entry
+    // move-scale re-derivation (0x72E221 -- barbarian/monk/Dash class movement
+    // bonuses), the encumbrance check (0x72F2B3), the animation colour/palette
+    // refresh (0x72E3A8), the shapeshift / animation-rebuild block (0x72E437), the
+    // persistant effect tick and the movement-interpolation re-pace (0x72F476),
+    // the post-HandleEffects visual-refresh flag (0x72E770), the forced-action
+    // override (berserk 0x72E759, panic 0x72EC32, null-action clear 0x72EC25,
+    // panic-exit idle 0x72EA81), the party-ally membership re-derivation
+    // (0x72EC3A), the helpless animation gate (0x72EFF2), the per-tick
+    // intoxication-decay and fatigue/morale luck penalties (0x72F07A), the
+    // death-state colour re-push (0x72F72B), the multiplayer-peer state broadcast
+    // (0x72F8EC) and the end-of-tick UI/state snapshot (0x72FB24).
 
     // 0x72DE7C: multiplayer-ownership head gate.  In a network session a client
     // only ticks the effect list of the sprites it owns; one owned by a different
@@ -15046,12 +15044,22 @@ BOOL CGameSprite::ProcessEffectList()
                 m_interrupt = TRUE;
                 AddAction(action);
             } else {
-                // 0x72EA81: DEFERRED -- the panic-exit idle.  When the sprite was
-                // panicking last tick (the cached general state field_72EC &
-                // STATE_PANIC) and m_moraleFailure is clear, it drops its path and
-                // idles: post CMessageDropPath(m_id, m_id) (cf. CGameSprite::Panic
-                // 0x758440) and SetCurrAction(GetNextAction(NULL_ACTION)).  Not yet
-                // recovered.
+                // 0x72EA81: panic-exit idle.  When the sprite was panicking last
+                // tick (the cached general state field_72EC & STATE_PANIC) and its
+                // morale has not failed, it has just calmed down: drop its path and
+                // fall back to the next queued action.  A network owner also flags
+                // a sprite-state broadcast.
+                if ((field_72EC & STATE_PANIC) && !m_moraleFailure) {
+                    if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                        || g_pChitin->cNetwork.m_idLocalPlayer == m_remotePlayerID) {
+                        m_bSendSpriteUpdate = TRUE;
+                    }
+                    ClearActions(FALSE);
+                    CMessage* message = new CMessageDropPath(m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    CAIAction action;
+                    SetCurrAction(GetNextAction(action));
+                }
 
                 // 0x72EC25: once a sprite is no longer panicking, clear a lingering
                 // Berserk() / Panic() forced action back to the null action (the
