@@ -14800,8 +14800,12 @@ BOOL CGameSprite::ProcessEffectList()
     // body-entry move-scale re-derivation (0x72E221 -- barbarian/monk/Dash class
     // movement bonuses), the encumbrance check (0x72F2B3), the animation
     // colour/palette refresh (0x72E3A8), the shapeshift / animation-rebuild block
-    // (0x72E437) and the persistant effect tick.  Still DEFERRED: the movement
-    // interpolation.
+    // (0x72E437), the persistant effect tick and the movement-interpolation
+    // re-pace (0x72F476).  Still DEFERRED, all inside the effects-pending body:
+    // the pre-re-derivation intoxication decay and fatigue/morale table lookups
+    // (just before 0x71C0C0), the animation colour-range re-push loops
+    // (0x72F72B), the multiplayer-peer state-change messages (0x72F7F3) and the
+    // trailing move-scale / general-state cache (0x72FB24).
 
     // 0x72DE7C: multiplayer-ownership head gate.  In a network session a client
     // only ticks the effect list of the sprites it owns; one owned by a different
@@ -15070,6 +15074,47 @@ BOOL CGameSprite::ProcessEffectList()
                         m_animation.m_animation->ResetMoveScale();
                     }
                     m_derivedStats.m_nEncumberance = 0;
+                }
+            }
+
+            // 0x72F476: re-pace the in-flight walk.  When this tick changed the
+            // animation's move scale (the encumbrance / class-movement logic
+            // above) while the sprite is still following a path, rebuild
+            // m_posDelta -- the fixed-point (<< EXACT_SCALE) sub-pixel step
+            // m_posExact accrues each frame as the sprite slides from m_pos
+            // toward m_posDest -- so the remainder of the slide runs at the new
+            // speed.  This mirrors the per-segment delta setup in Move
+            // (0x6F9040) but works in raw screen space: the y axis carries the
+            // 4/3 isometric stretch inline (16/9 under the distance root) rather
+            // than pre-converting m_pos.y, and the distance is rounded to
+            // nearest (+0.5).  m_pPath != NULL is the "still walking" gate; with
+            // the move scale unchanged (== field_72EA, cached above) the delta
+            // is already correct and the rebuild is skipped.
+            if (m_animation.m_animation->GetMoveScale() != field_72EA && m_pPath != NULL) {
+                INT scale = static_cast<INT>(sqrt((double)(
+                    (m_posDest.y - m_pos.y) * (m_posDest.y - m_pos.y) * 16 / 9
+                    + (m_posDest.x - m_pos.x) * (m_posDest.x - m_pos.x))) + 0.5);
+                if (scale == 0) {
+                    m_posDelta.x = 0;
+                    m_posDelta.y = 0;
+                } else if (m_animation.m_animation->GetMoveScale() > 8) {
+                    // Fast movement: split the remaining distance into whole
+                    // frames and step one frame's worth toward the destination.
+                    if (scale >= m_animation.m_animation->GetMoveScale()) {
+                        scale = (scale + m_animation.m_animation->GetMoveScale() / 2)
+                            / m_animation.m_animation->GetMoveScale();
+                    } else {
+                        scale = 1;
+                    }
+                    m_posDelta.x = ((m_posDest.x - m_pos.x) << EXACT_SCALE) / scale;
+                    m_posDelta.y = (((m_posDest.y - m_pos.y) * 4 / 3) << EXACT_SCALE) / scale;
+                } else {
+                    // Slow movement: scale the unit displacement by the move
+                    // scale, then spread it over the remaining distance.
+                    m_posDelta.x = (((m_posDest.x - m_pos.x) << EXACT_SCALE)
+                        * m_animation.m_animation->GetMoveScale()) / scale;
+                    m_posDelta.y = ((((m_posDest.y - m_pos.y) * 4 / 3) << EXACT_SCALE)
+                        * m_animation.m_animation->GetMoveScale()) / scale;
                 }
             }
         }
