@@ -14804,10 +14804,10 @@ BOOL CGameSprite::ProcessEffectList()
     // re-pace (0x72F476), the per-tick intoxication-decay and fatigue/morale luck
     // penalties (0x72F07A), the death-state colour re-push (0x72F72B), the
     // multiplayer-peer state broadcast (0x72F8EC) and the end-of-tick UI/state
-    // snapshot (0x72FB24), the post-HandleEffects visual-refresh flag (0x72E770)
-    // and the helpless animation gate (0x72EFF2).  Still DEFERRED, inside the
-    // effects-pending body: the berserk/panic forced-action injection (0x72E759)
-    // and the party-ally membership re-derivation (0x72EC3A).
+    // snapshot (0x72FB24), the post-HandleEffects visual-refresh flag (0x72E770),
+    // the party-ally membership re-derivation (0x72EC3A) and the helpless
+    // animation gate (0x72EFF2).  Still DEFERRED, inside the effects-pending
+    // body: the berserk/panic forced-action injection (0x72E759).
 
     // 0x72DE7C: multiplayer-ownership head gate.  In a network session a client
     // only ticks the effect list of the sprites it owns; one owned by a different
@@ -15023,9 +15023,22 @@ BOOL CGameSprite::ProcessEffectList()
             // STATE_BERSERK + m_berserkActive and the current action id).  Not yet
             // recovered.
 
-            // 0x72EC3A: DEFERRED -- party-ally membership re-derivation from the
-            // EA (controlled/charmed -> add to CInfGame::m_allies, GOODCUTOFF ->
-            // remove).  Reads the allegiance byte at this+0x24; not yet recovered.
+            // 0x72EC3A: re-derive party-ally membership from the allegiance.  A
+            // controlled sprite (or one at EA 7) that the game is not already
+            // tracking as an ally or a familiar, and that holds no portrait slot,
+            // is enrolled in the ally list; a sprite at or past GOODCUTOFF is
+            // dropped from it.
+            BYTE nEnemyAlly = GetAIType().GetEnemyAlly();
+            if (nEnemyAlly == CAIObjectType::EA_0x847C3A
+                || nEnemyAlly == CAIObjectType::EA_CONTROLLED) {
+                if (pGame->m_allies.Find(reinterpret_cast<int*>(m_id), NULL) == NULL
+                    && pGame->m_familiars.Find(reinterpret_cast<int*>(m_id), NULL) == NULL
+                    && pGame->GetCharacterPortraitNum(m_id) == -1) {
+                    pGame->AddCharacterToAllies(m_id);
+                }
+            } else if (nEnemyAlly >= CAIObjectType::EA_GOODCUTOFF) {
+                pGame->RemoveCharacterFromAllies(m_id);
+            }
 
             // 0x72EFF2: animation-active gate.  An alive, un-held sprite that a
             // time stop does not freeze out keeps its animation marked live; a
