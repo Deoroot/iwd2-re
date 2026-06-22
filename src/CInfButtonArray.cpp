@@ -718,6 +718,12 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x16;
             nToolTip = 0x1336;
             nHotKey = 0xA;
+            // The song button's selection highlight tracks the PERSISTENT
+            // song-modal state of the group leader, not the transient
+            // m_nSelectedButton match -- override the generic m_bSelected set
+            // above (0x58A340: clear piVar8[0x73], then set it to 1 when the
+            // shared leader's m_nModalState == 1).
+            settings.m_bSelected = (GetSelectedModalMode() == 1);
             break;
         case 3:
             nIconNormalFrame = 8;
