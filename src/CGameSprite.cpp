@@ -14935,6 +14935,70 @@ BOOL CGameSprite::ProcessEffectList()
                 m_animation.m_animation->ClearColorEffectsAll();
             }
 
+            // 0x72E437: an effect requested an animation change (a polymorph /
+            // shape-change).  Re-build the animation object in place, but only
+            // while the sprite is live on the search map -- a stored or dead
+            // sprite has no footprint to migrate.  The whole shape swap is one
+            // unit: un-equip first so the old item-based appearance is gone,
+            // de-register the OLD footprint, rebuild the animation, re-register
+            // the NEW footprint, then re-equip and re-issue the sequence.
+            if (m_bOnSearchMap && field_5640) {
+                WORD savedSequence = static_cast<WORD>(m_nSequence);
+                UnequipAll(1);
+
+                // De-register the old footprint on the area's search bitmap
+                // before the animation (and thus its personal-space size)
+                // changes.  List type 2 animations carry no search footprint,
+                // so they are left alone.
+                if (m_pArea != NULL && m_animation.GetListType() != 2) {
+                    m_pArea->m_search.RemoveObject(
+                        CPoint(GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+                               GetPos().y / CPathSearch::GRID_SQUARE_SIZEY),
+                        GetAIType().GetEnemyAlly(),
+                        m_animation.GetPersonalSpace(),
+                        m_bBumpable,
+                        m_bOnSearchMap);
+                }
+
+                m_animation.SetAnimationType(m_baseStats.m_animationType, m_baseStats.m_colors, m_nDirection);
+
+                // Re-register at the new footprint.
+                if (m_pArea != NULL && m_animation.GetListType() != 2) {
+                    m_pArea->m_search.AddObject(
+                        CPoint(GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+                               GetPos().y / CPathSearch::GRID_SQUARE_SIZEY),
+                        GetAIType().GetEnemyAlly(),
+                        m_animation.GetPersonalSpace(),
+                        m_bBumpable,
+                        m_bOnSearchMap);
+                }
+
+                // Bounce the sequence through READY so the freshly built
+                // animation re-initialises, then restore the sprite's prior one.
+                SetSequence(CGAMESPRITE_SEQ_READY);
+                SetSequence(static_cast<BYTE>(savedSequence));
+                EquipAll(1);
+
+                CMessage* message = new CMessageAnimationChange(m_baseStats.m_animationType, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            }
+
+            // 0x72E6C6: tell the renderer to drop any per-frame colour effects
+            // when the colour or animation state changed this tick.
+            if (m_hasColorEffects || field_5640) {
+                CMessage* message = new CMessageColorReset(m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            }
+
+            // 0x72E70E: consume the colour / animation change flags now that the
+            // refresh has been applied, drop the portrait-icon cache and refresh
+            // the portrait so the new appearance shows.
+            m_hasColorRangeEffects = FALSE;
+            m_hasColorEffects = FALSE;
+            field_5640 = 0;
+            m_portraitIcons.RemoveAll();
+            pGame->UpdatePortrait(static_cast<SHORT>(pGame->GetCharacterPortraitNum(m_id)), 1);
+
             bResult = HandleEffects();
 
             if (m_derivedStats.m_nACArmorBonus == 0
