@@ -352,6 +352,9 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_103 = 103;
 // 0x84CF3F
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SPELL_LEVEL_IMMUNITIES_UPDATE = 104;
 
+// 0x84CF40
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_105 = 105;
+
 // 0x84CF41
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TOGGLE_INTERFACE = 106;
 
@@ -16767,6 +16770,199 @@ void CMessageProjectileImmumityUpdate::Run()
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
+    }
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x5152C0
+//
+// Build the message and take over the source list's sub-messages.  The source
+// list is the engine's circular sentinel+count list (see the class comment);
+// pSourceHead is its sentinel node.  Only the CMessage* pointers are copied --
+// this message owns them from here on.
+CMessage105::CMessage105(Node* pSourceHead, LONG caller, LONG target)
+    : CMessage(caller, target)
+{
+    field_C = static_cast<BYTE>(caller);
+
+    // Start empty: a sentinel node that points to itself.
+    m_pNodeHead = new Node;
+    m_pNodeHead->m_pNext = m_pNodeHead;
+    m_pNodeHead->m_pPrev = m_pNodeHead;
+    m_nCount = 0;
+
+    // Self-copy guard (param_1+3 != param_2 in the binary), then append a node
+    // per source element at the tail.  The binary inlines a full list operator=
+    // (reuse/free/append); against the freshly emptied list only the append
+    // branch runs.
+    if (pSourceHead != m_pNodeHead) {
+        for (Node* pSrc = pSourceHead->m_pNext; pSrc != pSourceHead; pSrc = pSrc->m_pNext) {
+            Node* pNode = new Node;
+            pNode->m_pNext = m_pNodeHead;
+            pNode->m_pPrev = m_pNodeHead->m_pPrev;
+            m_pNodeHead->m_pPrev->m_pNext = pNode;
+            m_pNodeHead->m_pPrev = pNode;
+            pNode->m_pMessage = pSrc->m_pMessage;
+            m_nCount++;
+        }
+    }
+}
+
+// 0x515430 (the scalar-deleting destructor thunk is at 0x515410)
+CMessage105::~CMessage105()
+{
+    // Delete every carried sub-message, then free the list nodes and sentinel.
+    for (Node* pNode = m_pNodeHead->m_pNext; pNode != m_pNodeHead; pNode = pNode->m_pNext) {
+        delete pNode->m_pMessage;
+        pNode->m_pMessage = NULL;
+    }
+
+    Node* pNode = m_pNodeHead->m_pNext;
+    while (pNode != m_pNodeHead) {
+        Node* pNext = pNode->m_pNext;
+        delete pNode;
+        pNode = pNext;
+    }
+
+    delete m_pNodeHead;
+    m_pNodeHead = NULL;
+    m_nCount = 0;
+}
+
+// 0x40A0D0 (folded by /OPT:ICF with the other CMessage::GetCommType overrides)
+SHORT CMessage105::GetCommType()
+{
+    return SEND;
+}
+
+// 0x40A0E0 (folded by /OPT:ICF)
+BYTE CMessage105::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x515400
+BYTE CMessage105::GetMsgSubType()
+{
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_105;
+}
+
+// 0x5154E0
+//
+// Network form: resolve the target's remote ids, write a 13-byte header (remote
+// player id, remote object id, sub-message count, per-sub-message marshalled
+// size), then let each sub-message marshal its own bytes after it.  The
+// per-sub-message serialisation belongs to CMessageAddEffect (vtable slot 0x10,
+// not yet recovered); this routine only frames the list.
+void CMessage105::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+
+    CGameObject* pObject;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        *dwSize = 0;
+        return;
+    }
+
+    PLAYER_ID remotePlayerID = pObject->m_remotePlayerID;
+    LONG remoteObjectID = pObject->m_remoteObjectID;
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    // Marshalled size of one sub-message (a CMessageAddEffect).
+    const DWORD SUBMESSAGE_SIZE = 0x59;
+
+    *dwSize = sizeof(PLAYER_ID) + sizeof(LONG) + sizeof(BYTE) + sizeof(DWORD)
+        + m_nCount * SUBMESSAGE_SIZE;
+    UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+
+    DWORD cnt = 0;
+
+    *reinterpret_cast<PLAYER_ID*>(*pData + cnt) = remotePlayerID;
+    cnt += sizeof(PLAYER_ID);
+
+    *reinterpret_cast<LONG*>(*pData + cnt) = remoteObjectID;
+    cnt += sizeof(LONG);
+
+    *(*pData + cnt) = static_cast<BYTE>(m_nCount);
+    cnt += sizeof(BYTE);
+
+    *reinterpret_cast<DWORD*>(*pData + cnt) = SUBMESSAGE_SIZE;
+    cnt += sizeof(DWORD);
+
+    for (Node* pNode = m_pNodeHead->m_pNext; pNode != m_pNodeHead; pNode = pNode->m_pNext) {
+        BYTE* pSubData = *pData + cnt;
+        DWORD subSize = 0;
+        pNode->m_pMessage->MarshalMessage(&pSubData, &subSize);
+        cnt += subSize;
+    }
+
+    UTIL_ASSERT(cnt == *dwSize);
+}
+
+// 0x515670
+//
+// Inverse of MarshalMessage: resolve the local target id, then rebuild one
+// CMessageAddEffect per serialised entry.  Each entry's bytes are copied into a
+// scratch buffer past the spec-message header that the sub-message's own
+// UnmarshalMessage (vtable slot 0x14) skips.
+BOOL CMessage105::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    UTIL_ASSERT(pData != NULL);
+
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+
+    PLAYER_ID remotePlayerID = *reinterpret_cast<PLAYER_ID*>(pData + cnt);
+    LONG remoteObjectID = *reinterpret_cast<LONG*>(pData + cnt + sizeof(PLAYER_ID));
+
+    LONG localObjectID;
+    if (g_pBaldurChitin->GetObjectGame()->GetRemoteObjectArray()->Find(remotePlayerID, remoteObjectID, localObjectID) != TRUE) {
+        return FALSE;
+    }
+    m_targetId = localObjectID;
+
+    BYTE nCount = *(pData + cnt + sizeof(PLAYER_ID) + sizeof(LONG));
+    DWORD subSize = *reinterpret_cast<DWORD*>(pData + cnt + sizeof(PLAYER_ID) + sizeof(LONG) + sizeof(BYTE));
+    DWORD dataOffset = cnt + sizeof(PLAYER_ID) + sizeof(LONG) + sizeof(BYTE) + sizeof(DWORD);
+
+    BYTE* pSubBuf = new BYTE[CNetwork::SPEC_MSG_HEADER_LENGTH + subSize];
+
+    for (BYTE i = 0; i < nCount; i++) {
+        memcpy(pSubBuf + CNetwork::SPEC_MSG_HEADER_LENGTH, pData + dataOffset, subSize);
+        dataOffset += subSize;
+
+        CMessageAddEffect* pSub = new CMessageAddEffect(NULL, 0, 0);
+        pSub->UnmarshalMessage(pSubBuf, CNetwork::SPEC_MSG_HEADER_LENGTH + subSize);
+
+        Node* pNode = new Node;
+        pNode->m_pNext = m_pNodeHead;
+        pNode->m_pPrev = m_pNodeHead->m_pPrev;
+        m_pNodeHead->m_pPrev->m_pNext = pNode;
+        m_pNodeHead->m_pPrev = pNode;
+        pNode->m_pMessage = pSub;
+        m_nCount++;
+    }
+
+    delete[] pSubBuf;
+    return TRUE;
+}
+
+// 0x5157F0
+void CMessage105::Run()
+{
+    for (Node* pNode = m_pNodeHead->m_pNext; pNode != m_pNodeHead; pNode = pNode->m_pNext) {
+        pNode->m_pMessage->Run();
     }
 }
 

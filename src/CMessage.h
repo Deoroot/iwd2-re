@@ -122,6 +122,7 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_SPELL_LEVEL_IMMUNITIES_UPDATE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_101;
     static const BYTE MSG_SUBTYPE_CMESSAGE_103;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_105;
     static const BYTE MSG_SUBTYPE_CMESSAGE_TOGGLE_INTERFACE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_107;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_AREA_TYPE;
@@ -1764,6 +1765,45 @@ public:
     void Run() override;
 
     /* 000C */ CImmunitiesProjectile m_projectileImmunities;
+};
+
+// A CMessage that carries a list of sub-messages and, on Run(), dispatches each
+// in turn -- used to apply a whole spell/song effect set (a list of
+// CMessageAddEffect) to one target atomically.  Built e.g. by the per-round
+// bard-song update and CGameSprite::SetModalState's Lingering Song path.
+// Message subtype 105 (no canonical name recovered; follows the CMessageNNN
+// convention).
+//
+// The carried list is the engine's lightweight circular doubly-linked list (a
+// heap sentinel node plus a count, one heap node per element) -- NOT an MFC
+// CTypedPtrList, which is 28 bytes and would not fit the 0x18-byte message.  It
+// is modelled here with explicit nodes so the 8-byte header (m_pNodeHead@0x10,
+// m_nCount@0x14) stays binary-faithful.
+class CMessage105 : public CMessage {
+public:
+    struct Node {
+        /* 0000 */ Node* m_pNext;
+        /* 0004 */ Node* m_pPrev;
+        /* 0008 */ CMessage* m_pMessage;
+    };
+
+    // 0x5152C0.  Takes over the sub-messages of the source list whose sentinel
+    // is pSourceHead (the CMessage* pointers are copied, not the pointed-to
+    // messages; this message then owns them and deletes them in its dtor).  The
+    // binary inlines a full list operator= and self-guards (param_1+3 !=
+    // param_2); against the freshly-emptied target only the append path runs.
+    CMessage105(Node* pSourceHead, LONG caller, LONG target);
+    ~CMessage105() override;
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ BYTE field_C;
+    /* 0010 */ Node* m_pNodeHead;
+    /* 0014 */ INT m_nCount;
 };
 
 class CMessage103 : public CMessage {
