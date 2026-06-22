@@ -14805,11 +14805,11 @@ BOOL CGameSprite::ProcessEffectList()
     // penalties (0x72F07A), the death-state colour re-push (0x72F72B), the
     // multiplayer-peer state broadcast (0x72F8EC) and the end-of-tick UI/state
     // snapshot (0x72FB24), the post-HandleEffects visual-refresh flag (0x72E770),
-    // the berserk forced-action injection (0x72E759), the party-ally membership
-    // re-derivation (0x72EC3A) and the helpless animation gate (0x72EFF2).  Still
-    // DEFERRED, inside the effects-pending body: the panic / morale-failure half
-    // of the forced-action override (0x72EA5B-0x72EC3A), which copies a
-    // runtime-populated action template (0x8C6118).
+    // the berserk / panic forced-action injections (0x72E759, 0x72EC32), the
+    // null-action clear (0x72EC25), the party-ally membership re-derivation
+    // (0x72EC3A) and the helpless animation gate (0x72EFF2).  Still DEFERRED,
+    // inside the effects-pending body: the panic-exit idle (0x72EA81 -- drop-path
+    // plus SetCurrAction(GetNextAction(CAIAction::NULL_ACTION))).
 
     // 0x72DE7C: multiplayer-ownership head gate.  In a network session a client
     // only ticks the effect list of the sprites it owns; one owned by a different
@@ -15037,18 +15037,33 @@ BOOL CGameSprite::ProcessEffectList()
                 AddAction(action);
             }
 
-            // 0x72EA5B-0x72EC3A: DEFERRED -- the panic / morale-failure half of
-            // the forced-action override.  Same ClearActions(FALSE) / m_interrupt /
-            // AddAction idiom:
-            //   * when the cached state (field_72EC) was panicking: STATE_PANIC ->
-            //     inject Panic() (ACTION.IDS 24) at 0x72EC32; else if m_moraleFailure
-            //     is clear, post CMessageDropPath(m_id, m_id) (vtable 0x84C44C, cf.
-            //     CGameSprite::Panic 0x758440) and push the GetNextAction NoAction(0).
-            //   * 0x72EC25: STATE_PANIC -> inject Panic(); else if m_curAction is
-            //     Berserk/Panic, copy the static action template at 0x8C6118 -- a
-            //     runtime-populated global (not in the PE image), whose contents
-            //     need a Frida read of a running game before that site can be
-            //     authored faithfully.
+            // 0x72EC32: while panicking, force the Panic() action -- clear the
+            // sprite's actions and push an empty-target Panic() (ACTION.IDS 24).
+            if (m_derivedStats.m_generalState & STATE_PANIC) {
+                CAIAction action(24 /* Panic() */,
+                    CAIObjectType(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0), 0, 0, 0);
+                ClearActions(FALSE);
+                m_interrupt = TRUE;
+                AddAction(action);
+            } else {
+                // 0x72EA81: DEFERRED -- the panic-exit idle.  When the sprite was
+                // panicking last tick (the cached general state field_72EC &
+                // STATE_PANIC) and m_moraleFailure is clear, it drops its path and
+                // idles: post CMessageDropPath(m_id, m_id) (cf. CGameSprite::Panic
+                // 0x758440) and SetCurrAction(GetNextAction(NULL_ACTION)).  Not yet
+                // recovered.
+
+                // 0x72EC25: once a sprite is no longer panicking, clear a lingering
+                // Berserk() / Panic() forced action back to the null action (the
+                // global CAIAction::NULL_ACTION at 0x8C6118).
+                if (m_curAction.m_actionID == 124 /* Berserk() */
+                    || m_curAction.m_actionID == 24 /* Panic() */) {
+                    CAIAction action(CAIAction::NULL_ACTION);
+                    ClearActions(FALSE);
+                    m_interrupt = TRUE;
+                    AddAction(action);
+                }
+            }
 
             // 0x72EC3A: re-derive party-ally membership from the allegiance.  A
             // controlled sprite (or one at EA 7) that the game is not already
