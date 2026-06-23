@@ -12153,6 +12153,77 @@ void CGameSprite::sub_71E760(CDerivedStats& DStats, int a2)
     // TODO: Incomplete.
 }
 
+// 0x722090
+//
+// Map a race id (RACE.IDS) to its upper-case label.  The label keys the racial
+// stealth-modifier 2DA (LIGHTMOD / QUIETMOD / HIDEMOD columns) in the stealth
+// detection check, and also names race-keyed script variables.  An unrecognised
+// id yields an empty string.  (The binary passes `this` but does not use it.)
+CString CGameSprite::GetRaceLabel(BYTE nRace)
+{
+    CString sRace;
+    switch (nRace) {
+    case 1:    sRace = "HUMAN"; break;
+    case 2:    sRace = "ELF"; break;
+    case 3:    sRace = "HALF_ELF"; break;
+    case 4:    sRace = "DWARF"; break;
+    case 5:    sRace = "HALFLING"; break;
+    case 6:    sRace = "GNOME"; break;
+    case 7:    sRace = "HALF_ORC"; break;
+    case 0x65: sRace = "ANKHEG"; break;
+    case 0x66: sRace = "BASILISK"; break;
+    case 0x67: sRace = "BEAR"; break;
+    case 0x68: sRace = "CARRIONCRAWLER"; break;
+    case 0x69: sRace = "DOG"; break;
+    case 0x6A: sRace = "DOPPLEGANGER"; break;
+    case 0x6B: sRace = "ETTERCAP"; break;
+    case 0x6C: sRace = "GHOUL"; break;
+    case 0x6D: sRace = "GIBBERLING"; break;
+    case 0x6E: sRace = "GNOLL"; break;
+    case 0x6F: sRace = "HOBGOBLIN"; break;
+    case 0x70: sRace = "KOBOLD"; break;
+    case 0x71: sRace = "OGRE"; break;
+    case 0x73: sRace = "SKELETON"; break;
+    case 0x74: sRace = "SPIDER"; break;
+    case 0x75: sRace = "WOLF"; break;
+    case 0x76: sRace = "WYVERN"; break;
+    case 0x77: sRace = "SLIME"; break;
+    case 0x78: sRace = "FAIRY"; break;
+    case 0x96: sRace = "BEETLE"; break;
+    case 0x97: sRace = "CARRION_CRAWLER"; break;
+    case 0x98: sRace = "ELEMENTAL"; break;
+    case 0x99: sRace = "GIANT"; break;
+    case 0x9A: sRace = "DRAKE"; break;
+    case 0x9B: sRace = "GOBLIN"; break;
+    case 0x9C: sRace = "GOLEM"; break;
+    case 0x9D: sRace = "LIZARDMAN"; break;
+    case 0x9E: sRace = "MANTICORE"; break;
+    case 0x9F: sRace = "MYCONID"; break;
+    case 0xA0: sRace = "ORC"; break;
+    case 0xA1: sRace = "SALAMANDER"; break;
+    case 0xA2: sRace = "SHRIEKER"; break;
+    case 0xA3: sRace = "SVIRFNEBLIN"; break;
+    case 0xA4: sRace = "TANARI"; break;
+    case 0xA5: sRace = "TROLL"; break;
+    case 0xA6: sRace = "UMBERHULK"; break;
+    case 0xA7: sRace = "UNDEAD"; break;
+    case 0xA8: sRace = "YUANTI"; break;
+    case 0xAE: sRace = "HARPY"; break;
+    case 0xB1: sRace = "BEHOLDER"; break;
+    case 0xB3: sRace = "MINOTAUR"; break;
+    case 0xB4: sRace = "BUGBEAR"; break;
+    case 0xB5: sRace = "HOOKHORROR"; break;
+    case 0xB6: sRace = "DRIDER"; break;
+    case 0xB7: sRace = "DROW"; break;
+    case 0xB8: sRace = "MIND_FLAYER"; break;
+    case 0xBF: sRace = "SHAPESHIFTER"; break;
+    case 0xC0: sRace = "WILLOWISP"; break;
+    case 0xC1: sRace = "OTYUGH"; break;
+    case 0xFF: sRace = "NO_RACE"; break;
+    }
+    return sRace;
+}
+
 // 0x72FD20
 //
 // Per-round modal / passive-ability update, called once per active AI tick from
