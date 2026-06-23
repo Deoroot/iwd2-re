@@ -10990,13 +10990,110 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
     switch (m_nModalState) {
     case 1:
         // Bard song.  With the Lingering Song feat the song lingers one more
-        // round, re-applying its ability effects to nearby allies and showing
-        // no "song ended" feedback.  That re-application posts the effects
-        // through the composite effect-list message constructed at 0x5152C0
-        // (message subtype 105), which is not yet recovered; leave the lingering
-        // effect unimplemented rather than invent it -- the modal still stops
-        // correctly below.  Faithful range left unrecovered: 0x71FC41-0x720245.
+        // round: re-apply its ability effects to nearby allies (two rounds of
+        // duration) and show the lingering-song feedback instead of "song
+        // ended".  Recovered from 0x71FC41-0x720245 -- the same per-cycle
+        // re-application as sub_72FD20 case 0, but ally-filtered and longer.
         if (HasFeat(CGAMESPRITE_FEAT_LINGERING_SONG) == 1) {
+            CInfGame* pLingerGame = g_pBaldurChitin->GetObjectGame();
+            // A silenced singer (derived or base state) cannot sing; the game
+            // flag at +0x43E6 (store/dialog/cutscene gate) also suppresses it.
+            if ((m_derivedStats.m_generalState & STATE_SILENCED) == 0
+                && (m_baseStats.m_generalState & STATE_SILENCED) == 0
+                && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pLingerGame) + 0x43E6) != 1) {
+                UTIL_ASSERT(m_nLastSong < pLingerGame->m_songs.m_nCount);
+                CResRef songRes = pLingerGame->m_songs.Get636(m_nLastSong);
+
+                CSpell spell(songRes);
+                spell.Demand();
+                if (spell.GetCasterType() == 5) {
+                    FeedBack(FEEDBACK_LINGERINGSONG, 0, 0, 0, spell.GetGenericName(), 0, 0);
+                    SPELL_ABILITY* pAbility = spell.GetAbility(0);
+
+                    // Gather everyone within 400 of the singer, plus the singer.
+                    CTypedPtrList<CPtrList, LONG*> targets;
+                    m_pArea->GetCloseObjects(GetVertListPos(), GetPos(), CAIObjectType::ANYONE,
+                        400, GetTerrainTable(), targets, TRUE, FALSE);
+                    m_pArea->GetAllInRangeBack(GetPos(), CAIObjectType::ANYONE, 400,
+                        GetTerrainTable(), targets, TRUE, FALSE, FALSE);
+                    targets.AddTail(reinterpret_cast<LONG*>(m_id));
+
+                    SHORT nEffects = *reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(pAbility) + 0x1E);
+
+                    POSITION pos = targets.GetHeadPosition();
+                    while (pos != NULL) {
+                        LONG allyId = reinterpret_cast<LONG>(targets.GetNext(pos));
+
+                        CGameObject* pAlly;
+                        BYTE rc = pLingerGame->GetObjectArray()->GetShare(allyId,
+                            CGameObjectArray::THREAD_ASYNCH, &pAlly, INFINITE);
+                        if (rc != CGameObjectArray::SUCCESS) {
+                            continue;
+                        }
+
+                        if (pAlly->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                            CGameSprite* pAllySprite = static_cast<CGameSprite*>(pAlly);
+
+                            // The hostile Siren's Yearning (SPIN147) is not an ally
+                            // buff: for it, skip allies, charm-immune sprites, and
+                            // sprites flagged at +0xA10 & 0x40.  Every other song
+                            // buffs allies only.
+                            BOOL skip = FALSE;
+                            if (songRes == "SPIN147"
+                                && (IcewindMisc::AreAllies(this, pAllySprite)
+                                    || IcewindMisc::sud_585070(pAllySprite)
+                                    || (*(reinterpret_cast<BYTE*>(pAllySprite) + 0xA10) & 0x40))) {
+                                skip = TRUE;
+                            }
+
+                            if (!skip && IcewindMisc::AreAllies(this, pAllySprite)) {
+                                CMessage105::Node localHead;
+                                localHead.m_pNext = &localHead;
+                                localHead.m_pPrev = &localHead;
+
+                                for (SHORT i = 0; i < nEffects; i++) {
+                                    CGameEffect* pEff = spell.BuildAbilityEffect(0, i, this, 0, 0, 0);
+                                    *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x7C) = m_pos.x;
+                                    *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x80) = m_pos.y;
+                                    pEff->m_sourceID = m_id;
+                                    IcewindMisc::ApplyDamageModifiers(this, pEff);
+                                    // Re-tag a "Duration"-timed song effect to expire
+                                    // two rounds out (game time + 200) so the lingering
+                                    // buff survives instead of reading as already past.
+                                    if (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) == 0
+                                        && *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) == 7) {
+                                        pEff->m_durationType = 0x1000;
+                                        pEff->m_duration =
+                                            g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + 200;
+                                    }
+
+                                    CMessageAddEffect* pSub = new CMessageAddEffect(pEff, m_id, allyId);
+                                    CMessage105::Node* pNode = new CMessage105::Node;
+                                    pNode->m_pMessage = pSub;
+                                    pNode->m_pNext = &localHead;
+                                    pNode->m_pPrev = localHead.m_pPrev;
+                                    localHead.m_pPrev->m_pNext = pNode;
+                                    localHead.m_pPrev = pNode;
+                                }
+
+                                CMessage* pMsg = new CMessage105(&localHead, m_id, allyId);
+                                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+
+                                CMessage105::Node* p = localHead.m_pNext;
+                                while (p != &localHead) {
+                                    CMessage105::Node* pNext = p->m_pNext;
+                                    delete p;
+                                    p = pNext;
+                                }
+                            }
+                        }
+
+                        pLingerGame->GetObjectArray()->ReleaseShare(allyId,
+                            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    }
+                }
+                spell.Release();
+            }
             goto updateState;
         }
         nFeedback = FEEDBACK_BATTLESONGEND;
