@@ -3622,6 +3622,62 @@ CGameEffect* CGameEffectInvisible::Copy()
     return copy;
 }
 
+// 0x4AED10
+BOOL CGameEffectInvisible::ApplyEffect(CGameSprite* pSprite)
+{
+    // First pass over the effect emits the one-shot combat-feedback line;
+    // DisplayStringRef self-gates on the effect-text option + load state.
+    if (m_firstCall) {
+        if (m_effectAmount == 0) {
+            DisplayStringRef(pSprite, 14020); // "Invisible"
+        } else if (m_effectAmount == 1) {
+            DisplayStringRef(pSprite, 14783); // "Improved Invisibility"
+        }
+    }
+
+    pSprite->GetDerivedStats()->m_visualEffects[IWD_VFX_INVISIBILITY] = true;
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    if (m_effectAmount == 1) {
+        // Improved invisibility (m_effectAmount 1).  m_dwFlags == 1 is the
+        // base-stats / equipped pass; otherwise stamp the live derived state.
+        if (m_dwFlags != 1) {
+            pSprite->AddPortraitIcon(144);
+            pGame->UpdatePortrait(pGame->GetCharacterPortraitNum(pSprite->GetId()), 1);
+            pSprite->GetDerivedStats()->m_generalState |= (STATE_INVISIBLE | STATE_IMPROVEDINVISIBILITY);
+            if (IcewindMisc::IsEnemyNearby(pSprite)) {
+                return TRUE;
+            }
+            // Clear the force-visible sanctuary bit CGameEffectForceVisible set.
+            pSprite->GetBaseStats()->m_critSectService &= ~0x1;
+            return TRUE;
+        }
+        pSprite->GetBaseStats()->m_generalState |= (STATE_INVISIBLE | STATE_IMPROVEDINVISIBILITY);
+        m_done = TRUE;
+        m_forceRepass = TRUE;
+        return TRUE;
+    }
+
+    // m_effectAmount 0 and 2 share the plain-invisibility path; any other
+    // amount is a no-op.
+    if (m_effectAmount != 0 && m_effectAmount != 2) {
+        return TRUE;
+    }
+
+    if (m_dwFlags != 1) {
+        pSprite->AddPortraitIcon(110);
+        pGame->UpdatePortrait(pGame->GetCharacterPortraitNum(pSprite->GetId()), 1);
+        pSprite->GetDerivedStats()->m_generalState |= STATE_INVISIBLE;
+        return TRUE;
+    }
+
+    pSprite->GetBaseStats()->m_generalState |= STATE_INVISIBLE;
+    m_done = TRUE;
+    m_forceRepass = TRUE;
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // NOTE: Inlined.
