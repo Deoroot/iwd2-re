@@ -12467,7 +12467,10 @@ void CGameSprite::sub_72FD20()
         // Unrecovered: per-round detect-traps / search sweep.
         break;
     case 2:
-        // Unrecovered: per-round stealth upkeep.
+        // Hide in Shadows is re-checked once every three modal cycles.
+        if (m_modalCounter % 3 == 0) {
+            sub_757B40();
+        }
         break;
     case 3:
         // Unrecovered: per-round turn-undead sweep.
@@ -12475,6 +12478,185 @@ void CGameSprite::sub_72FD20()
     default:
         break;
     }
+}
+
+// 0x757B40
+SHORT CGameSprite::sub_757B40()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // D20 stealth roll scaled to 5..100 (a 1..20 roll times five, plus five).
+    int nRoll = (rand() % 20) * 5 + 5;
+
+    // A natural 20 (a roll of 100), or a pending forced-reveal request, breaks
+    // stealth outright -- no per-creature comparison is made.
+    if (nRoll == 100 || *reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(this) + 0x16CC) != 0) {
+        m_bHiding = FALSE;
+        FeedBack(0xD, 0, 0, 0, -1, 0, 0);
+        m_nStealthGreyOut = 90;
+        *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35F6) = 100;
+        SetModalState(0, TRUE);
+        // If this sprite owns the selected portrait and the mouse is not in a
+        // special targeting cursor mode, refresh the action toolbar.
+        if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
+                == pGame->GetCharacterPortraitNum(m_id)) {
+            int nCursorState = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35FA);
+            if (nCursorState != 0x66 && nCursorState != 0x65 && nCursorState != 0x68
+                && nCursorState != 0x67 && nCursorState != 0x69 && nCursorState != 0x70
+                && nCursorState != 0x73 && nCursorState != 0x74 && nCursorState != 0x75
+                && nCursorState != 0x76 && nCursorState != 0x77 && nCursorState != 0x78
+                && nCursorState != 0x79 && nCursorState != 0x7A && nCursorState != 0x7B
+                && nCursorState != 0x6A) {
+                pGame->GetButtonArray()->ResetState();
+            }
+        }
+        return -1;
+    }
+
+    const CRuleTables& ruleTables = pGame->GetRuleTables();
+
+    // The nearest creature that counts us as an enemy is the potential witness.
+    LONG nEnemyId = m_pArea->GetNearest(m_id, GetAIType().GetEnemyOf(), GetVisualRange(),
+        GetVisibleTerrainTable(), TRUE, TRUE, TRUE, 0, FALSE);
+
+    // Stealth value = mean of Hide and Move Silently, scaled down by ambient
+    // light: a bright tile erodes the skill, full dark leaves it untouched.
+    int nMoveSilently = static_cast<char>(m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_MOVE_SILENTLY]);
+    int nHide = static_cast<char>(m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_HIDE]);
+    int nStealth = (nHide + nMoveSilently) / 2;
+    INT nHideSkillMod = GetSkillModifier(CGAMESPRITE_SKILL_HIDE);
+    {
+        CString sRace = GetRaceLabel(GetAIType().m_nRace);
+        int nLightMod = atol(ruleTables.m_tCRELIGHT.GetAt(CString("LIGHTMOD"), sRace));
+        char nLight = GetLightLevel();
+        nStealth = ((nStealth - (nLight * nLightMod * nStealth) / 10000) + 10) * 5;
+    }
+
+    BOOL bDetected = FALSE;
+    if (nEnemyId == CGameObjectArray::INVALID_INDEX) {
+        // No witness in range: contest the light-adjusted stealth against the roll.
+        if (nStealth <= nRoll) {
+            FeedBack(0x53, nStealth / 5, nRoll / 5, nHideSkillMod, 0x9984, 0, 0);
+            bDetected = TRUE;
+        } else {
+            FeedBack(0x53, nStealth / 5, nRoll / 5, nHideSkillMod, 0x9983, 0, 0);
+        }
+    } else {
+        CGameObject* pObject;
+        BYTE rc;
+        do {
+            do {
+                rc = pGame->GetObjectArray()->GetShare(nEnemyId, CGameObjectArray::THREAD_ASYNCH,
+                    &pObject, INFINITE);
+            } while (rc == CGameObjectArray::SHARED);
+        } while (rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            CGameSprite* pEnemy = static_cast<CGameSprite*>(pObject);
+            BYTE nEnemyLevel = pEnemy->m_derivedStats.m_nLevel;
+            INT nWisMod = ruleTables.GetAbilityScoreModifier(pEnemy->m_derivedStats.m_nWIS);
+            CString sEnemyRace = GetRaceLabel(pEnemy->GetAIType().m_nRace);
+
+            // A deafened enemy cannot hear us, so the Move Silently contest is skipped.
+            if (!pEnemy->m_derivedStats.m_spellStates[SPLSTATE_DEAFENED]) {
+                LONG nHearing = (atol(ruleTables.m_tCREHIDEM.GetAt(CString("QUIETMOD"), sEnemyRace))
+                    + nWisMod + nEnemyLevel) * 5;
+                if (nHearing < 0) {
+                    nHearing = 0;
+                }
+                LONG nResult;
+                if (nHearing + nRoll < nMoveSilently) {
+                    bDetected = TRUE;
+                    nResult = 0x9981;
+                } else {
+                    nResult = 0x70;
+                }
+                FeedBack(0x53, nMoveSilently / 5, nHearing / 5, nRoll / 5, nResult, 0, 0);
+            }
+
+            // A blinded enemy cannot see us, so the Hide in Shadows contest is skipped.
+            if ((pEnemy->m_derivedStats.m_generalState & STATE_BLIND) == 0) {
+                BYTE nLevel = pEnemy->m_derivedStats.m_nLevel;
+                nWisMod = ruleTables.GetAbilityScoreModifier(pEnemy->m_derivedStats.m_nWIS);
+                LONG nSight = (atol(ruleTables.m_tCREHIDEM.GetAt(CString("HIDEMOD"), sEnemyRace))
+                    + nWisMod + nLevel) * 5;
+                if (nSight < 0) {
+                    nSight = 0;
+                }
+                pGame->GetObjectArray()->ReleaseShare(nEnemyId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                LONG nResult;
+                if (nSight + nRoll < nHide) {
+                    nResult = 0x6EDB;
+                } else {
+                    nResult = 0x9982;
+                    bDetected = TRUE;
+                }
+                FeedBack(0x53, nStealth / 5, nSight / 5, nRoll / 5, nResult, 0, 0);
+            }
+
+            // A creature that can neither hear nor see contests a plain stealth roll.
+            if (pEnemy->m_derivedStats.m_spellStates[SPLSTATE_DEAFENED]
+                && (pEnemy->m_derivedStats.m_generalState & STATE_BLIND)) {
+                LONG nResult;
+                if (nRoll < nStealth) {
+                    nResult = 0x9983;
+                } else {
+                    nResult = 0x9984;
+                    bDetected = TRUE;
+                }
+                FeedBack(0x53, nStealth / 5, nRoll / 5, nHideSkillMod, nResult, 0, 0);
+            }
+
+            pGame->GetObjectArray()->ReleaseShare(nEnemyId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+
+    if (bDetected) {
+        // Stealth broken: clear the hiding flag and modal state, grey the stealth
+        // button, and (when this sprite owns the toolbar) refresh it.
+        m_bHiding = FALSE;
+        m_nModalState = 0;
+        FeedBack(0xD, 0, 0, 0, -1, 0, 0);
+        m_nStealthGreyOut = 90;
+        *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35F6) = 100;
+        SetModalState(0, TRUE);
+        if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
+                == pGame->GetCharacterPortraitNum(m_id)) {
+            int nCursorState = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35FA);
+            if (nCursorState != 0x66 && nCursorState != 0x65 && nCursorState != 0x68
+                && nCursorState != 0x67 && nCursorState != 0x69 && nCursorState != 0x70
+                && nCursorState != 0x73 && nCursorState != 0x74 && nCursorState != 0x75
+                && nCursorState != 0x76 && nCursorState != 0x77 && nCursorState != 0x78
+                && nCursorState != 0x79 && nCursorState != 0x7A && nCursorState != 0x7B
+                && nCursorState != 0x6A) {
+                pGame->GetButtonArray()->ResetState();
+            }
+        }
+    } else {
+        // Still hidden: play the stealth cue on the cycle we first hide, then
+        // renew a three-round self-invisibility so the sprite stays unseen.
+        if (!m_bHiding) {
+            CResRef sound("ACT_07");
+            PlaySound(sound);
+        }
+        FeedBack(0x11, 0, 0, 0, -1, 0, 0);
+
+        ITEM_EFFECT* pEffect = new ITEM_EFFECT;
+        CGameEffect::ClearItemEffect(pEffect, CGAMEEFFECT_INVISIBLE);
+        pEffect->dwFlags = 0;
+        pEffect->effectAmount = 1;
+        pEffect->durationType = 0x1000;
+        pEffect->duration = pGame->GetWorldTimer()->m_gameTime + 3 * 100;
+        CGameEffect* pDecoded = CGameEffect::DecodeEffect(pEffect, m_pos, m_id, CPoint(-1, -1));
+        CMessage* pMessage = new CMessageAddEffect(pDecoded, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+        delete pEffect;
+
+        m_bHiding = TRUE;
+        m_nModalState = 3;
+    }
+
+    return -1;
 }
 
 // 0x71F6E0
