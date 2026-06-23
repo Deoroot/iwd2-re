@@ -12487,10 +12487,11 @@ SHORT CGameSprite::sub_757B40()
 
     // D20 stealth roll scaled to 5..100 (a 1..20 roll times five, plus five).
     int nRoll = (rand() % 20) * 5 + 5;
+    DWORD nForceReveal = *reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(this) + 0x16CC);
 
     // A natural 20 (a roll of 100), or a pending forced-reveal request, breaks
     // stealth outright -- no per-creature comparison is made.
-    if (nRoll == 100 || *reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(this) + 0x16CC) != 0) {
+    if (nRoll == 100 || nForceReveal != 0) {
         m_bHiding = FALSE;
         FeedBack(0xD, 0, 0, 0, -1, 0, 0);
         m_nStealthGreyOut = 90;
@@ -12510,7 +12511,7 @@ SHORT CGameSprite::sub_757B40()
                 pGame->GetButtonArray()->ResetState();
             }
         }
-        return -1;
+        return ACTION_DONE;
     }
 
     const CRuleTables& ruleTables = pGame->GetRuleTables();
@@ -12656,7 +12657,7 @@ SHORT CGameSprite::sub_757B40()
         m_nModalState = 3;
     }
 
-    return -1;
+    return ACTION_DONE;
 }
 
 // 0x71F6E0
@@ -18497,6 +18498,18 @@ SHORT CGameSprite::ExecuteAction()
         // DEFERRED: when no target resolves, the binary (0x729296..0x729378)
         // walks the party list for an eligible talker.
         return actionReturn;
+    }
+
+    if (m_curAction.m_actionID == 18) {
+        // Hide() (ACTION.IDS 18, jumptable case at 0x72956F).  The instant the
+        // queued Hide() action runs -- before the modal upkeep's next three-cycle
+        // tick -- run one stealth detection pass so the sprite hides (or is
+        // spotted) right away.  Skipped once already hidden; the per-cycle
+        // re-check then lives in sub_72FD20 case 2.
+        if (!m_bHiding) {
+            return sub_757B40();
+        }
+        return ACTION_DONE;
     }
 
     if (m_curAction.m_actionID == 0x8B) {
