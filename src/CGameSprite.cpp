@@ -11034,10 +11034,17 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
                         if (pAlly->GetObjectType() == CGameObject::TYPE_SPRITE) {
                             CGameSprite* pAllySprite = static_cast<CGameSprite*>(pAlly);
 
-                            // The hostile Siren's Yearning (SPIN147) is not an ally
-                            // buff: for it, skip allies, charm-immune sprites, and
-                            // sprites flagged at +0xA10 & 0x40.  Every other song
-                            // buffs allies only.
+                            // SPIN147 (the hostile Siren's Yearning) is meant to
+                            // target enemies, so it gets its own pre-filter that
+                            // skips allies, charm-immune sprites, and sprites
+                            // flagged at +0xA10 & 0x40.  But this branch and the
+                            // every-other-song branch both fall into the same final
+                            // AreAllies gate below (0x71FFCB), which only lets allies
+                            // through -- so the enemy pre-filter is dead code and
+                            // SPIN147 never lingers on anyone.  Latent bug in
+                            // IWD2.exe, reproduced faithfully.  (Its per-round
+                            // application in sub_72FD20 case 0 has no ally gate, so
+                            // it does reach enemies while the song is being sung.)
                             BOOL skip = FALSE;
                             if (songRes == "SPIN147"
                                 && (IcewindMisc::AreAllies(this, pAllySprite)
@@ -11046,6 +11053,7 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
                                 skip = TRUE;
                             }
 
+                            // Final ally gate (0x71FFCB) -- both branches funnel here.
                             if (!skip && IcewindMisc::AreAllies(this, pAllySprite)) {
                                 CMessage105::Node localHead;
                                 localHead.m_pNext = &localHead;
