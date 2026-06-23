@@ -42,7 +42,7 @@ scripts/vm.sh run [slot]      # kill OUR iwd2-re.exe + launch session 1 (default
 scripts/vm.sh log <regex> [-n 50] [-f path]   # Select-String VM-side (UTF-16 safe); also: tail/status/ps/pull/push
 scripts/vm.sh frida script.py # ship + run as session-1 payload, ready-to-log
 ```
-- Kill policy: `build` never kills; `run` kills our exe only; original `IWD2.exe` only via explicit `vm.sh kill orig` (Frida sessions survive builds).
+- Kill policy: `build` never kills; `run` kills our exe only. Original `IWD2.exe` is fair to kill once a trace/investigation is done — don't leave it running idle (wastes CPU/power); relaunch fresh for the next trace rather than keeping it up. Frida sessions survive builds.
 - GUI over SSH = session 0 (never renders); session 1 via `vm_s1.cmd` required for render/input/Frida. Smoke timeout there = no desktop, not a crash.
 - Commits must compile VS2019 Win32. Rename → update `.h` + ALL `.cpp` in one commit. Build fail → stop. `git push` periodically — commits pile up unpushed on `main`.
 
