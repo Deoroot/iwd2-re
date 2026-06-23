@@ -36,17 +36,44 @@ def bleed(rgb, alpha):
                     prev = (p[i, :, :] if axis == 0 else p[:, i, :]).copy()
     return Image.fromarray(p)
 
-def hd_frame(model, im):
+def defringe(rgba, rings=1):
+    """Item-icon edge cleanup: erode `rings` boundary pixels whose luminance is near-black
+    (the baked dark AA outline + drop-shadow fringe), keeping the item (its material is
+    dark-grey/coloured, only the outline/shadow/AA is near-black). NOT de-black (which would
+    gut dark item parts) -- this only touches the silhouette boundary."""
+    a = np.asarray(rgba).copy(); al = a[..., 3]; rgb = a[..., :3].astype(np.float32)
+    lum = 0.299*rgb[..., 0] + 0.587*rgb[..., 1] + 0.114*rgb[..., 2]
+    op = al >= 128
+    inner = op.copy()
+    for _ in range(rings+1):
+        e = inner.copy(); e[:-1] &= inner[1:]; e[1:] &= inner[:-1]; e[:, :-1] &= inner[:, 1:]; e[:, 1:] &= inner[:, :-1]; inner = e
+    med = np.median(lum[inner]) if inner.any() else 128
+    dark_t = max(50, med*0.5)
+    for _ in range(rings):
+        o = al >= 128; tadj = np.zeros_like(o)
+        tadj[:-1] |= ~o[1:]; tadj[1:] |= ~o[:-1]; tadj[:, :-1] |= ~o[:, 1:]; tadj[:, 1:] |= ~o[:, :-1]
+        al[(o & tadj) & (lum < dark_t)] = 0
+    a[..., 3] = al
+    return Image.fromarray(a)
+
+def hd_frame(model, im, defringe_rings=0):
     w, h = im.size
     if w == 0 or h == 0:
         return im.resize((max(w*2, 1), max(h*2, 1)))
     rd = im.split()
     rgb = im.convert("RGB"); alpha = rd[3] if len(rd) == 4 else Image.new("L", im.size, 255)
     bled = bleed(rgb, alpha)
-    big = upscale_ai.upscale(model, bled)                  # ~4x
-    hd = big.resize((w*2, h*2), Image.LANCZOS)
-    am = alpha.resize((w*2, h*2), Image.NEAREST).point(lambda v: 255 if v >= 128 else 0)
-    out = hd.convert("RGBA"); out.putalpha(am)
+    big = upscale_ai.upscale(model, bled)                  # ~4x RGB
+    # Silhouette: upscale the 1-bit alpha SMOOTHLY to the model's 4x, carry it through the same
+    # Lanczos downscale as the colour, THEN threshold to 1-bit. The edge follows the true contour
+    # instead of NEAREST 2x2 pixel-doubling (which stair-steps = aliasing the AI then sharpens).
+    big_a = alpha.resize(big.size, Image.LANCZOS)
+    rgba = big.convert("RGBA"); rgba.putalpha(big_a)
+    hd = rgba.resize((w*2, h*2), Image.LANCZOS)
+    am = hd.split()[3].point(lambda v: 255 if v >= 128 else 0)
+    out = hd.convert("RGB").convert("RGBA"); out.putalpha(am)
+    if defringe_rings > 0:                                 # item icons: strip baked dark outline/shadow fringe
+        out = defringe(out, defringe_rings)
     return out
 
 def main():

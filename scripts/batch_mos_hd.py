@@ -15,7 +15,7 @@ GAME = "/home/wills/Games/Heroic/Icewind Dale 2"
 CLONE_MOS = "/home/wills/IWD2EE/iwd2ee/ieex_override"
 GREEN = (0, 255, 0)
 
-def key_index():
+def key_index(prefix=""):
     key = open(f"{GAME}/CHITIN.KEY", "rb").read()
     nbif, nres, bifoff, resoff = struct.unpack_from("<IIII", key, 8)
     def bifn(loc):
@@ -27,7 +27,7 @@ def key_index():
         o = resoff + i*14
         nm = key[o:o+8].split(b'\x00')[0].decode('latin1', 'ignore').upper()
         rt, loc = struct.unpack_from("<HI", key, o+8)
-        if rt == 0x03EC and nm.startswith("GUI"):
+        if rt == 0x03EC and nm.startswith(prefix):
             idx[nm] = (loc, bifn(loc))
     return idx
 
@@ -40,7 +40,7 @@ def extract(loc, bn):
         if (l & 0x3FFF) == fi:
             return bif[do:do+ds]
 
-def hd_one(model, raw):
+def hd_one(model, raw, tile=0):
     m = parse_mos(raw); img = mos_to_image(m); w, h = img.size; px = img.load()
     mask = Image.new("L", (w, h), 0); mp = mask.load(); has = False
     for y in range(h):
@@ -57,18 +57,20 @@ def hd_one(model, raw):
             for x in range(w):
                 if mp[x, y] == 0: last = px[x, y]
                 elif last is not None: px[x, y] = last
-    up = upscale_ai.upscale(model, img)
+    up = upscale_ai.upscale(model, img, tile=tile)
     hd = up.resize((w*2, h*2), Image.LANCZOS)
     if has:
         hm = mask.resize((w*2, h*2), Image.NEAREST).point(lambda v: 255 if v >= 128 else 0)
         hd.paste(Image.new("RGB", hd.size, GREEN), (0, 0), hm)
-    return image_to_mos(hd)
+    return image_to_mos(hd, global_palette=False)  # per-64x64-tile 256 palettes (native MOS), NOT one global 256 -> no banding on paintings
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("model"); ap.add_argument("--minh", type=int, default=90); ap.add_argument("--minw", type=int, default=250)
+    ap.add_argument("--prefix", default="", help="resref prefix filter; '' = ALL MOS")
+    ap.add_argument("--tile", type=int, default=0, help="tile size for heavy transformers (DAT) to bound VRAM; 0=whole image")
     a = ap.parse_args()
-    idx = key_index()
+    idx = key_index(a.prefix)
     model = upscale_ai.load(a.model)
     done = []
     for nm in sorted(idx):
@@ -79,7 +81,7 @@ def main():
             w, h = struct.unpack_from("<HH", dec, 8)
             if h < a.minh or w < a.minw:
                 continue
-            out = hd_one(model, raw)
+            out = hd_one(model, raw, tile=a.tile)
             open(f"{GAME}/Override/{nm}.MOS", "wb").write(out)
             open(f"{CLONE_MOS}/{nm}.MOS", "wb").write(out)
             done.append(nm)

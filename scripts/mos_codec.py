@@ -82,12 +82,12 @@ def image_to_mos(img, tilesize=64, compress=True, global_palette=True, dither=Fa
                 if tgs:
                     op = Image.new("RGB", tile.size)
                     op.putdata([(0, 0, 0) if i in tgs else p for i, p in enumerate(td)])
-                    q = op.quantize(colors=255, method=Image.MEDIANCUT, dither=dmode)
+                    q = op.quantize(colors=255, method=Image.MAXCOVERAGE, dither=dmode)  # MAXCOVERAGE preserves saturated accents (gold) vs MEDIANCUT starving them in grey-dominated tiles
                     pal_blob += pal255_bgrx(q.getpalette())
                     qi = list(q.getdata())
                     pix = bytes(0 if i in tgs else qi[i] + 1 for i in range(len(td)))
                 else:
-                    q = tile.quantize(colors=256, method=Image.MEDIANCUT, dither=dmode)
+                    q = tile.quantize(colors=256, method=Image.MAXCOVERAGE, dither=dmode)  # preserve saturated accents
                     pal = q.getpalette()[:256*3]; pal += [0]*(256*3 - len(pal))
                     for i in range(256):
                         r, g, bb = pal[i*3], pal[i*3+1], pal[i*3+2]
