@@ -738,6 +738,11 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x26;
             nToolTip = 0x133F;
             nHotKey = 0x10;
+            // Selection highlight tracks the leader's persistent search modal
+            // (state 2), not the transient m_nSelectedButton match -- override
+            // the generic set above (0x58A340 case 4: clear piVar8[0x73], set it
+            // to 1 only when the shared leader's m_nModalState == 2).
+            settings.m_bSelected = (GetSelectedModalMode() == 2);
             break;
         case 5:
             // Skills button. Ghidra case 5 frames 0x60/0x62, tooltip 0x1345.
@@ -765,6 +770,20 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x1E;
             nToolTip = 0x1368;
             nHotKey = 0xF;
+            // Grey the button out while a forced reveal is pending (+0x16CC == 1)
+            // or the post-reveal grey-out timer is still ticking
+            // (m_nStealthGreyOut > 0), so stealth cannot be re-armed mid-cooldown
+            // (0x58A340 case 0xB: set piVar8[0x77] / m_bGreyOut).
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
+                && (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pSprite) + 0x16CC) == 1
+                    || pSprite->m_nStealthGreyOut > 0)) {
+                bGreyOut = TRUE;
+            }
+            // Selection highlight tracks the leader's persistent stealth modal
+            // (state 3), not the transient m_nSelectedButton match -- override
+            // the generic set above (0x58A340 case 0xB: clear piVar8[0x73], set
+            // it to 1 only when the shared leader's m_nModalState == 3).
+            settings.m_bSelected = (GetSelectedModalMode() == 3);
             break;
         case 0x0C:
             // Thieving. Ghidra case 0x0C frames 0x18/0x1A, tooltip 0x136B.
