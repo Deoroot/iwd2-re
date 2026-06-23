@@ -616,6 +616,7 @@ public:
     void sub_71CEA0(CItem* pItem, int a2);
     int sub_75E930(int a1);
     int GetBaseMovementRate();
+    char GetLightLevel();
     CString GetRaceLabel(BYTE nRace);
     const CString& GetName();
     STRREF GetNameRef();
