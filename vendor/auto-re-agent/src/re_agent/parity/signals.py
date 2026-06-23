@@ -168,6 +168,8 @@ _ECX_OTHER_RE = re.compile(r"\bMOV\s+ECX,")
 _CALL_TGT_RE = re.compile(r"\bCALL\s+(\S+)")
 _DECL_RE = re.compile(r"/\*\s*([0-9A-Fa-f]+)\s*\*/\s*[^;{]*?\bm_(\w+)\s*(?:\[[^\]]*\])?\s*;")
 _MEMBER_CALL_RE = re.compile(r"\bm_(\w+)\s*(?:\.|->)\s*(\w+)\s*\(")
+_TYPE_OPEN_RE = re.compile(r"\b(?:class|struct)\s+(\w+)\b")
+_FWD_DECL_RE = re.compile(r"^\s*(?:class|struct)\s+\w+\s*;")
 
 _HEADER_CACHE: dict[str, dict[str, dict[str, int]]] = {}
 _FNNAME_CACHE: dict[str, dict[str, str]] = {}
@@ -175,16 +177,46 @@ _FNNAME_CACHE: dict[str, dict[str, str]] = {}
 
 def build_member_offsets(source_root: Path) -> dict[str, dict[str, int]]:
     """{ClassName: {m_member: byte_offset}} from `/* 0xNNN */ ... m_x;` header comments —
-    the recovery's own annotations, the bridge between C++ names and binary offsets."""
+    the recovery's own annotations, the bridge between C++ names and binary offsets.
+
+    Keyed by the *declaring class*, not the file stem, and only members at that class's own
+    top level are recorded. A header may hold several classes (e.g. CGameSpriteLastUpdate
+    beside CGameSprite), and a nested struct/union re-bases its `/* 0xNNN */` offsets to its
+    own 0x0000 — flattening either into one stem-keyed dict collides distinct members at the
+    same offset (the m_pArea vs m_nSequence +0x12 false positive on sub_757B40)."""
     key = str(source_root)
     cached = _HEADER_CACHE.get(key)
     if cached is not None:
         return cached
     out: dict[str, dict[str, int]] = {}
     for hp in Path(source_root).rglob("*.h"):
-        d = out.setdefault(hp.stem, {})
-        for m in _DECL_RE.finditer(hp.read_text(errors="replace")):
-            d.setdefault(f"m_{m.group(2)}", int(m.group(1), 16))
+        depth = 0
+        stack: list[tuple[str, int]] = []  # (class_name, brace depth of its body)
+        pending: str | None = None         # class/struct name awaiting its opening brace
+        for line in hp.read_text(errors="replace").splitlines():
+            # Record a member only when it sits directly in the innermost class body: a
+            # nested struct/union is one brace deeper and its offsets are sub-struct-relative.
+            md = _DECL_RE.search(line)
+            if md and stack and depth == stack[-1][1]:
+                out.setdefault(stack[-1][0], {}).setdefault(
+                    f"m_{md.group(2)}", int(md.group(1), 16)
+                )
+            if not _FWD_DECL_RE.match(line):
+                mt = _TYPE_OPEN_RE.search(line)
+                if mt:
+                    pending = mt.group(1)
+            for ch in line:
+                if ch == "{":
+                    depth += 1
+                    if pending is not None:
+                        stack.append((pending, depth))
+                        pending = None
+                elif ch == "}":
+                    if stack and stack[-1][1] == depth:
+                        stack.pop()
+                    depth -= 1
+            if line.rstrip().endswith(";"):  # a finished statement is not a pending class
+                pending = None
     _HEADER_CACHE[key] = out
     return out
 

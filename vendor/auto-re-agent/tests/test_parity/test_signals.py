@@ -4,6 +4,7 @@ from __future__ import annotations
 from re_agent.core.models import GhidraData, HookEntry, SourceMatch
 from re_agent.parity.signals import (
     ALL_SIGNALS,
+    build_member_offsets,
     check_call_count_mismatch,
     check_concat_swap,
     check_fp_sensitivity,
@@ -273,3 +274,72 @@ def test_concat_swap_guards() -> None:
     assert check_concat_swap(source=None, entry=entry) is None
     assert check_concat_swap(source=_make_source(), entry=None) is None
     assert check_concat_swap(source=None, entry=None) is None
+
+
+# A header holding two classes (CGameSpriteLastUpdate beside CGameSprite) plus a nested
+# struct, mirroring src/CGameSprite.h. The two m_nSequence at /* 0012 */ and /* 5348 */ and
+# the nested-struct /* 0012 */ member are the exact shape that produced the m_pArea vs
+# m_nSequence +0x12 false positive when offsets were flattened under one file-stem key.
+_MULTI_CLASS_HEADER = """\
+struct Spell_ability_st;
+
+class CGameSpriteLastUpdate {
+public:
+    /* 0000 */ int m_nLastTick;
+    /* 0012 */ short m_nSequence;
+};
+
+class CGameSprite : public CGameAIBase {
+public:
+    /* 0010 */ int m_nFoo;
+    struct {
+        /* 0000 */ int m_subA;
+        /* 0012 */ int m_subB;
+    } m_path;
+    /* 5348 */ SHORT m_nSequence;
+};
+"""
+
+
+def _write_header(tmp_path: object, text: str) -> object:
+    src = tmp_path / "src"  # type: ignore[operator]
+    src.mkdir()
+    (src / "CGameSprite.h").write_text(text)
+    return src
+
+
+def test_member_offsets_keyed_by_declaring_class(tmp_path: object) -> None:
+    src = _write_header(tmp_path, _MULTI_CLASS_HEADER)
+    offsets = build_member_offsets(src)  # type: ignore[arg-type]
+    # Each class owns its own members; the sibling class no longer bleeds into the other.
+    assert offsets["CGameSpriteLastUpdate"]["m_nSequence"] == 0x12
+    assert offsets["CGameSprite"]["m_nSequence"] == 0x5348
+    assert offsets["CGameSprite"]["m_nFoo"] == 0x10
+    # The nested struct's 0x0000-relative members are NOT flattened into the class.
+    assert "m_subA" not in offsets["CGameSprite"]
+    assert "m_subB" not in offsets["CGameSprite"]
+    # And nothing spurious lands at absolute +0x12 for CGameSprite (where m_pArea, a base
+    # member, actually lives) — the source of the false RED.
+    assert 0x12 not in offsets["CGameSprite"].values()
+
+
+def test_member_offsets_no_false_wrong_member(tmp_path: object) -> None:
+    # sub_757B40 reduced: binary does `[esi+0x12].GetNearest()` (= base m_pArea), source
+    # writes m_pArea->GetNearest(). With per-class offsets, +0x12 stays unresolved for
+    # CGameSprite (m_pArea is a base member) -> no bin pair -> no false positive.
+    src = _write_header(tmp_path, _MULTI_CLASS_HEADER)
+    offsets = build_member_offsets(src)  # type: ignore[arg-type]
+    asm = (
+        "0075f000 MOV ESI,ECX\n"
+        "0075f010 MOV ECX,dword ptr [ESI + 0x12]\n"
+        "0075f016 CALL 0x00712340\n"
+        "0075f020 RET\n"
+    )
+    entry = HookEntry(class_path="CGameSprite", fn_name="sub_757B40", address="0x757b40",
+                      reversed=True, locked=False, is_virtual=False)
+    f = check_wrong_member(
+        source=_make_source(body="{ m_pArea->GetNearest(); }"),
+        ghidra=_make_ghidra(asm_instructions=asm),
+        entry=entry, member_offsets=offsets, fn_names={"712340": "GetNearest"},
+    )
+    assert f is None
