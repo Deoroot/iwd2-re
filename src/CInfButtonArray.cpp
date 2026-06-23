@@ -3,6 +3,7 @@
 #include "CBaldurChitin.h"
 #include "CButtonData.h"
 #include "CGameButtonList.h"
+#include "CGameEffect.h"
 #include "CGameObjectArray.h"
 #include "CGameSave.h"
 #include "CGameSprite.h"
@@ -2110,7 +2111,12 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 0xB:
-            // Stealth modal toggle.
+            // Stealth modal toggle (0x592EEC).  Toggling the modal alone is not
+            // enough: entering stealth also queues an immediate Hide() action so
+            // the sprite attempts to hide on the spot (CGameSprite::ExecuteAction
+            // action 18 -> the detection pass) instead of waiting for the next
+            // three-cycle modal upkeep, and leaving stealth applies a
+            // FORCEVISIBLE effect so it reappears at once.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
@@ -2121,10 +2127,27 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
                     if (pSprite->GetModalState() == 3) {
                         pSprite->SetModalState(0, 0);
+                        pSprite->SetStealthGreyOut(90);
                         SetSelectedButton(100);
+
+                        ITEM_EFFECT effect;
+                        CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_FORCEVISIBLE);
+                        effect.durationType = 1;
+                        CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                            pSprite->GetPos(),
+                            pSprite->m_id,
+                            CPoint(-1, -1));
+                        CMessage* pMessage = new CMessageAddEffect(pEffect,
+                            pSprite->m_id, pSprite->m_id);
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
                     } else {
                         pSprite->SetModalState(3, 0);
                         SetSelectedButton(5);
+
+                        CAIAction action(18 /* Hide, ACTION.IDS */, CPoint(-1, -1), 0, -1);
+                        CMessage* pMessage = new CMessageAddAction(action,
+                            pSprite->m_id, pSprite->m_id);
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
                     }
                     pGame->GetObjectArray()->ReleaseShare(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
