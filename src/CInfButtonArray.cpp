@@ -770,15 +770,6 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x1E;
             nToolTip = 0x1368;
             nHotKey = 0xF;
-            // Grey the button out while a forced reveal is pending (+0x16CC == 1)
-            // or the post-reveal grey-out timer is still ticking
-            // (m_nStealthGreyOut > 0), so stealth cannot be re-armed mid-cooldown
-            // (0x58A340 case 0xB: set piVar8[0x77] / m_bGreyOut).
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
-                && (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pSprite) + 0x16CC) == 1
-                    || pSprite->m_nStealthGreyOut > 0)) {
-                bGreyOut = TRUE;
-            }
             // Selection highlight tracks the leader's persistent stealth modal
             // (state 3), not the transient m_nSelectedButton match -- override
             // the generic set above (0x58A340 case 0xB: clear piVar8[0x73], set
