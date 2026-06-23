@@ -19837,9 +19837,81 @@ SHORT CGameSprite::SavePositionToBaseStats()
 // 0x75F3D0
 SHORT CGameSprite::SetStealthState(int a1)
 {
-    // TODO: Incomplete.
+    if (m_id == 0 || m_pArea == NULL) {
+        return ACTION_ERROR;
+    }
 
-    return ACTION_ERROR;
+    if (a1 == 1) {
+        if (m_baseStats.m_bStealthMode != TRUE) {
+            if (m_typeAI.GetObject(this, TRUE) != NULL) {
+                // NOTE: Uninline.
+                m_pArea->RemoveFromMarkers(m_id);
+            }
+
+            if (m_bOnSearchMap == TRUE) {
+                m_pArea->m_search.RemoveObject(CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                                                   m_pos.y / CPathSearch::GRID_SQUARE_SIZEY),
+                    m_typeAI.GetEnemyAlly(),
+                    m_animation.GetPersonalSpace(),
+                    m_bBumpable,
+                    m_bOnSearchMap);
+            }
+
+            m_baseStats.m_bStealthMode = TRUE;
+        }
+        return ACTION_DONE;
+    }
+
+    if (a1 != 0) {
+        return ACTION_ERROR;
+    }
+
+    if (m_baseStats.m_bStealthMode == FALSE) {
+        return ACTION_DONE;
+    }
+
+    const BYTE* terrainTable;
+    if ((m_animation.GetAnimationId() & 0xF000) == 0x4000
+        && m_animation.GetAnimationId() >= 0x4400) {
+        terrainTable = m_visibleTerrainTable;
+    } else {
+        terrainTable = m_terrainTable;
+    }
+
+    CPoint ptPassable;
+    m_pArea->m_search.FindNearbyPassablePoint(&ptPassable,
+        m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+        m_pos.y / CPathSearch::GRID_SQUARE_SIZEY,
+        terrainTable,
+        m_animation.GetPersonalSpace(),
+        -1);
+
+    if (m_typeAI.GetObject(this, TRUE) != NULL) {
+        // NOTE: Uninline.
+        m_pArea->RemoveFromMarkers(m_id);
+    }
+
+    if (m_bOnSearchMap == TRUE) {
+        m_pArea->m_search.RemoveObject(CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                                           m_pos.y / CPathSearch::GRID_SQUARE_SIZEY),
+            m_typeAI.GetEnemyAlly(),
+            m_animation.GetPersonalSpace(),
+            m_bBumpable,
+            m_bOnSearchMap);
+    }
+
+    // NOTE: Uninline.
+    m_pArea->AddToMarkers(m_id);
+
+    m_pArea->m_search.AddObject(CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                                    m_pos.y / CPathSearch::GRID_SQUARE_SIZEY),
+        m_typeAI.GetEnemyAlly(),
+        m_animation.GetPersonalSpace(),
+        m_bBumpable,
+        m_bOnSearchMap);
+
+    m_baseStats.m_bStealthMode = FALSE;
+    return ACTION_DONE;
 }
 
 // 0x75F800
