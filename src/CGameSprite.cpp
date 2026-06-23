@@ -9,6 +9,7 @@
 #include "CGameArea.h"
 #include "CGameButtonList.h"
 #include "CGameContainer.h"
+#include "CGameDoor.h"
 #include "CGameTimer.h"
 #include "DebugLog.h"
 #include "CInfCursor.h"
@@ -12073,9 +12074,57 @@ void CGameSprite::sub_72FD20()
     m_modalCounter++;
 
     if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1) {
-        // Unrecovered: passive secret-door / trap detection sweep -- GetAllInRange
-        // of nearby doors (range 400), revealing trapped/secret ones with an
-        // ACT_09 cue and a CMessageDoorStatus.
+        // A party member passively searches for nearby secret doors each cycle.
+        // Roll the searcher's luck against every still-hidden secret door within
+        // half its visual range; reveal the ones whose detection difficulty is
+        // beaten, cueing ACT_09 and broadcasting a CMessageDoorStatus.
+        CAITrigger searchTrigger(CAITRIGGER_NO_TRIGGER, 0);
+        CTypedPtrList<CPtrList, LONG*> objects;
+        int searchRate = GetBaseMovementRate();
+        int luckRoll = CUtil::UtilRandInt(100, -m_derivedStats.m_nLuck);
+        m_pArea->GetAllInRange(m_pos, CAIObjectType::ANYONE, GetVisualRange() >> 1,
+            GetVisibleTerrainTable(), objects, FALSE, TRUE);
+
+        POSITION pos = objects.GetHeadPosition();
+        while (pos != NULL) {
+            LONG objId = reinterpret_cast<LONG>(objects.GetNext(pos));
+
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(objId,
+                    CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                if (pObject->GetObjectType() == CGameObject::TYPE_DOOR) {
+                    CGameDoor* pDoor = static_cast<CGameDoor*>(pObject);
+                    if (pDoor->m_dwFlags & 0x80) {  // secret door
+                        if ((pDoor->m_dwFlags & 0x100) == 0) {  // not yet found
+                            int difficulty = pDoor->m_detectionDifficulty;
+                            if (difficulty == 0) {
+                                difficulty = 100;
+                            }
+                            if (difficulty + luckRoll - 101 <= searchRate) {
+                                CResRef sound("ACT_09");
+                                PlaySound(sound);
+                                pDoor->SetDrawPoly(400);
+                                pDoor->m_dwFlags |= 0x100;  // mark found
+                                CMessage* message = new CMessageDoorStatus(pDoor, m_id, pDoor->m_id);
+                                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                            }
+                        } else {
+                            pDoor->SetDrawPoly(400);
+                        }
+                    }
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(objId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                } else {
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(objId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                }
+            }
+        }
     }
 
     switch (m_nModalState - 1) {
