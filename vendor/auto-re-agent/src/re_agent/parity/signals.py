@@ -652,6 +652,73 @@ def check_never_advancing_loop(
     )
 
 
+_UNINIT_CACHE: dict[tuple[str, float], list[tuple[int, str]]] = {}
+
+
+def check_uninit_member(
+    source: SourceMatch | None = None,
+    inline_skip: bool = False,
+    **_kw: object,
+) -> Finding | None:
+    """A constructor that leaves a member uninitialised (cppcheck uninitMemberVar).
+    The MonsterLarge bug class (0x6B0A00 never set m_currentVidCellBase -> garbage
+    deref on the first large monster, load crash): no call is involved so call-count
+    signals are blind. Delegates to scripts/lint_uninit_member.py and keeps only hits
+    inside this function's line span. YELLOW, not RED -- it is a faithfulness PROMPT:
+    ~60 such members exist across src/, many uninit in the original ctor too (leaving
+    them so is faithful), so confirm the BINARY ctor actually stores the member before
+    adding an init (an unfaithful add is itself a defect)."""
+    if source is None or inline_skip:
+        return None
+    path = getattr(source, "path", None)
+    line = getattr(source, "line", None)
+    if not path or not line or not Path(path).is_file():
+        return None
+    import shutil
+    import subprocess
+    import sys
+
+    if shutil.which("cppcheck") is None:
+        return None
+    roots = [Path.cwd(), *Path(__file__).resolve().parents]
+    script = next(
+        (r / "scripts" / "lint_uninit_member.py" for r in roots if (r / "scripts" / "lint_uninit_member.py").is_file()),
+        None,
+    )
+    if script is None:
+        return None
+    key = (str(path), Path(path).stat().st_mtime)
+    if key not in _UNINIT_CACHE:  # one cppcheck run per file across a --filter sweep
+        try:
+            out = subprocess.run(
+                [sys.executable, str(script), "--quiet", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            ).stdout
+        except Exception:
+            return None
+        parsed: list[tuple[int, str]] = []
+        for ln in out.splitlines():
+            m = re.search(r":(\d+):\s*(Member variable .*?)\s*\[uninitMemberVar\]", ln)
+            if m:
+                parsed.append((int(m.group(1)), m.group(2)))
+        _UNINIT_CACHE[key] = parsed
+    lo, hi = int(line), int(line) + int(getattr(source, "body_lines", 0)) + 2
+    hits = [msg for (ln, msg) in _UNINIT_CACHE[key] if lo <= ln <= hi]
+    if not hits:
+        return None
+    return Finding(
+        level="yellow",
+        reason=(
+            "Constructor leaves a member uninitialised (cppcheck uninitMemberVar; "
+            "call-count signals are blind): "
+            + "; ".join(hits[:3])
+            + " -- confirm the binary ctor stores it before adding an init"
+        ),
+    )
+
+
 ALL_SIGNALS: list[SignalFn] = [
     check_missing_source,
     check_stub_markers,
@@ -668,4 +735,5 @@ ALL_SIGNALS: list[SignalFn] = [
     check_param_swap,
     check_concat_swap,
     check_never_advancing_loop,
+    check_uninit_member,
 ]

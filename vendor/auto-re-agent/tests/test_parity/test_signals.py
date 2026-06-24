@@ -1,6 +1,10 @@
 """Tests for individual parity signals."""
 from __future__ import annotations
 
+import shutil
+
+import pytest
+
 from re_agent.core.models import GhidraData, HookEntry, SourceMatch
 from re_agent.parity.signals import (
     ALL_SIGNALS,
@@ -13,6 +17,7 @@ from re_agent.parity.signals import (
     check_missing_source,
     check_never_advancing_loop,
     check_param_swap,
+    check_uninit_member,
     check_short_body,
     check_stub_markers,
     check_trivial_stub,
@@ -411,3 +416,63 @@ def test_never_advancing_loop_guards() -> None:
 
 def test_never_advancing_loop_registered() -> None:
     assert check_never_advancing_loop in ALL_SIGNALS
+
+
+# --- check_uninit_member: ctor leaves a member uninitialised (cppcheck) ----------
+_CTOR_BUG = """\
+class Foo {
+public:
+    int a;
+    int b;
+    Foo(int x) { a = x; }
+};
+"""
+
+_CTOR_OK = """\
+class Foo {
+public:
+    int a;
+    int b;
+    Foo(int x) { a = x; b = 0; }
+};
+"""
+
+_needs_cppcheck = pytest.mark.skipif(
+    shutil.which("cppcheck") is None, reason="cppcheck not installed"
+)
+
+
+@_needs_cppcheck
+def test_uninit_member_flagged(tmp_path: object) -> None:
+    f = tmp_path / "foo.cpp"  # type: ignore[attr-defined]
+    f.write_text(_CTOR_BUG)
+    finding = check_uninit_member(source=_make_source(path=str(f), line=1, body_lines=10))
+    assert finding is not None
+    assert finding.level == "yellow"
+    assert "Foo::b" in finding.reason
+
+
+@_needs_cppcheck
+def test_uninit_member_clean(tmp_path: object) -> None:
+    f = tmp_path / "ok.cpp"  # type: ignore[attr-defined]
+    f.write_text(_CTOR_OK)
+    assert check_uninit_member(source=_make_source(path=str(f), line=1, body_lines=10)) is None
+
+
+@_needs_cppcheck
+def test_uninit_member_outside_span_not_flagged(tmp_path: object) -> None:
+    # The buggy ctor is at lines 1-6; a SourceMatch for a later, unrelated span
+    # must not inherit the hit (line-range scoping).
+    f = tmp_path / "foo2.cpp"  # type: ignore[attr-defined]
+    f.write_text(_CTOR_BUG)
+    assert check_uninit_member(source=_make_source(path=str(f), line=40, body_lines=10)) is None
+
+
+def test_uninit_member_guards() -> None:
+    assert check_uninit_member(source=None) is None
+    assert check_uninit_member(source=_make_source(), inline_skip=True) is None
+    assert check_uninit_member(source=_make_source(path="/no/such.cpp")) is None
+
+
+def test_uninit_member_registered() -> None:
+    assert check_uninit_member in ALL_SIGNALS
