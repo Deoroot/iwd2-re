@@ -770,16 +770,17 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x1E;
             nToolTip = 0x1368;
             nHotKey = 0xF;
-            // Grey the button out while a forced reveal is pending (+0x16CC == 1)
-            // or the post-reveal grey-out timer is still ticking
-            // (m_nStealthGreyOut > 0), so stealth cannot be re-armed mid-cooldown
-            // (0x58A340 case 0xB: set piVar8[0x77] / m_bGreyOut).  Confirmed on the
-            // original via Frida: re-clicking Stealth during the ~90-tick cooldown
-            // is swallowed by OnLButtonPressed's grey-out gate (no SetModalState).
-            // AIUpdate counts the timer down and calls UpdateState() at 0, which
-            // re-runs SetState(m_nState) -> UpdateButtons and clears the grey.
+            // Grey the button out while the Stealth slot of the disabled-buttons
+            // array is set (m_disabledButtons[0], at +0x16CC) or the post-reveal
+            // grey-out timer is still ticking (m_nStealthGreyOut > 0), so stealth
+            // cannot be re-armed mid-cooldown (0x58A340 case 0xB: set piVar8[0x77]
+            // / m_bGreyOut).  Confirmed on the original via Frida: re-clicking
+            // Stealth during the ~90-tick cooldown is swallowed by
+            // OnLButtonPressed's grey-out gate (no SetModalState).  AIUpdate counts
+            // the timer down and calls UpdateState() at 0, which re-runs
+            // SetState(m_nState) -> UpdateButtons and clears the grey.
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
-                && (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pSprite) + 0x16CC) == 1
+                && (pSprite->GetDerivedStats()->m_disabledButtons[0] == TRUE
                     || pSprite->m_nStealthGreyOut > 0)) {
                 bGreyOut = TRUE;
             }

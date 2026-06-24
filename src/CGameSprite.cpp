@@ -12487,7 +12487,9 @@ SHORT CGameSprite::sub_757B40()
 
     // D20 stealth roll scaled to 5..100 (a 1..20 roll times five, plus five).
     int nRoll = (rand() % 20) * 5 + 5;
-    DWORD nForceReveal = *reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(this) + 0x16CC);
+    // The Stealth slot of the disabled-buttons array (m_disabledButtons[0], at
+    // +0x16CC) -- a DisableButton effect sets it to force the creature visible.
+    BOOL nForceReveal = GetDerivedStats()->m_disabledButtons[0];
 
     // A natural 20 (a roll of 100), or a pending forced-reveal request, breaks
     // stealth outright -- no per-creature comparison is made.
