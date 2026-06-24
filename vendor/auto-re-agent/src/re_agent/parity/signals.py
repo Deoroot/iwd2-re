@@ -592,6 +592,66 @@ def check_concat_swap(
     )
 
 
+def check_never_advancing_loop(
+    source: SourceMatch | None = None,
+    inline_skip: bool = False,
+    **_kw: object,
+) -> Finding | None:
+    """`while (*p <op> X) { ... }` whose body never advances `p` -- the dropped
+    pointer-increment class. The condition variable is mutated by neither `p++`
+    nor a by-ref pass, so the loop re-tests the same element forever (OOM/hang).
+    Call-count signals are blind to it (the increment is a `ptr+4`, not a call),
+    so this took a load-crash bisect to find: CGameEffectColorTintSolid /
+    CGameEffectColorLightSolid ApplyEffect both walked a static `ranges[]` table
+    with `while (*range != -1)` but forgot `range++`. Delegates to
+    scripts/lint_infinite_loop.py and keeps only hits inside this function's
+    line span (precision-first: unary-deref form, no break/return/goto)."""
+    if source is None or inline_skip:
+        return None
+    path = getattr(source, "path", None)
+    line = getattr(source, "line", None)
+    if not path or not line or not Path(path).is_file():
+        return None
+    import subprocess
+    import sys
+
+    roots = [Path.cwd(), *Path(__file__).resolve().parents]
+    script = next(
+        (r / "scripts" / "lint_infinite_loop.py" for r in roots if (r / "scripts" / "lint_infinite_loop.py").is_file()),
+        None,
+    )
+    if script is None:
+        return None
+    try:
+        out = subprocess.run(
+            [sys.executable, str(script), "--quiet", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+    except Exception:
+        return None
+    # The lint reports the absolute file line of the `while`; keep only the ones
+    # that fall inside this function's body span.
+    lo, hi = int(line), int(line) + int(getattr(source, "body_lines", 0)) + 2
+    hits = []
+    for ln in out.splitlines():
+        m = re.search(r":(\d+):\s*while \(\*", ln)
+        if m and lo <= int(m.group(1)) <= hi:
+            hits.append(ln.strip())
+    if not hits:
+        return None
+    return Finding(
+        level="red",
+        reason=(
+            "Pointer-walk loop never advances its controlling pointer (dropped "
+            "`p++`; call-count signals are blind to this -> infinite loop/OOM): "
+            + "; ".join(hits[:3])
+            + " -- verify vs binary, restore the missing advance"
+        ),
+    )
+
+
 ALL_SIGNALS: list[SignalFn] = [
     check_missing_source,
     check_stub_markers,
@@ -607,4 +667,5 @@ ALL_SIGNALS: list[SignalFn] = [
     check_wrong_member,
     check_param_swap,
     check_concat_swap,
+    check_never_advancing_loop,
 ]

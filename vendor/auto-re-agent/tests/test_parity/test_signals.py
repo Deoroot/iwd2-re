@@ -11,6 +11,7 @@ from re_agent.parity.signals import (
     check_inline_wrapper,
     check_large_asm_tiny_source,
     check_missing_source,
+    check_never_advancing_loop,
     check_param_swap,
     check_short_body,
     check_stub_markers,
@@ -343,3 +344,70 @@ def test_member_offsets_no_false_wrong_member(tmp_path: object) -> None:
         entry=entry, member_offsets=offsets, fn_names={"712340": "GetNearest"},
     )
     assert f is None
+
+
+# --- check_never_advancing_loop: dropped pointer-increment -> infinite loop ------
+_LOOP_BUG = """\
+BOOL Cls::ApplyEffect() {
+    int ranges[] = {0, 1, 2, -1};
+    int* range = ranges;
+    while (*range != -1) {
+        Apply(*range);
+        Alloc(*range);
+    }
+    return 1;
+}
+"""
+
+_LOOP_FIXED = """\
+BOOL Cls::ApplyEffect() {
+    int ranges[] = {0, 1, 2, -1};
+    int* range = ranges;
+    while (*range != -1) {
+        Apply(*range);
+        Alloc(*range);
+        range++;
+    }
+    return 1;
+}
+"""
+
+
+def test_never_advancing_loop_flagged(tmp_path: object) -> None:
+    f = tmp_path / "buggy.cpp"  # type: ignore[attr-defined]
+    f.write_text(_LOOP_BUG)
+    finding = check_never_advancing_loop(
+        source=_make_source(path=str(f), line=1, body_lines=10)
+    )
+    assert finding is not None
+    assert finding.level == "red"
+    assert "never advances" in finding.reason
+
+
+def test_never_advancing_loop_clean(tmp_path: object) -> None:
+    f = tmp_path / "ok.cpp"  # type: ignore[attr-defined]
+    f.write_text(_LOOP_FIXED)
+    assert check_never_advancing_loop(
+        source=_make_source(path=str(f), line=1, body_lines=11)
+    ) is None
+
+
+def test_never_advancing_loop_outside_span_not_flagged(tmp_path: object) -> None:
+    # The bug is at lines 1-11 but this SourceMatch claims a later, unrelated span,
+    # so the hit must be filtered out (line-range scoping).
+    f = tmp_path / "buggy2.cpp"  # type: ignore[attr-defined]
+    f.write_text(_LOOP_FIXED + "\n" + _LOOP_BUG)  # clean fn first, bug at lines 13+
+    assert check_never_advancing_loop(
+        source=_make_source(path=str(f), line=1, body_lines=11)
+    ) is None
+
+
+def test_never_advancing_loop_guards() -> None:
+    assert check_never_advancing_loop(source=None) is None
+    assert check_never_advancing_loop(source=_make_source(), inline_skip=True) is None
+    # Non-existent path -> no-op.
+    assert check_never_advancing_loop(source=_make_source(path="/no/such.cpp")) is None
+
+
+def test_never_advancing_loop_registered() -> None:
+    assert check_never_advancing_loop in ALL_SIGNALS
