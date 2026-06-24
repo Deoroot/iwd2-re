@@ -17,6 +17,7 @@ from re_agent.parity.signals import (
     check_missing_source,
     check_never_advancing_loop,
     check_param_swap,
+    check_stuck_loop_index,
     check_uninit_member,
     check_short_body,
     check_stub_markers,
@@ -476,3 +477,82 @@ def test_uninit_member_guards() -> None:
 
 def test_uninit_member_registered() -> None:
     assert check_uninit_member in ALL_SIGNALS
+
+
+# --- check_stuck_loop_index: counter used as shift/index but never advanced ------
+_STUCK_BUG = """\
+void Foo::Parse(const CString& s) {
+    int mask = 0;
+    int bit = 0;
+    for (int pos = 31; pos >= 0; pos--) {
+        if (s[pos] != '0') {
+            mask |= 1 << bit;
+        }
+    }
+    m_mask = mask;
+}
+"""
+
+_STUCK_FIXED = """\
+void Foo::Parse(const CString& s) {
+    int mask = 0;
+    int bit = 0;
+    for (int pos = 31; pos >= 0; pos--) {
+        if (s[pos] != '0') {
+            mask |= 1 << bit;
+        }
+        bit++;
+    }
+    m_mask = mask;
+}
+"""
+
+# A nested loop whose inner body uses the OUTER loop's control var as an index --
+# the var IS advanced (by the outer for's `x++`), so it must NOT be flagged.
+_STUCK_NESTED_OK = """\
+void Foo::Fill() {
+    for (int x = 0; x < W; x++) {
+        for (int y = 0; y < H; y++) {
+            m_grid[x][y] = 0;
+        }
+    }
+}
+"""
+
+
+def test_stuck_loop_index_flagged(tmp_path: object) -> None:
+    f = tmp_path / "bug.cpp"  # type: ignore[attr-defined]
+    f.write_text(_STUCK_BUG)
+    finding = check_stuck_loop_index(source=_make_source(path=str(f), line=1, body_lines=12))
+    assert finding is not None
+    assert finding.level == "yellow"
+    assert "bit" in finding.reason
+
+
+def test_stuck_loop_index_clean(tmp_path: object) -> None:
+    f = tmp_path / "ok.cpp"  # type: ignore[attr-defined]
+    f.write_text(_STUCK_FIXED)
+    assert check_stuck_loop_index(source=_make_source(path=str(f), line=1, body_lines=12)) is None
+
+
+def test_stuck_loop_index_nested_not_flagged(tmp_path: object) -> None:
+    # The enclosing for-loop advances `x`; the inner-body index use must not flag.
+    f = tmp_path / "nested.cpp"  # type: ignore[attr-defined]
+    f.write_text(_STUCK_NESTED_OK)
+    assert check_stuck_loop_index(source=_make_source(path=str(f), line=1, body_lines=10)) is None
+
+
+def test_stuck_loop_index_outside_span_not_flagged(tmp_path: object) -> None:
+    f = tmp_path / "bug2.cpp"  # type: ignore[attr-defined]
+    f.write_text(_STUCK_BUG)
+    assert check_stuck_loop_index(source=_make_source(path=str(f), line=40, body_lines=12)) is None
+
+
+def test_stuck_loop_index_guards() -> None:
+    assert check_stuck_loop_index(source=None) is None
+    assert check_stuck_loop_index(source=_make_source(), inline_skip=True) is None
+    assert check_stuck_loop_index(source=_make_source(path="/no/such.cpp")) is None
+
+
+def test_stuck_loop_index_registered() -> None:
+    assert check_stuck_loop_index in ALL_SIGNALS

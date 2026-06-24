@@ -719,6 +719,62 @@ def check_uninit_member(
     )
 
 
+def check_stuck_loop_index(
+    source: SourceMatch | None = None,
+    inline_skip: bool = False,
+    **_kw: object,
+) -> Finding | None:
+    """A counter/index local a loop uses as a shift amount or array index but never
+    advances -- stuck at its init value. The CSpawn::Read time-of-day bug
+    (0x769BF0): `for (pos ...) timeOfDay |= 1 << bit;` with no `bit++`, so the mask
+    collapses to bit 0 (binary does `inc ecx` each iteration). Call-count signals
+    are blind (no call). Delegates to scripts/lint_stuck_loop_index.py and keeps
+    only hits inside this function's line span. YELLOW: the class is FP-prone and
+    the faithful loop may differ in more than the increment, so verify vs binary."""
+    if source is None or inline_skip:
+        return None
+    path = getattr(source, "path", None)
+    line = getattr(source, "line", None)
+    if not path or not line or not Path(path).is_file():
+        return None
+    import subprocess
+    import sys
+
+    roots = [Path.cwd(), *Path(__file__).resolve().parents]
+    script = next(
+        (r / "scripts" / "lint_stuck_loop_index.py" for r in roots if (r / "scripts" / "lint_stuck_loop_index.py").is_file()),
+        None,
+    )
+    if script is None:
+        return None
+    try:
+        out = subprocess.run(
+            [sys.executable, str(script), "--quiet", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        ).stdout
+    except Exception:
+        return None
+    lo, hi = int(line), int(line) + int(getattr(source, "body_lines", 0)) + 2
+    hits = []
+    for ln in out.splitlines():
+        m = re.search(r":(\d+):\s*((?:for|while)-loop .*?never advances[^\n]*)", ln)
+        if m and lo <= int(m.group(1)) <= hi:
+            hits.append(m.group(2).strip())
+    if not hits:
+        return None
+    return Finding(
+        level="yellow",
+        reason=(
+            "Loop counter/index never advances (stuck at its init value; call-count "
+            "signals are blind): "
+            + "; ".join(hits[:3])
+            + " -- verify the binary advances it"
+        ),
+    )
+
+
 ALL_SIGNALS: list[SignalFn] = [
     check_missing_source,
     check_stub_markers,
@@ -736,4 +792,5 @@ ALL_SIGNALS: list[SignalFn] = [
     check_concat_swap,
     check_never_advancing_loop,
     check_uninit_member,
+    check_stuck_loop_index,
 ]
