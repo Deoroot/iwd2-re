@@ -33,7 +33,12 @@ POSITION CGameEffectList::GetPosCurrent()
 }
 
 // 0x4C08E0
-void CGameEffectList::RemoveAllOfType(CGameSprite* pSprite, WORD effectID, POSITION posLeave, LONG effectAmount)
+// The match filter (param 4) is compared against the effect's m_dwFlags (param2
+// at +0x1c on the runtime CGameEffect), not m_effectAmount -- a -1 filter matches
+// any.  Callers that toggle a stealth/invisibility variant rely on this: e.g.
+// CGameEffectForceVisible removes m_dwFlags 0 and 2 (plain invisibility) but
+// leaves m_dwFlags 1 (improved) in place.
+void CGameEffectList::RemoveAllOfType(CGameSprite* pSprite, WORD effectID, POSITION posLeave, LONG dwFlags)
 {
     POSITION pos = GetHeadPosition();
     while (pos != NULL) {
@@ -41,7 +46,7 @@ void CGameEffectList::RemoveAllOfType(CGameSprite* pSprite, WORD effectID, POSIT
         CGameEffect* pEffect = GetNext(pos);
         if (posOld != posLeave
             && pEffect->m_effectID == effectID
-            && (effectAmount == -1 || pEffect->m_effectAmount == effectAmount)) {
+            && (dwFlags == -1 || pEffect->m_dwFlags == dwFlags)) {
             if (m_posNext == posOld) {
                 m_posNext = pos;
             }

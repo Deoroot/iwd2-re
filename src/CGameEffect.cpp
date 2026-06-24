@@ -3625,12 +3625,15 @@ CGameEffect* CGameEffectInvisible::Copy()
 // 0x4AED10
 BOOL CGameEffectInvisible::ApplyEffect(CGameSprite* pSprite)
 {
+    // The invisibility variant is carried in m_dwFlags (the effect's param2):
+    // 0/2 = plain Invisibility, 1 = Improved Invisibility.  The base-vs-derived
+    // pass is selected by m_durationType (== 1 is the base-stats / equipped pass).
     // First pass over the effect emits the one-shot combat-feedback line;
     // DisplayStringRef self-gates on the effect-text option + load state.
     if (m_firstCall) {
-        if (m_effectAmount == 0) {
+        if (m_dwFlags == 0) {
             DisplayStringRef(pSprite, 14020); // "Invisible"
-        } else if (m_effectAmount == 1) {
+        } else if (m_dwFlags == 1) {
             DisplayStringRef(pSprite, 14783); // "Improved Invisibility"
         }
     }
@@ -3639,10 +3642,10 @@ BOOL CGameEffectInvisible::ApplyEffect(CGameSprite* pSprite)
 
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
-    if (m_effectAmount == 1) {
-        // Improved invisibility (m_effectAmount 1).  m_dwFlags == 1 is the
+    if (m_dwFlags == 1) {
+        // Improved invisibility (m_dwFlags 1).  m_durationType == 1 is the
         // base-stats / equipped pass; otherwise stamp the live derived state.
-        if (m_dwFlags != 1) {
+        if (m_durationType != 1) {
             pSprite->AddPortraitIcon(144);
             pGame->UpdatePortrait(pGame->GetCharacterPortraitNum(pSprite->GetId()), 1);
             pSprite->GetDerivedStats()->m_generalState |= (STATE_INVISIBLE | STATE_IMPROVEDINVISIBILITY);
@@ -3659,13 +3662,13 @@ BOOL CGameEffectInvisible::ApplyEffect(CGameSprite* pSprite)
         return TRUE;
     }
 
-    // m_effectAmount 0 and 2 share the plain-invisibility path; any other
-    // amount is a no-op.
-    if (m_effectAmount != 0 && m_effectAmount != 2) {
+    // m_dwFlags 0 and 2 share the plain-invisibility path; any other variant
+    // is a no-op.
+    if (m_dwFlags != 0 && m_dwFlags != 2) {
         return TRUE;
     }
 
-    if (m_dwFlags != 1) {
+    if (m_durationType != 1) {
         pSprite->AddPortraitIcon(110);
         pGame->UpdatePortrait(pGame->GetCharacterPortraitNum(pSprite->GetId()), 1);
         pSprite->GetDerivedStats()->m_generalState |= STATE_INVISIBLE;
