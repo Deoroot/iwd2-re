@@ -43,8 +43,9 @@ CGameAnimationTypeMonsterLarge::CGameAnimationTypeMonsterLarge(USHORT animationI
         m_g3VidCellExtend.SetResRef(CResRef(m_resRef + "G3E"), FALSE, TRUE, TRUE);
     }
 
+    m_currentVidCellBase = &m_g1VidCellBase;
     m_currentVidCellExtend = &m_g1VidCellExtend;
-    m_currentVidCell = &m_g1VidCellBase;
+    m_currentVidCell = m_currentVidCellBase;
 
     if (m_falseColor) {
         for (BYTE colorRange = 0; colorRange < CVidPalette::NUM_RANGES; colorRange++) {
