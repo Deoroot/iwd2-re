@@ -11,6 +11,7 @@
 #include "CGameContainer.h"
 #include "CGameDoor.h"
 #include "CGameTimer.h"
+#include "CGameTrigger.h"
 #include "DebugLog.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
@@ -12463,9 +12464,126 @@ void CGameSprite::sub_72FD20()
         }
         break;
     }
-    case 1:
-        // Unrecovered: per-round detect-traps / search sweep.
+    case 1: {  // Detect Traps -- the searcher actively sweeps everything within
+               // half its visual range for armed-but-undetected traps on doors,
+               // triggers and containers, revealing each one whose Search skill
+               // beats the trap's detection difficulty.
+        CAITrigger detectTrigger(CAITRIGGER_NO_TRIGGER, 0);
+        CTypedPtrList<CPtrList, LONG*> objects;
+        m_pArea->GetAllInRange(m_pos, CAIObjectType::ANYONE, GetVisualRange() >> 1,
+            GetVisibleTerrainTable(), objects, TRUE, TRUE);
+        m_pArea->GetAllInRangeBack(m_pos, CAIObjectType::ANYONE, GetVisualRange() >> 1,
+            GetVisibleTerrainTable(), objects, TRUE, TRUE, TRUE);
+
+        // Search skill rank, read signed (penalties can drive it negative).
+        int searchSkill = static_cast<char>(m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_SEARCH]);
+
+        POSITION pos = objects.GetHeadPosition();
+        while (pos != NULL) {
+            LONG objId = reinterpret_cast<LONG>(objects.GetNext(pos));
+
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(objId,
+                    CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                BYTE type = pObject->GetObjectType();
+
+                if (type == CGameObject::TYPE_DOOR) {
+                    CGameDoor* pDoor = static_cast<CGameDoor*>(pObject);
+                    BOOL bDetected = FALSE;
+                    if (pDoor->m_trapActivated != 0) {
+                        if (pDoor->m_trapDetected == 0) {
+                            int difficulty = pDoor->m_trapDetectionDifficulty;
+                            // "Search (detect traps) check. Search skill %d vs.
+                            // trap's difficulty %d (searcher's %d INT bonus)."
+                            FeedBack(FEEDBACK_ROLL, searchSkill, difficulty / 5,
+                                GetSkillModifier(CGAMESPRITE_SKILL_SEARCH), 39303, 0, 0);
+                            if (difficulty <= searchSkill * 7 && difficulty != 100
+                                && (pDoor->m_dwFlags & 0x8)) {  // TRAPDETECTABLE
+                                CAITrigger trapFound(CAITRIGGER_DETECTED, m_typeAI, 0);
+                                CMessage* message = new CMessageSetTrigger(trapFound,
+                                    pDoor->m_id, m_id);
+                                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                                pDoor->m_trapDetected = 1;
+                                bDetected = TRUE;
+                                AutoPause(0x80);
+                            }
+                        }
+                        if (pDoor->m_trapDetected != 0) {
+                            pDoor->SetDrawPoly(400);
+                        }
+                        if (bDetected) {
+                            CMessage* message = new CMessageDoorStatus(pDoor, m_id, pDoor->m_id);
+                            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                        }
+                    }
+                } else if (type == CGameObject::TYPE_TRIGGER) {
+                    CGameTrigger* pTrigger = static_cast<CGameTrigger*>(pObject);
+                    BOOL bDetected = FALSE;
+                    if (pTrigger->m_trapActivated != 0 && (pTrigger->m_dwFlags & 0x100) == 0) {
+                        if (pTrigger->m_trapDetected == 0) {
+                            int difficulty = pTrigger->m_trapDetectionDifficulty;
+                            if (difficulty <= searchSkill * 7 && difficulty != 100
+                                && (pTrigger->m_dwFlags & 0x8)) {  // TRAPDETECTABLE
+                                CAITrigger trapFound(CAITRIGGER_DETECTED, m_typeAI, 0);
+                                CMessage* message = new CMessageSetTrigger(trapFound,
+                                    pTrigger->m_id, m_id);
+                                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                                pTrigger->m_trapDetected = 1;
+                                bDetected = TRUE;
+                                AutoPause(0x80);
+                            }
+                        }
+                        if (pTrigger->m_trapDetected != 0) {
+                            pTrigger->SetDrawPoly(400);
+                        }
+                        if (bDetected) {
+                            CMessage* message = new CMessageTriggerStatus(pTrigger->m_dwFlags,
+                                pTrigger->m_trapActivated, pTrigger->m_trapDetected,
+                                pTrigger->m_id, m_id);
+                            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                        }
+                    }
+                } else if (type == CGameObject::TYPE_CONTAINER) {
+                    CGameContainer* pContainer = static_cast<CGameContainer*>(pObject);
+                    BOOL bDetected = FALSE;
+                    if (pContainer->m_trapActivated != 0) {
+                        if (pContainer->m_trapDetected == 0) {
+                            int difficulty = pContainer->m_trapDetectionDifficulty;
+                            // Containers carry no TRAPDETECTABLE flag gate.
+                            if (difficulty <= searchSkill * 7 && difficulty != 100) {
+                                CAITrigger trapFound(CAITRIGGER_DETECTED, m_typeAI, 0);
+                                CMessage* message = new CMessageSetTrigger(trapFound,
+                                    pContainer->m_id, m_id);
+                                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                                pContainer->SetTrapDetected(1);
+                                pContainer->SetDrawPoly(400);
+                                bDetected = TRUE;
+                                AutoPause(0x80);
+                            }
+                        }
+                        if (pContainer->m_trapDetected != 0) {
+                            pContainer->SetDrawPoly(400);
+                        }
+                        if (bDetected) {
+                            CMessage* message = new CMessageContainerStatus(pContainer->m_dwFlags,
+                                pContainer->m_trapActivated, pContainer->m_trapDetected,
+                                pContainer->m_id, pContainer->m_id);
+                            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                        }
+                    }
+                }
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(objId,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
         break;
+    }
     case 2:
         // Hide in Shadows is re-checked once every three modal cycles.
         if (m_modalCounter % 3 == 0) {
