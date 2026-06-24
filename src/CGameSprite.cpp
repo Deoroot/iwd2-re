@@ -11259,6 +11259,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11305,6 +11306,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11351,6 +11353,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11397,6 +11400,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11443,6 +11447,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11489,6 +11494,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11535,6 +11541,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11581,6 +11588,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11627,6 +11635,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
@@ -11673,6 +11682,7 @@ void CGameSprite::ParseSoundEntry(CMemINIValue* a1, CMemINIValue* a2)
             }
 
             pos1 = v3.FindOneOf(",");
+            pos2 = -1;
             if (!v4.IsEmpty()) {
                 pos2 = v4.FindOneOf(",");
             }
