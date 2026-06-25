@@ -14,6 +14,8 @@
 #include "CPathSearch.h"
 #include "CScreenWorld.h"
 #include "CUtil.h"
+#include "CVidInf.h"
+#include "CVidMode.h"
 #include "CVidPoly.h"
 
 // 0x8D71DC
@@ -239,6 +241,91 @@ void CGameTrigger::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL 
     }
 
     delete pEffect;
+}
+
+// 0x4CFA60
+void CGameTrigger::Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameTrigger.cpp
+    // __LINE__: 1020
+    UTIL_ASSERT(pVidMode != NULL);
+
+    COLORREF color;
+    if (m_triggerType == 0
+        && m_trapActivated != 0
+        && m_trapDetected != 0
+        && m_id == m_pArea->m_iPicked
+        && pGame->m_nState == 2
+        && pGame->m_iconIndex == '$') {
+        color = RGB(0x00, 0xFA, 0x00);
+    } else if (m_triggerType == 0 && m_drawPoly > 0) {
+        color = RGB(0xFF, 0x00, 0x00);
+    } else {
+        if (!pGame->m_bTriggerOutline) {
+            return;
+        }
+        color = RGB(0x00, 0x00, 0xFF);
+    }
+
+    if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
+        RenderClippedPoly(pArea, pVidMode, nSurface,
+            g_pChitin->GetCurrentVideoMode()->GetColor(color));
+    }
+
+    m_pArea->GetInfinity()->OutlinePoly(m_pPolygon, m_nPolygon, m_rBounding, color);
+}
+
+// 0x4D02C0
+void CGameTrigger::RenderClippedPoly(CGameArea* pArea, CVidMode* pVidMode, INT nSurface, COLORREF color)
+{
+    CInfinity* pInfinity = pArea->GetInfinity();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameTrigger.cpp
+    // __LINE__: 1101
+    UTIL_ASSERT(pInfinity != NULL && pVidMode != NULL);
+
+    CRect rViewport;
+    rViewport.left = pInfinity->nCurrentX;
+    rViewport.top = pInfinity->nCurrentY;
+    rViewport.right = rViewport.left + pInfinity->rViewPort.Width();
+    rViewport.bottom = rViewport.top + pInfinity->rViewPort.Height();
+
+    CPoint ptReference(0, 0);
+
+    CVidPoly poly;
+    poly.SetPoly(reinterpret_cast<WORD*>(m_pPolygonPoints), m_nPolygon);
+
+    for (int i = 0; i < m_boundingGrid.GetSize(); i++) {
+        CRect* pGridRect = m_boundingGrid[i];
+        if (pGridRect == NULL) {
+            continue;
+        }
+
+        CRect rClip;
+        rClip.IntersectRect(&rViewport, pGridRect);
+
+        if (rClip.left == 0 && rClip.right == 0 && rClip.top == 0 && rClip.bottom == 0) {
+            continue;
+        }
+
+        CPoint ptPos(rClip.left, rClip.top);
+
+        CRect rFXRect(rClip);
+        rFXRect.OffsetRect(-rClip.left, -rClip.top);
+
+        if (pInfinity->FXPrep(rFXRect, CInfinity::FXPREP_COPYFROMBACK, nSurface, ptPos, ptReference)) {
+            if (pInfinity->FXLock(rFXRect, 0)) {
+                static_cast<CVidInf*>(pVidMode)->RenderConvexPoly(rClip, &poly, color, CInfinity::MIRROR_FX, ptPos, FALSE);
+
+                CPoint ptZero(0, 0);
+                if (pInfinity->FXUnlock(0, NULL, ptZero)) {
+                    pInfinity->FXBltFrom(nSurface, rFXRect, ptPos.x, ptPos.y, ptReference.x, ptReference.y, 0);
+                }
+            }
+        }
+    }
 }
 
 // 0x4CE180
