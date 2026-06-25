@@ -328,6 +328,86 @@ void CGameTrigger::RenderClippedPoly(CGameArea* pArea, CVidMode* pVidMode, INT n
     }
 }
 
+// 0x4CD220
+BOOLEAN CGameTrigger::DoAIUpdate(BOOLEAN active, LONG counter)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    if ((m_dwFlags & 0x100) != 0) {
+        return FALSE;
+    }
+
+    if (m_triggerType == 0) {
+        if ((m_dwFlags & 0x20) != 0
+            && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x4446) == 0) {
+            return FALSE;
+        }
+
+        if (m_trapActivated != 0) {
+            CTypedPtrList<CPtrList, LONG*> targets(10);
+            m_pArea->GetCloseObjects(m_posVertList, m_pos, CAIObjectType::ANYONE,
+                m_boundingRange, m_pArea->m_visibleTerrainTable, targets, FALSE, FALSE);
+
+            POSITION pos = targets.GetHeadPosition();
+            while (pos != NULL) {
+                LONG nId = reinterpret_cast<LONG>(targets.GetNext(pos));
+
+                CGameObject* pObject;
+                if (pGame->GetObjectArray()->GetShare(nId, CGameObjectArray::THREAD_ASYNCH,
+                        &pObject, INFINITE)
+                    == CGameObjectArray::SUCCESS) {
+                    CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+                    if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE
+                        && ((m_dwFlags & 0x40) != 0
+                            || pGame->GetCharacterPortraitNum(pSprite->m_id) != -1
+                            || pGame->m_familiars.Find(reinterpret_cast<int*>(pSprite->m_id)) != NULL)) {
+                        // Skip the edit-mode trigger-placement preview (CChitin +0x1032/+0x1033,
+                        // CGameSprite +0x580); always 0 in normal play, so the trap is processed.
+                        if (!(*(reinterpret_cast<BYTE*>(g_pChitin) + 0x1032) == 1
+                              && *(reinterpret_cast<BYTE*>(g_pChitin) + 0x1033) == 1
+                              && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pSprite) + 0x580) == 1)) {
+                            if (IsOverActivate(pSprite->GetPos())) {
+                                CPoint ptLast(pSprite->field_536A, pSprite->field_536E);
+                                if (!IsOverActivate(ptLast)) {
+                                    BYTE rc;
+                                    do {
+                                        rc = pGame->GetObjectArray()->GetDeny(nId,
+                                            CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+                                    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+                                    if (rc == CGameObjectArray::SUCCESS) {
+                                        CAITrigger trigger(CAITRIGGER_ENTERED, pSprite->GetAIType(), 0);
+                                        g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                                            new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
+                                        pGame->GetObjectArray()->ReleaseDeny(nId,
+                                            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                                    }
+
+                                    if ((m_dwFlags & 0x2) == 0) {
+                                        m_trapActivated = 0;
+                                    }
+                                }
+                            }
+
+                            CPoint ptNow = pSprite->GetPos();
+                            pSprite->field_536A = ptNow.x;
+                            pSprite->field_536E = ptNow.y;
+                        }
+                    }
+
+                    pGame->GetObjectArray()->ReleaseShare(nId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                }
+            }
+
+            targets.RemoveAll();
+            return TRUE;
+        }
+    }
+
+    return CResRef(m_scriptRes) != *reinterpret_cast<const CResRef*>(0x8C5CF8);
+}
+
 // 0x4CE180
 BOOLEAN CGameTrigger::CompressTime(DWORD deltaTime)
 {
