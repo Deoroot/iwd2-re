@@ -199,7 +199,17 @@ void CGameTrigger::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL 
                 g_pBaldurChitin->GetMessageHandler()->AddMessage(
                     new CMessageTriggerStatus(m_dwFlags, m_trapActivated, m_trapDetected, m_id, m_id), FALSE);
 
-                // HACK: trap-activator animation (entering-object virtual slot +0xB0 unknown) — replaces 0x4CD7DD
+                // If the object bound to this trap (m_typeAI) resolves to a bare
+                // sprite-type AI marker, fire its trap-detected auto-pause. The id
+                // passed as caller is the trigger's own; it is only used when the
+                // bound type has no fixed instance.
+                CGameObject* pObject = m_typeAI.GetObject(reinterpret_cast<CGameAIBase*>(m_id), FALSE);
+                if (pObject != NULL) {
+                    CAIObjectType spriteType(CGameObject::TYPE_SPRITE, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+                    if (pObject->GetAIType().Equal(spriteType)) {
+                        static_cast<CGameAIBase*>(pObject)->AutoPause(0x80);
+                    }
+                }
             }
 
             if (m_trapDetected != 0) {
