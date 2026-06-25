@@ -7,8 +7,10 @@
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CGameEffect.h"
+#include "CGameObjectArray.h"
 #include "CGameSprite.h"
 #include "CMessage.h"
+#include "CInfButtonArray.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CPathSearch.h"
@@ -651,6 +653,166 @@ BOOL CGameTrigger::IsOverActivate(const CPoint& pt)
     }
 
     return TRUE;
+}
+
+// 0x4CED10
+void CGameTrigger::OnActionButton(const CPoint& pt)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CAIGroup* pGroup = pGame->GetGroup();
+
+    // Fire a Clicked() script trigger (caused by the party leader) so area
+    // scripts can react to the click before it is otherwise handled.
+    if (pGroup->GetCount() != 0) {
+        CAIObjectType leaderType;
+
+        LONG leaderId = pGroup->GetGroupLeader();
+        if (leaderId != CGameObjectArray::INVALID_INDEX) {
+            CGameObject* pLeader;
+
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetShare(leaderId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pLeader,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                leaderType.Set(pLeader->GetAIType());
+                pGame->GetObjectArray()->ReleaseShare(leaderId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+
+        CMessage* message = new CMessageSetTrigger(
+            CAITrigger(CAITrigger::CLICKED, leaderType, 0),
+            m_id,
+            m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    switch (pGame->GetState()) {
+    case 0:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+
+        if (pGroup->GetCount() == 0) {
+            return;
+        }
+
+        if (m_triggerType == 2) {
+            // Travel region: walk the whole party onto the trigger, then move
+            // them to the trigger's destination point.
+            CAIObjectType travelType(0, 0, 0, 0, 0, 0, 0, 0, m_id, 0, 0);
+            CAIAction travelAction(93 /* 0x84782E: travel action, not in ACTION.IDS */,
+                travelType,
+                0,
+                0,
+                0);
+            pGroup->GroupAction(travelAction, TRUE, NULL);
+
+            CPoint destination = (m_dwFlags & 0x200) != 0 ? m_ptUsePoint : m_pos;
+            CAIAction moveAction(CAIAction::MOVETOPOINT, destination, 0, -1);
+            pGroup->GroupAction(moveAction, FALSE, NULL);
+
+            pGroup->SetGroupTriggerId(m_id);
+
+            if (m_description != -1 && m_description != 0) {
+                STR_RES strRes;
+                g_pBaldurChitin->GetTlkTable().Fetch(m_description, strRes);
+                g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
+                    strRes.szText,
+                    0xBED7D7,
+                    0xFFB4B4,
+                    -1,
+                    FALSE);
+            }
+        } else if (m_triggerType == 1) {
+            // Info point: the original shows the trigger's info string as
+            // floating text via the helper at 0x4C80E0 when m_description is
+            // valid. That helper is not yet recovered, so the text display is
+            // omitted; like the original, an info point does not walk the party.
+            if (m_description != -1) {
+                // FUN_004c80e0(m_description, 0xA, 5);  // 0x4C80E0 -- unrecovered
+            }
+        } else {
+            CGameObject::OnActionButton(pt);
+        }
+        break;
+
+    case 2:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+
+        switch (pGame->GetIconIndex()) {
+        case 0x24: {
+            // Disarm a known, active floor trap.
+            if (m_triggerType != 0 || m_trapActivated == 0 || m_trapDetected == 0) {
+                CGameObject::OnActionButton(pt);
+                return;
+            }
+
+            // Abort unless the selected character actually has the
+            // disable-device skill.
+            SHORT nPortrait = g_pBaldurChitin->m_pEngineWorld->GetSelectedCharacter();
+            LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                BYTE nSkill = pSprite->GetBaseStats()->m_skills[CGAMESPRITE_SKILL_DISABLE_DEVICE];
+                pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+                if (nSkill == 0) {
+                    return;
+                }
+            }
+
+            CAIAction removeTraps(CAIAction::REMOVETRAPS, m_typeAI, 0, 0, 0);
+            pGroup->GroupAction(removeTraps, TRUE, NULL);
+
+            pGame->SetState(0);
+            pGame->GetButtonArray()->SetSelectedButton(100);
+            pGame->GetButtonArray()->UpdateState();
+            return;
+        }
+
+        case 0x0C:
+        case 0x12:
+        case 0x14:
+        case 0x28:
+        case 0xFF:
+            CGameObject::OnActionButton(pt);
+            return;
+
+        default:
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameTrigger.cpp
+            // __LINE__: 973
+            UTIL_ASSERT(FALSE);
+        }
+        break;
+
+    case 3:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+        CGameObject::OnActionButton(pt);
+        break;
+
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameTrigger.cpp
+        // __LINE__: 984
+        UTIL_ASSERT(FALSE);
+    }
 }
 
 // 0x4CFC20

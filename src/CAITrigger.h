@@ -238,6 +238,7 @@ public:
     static const SHORT DISARMED;
     static const SHORT UNLOCKED;
     static const SHORT DISARMFAILED;
+    static const SHORT CLICKED;
     static const SHORT STATUSTRIGGER;
 
     CAITrigger(const CAITrigger& trigger);
