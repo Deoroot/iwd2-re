@@ -2160,6 +2160,19 @@ void CGameAIBase::ApplyEffectToParty(CGameEffect* pEffect)
     }
 }
 
+// 0x4C83F0
+SHORT CGameAIBase::GiveItemCreate(CGameSprite* pTarget)
+{
+    // Unrecovered.  Transfers this object's items to pTarget: when this is a
+    // container (TYPE_CONTAINER) it drains the container's contents, and when
+    // this is a sprite (TYPE_SPRITE) it hands over the relevant inventory,
+    // delivering each item with a CMessageContainerAddItem (target container)
+    // or the give-to-sprite message.  The GiveItemCreate action (ExecuteAction)
+    // builds the items into a temporary container, then calls this to deliver
+    // them to the action's target.  Body left unimplemented.
+    return ACTION_DONE;
+}
+
 // 0x799E60
 void CGameAIBase::AutoPause(DWORD type)
 {

@@ -73,6 +73,7 @@ public:
     BOOL CheckAppropriateTarget(CSpell* pSpell, CGameAIBase* pTarget);
     BOOL PartyHasItem(const CResRef& resRef);
     void ApplyEffectToParty(CGameEffect* pEffect);
+    SHORT GiveItemCreate(CGameSprite* pTarget);
     SHORT MoveView(CPoint dest, int speed);
     SHORT MoveViewPoint();
     SHORT MoveViewObject(CGameObject* target);
