@@ -1807,6 +1807,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         pGame->SetIconIndex(0x24);
                         SetSelectedButton(0xC);
                     }
+                    // 0x593295: entering thieving/disarm mode cancels any active
+                    // modal (Search/Stealth) on the leader -- unconditional.
+                    pSprite->SetModalState(0, 0);
                     break;
                 case 0xD: // Animal Empathy
                     // Per Ghidra OnL state 0x73 case 0xD: require Animal
@@ -2013,6 +2016,21 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 pGame->SetState(3);
                 SetSelectedButton(7);
             }
+            // 0x5939e1: clears any active modal (Search/Stealth) on the leader.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    pSprite->SetModalState(0, 0);
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+            }
             UpdateButtons();
             return;
         case 8:
@@ -2023,6 +2041,21 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 pGame->SetState(2);
                 pGame->SetIconIndex(0x0C);
                 SetSelectedButton(8);
+            }
+            // 0x593173: clears any active modal (Search/Stealth) on the leader.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    pSprite->SetModalState(0, 0);
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
             }
             UpdateButtons();
             return;
@@ -2199,6 +2232,22 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 pGame->SetState(2);
                 pGame->SetIconIndex(0x24);
                 SetSelectedButton(0xC);
+            }
+            // 0x593177: entering thieving/disarm mode cancels any active modal
+            // (Search/Stealth) on the leader -- unconditional.
+            {
+                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+                CGameSprite* pSprite = NULL;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
+                    pSprite->SetModalState(0, 0);
+                    pGame->GetObjectArray()->ReleaseShare(nLeader,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
             }
             UpdateButtons();
             return;
