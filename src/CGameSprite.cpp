@@ -18775,6 +18775,22 @@ SHORT CGameSprite::ExecuteAction()
         return ACTION_DONE;
     }
 
+    // 0x7296AE (ExecuteAction jumptable case 0x17). RemoveTraps(O:Trap*): resolve
+    // the targeted trap object and attempt the disarm.  RemoveTraps() is called
+    // unconditionally -- it handles a NULL target -- and the shared lock is
+    // released only when a target actually resolved.
+    if (m_curAction.m_actionID == CAIAction::REMOVETRAPS) {
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_AIBASE);
+        SHORT actionReturn = RemoveTraps(static_cast<CGameAIBase*>(pObj));
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return actionReturn;
+    }
+
     return CGameAIBase::ExecuteAction();
 }
 
