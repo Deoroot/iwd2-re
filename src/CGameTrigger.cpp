@@ -614,7 +614,7 @@ BOOL CGameTrigger::IsOver(const CPoint& pt)
         }
     }
 
-    if (m_rBounding.PtInRect(pt)) {
+    if (!m_rBounding.PtInRect(pt)) {
         return FALSE;
     }
 
