@@ -2125,8 +2125,16 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     reinterpret_cast<CGameObject**>(&pSprite),
                     INFINITE);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    pSprite->SetModalState(pSprite->GetModalState() == 2 ? 0 : 2, 0);
-                    SetSelectedButton(pSprite->GetModalState() == 2 ? 5 : 100);
+                    if (pSprite->GetModalState() == 2) {
+                        pSprite->SetModalState(0, 0);
+                        SetSelectedButton(100);
+                    } else {
+                        // 0x5930b3: entering Search announces "Searching" in the
+                        // combat feedback before the modal state flips on.
+                        pSprite->FeedBack(CGameSprite::FEEDBACK_SEARCHSTART, 0, 0, 0, -1, 0, 0);
+                        pSprite->SetModalState(2, 0);
+                        SetSelectedButton(5);
+                    }
                     pGame->GetObjectArray()->ReleaseShare(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);

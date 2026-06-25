@@ -16543,13 +16543,30 @@ BOOL CGameSprite::HandleEffects()
         m_activeImprisonment = TRUE;
 
         // TODO: Incomplete.  Original handles many more passes and status
-        // side-effects; this restores the core equipped/timed list pass.
+        // side-effects (e.g. the portrait/button refresh at 0x7346c5); this
+        // restores the core equipped/timed list pass and the skill-modifier fold.
         m_bonusStats.BonusInit();
 
         v1 = m_equipedEffectList.HandleList(this);
         v2 = m_timedEffectList.HandleList(this);
 
         m_derivedStats += m_bonusStats;
+
+        // 0x73469e: fold each situational skill modifier -- the governing
+        // ability modifier plus the race/feat bonuses computed by
+        // GetSkillModifier -- into the derived skill ranks (first 16 skills),
+        // clamped to a floor of 0.  The add is byte-wide, matching the binary's
+        // `add cl, al` (only the low byte of the modifier is used) and the signed
+        // clamp keeps a net-negative skill from underflowing.  Without this pass
+        // the detect-traps / stealth / lore checks run on raw ranks and fall
+        // short -- e.g. an elf rogue's Search 4 never reaches the 8 (4 ranks +
+        // 2 INT + 2 racial) the trap-detection gate expects.
+        for (int index = 0; index < 16; index++) {
+            signed char nSkill = static_cast<signed char>(
+                static_cast<BYTE>(m_derivedStats.m_nSkills[index])
+                + static_cast<BYTE>(GetSkillModifier(index)));
+            m_derivedStats.m_nSkills[index] = (nSkill > 0) ? static_cast<BYTE>(nSkill) : 0;
+        }
 
         bRetry = m_equipedEffectList.m_retry || m_timedEffectList.m_retry;
     } while (bRetry);
