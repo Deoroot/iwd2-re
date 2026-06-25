@@ -1577,8 +1577,7 @@ void CGameContainer::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOO
         if (m_trapDetected == 0
                 && m_trapDetectionDifficulty < 100
                 && (m_dwFlags & 0x8) != 0) {
-            SHORT triggerType = *reinterpret_cast<SHORT*>(0x847E40);
-            CAITrigger trigger(triggerType, m_typeAI, 0);
+            CAITrigger trigger(CAITRIGGER_DETECTED, m_typeAI, 0);
             g_pBaldurChitin->GetMessageHandler()->AddMessage(
                 new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
 

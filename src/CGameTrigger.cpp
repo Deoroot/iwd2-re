@@ -192,8 +192,7 @@ void CGameTrigger::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL 
             if (m_trapDetected == 0
                     && m_trapDetectionDifficulty < 100
                     && (m_dwFlags & 0x8) != 0) {
-                SHORT triggerType = *reinterpret_cast<SHORT*>(0x847E40);
-                CAITrigger trigger(triggerType, m_typeAI, 0);
+                CAITrigger trigger(CAITRIGGER_DETECTED, m_typeAI, 0);
                 g_pBaldurChitin->GetMessageHandler()->AddMessage(
                     new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
 
@@ -417,7 +416,7 @@ BOOLEAN CGameTrigger::DoAIUpdate(BOOLEAN active, LONG counter)
         }
     }
 
-    return CResRef(m_scriptRes) != *reinterpret_cast<const CResRef*>(0x8C5CF8);
+    return CResRef(m_scriptRes) != CResRef();
 }
 
 // 0x4CE180
