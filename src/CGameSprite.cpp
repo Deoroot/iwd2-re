@@ -10994,7 +10994,7 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
         // round: re-apply its ability effects to nearby allies (two rounds of
         // duration) and show the lingering-song feedback instead of "song
         // ended".  Recovered from 0x71FC41-0x720245 -- the same per-cycle
-        // re-application as sub_72FD20 case 0, but ally-filtered and longer.
+        // re-application as CheckModal case 0, but ally-filtered and longer.
         if (HasFeat(CGAMESPRITE_FEAT_LINGERING_SONG) == 1) {
             CInfGame* pLingerGame = g_pBaldurChitin->GetObjectGame();
             // A silenced singer (derived or base state) cannot sing; the game
@@ -11044,7 +11044,7 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
                             // through -- so the enemy pre-filter is dead code and
                             // SPIN147 never lingers on anyone.  Latent bug in
                             // IWD2.exe, reproduced faithfully.  (Its per-round
-                            // application in sub_72FD20 case 0 has no ally gate, so
+                            // application in CheckModal case 0 has no ally gate, so
                             // it does reach enemies while the song is being sung.)
                             BOOL skip = FALSE;
                             if (songRes == "SPIN147"
@@ -12106,7 +12106,7 @@ void CGameSprite::ProcessAI()
     // 0x72D816: per-round modal / passive-ability update (bard song, search,
     // stealth, turn undead).  The binary also runs a nearest-enemy acquisition
     // pass (0x72FBF0) immediately before this; that remains unrecovered.
-    sub_72FD20();
+    CheckModal();
 
     if (ProcessEffectList()
         && m_pArea != NULL
@@ -12280,20 +12280,20 @@ CString CGameSprite::GetRaceLabel(BYTE nRace)
 // 0x72FD20
 //
 // Per-round modal / passive-ability update, called once per active AI tick from
-// ProcessAI.  Self-staggered: a sprite processes on the tick where the shared
-// AI frame counter aligns with its id (once per 100 ticks).  For a party member
-// it runs the passive secret-door / trap detection sweep, then dispatches the
-// active modal ability by m_nModalState.
+// Called once per AI tick from CGameSprite::ProcessAI.  Self-staggered: a sprite
+// processes on the tick where the shared AI frame counter aligns with its id
+// (once per 100 ticks).  For a party member it first runs the passive
+// secret-door sweep, then dispatches the active modal ability by m_nModalState:
+// 1 = bard song, 2 = detect traps / search, 3 = stealth, 4 = turn undead.
 //
-// The stagger frame, the m_nModalState dispatch, and the bard-song case
-// (modal state 1) are recovered.  The bard-song case re-applies the song's
-// ability effects to nearby allies each cycle via a CMessage105 effect-list
-// message -- the per-round party buff.  The passive secret-door / trap sweep
-// and the search / stealth / turn-undead cases remain marked no-ops (they gather
-// objects through a similar targeting pass and apply effects party-wide; left
-// for disasm-verified recovery).  The singer's own song-marker effect is also
-// still unrecovered (see case 0).
-void CGameSprite::sub_72FD20()
+// Recovered: the stagger, the passive secret-door sweep, the bard-song cycle
+// (re-applies the song's ability effects to nearby allies via a CMessage105
+// effect-list message), the detect-traps sweep (door / trigger / container) and
+// the stealth re-check (every third cycle -> sub_757B40).
+// Still unrecovered: the turn-undead case (case 3) and the singer's own
+// song-marker effect (case 0).
+// 0x72FD20
+void CGameSprite::CheckModal()
 {
     // Process this sprite's modal abilities only on the AI tick where the frame
     // counter aligns with its id (a once-per-100-ticks stagger).
@@ -18652,7 +18652,7 @@ SHORT CGameSprite::ExecuteAction()
         // queued Hide() action runs -- before the modal upkeep's next three-cycle
         // tick -- run one stealth detection pass so the sprite hides (or is
         // spotted) right away.  Skipped once already hidden; the per-cycle
-        // re-check then lives in sub_72FD20 case 2.
+        // re-check then lives in CheckModal case 2.
         if (!m_bHiding) {
             return sub_757B40();
         }
