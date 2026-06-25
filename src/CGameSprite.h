@@ -668,6 +668,7 @@ public:
     void sub_756930(CItem* pItem, CItem* pLauncher);
     SHORT EquipItem();
     SHORT FindTraps();
+    SHORT RemoveTraps(CGameAIBase* pTarget);
     SHORT Panic();
     SHORT Turn();
     SHORT EquipMostDamagingMelee();

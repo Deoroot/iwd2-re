@@ -233,8 +233,11 @@ public:
     static const SHORT UNUSABLE;
     static const SHORT TIMEREXPIRED;
     static const SHORT TRIGGER;
+    static const SHORT ENTERED;
     static const SHORT OPENED;
+    static const SHORT DISARMED;
     static const SHORT UNLOCKED;
+    static const SHORT DISARMFAILED;
     static const SHORT STATUSTRIGGER;
 
     CAITrigger(const CAITrigger& trigger);

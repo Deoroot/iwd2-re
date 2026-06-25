@@ -19802,6 +19802,191 @@ SHORT CGameSprite::FindTraps()
     return ACTION_DONE;
 }
 
+// 0x759240
+SHORT CGameSprite::RemoveTraps(CGameAIBase* pTarget)
+{
+    if (pTarget == NULL) {
+        return ACTION_ERROR;
+    }
+
+    if (pTarget->GetObjectType() != TYPE_DOOR
+        && pTarget->GetObjectType() != TYPE_CONTAINER
+        && pTarget->GetObjectType() != TYPE_TRIGGER) {
+        return ACTION_ERROR;
+    }
+
+    CMessage* message = new CMessageSetForceActionPick(TRUE, m_id, pTarget->GetId());
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+    // 0x8CF6D8 = g_pChitin; the bytes at +0x1032/+0x1033 are dev toggles (off in
+    // normal play).  When both are set the trap may be reached from farther away.
+    int searchRange = 0x20;
+    if (*(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032) != 1
+        || *(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1033) != 0) {
+        searchRange = 0x10;
+    }
+
+    CPoint targetPos = pTarget->GetPos();
+    int dx = targetPos.x / 16 - m_pos.x / 16;
+    int dy = targetPos.y / 12 - m_pos.y / 12;
+
+    SHORT result = ACTION_DONE;
+    if (searchRange < dx * dx + dy * dy) {
+        m_curAction.m_dest = pTarget->GetPos();
+        result = MoveToPointRange(pTarget->GetPos(), 0);
+    }
+
+    if (result != ACTION_DONE) {
+        return result;
+    }
+
+    if (m_pPath != NULL) {
+        message = new CMessageDropPath(m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    int skill = static_cast<char>(m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_DISABLE_DEVICE]);
+    int roll = rand() % 20 + 1;
+    int skillModifier = GetSkillModifier(CGAMESPRITE_SKILL_DISABLE_DEVICE);
+    int check = roll + skill;
+
+    if (pTarget->GetObjectType() == TYPE_DOOR
+        && static_cast<CGameDoor*>(pTarget)->m_trapActivated != 0) {
+        CGameDoor* pDoor = static_cast<CGameDoor*>(pTarget);
+        BOOL bDisarmed = FALSE;
+        int dc = pDoor->m_trapDisarmingDifficulty / 7 + 10;
+
+        if (dc < check && pDoor->m_trapDisarmingDifficulty != 100) {
+            bDisarmed = TRUE;
+
+            CAITrigger trigger(CAITrigger::DISARMED, m_typeAI, 0);
+            message = new CMessageSetTrigger(trigger, m_id, pDoor->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            pDoor->m_trapActivated = 0;
+            pDoor->SetDrawPoly(0);
+            FeedBack(FEEDBACK_ROLL, roll, skill - skillModifier, skillModifier, 0x9962, dc, 0);
+            FeedBack(FEEDBACK_TRAPDISARMED, 0, 0, 0, -1, 0, 0);
+        } else {
+            FeedBack(FEEDBACK_ROLL, roll, skill - skillModifier, skillModifier, 0x9963, dc, 0);
+
+            if (25 < pDoor->m_trapDisarmingDifficulty - dc) {
+                CAITrigger trigger(CAITrigger::OPENED, m_typeAI, 0);
+                message = new CMessageSetTrigger(trigger, m_id, pDoor->GetId());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+                if ((pDoor->m_dwFlags & 4) == 0) {
+                    pDoor->m_trapActivated = 0;
+                }
+            }
+
+            CAITrigger trigger(CAITrigger::DISARMFAILED, m_typeAI, 0);
+            message = new CMessageSetTrigger(trigger, m_id, pDoor->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            FeedBack(FEEDBACK_TRAPDISARMEDFAILED, 0, 0, 0, -1, 0, 0);
+        }
+
+        if (bDisarmed) {
+            message = new CMessageDoorStatus(pDoor, m_id, pDoor->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        }
+    }
+
+    if (pTarget->GetObjectType() == TYPE_TRIGGER
+        && static_cast<CGameTrigger*>(pTarget)->m_trapActivated != 0
+        && (static_cast<CGameTrigger*>(pTarget)->m_dwFlags & 0x100) == 0) {
+        CGameTrigger* pTrigger = static_cast<CGameTrigger*>(pTarget);
+        int dc = pTrigger->m_trapDisarmingDifficulty / 7 + 10;
+
+        if (dc < check && pTrigger->m_trapDisarmingDifficulty != 100) {
+            CAITrigger trigger(CAITrigger::DISARMED, m_typeAI, 0);
+            message = new CMessageSetTrigger(trigger, m_id, pTrigger->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            pTrigger->m_trapActivated = 0;
+            pTrigger->SetDrawPoly(0);
+            FeedBack(FEEDBACK_ROLL, roll, skill - skillModifier, skillModifier, 0x9962, dc, 0);
+            FeedBack(FEEDBACK_TRAPDISARMED, 0, 0, 0, -1, 0, 0);
+
+            message = new CMessageTriggerStatus(pTrigger->m_dwFlags,
+                pTrigger->m_trapActivated,
+                pTrigger->m_trapDetected,
+                m_id,
+                pTrigger->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        } else {
+            FeedBack(FEEDBACK_ROLL, roll, skill - skillModifier, skillModifier, 0x9963, dc, 0);
+
+            if (25 < pTrigger->m_trapDisarmingDifficulty - dc) {
+                CAITrigger trigger(CAITrigger::ENTERED, m_typeAI, 0);
+                message = new CMessageSetTrigger(trigger, m_id, pTrigger->GetId());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+                if ((pTrigger->m_dwFlags & 2) == 0) {
+                    pTrigger->m_trapActivated = 0;
+                }
+            }
+
+            CAITrigger trigger(CAITrigger::DISARMFAILED, m_typeAI, 0);
+            message = new CMessageSetTrigger(trigger, m_id, pTrigger->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            FeedBack(FEEDBACK_TRAPDISARMEDFAILED, 0, 0, 0, -1, 0, 0);
+        }
+    }
+
+    if (pTarget->GetObjectType() == TYPE_CONTAINER
+        && static_cast<CGameContainer*>(pTarget)->m_trapActivated != 0) {
+        CGameContainer* pContainer = static_cast<CGameContainer*>(pTarget);
+        BOOL bDisarmed = FALSE;
+        int dc = pContainer->m_trapRemovalDifficulty / 7 + 10;
+
+        if (dc < check && pContainer->m_trapRemovalDifficulty != 100) {
+            bDisarmed = TRUE;
+
+            CAITrigger trigger(CAITrigger::DISARMED, m_typeAI, 0);
+            message = new CMessageSetTrigger(trigger, m_id, pContainer->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            pContainer->SetDrawPoly(0);
+            pContainer->SetTrapActivated(0);
+            pContainer->SetTrapDetected(0);
+            FeedBack(FEEDBACK_ROLL, roll, skill - skillModifier, skillModifier, 0x9962, dc, 0);
+            FeedBack(FEEDBACK_TRAPDISARMED, 0, 0, 0, -1, 0, 0);
+        } else {
+            FeedBack(FEEDBACK_ROLL, roll, skill - skillModifier, skillModifier, 0x9963, dc, 0);
+
+            if (25 < pContainer->m_trapRemovalDifficulty - dc) {
+                CAITrigger trigger(CAITrigger::OPENED, m_typeAI, 0);
+                message = new CMessageSetTrigger(trigger, m_id, pContainer->GetId());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+                if ((pContainer->m_dwFlags & 8) == 0) {
+                    pContainer->SetTrapActivated(0);
+                }
+            }
+
+            CAITrigger trigger(CAITrigger::DISARMFAILED, m_typeAI, 0);
+            message = new CMessageSetTrigger(trigger, m_id, pContainer->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            FeedBack(FEEDBACK_TRAPDISARMEDFAILED, 0, 0, 0, -1, 0, 0);
+        }
+
+        if (bDisarmed) {
+            message = new CMessageContainerStatus(pContainer->m_dwFlags,
+                pContainer->m_trapActivated,
+                pContainer->m_trapDetected,
+                m_id,
+                pContainer->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        }
+    }
+
+    return ACTION_DONE;
+}
+
 // 0x758440
 SHORT CGameSprite::Panic()
 {
