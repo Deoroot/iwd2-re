@@ -12,6 +12,8 @@
 #                                      Select-String server-side (UTF-16 safe, no iconv), last N
 #   scripts/vm.sh tail [N] [-f <vm-path>]   last N raw lines of the debug log
 #   scripts/vm.sh clearlog [-f <vm-path>]   truncate the debug log (auto-run by run/smoke)
+#   scripts/vm.sh cleantemp            reap leaked frida-<hash> temp dirs in %LOCALAPPDATA%\Temp
+#                                      (auto-run by frida/smoke; ~52 MB each, skips in-use ones)
 #   scripts/vm.sh status               cat vm_s1_out.txt (launch/smoke status)
 #   scripts/vm.sh ps                   iwd2/frida processes on the VM
 #   scripts/vm.sh kill [ours|orig|all] taskkill: ours=iwd2-re.exe (default), orig=IWD2.exe.
@@ -41,6 +43,30 @@ vm_ps() { printf '%s\n' "$1" | ssh "$VM" "powershell -NoProfile -Command -"; }
 clear_log() {
   local f="${1:-$DEFAULT_LOG}"
   vm_ps "if (Test-Path '$(ps_quote "$f")') { Clear-Content -Path '$(ps_quote "$f")' -ErrorAction SilentlyContinue }" >/dev/null 2>&1 || true
+}
+
+# Frida leaks one ~52 MB frida-<hash> dir (the embedded frida-agent) per attach/
+# spawn under %LOCALAPPDATA%\Temp and never reaps them -- 35 stale dirs (1.8 GB)
+# had piled up. Rename-probe each: a LIVE session holds the agent DLL so renaming
+# its dir fails with a sharing violation and we skip it untouched. We only delete
+# dirs that rename cleanly == no process has them open, so there is no risk of
+# half-deleting an in-use session. Best-effort: never fails the caller.
+clean_frida_temp() {
+  vm_ps '
+    $t = Join-Path $env:LOCALAPPDATA "Temp"
+    $freed = 0; $n = 0; $skip = 0
+    Get-ChildItem -Path $t -Directory -Filter "frida-*" -ErrorAction SilentlyContinue | ForEach-Object {
+      $leaf = ".reap-" + [guid]::NewGuid().ToString("N")
+      try {
+        Rename-Item -LiteralPath $_.FullName -NewName $leaf -ErrorAction Stop
+        $moved = Join-Path $t $leaf
+        $sz = (Get-ChildItem -LiteralPath $moved -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+        Remove-Item -LiteralPath $moved -Recurse -Force -ErrorAction SilentlyContinue
+        $freed += $sz; $n++
+      } catch { $skip++ }
+    }
+    Write-Output ("frida temp: reaped {0} dir(s), {1:N1} MB freed; {2} in-use skipped" -f $n, ($freed/1MB), $skip)
+  ' 2>/dev/null || true
 }
 
 cmd="${1:-}"; shift || true
@@ -144,6 +170,7 @@ case "$cmd" in
     # teardown: stop the (possibly still-attached) remote guard so it can't block the next smoke
     kill "$gpid" 2>/dev/null || true
     ssh "$VM" 'powershell -NoProfile -Command "Stop-Process -Name python -Force -ErrorAction SilentlyContinue"' >/dev/null 2>&1 || true
+    clean_frida_temp >/dev/null 2>&1 || true   # reap the crash-guard's frida temp dir (python now dead -> unlocked)
     # leave no idle game behind: stop OUR exe now (a later run/smoke would only kill
     # it at start anyway, so it would otherwise sit burning CPU between sessions).
     # Per kill policy smoke owns iwd2-re.exe; the original IWD2.exe is never touched.
@@ -172,6 +199,9 @@ case "$cmd" in
   clearlog)
     f="$DEFAULT_LOG"; [ "${1:-}" = "-f" ] && f="$2"
     clear_log "$f"; echo "cleared: $f"
+    ;;
+  cleantemp)
+    clean_frida_temp
     ;;
   status)
     ssh "$VM" 'cmd /c "type C:\iwd2-re\vm_s1_out.txt 2>nul"' || echo "(no vm_s1_out.txt)"
@@ -202,6 +232,7 @@ case "$cmd" in
   frida)
     script="${1:?vm.sh frida <script.py> [args...]}"; shift
     base="$(basename "$script")"
+    clean_frida_temp   # reap stale frida-<hash> temp dirs before this session adds another
     scp -q "$script" "$VM:$VM_REPO/scripts/"
     printf '@echo off\r\ncd /d C:\\iwd2-re\r\npython scripts\\%s %s > C:\\iwd2-re\\vm_s1_out.txt 2>&1\r\n' \
       "$base" "$*" > /tmp/vm_s1_payload.cmd
@@ -210,6 +241,6 @@ case "$cmd" in
     echo "frida payload launched in session 1 (watch: vm.sh status / vm.sh tail)"
     ;;
   *)
-    sed -n '2,22p' "$0"
+    sed -n '2,26p' "$0"
     ;;
 esac
