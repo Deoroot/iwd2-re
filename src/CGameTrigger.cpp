@@ -632,7 +632,7 @@ BOOL CGameTrigger::IsOver(const CPoint& pt)
 // 0x4CECB0
 BOOL CGameTrigger::IsOverActivate(const CPoint& pt)
 {
-    if (m_rBounding.PtInRect(pt)) {
+    if (!m_rBounding.PtInRect(pt)) {
         return FALSE;
     }
 
