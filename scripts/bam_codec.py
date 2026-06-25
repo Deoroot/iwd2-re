@@ -114,7 +114,7 @@ def images_to_bam(imgs, m, scale=2, transparent=(0, 255, 0), cx_off=0, cy_off=0)
         for i, (r, g, bb, a) in enumerate(rd):
             if a < 128:
                 ip[i] = 0                                  # transparent -> idx0
-        new_frames_meta.append((w, h, srcf["cx"]*scale + cx_off, srcf["cy"]*scale + cy_off, base, bytes(ip)))
+        new_frames_meta.append((w, h, int(round(srcf["cx"]*scale)) + cx_off, int(round(srcf["cy"]*scale)) + cy_off, base, bytes(ip)))
         base += len(ip)
     # assemble: header(0x18) + frame entries + cycles + lookup + palette + data
     nframes = len(imgs); ncycles = m["ncycles"]
