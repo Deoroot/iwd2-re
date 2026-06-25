@@ -729,12 +729,11 @@ void CGameTrigger::OnActionButton(const CPoint& pt)
                     FALSE);
             }
         } else if (m_triggerType == 1) {
-            // Info point: the original shows the trigger's info string as
-            // floating text via the helper at 0x4C80E0 when m_description is
-            // valid. That helper is not yet recovered, so the text display is
-            // omitted; like the original, an info point does not walk the party.
+            // Info point: float the trigger's info string above it (duration 10,
+            // begin-fade 5) when m_description is valid.  Like the original, an
+            // info point does not walk the party.
             if (m_description != -1) {
-                // FUN_004c80e0(m_description, 0xA, 5);  // 0x4C80E0 -- unrecovered
+                FloatText(m_description, 0xA, 5);
             }
         } else {
             CGameObject::OnActionButton(pt);

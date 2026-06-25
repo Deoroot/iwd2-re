@@ -3,9 +3,11 @@
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CGameObjectArray.h"
+#include "CGameText.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CScreenWorld.h"
+#include "CSound.h"
 #include "CTimerWorld.h"
 #include "CUtil.h"
 
@@ -408,10 +410,82 @@ void CGameObject::SetCursor(LONG nToolTip)
     }
 }
 
-// 0x4C83F0
+// 0x4C80E0
 void CGameObject::FloatText(STRREF strRef, int a2, int a3)
 {
-    // TODO: Incomplete.
+    // Objects parked off-map (m_pos == (-1, -1)) never float text.
+    if (m_pos.x == -1 && m_pos.y == -1) {
+        return;
+    }
+
+    CSound sound;
+
+    // Multiplayer pacing: with a network session connected (g_pChitin+0x96E,
+    // inside cNetwork) and the dev fast-message toggle (g_pChitin+0x1033)
+    // clear, the original sleeps 25ms before spawning the floating text.
+    if (*reinterpret_cast<const int*>(reinterpret_cast<const BYTE*>(g_pChitin) + 0x96E) != 0
+        && *(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1033) == 0) {
+        Sleep(0x19);
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // Drop the floating text already attached to this object, if any.
+    if (field_1C != 0) {
+        CGameObject* pPrev;
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(field_1C,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pPrev,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc == CGameObjectArray::SUCCESS) {
+            pPrev->RemoveFromArea();
+        }
+    }
+
+    if (strRef == 0) {
+        // A zero strref only clears the existing floating text.
+        field_1C = 0;
+        return;
+    }
+
+    // Only objects in the currently displayed area float text.
+    if (pGame->GetVisibleArea() != m_pArea) {
+        return;
+    }
+
+    STR_RES strRes;
+    g_pBaldurChitin->GetTlkTable().Fetch(strRef, strRes);
+    if (strRes.szText.GetLength() == 0) {
+        return;
+    }
+
+    // 0x7FAF47: in-place leading-text cleanup of strRes.szText -- unrecovered.
+
+    CPoint pos;
+    if (GetObjectType() == TYPE_TRIGGER) {
+        // Triggers float their text at the info/launch point (+0x616), not m_pos.
+        pos = *reinterpret_cast<const CPoint*>(reinterpret_cast<const BYTE*>(this) + 0x616);
+    } else {
+        pos = m_pos;
+    }
+
+    CGameText* pText = new CGameText(m_pArea, pos, static_cast<BYTE>(a2),
+        static_cast<BYTE>(a3), strRes.szText);
+
+    // game+0x44A6 + 0x4CB9B0 (on-screen rect test) gate a duplicate echo of the
+    // text into the message-log window via CScreenWorld::DisplayText -- both
+    // unrecovered, so the log echo is omitted.
+
+    // Cross-link owner <-> floating text (field_1C is dual-role: the owner's
+    // active text id here, the text's owner id on the CGameText).
+    pText->field_1C = m_id;
+    field_1C = pText->m_id;
+
+    // 0x4CB820: trigger-only vertical fix-up of the new text's position --
+    // unrecovered, omitted.
 }
 
 // 0x78E750
