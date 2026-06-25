@@ -19,6 +19,7 @@ public:
     /* 0034 */ BOOL IsOver(const CPoint& pt) override;
     /* 0048 */ void RemoveFromArea() override;
     /* 0058 */ void SetCursor(LONG nToolTip) override;
+    /* 0078 */ void AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply) override;
     /* 00B8 */ virtual BOOL IsOverActivate(const CPoint& pt);
 
     void SetDrawPoly(SHORT time);

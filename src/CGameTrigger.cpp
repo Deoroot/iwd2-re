@@ -1,9 +1,14 @@
 #include "CGameTrigger.h"
 
+#include "CAIAction.h"
+#include "CAIObjectType.h"
 #include "CAIScript.h"
+#include "CAITrigger.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
+#include "CGameEffect.h"
 #include "CGameSprite.h"
+#include "CMessage.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CPathSearch.h"
@@ -172,6 +177,68 @@ void CGameTrigger::AIUpdate()
     }
 
     ProcessAI();
+}
+
+// 0x4CD650
+void CGameTrigger::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
+{
+    switch (pEffect->m_effectID) {
+    case CGAMEEFFECT_DETECTTRAPS:
+        if (m_trapActivated != 0 && (m_dwFlags & 0x100) == 0) {
+            if (m_trapDetected == 0
+                    && m_trapDetectionDifficulty < 100
+                    && (m_dwFlags & 0x8) != 0) {
+                SHORT triggerType = *reinterpret_cast<SHORT*>(0x847E40);
+                CAITrigger trigger(triggerType, m_typeAI, 0);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
+
+                m_trapDetected = 1;
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageTriggerStatus(m_dwFlags, m_trapActivated, m_trapDetected, m_id, m_id), FALSE);
+
+                // HACK: trap-activator animation (entering-object virtual slot +0xB0 unknown) — replaces 0x4CD7DD
+            }
+
+            if (m_trapDetected != 0) {
+                if (m_drawPoly != 400
+                        && *(reinterpret_cast<char*>(g_pBaldurChitin) + 0x497E) == 0) {
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                        new CMessageSetDrawPoly(400, m_id, m_id), FALSE);
+                }
+                m_drawPoly = 400;
+            }
+        }
+        break;
+
+    case CGAMEEFFECT_CASTSPELL: {
+        CAIObjectType acteeType;
+        acteeType.Set(GetAIType());
+
+        CAIAction forceSpell;
+        forceSpell.m_actionID = CAIAction::FORCESPELL;
+        forceSpell.m_acteeID.Set(acteeType);
+
+        CString spellRes;
+        pEffect->m_res.CopyToString(spellRes);
+        forceSpell.SetString1(spellRes);
+        forceSpell.m_specificID = pEffect->m_effectAmount;
+
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(
+            new CMessageAddAction(forceSpell, m_id, pEffect->m_sourceID), FALSE);
+        break;
+    }
+
+    case CGAMEEFFECT_SUMMON:
+        // HACK: CCreatureFile/CGameSprite spawn unrecovered (FindNearbyPassablePoint sig, CGameSprite
+        // ctor args, CProjectile dispatch unknown) — replaces 0x4CDBDA
+        break;
+
+    default:
+        break;
+    }
+
+    delete pEffect;
 }
 
 // 0x4CE180
