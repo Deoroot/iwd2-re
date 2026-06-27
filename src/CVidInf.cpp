@@ -1861,7 +1861,7 @@ void CVidInf::LoadFogOWarSurfaces(const CString& a2)
                     tileVidCell.FrameSet(2);
                     tileVidCell.Render(reinterpret_cast<WORD*>(surfaceDesc.lpSurface), surfaceDesc.lPitch, 0, 32, rTileRect, TRUE, 0, CPoint(0, 0));
 
-                    tileVidCell.FrameSet(2);
+                    tileVidCell.FrameSet(3);
                     tileVidCell.Render(reinterpret_cast<WORD*>(surfaceDesc.lpSurface), surfaceDesc.lPitch, 32, 32, rTileRect, TRUE, 0, CPoint(0, 0));
 
                     // NOTE: Uninline.
