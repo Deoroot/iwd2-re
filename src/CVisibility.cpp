@@ -611,7 +611,7 @@ BYTE CVisibilityMap::GetSubTileCode(LONG nTile)
         code |= 0x8;
     }
 
-    code <<= 8;
+    code <<= 4;
 
     if (!IsTileExplored(nTile)) {
         code |= 0x1;
