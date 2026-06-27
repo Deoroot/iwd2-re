@@ -173,7 +173,7 @@ def render_auto(font, ch, caph, edge_off=0, ss=8, var=None):
 
 
 def build(src_bam, ttf, chars, out_bam, stretch=1.0, edge_off=0, var=None,
-          src_scale=1, codepage=None):
+          src_scale=1, codepage=None, autocell=True):
     """src_scale: multiply every frame's w,h,cx,cy (2 = synthesize a 2x BAM from a
     1x source). codepage: decode charcodes >=0x80 via this codepage (cp1251 = RU)."""
     def charof(cc):
@@ -196,9 +196,10 @@ def build(src_bam, ttf, chars, out_bam, stretch=1.0, edge_off=0, var=None,
         cc = i + 1
         ch = charof(cc)
         if ch is not None and ch in chars and w > 0 and h > 0:
-            # high range under a codepage (Cyrillic): the Latin source cell is the
-            # wrong width -> compute a natural cell from the glyph instead.
-            if codepage is not None and cc >= 0x80:
+            # high range under a codepage (Cyrillic): if the source cell is a Latin
+            # one (wrong width), compute a natural cell (autocell). When the source
+            # IS the Cyrillic stock font, its cells are already right -> fit-to-cell.
+            if autocell and codepage is not None and cc >= 0x80:
                 r = render_auto(ttf, ch, caph, edge_off=edge_off, var=var)
                 if r is not None:
                     idxmap, nw, nh, ncx, ncy = r

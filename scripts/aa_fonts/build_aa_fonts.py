@@ -8,9 +8,10 @@ Outputs (relative to the mod's iwd2ee/ dir passed as argv[1]):
 
 All glyphs are encoded for the engine's tint model (CVidFont::RealizePalette: index1=bg,
 index255=fg; CGameText SetColor(white,black)) -> ink = high index, bevel/shadow = index 1.
-Frame index = charcode-1. NUMFONT/Western INFOFONT keep the stock per-glyph cell geometry
-(fit-to-cell); the Russian Cyrillic range uses a natural cell (autocell) because the cp1251
-byte's Latin source cell is the wrong width.
+Frame index = charcode-1. All three fit-to-cell: NUMFONT from the stock 2x NUMFONT,
+Western INFOFONT from the stock Western (cp1252) INFOFONT, Russian INFOFONT from the stock
+Russian (cp1251) INFOFONT (font_src/INFOFONT_1x_ru.BAM, from a Russian install's
+Override) so the Cyrillic cell widths match exactly.
 
 Fonts bundled in font_src/ (Roboto Condensed = Apache-2.0; Rajdhani, Play = OFL-1.1).
 Rajdhani has NO Cyrillic -> Russian uses Play (square-ish grotesque with Cyrillic).
@@ -27,7 +28,8 @@ ROBOTO = os.path.join(SRC, "RobotoCondensed.ttf")
 RAJDHANI = os.path.join(SRC, "Rajdhani-Bold.ttf")
 PLAY = os.path.join(SRC, "Play-Bold.ttf")
 NUM_STOCK = os.path.join(SRC, "NUMFONT_2x_stock.BAM")
-INFO_VANILLA = os.path.join(SRC, "INFOFONT_1x_vanilla.BAM")
+INFO_VANILLA = os.path.join(SRC, "INFOFONT_1x_vanilla.BAM")  # Western (cp1252)
+INFO_RU = os.path.join(SRC, "INFOFONT_1x_ru.BAM")            # Russian stock (Cyrillic cells)
 
 NUM_CHARS = set("0123456789/.-:")
 WEST = {chr(c) for c in list(range(0x21, 0x7f)) + list(range(0xC0, 0x100))}
@@ -48,8 +50,10 @@ def main(mod):
           stretch=1.0, edge_off=2, var=[700])
     build(INFO_VANILLA, RAJDHANI, WEST, os.path.join(aa, "INFOFONT.BAM"),
           stretch=1.0, edge_off=2, src_scale=2)
-    build(INFO_VANILLA, PLAY, RU, os.path.join(aaru, "INFOFONT.BAM"),
-          stretch=1.0, edge_off=2, src_scale=2, codepage="cp1251")
+    # Russian: source the STOCK Russian INFOFONT (real Cyrillic cell geometry) so
+    # the footprint matches; autocell off (cells are already correct for cp1251).
+    build(INFO_RU, PLAY, RU, os.path.join(aaru, "INFOFONT.BAM"),
+          stretch=1.0, edge_off=2, src_scale=2, codepage="cp1251", autocell=False)
 
 
 if __name__ == "__main__":
