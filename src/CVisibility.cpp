@@ -7,6 +7,7 @@
 #include "CPathSearch.h"
 #include "CSearchBitmap.h"
 #include "CUtil.h"
+#include "CVidInf.h"
 #include "CVidMode.h"
 
 // 0x84EDC4
@@ -320,16 +321,258 @@ void CVisibilityMap::ClimbWall(const CPoint& ptStart, const CPoint& ptEnd, BYTE 
     }
 }
 
+// Fog-of-war source-tile quadrant selectors at 0x0085de43..0x0085de4a (values 0..7).
+// Index passed to CVidInf::GetFogOWarTileRect, which maps {0,4}->NW {1,5}->NE
+// {2,6}->SW {3,7}->SE within the 64x64 fog/dither source bitmap.
+static const BYTE gFogOWarTileDir[8] = { 0, 1, 2, 3, 4, 5, 6, 7 }; // #guess: name
+
 // 0x551A90
 void CVisibilityMap::BltDitherPattern(LPDIRECTDRAWSURFACE pSurface, const TILE_CODE& tileCode)
 {
-    // TODO: Incomplete.
+    CVidInf* pVidInf = static_cast<CVidInf*>(g_pChitin->GetCurrentVideoMode());
+
+    BYTE aCodes[4];
+    aCodes[0] = tileCode.tileNW;
+    aCodes[1] = tileCode.tileNE;
+    aCodes[2] = tileCode.tileSW;
+    aCodes[3] = tileCode.tileSE;
+
+    BYTE aOffset[8];
+    aOffset[0] = 0;    aOffset[1] = 0;
+    aOffset[2] = 0x20; aOffset[3] = 0;
+    aOffset[4] = 0;    aOffset[5] = 0x20;
+    aOffset[6] = 0x20; aOffset[7] = 0x20;
+
+    DDBLTFX bltFx;
+    bltFx.dwSize = sizeof(bltFx);
+
+    for (int i = 0; i < 4; i++) {
+        BYTE code = aCodes[i];
+        int x = aOffset[2 * i];
+        int y = aOffset[2 * i + 1];
+        BYTE nExplored = code & 0xF;
+        CRect rSrc;
+        CRect rDest;
+        HRESULT hr;
+
+        switch (code >> 4) {
+        case 3:
+            if (nExplored != 3) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[5], rSrc);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.BltFast(pSurface, x, y,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_7], &rSrc,
+                        DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        case 6:
+            if (nExplored != 6) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[4], rSrc);
+                bltFx.dwDDFX = DDBLTFX_MIRRORLEFTRIGHT | DDBLTFX_MIRRORUPDOWN;
+                rDest.SetRect(x, y, x + 32, y + 32);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_7], &rSrc,
+                        DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        case 7:
+            if (nExplored != 7) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[7], rSrc);
+                bltFx.dwDDFX = DDBLTFX_MIRRORLEFTRIGHT | DDBLTFX_MIRRORUPDOWN;
+                rDest.SetRect(x, y, x + 32, y + 32);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_7], &rSrc,
+                        DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        case 9:
+            if (nExplored != 9) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[4], rSrc);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.BltFast(pSurface, x, y,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_7], &rSrc,
+                        DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        case 0xB:
+            if (nExplored != 0xB) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[6], rSrc);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.BltFast(pSurface, x, y,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_7], &rSrc,
+                        DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        case 0xC:
+            if (nExplored != 0xC) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[5], rSrc);
+                bltFx.dwDDFX = DDBLTFX_MIRRORLEFTRIGHT | DDBLTFX_MIRRORUPDOWN;
+                rDest.SetRect(x, y, x + 32, y + 32);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_7], &rSrc,
+                        DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        case 0xD:
+            if (nExplored != 0xD) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[7], rSrc);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.BltFast(pSurface, x, y,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_7], &rSrc,
+                        DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        case 0xE:
+            if (nExplored != 0xE) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[6], rSrc);
+                bltFx.dwDDFX = DDBLTFX_MIRRORLEFTRIGHT | DDBLTFX_MIRRORUPDOWN;
+                rDest.SetRect(x, y, x + 32, y + 32);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_7], &rSrc,
+                        DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        case 0xF:
+            if (nExplored != 0xF) {
+                pVidInf->GetFogOWarTileRect(gFogOWarTileDir[3], rSrc);
+                do {
+                    hr = g_pChitin->cVideo.cVidBlitter.BltFast(pSurface, x, y,
+                        pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                        DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT);
+                } while (!pVidInf->CheckResults(hr));
+            }
+            break;
+        }
+    }
 }
 
 // 0x551FF0
 void CVisibilityMap::BltFogOWar(LPDIRECTDRAWSURFACE pSurface, const TILE_CODE& tileCode)
 {
-    // TODO: Incomplete.
+    CVidInf* pVidInf = static_cast<CVidInf*>(g_pChitin->GetCurrentVideoMode());
+
+    BYTE aCodes[4];
+    aCodes[0] = tileCode.tileNW;
+    aCodes[1] = tileCode.tileNE;
+    aCodes[2] = tileCode.tileSW;
+    aCodes[3] = tileCode.tileSE;
+
+    BYTE aOffset[8];
+    aOffset[0] = 0;    aOffset[1] = 0;
+    aOffset[2] = 0x20; aOffset[3] = 0;
+    aOffset[4] = 0;    aOffset[5] = 0x20;
+    aOffset[6] = 0x20; aOffset[7] = 0x20;
+
+    BltDitherPattern(pSurface, tileCode);
+
+    DDBLTFX bltFx;
+    bltFx.dwSize = sizeof(bltFx);
+
+    for (int i = 0; i < 4; i++) {
+        BYTE code = aCodes[i];
+        int x = aOffset[2 * i];
+        int y = aOffset[2 * i + 1];
+        CRect rSrc;
+        CRect rDest;
+        HRESULT hr;
+
+        switch (code & 0xF) {
+        case 3:
+            pVidInf->GetFogOWarTileRect(gFogOWarTileDir[1], rSrc);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.BltFast(pSurface, x, y,
+                    pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                    DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        case 6:
+            pVidInf->GetFogOWarTileRect(gFogOWarTileDir[0], rSrc);
+            bltFx.dwDDFX = DDBLTFX_MIRRORLEFTRIGHT | DDBLTFX_MIRRORUPDOWN;
+            rDest.SetRect(x, y, x + 32, y + 32);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                    pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                    DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        case 7:
+            pVidInf->GetFogOWarTileRect(gFogOWarTileDir[2], rSrc);
+            bltFx.dwDDFX = DDBLTFX_MIRRORUPDOWN;
+            rDest.SetRect(x, y, x + 32, y + 32);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                    pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                    DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        case 9:
+            pVidInf->GetFogOWarTileRect(gFogOWarTileDir[0], rSrc);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.BltFast(pSurface, x, y,
+                    pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                    DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        case 0xB:
+            pVidInf->GetFogOWarTileRect(gFogOWarTileDir[2], rSrc);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.BltFast(pSurface, x, y,
+                    pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                    DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        case 0xC:
+            pVidInf->GetFogOWarTileRect(gFogOWarTileDir[1], rSrc);
+            bltFx.dwDDFX = DDBLTFX_MIRRORLEFTRIGHT | DDBLTFX_MIRRORUPDOWN;
+            rDest.SetRect(x, y, x + 32, y + 32);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                    pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                    DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        case 0xD:
+            pVidInf->GetFogOWarTileRect(gFogOWarTileDir[2], rSrc);
+            bltFx.dwDDFX = DDBLTFX_MIRRORLEFTRIGHT;
+            rDest.SetRect(x, y, x + 32, y + 32);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                    pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                    DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        case 0xE:
+            pVidInf->GetFogOWarTileRect(gFogOWarTileDir[2], rSrc);
+            bltFx.dwDDFX = DDBLTFX_MIRRORLEFTRIGHT | DDBLTFX_MIRRORUPDOWN;
+            rDest.SetRect(x, y, x + 32, y + 32);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                    pVidInf->pSurfaces[CVIDINF_SURFACE_6], &rSrc,
+                    DDBLT_WAIT | DDBLT_KEYSRC | DDBLT_DDFX, &bltFx);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        case 0xF:
+            bltFx.dwFillColor = pVidInf->ConvertToSurfaceRGB(pVidInf->ApplyBrightnessContrast(0));
+            rDest.SetRect(x, y, x + 32, y + 32);
+            do {
+                hr = g_pChitin->cVideo.cVidBlitter.Blt(pSurface, &rDest,
+                    NULL, NULL, DDBLT_WAIT | DDBLT_COLORFILL, &bltFx);
+            } while (!pVidInf->CheckResults(hr));
+            break;
+        }
+    }
 }
 
 // 0x552590
