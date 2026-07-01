@@ -2,6 +2,8 @@
 
 #include "CChitin.h"
 
+#include <winver.h>
+
 static void InitOpenGL(HMODULE hOpenGL);
 
 // 0xA0E170
@@ -124,4 +126,109 @@ void InitOpenGL(HMODULE hOpenGL)
     CVideo3d::glTexSubImage2D = (PFNGLTEXSUBIMAGE2DPROC)GetProcAddress(hOpenGL, "glTexSubImage2D");
     CVideo3d::glVertex3f = (PFNGLVERTEX3FPROC)GetProcAddress(hOpenGL, "glVertex3f");
     CVideo3d::glViewport = (PFNGLVIEWPORTPROC)GetProcAddress(hOpenGL, "glViewport");
+}
+
+// -----------------------------------------------------------------------------
+// GLSetup driver detection
+//
+// The original Init3d drives GLSetup (the circa-2000 3D-driver detection
+// product; ini keys "Use GLSetup" / "GLSetup Driver" under [Program Options]).
+// These helpers enumerate the installed OpenGL/Glide driver DLLs, validate each
+// by its file-version resource, and probe the card by creating a GL context and
+// drawing test primitives before committing to a driver. Dormant on modern
+// systems, but recovered here for the IWD2EE OpenGL renderer.
+// -----------------------------------------------------------------------------
+
+// Reads pszFilePath's version resource: stores dwFileVersionMS/LS into the
+// driver record (+0x8 / +0xC), and when pszIdOut is given, formats a
+// "Company - Description" identification string from the version resource.
+// Returns TRUE when a VS_FIXEDFILEINFO block was found.
+// 0x7BB5D0
+static int GLSetupGetDriverVersion(LPCSTR pszFilePath, void* pDriverInfo, char* pszIdOut, unsigned int cbIdOut)
+{
+    int bFound = 0;
+    DWORD dwHandle;
+    DWORD dwSize = GetFileVersionInfoSizeA(pszFilePath, &dwHandle);
+    *(DWORD*)((char*)pDriverInfo + 0xC) = 0;
+    *(DWORD*)((char*)pDriverInfo + 0x8) = 0;
+    if (pszIdOut != NULL && cbIdOut != 0) {
+        *pszIdOut = 0;
+    }
+    if (dwSize == 0) {
+        return 0;
+    }
+
+    void* pVerData = malloc(dwSize);
+    if (pVerData != NULL) {
+        if (GetFileVersionInfoA(pszFilePath, 0, dwSize, pVerData)) {
+            VS_FIXEDFILEINFO* pFixed;
+            UINT nFixedLen;
+            if (VerQueryValueA(pVerData, "\\", (LPVOID*)&pFixed, &nFixedLen) != 0 &&
+                nFixedLen == sizeof(VS_FIXEDFILEINFO) && pFixed != NULL &&
+                pFixed->dwSignature == 0xFEEF04BD) {
+                bFound = 1;
+                *(DWORD*)((char*)pDriverInfo + 0x8) = pFixed->dwFileVersionMS;
+                *(DWORD*)((char*)pDriverInfo + 0xC) = pFixed->dwFileVersionLS;
+            }
+
+            if (pszIdOut != NULL && cbIdOut != 0) {
+                const DWORD aCodePage[2] = { 0x4B0, 0x4E4 };
+                char szKey[1024];
+
+                char* pszCompany = NULL;
+                UINT cbCompany = 0;
+                for (int i = 0; i < 2 && pszCompany == NULL; i++) {
+                    if (strlen("CompanyName") + 0x18 < sizeof(szKey)) {
+                        sprintf(szKey, "\\StringFileInfo\\%04X%04X\\%s",
+                                GetUserDefaultLangID(), aCodePage[i], "CompanyName");
+                        VerQueryValueA(pVerData, szKey, (LPVOID*)&pszCompany, &cbCompany);
+                    }
+                }
+
+                char* pszFileDesc = NULL;
+                UINT cbFileDesc = 0;
+                for (int i = 0; i < 2 && pszFileDesc == NULL; i++) {
+                    if (strlen("FileDescription") + 0x18 < sizeof(szKey)) {
+                        sprintf(szKey, "\\StringFileInfo\\%04X%04X\\%s",
+                                GetUserDefaultLangID(), aCodePage[i], "FileDescription");
+                        VerQueryValueA(pVerData, szKey, (LPVOID*)&pszFileDesc, &cbFileDesc);
+                    }
+                }
+
+                char* pszProduct = NULL;
+                UINT cbProduct = 0;
+                for (int i = 0; i < 2 && pszProduct == NULL; i++) {
+                    if (strlen("ProductName") + 0x18 < sizeof(szKey)) {
+                        sprintf(szKey, "\\StringFileInfo\\%04X%04X\\%s",
+                                GetUserDefaultLangID(), aCodePage[i], "ProductName");
+                        VerQueryValueA(pVerData, szKey, (LPVOID*)&pszProduct, &cbProduct);
+                    }
+                }
+
+                UINT cbDesc = (cbFileDesc < cbProduct) ? cbProduct : cbFileDesc;
+                if (cbDesc + 3 + cbCompany < cbIdOut) {
+                    char* pszDesc = pszFileDesc;
+                    if (pszFileDesc == NULL) {
+                        pszDesc = pszProduct;
+                        if (pszProduct == NULL) {
+                            pszDesc = "";
+                        }
+                    }
+                    char* pszSep;
+                    if (pszCompany == NULL || (pszFileDesc == NULL && pszProduct == NULL)) {
+                        pszSep = "";
+                    } else {
+                        pszSep = " - ";
+                    }
+                    char* pszComp = pszCompany;
+                    if (pszCompany == NULL) {
+                        pszComp = "";
+                    }
+                    sprintf(pszIdOut, "%s%s%s", pszComp, pszSep, pszDesc);
+                }
+            }
+        }
+        free(pVerData);
+    }
+    return bFound;
 }
