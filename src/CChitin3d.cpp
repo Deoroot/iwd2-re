@@ -168,6 +168,30 @@ struct GLSETUP_DRIVER {
 // 0x9074AC
 static DWORD g_dwGLSetupControl;
 
+// Number of drivers detected by GLSetupEnumDrivers.
+// 0x9074B0
+static unsigned int g_nGLSetupDrivers;
+
+// Detected driver table (up to 3 kept).
+// 0x906920
+static GLSETUP_DRIVER g_aGLSetupDrivers[3];
+
+// Candidate OpenGL driver DLLs probed, in priority order. dwFlags is merged
+// into the driver record's flags on a successful validate.
+struct GLSETUP_CANDIDATE {
+    DWORD dwFlags;
+    const char* pszPrimary;
+    const char* pszSecondary;
+    const char* pszDisplay;
+};
+
+static const GLSETUP_CANDIDATE g_aGLSetupCandidates[4] = {
+    { 0x04, "\\opengl32.dll", "\\glu32.dll",    "Default OpenGL Driver" },
+    { 0x03, "\\3dfxogl.dll",  "\\3dfxoglu.dll", "3dfx Installed OpenGL Driver" },
+    { 0x80, "\\opengl.dll",   "\\glu.dll",      "SGI Software OpenGL Driver" },
+    { 0x03, "\\3dfxvgl.dll",  "\\3dfxvglu.dll", "3dfx Standalone OpenGL Driver" },
+};
+
 // Reads pszFilePath's version resource: stores dwFileVersionMS/LS into the
 // driver record (+0x8 / +0xC), and when pszIdOut is given, formats a
 // "Company - Description" identification string from the version resource.
@@ -386,4 +410,41 @@ static int GLSetupValidateDriver(LPCSTR pszPrimaryPath, LPCSTR pszMiniPath, GLSE
     }
 
     return 0;
+}
+
+// Enumerates the candidate OpenGL driver DLLs in the Windows system directory,
+// validates each, and fills g_aGLSetupDrivers (up to 3). Returns the count.
+// 0x7B7750
+static unsigned int GLSetupEnumDrivers(void)
+{
+    CHAR szPrimaryPath[0x104];
+    CHAR szSecondaryPath[0x104];
+
+    g_nGLSetupDrivers = 0;
+    if (GetSystemDirectoryA(szPrimaryPath, 0x104) == 0) {
+        return g_nGLSetupDrivers;
+    }
+    int nSysLen = (int)strlen(szPrimaryPath);
+    strcpy(szSecondaryPath, szPrimaryPath);
+
+    for (int i = 0; i < 4; i++) {
+        if (g_nGLSetupDrivers > 2) {
+            return g_nGLSetupDrivers;
+        }
+        const GLSETUP_CANDIDATE* pCand = &g_aGLSetupCandidates[i];
+        if ((int)strlen(pCand->pszPrimary) + nSysLen < 0x104 &&
+            (int)strlen(pCand->pszSecondary) + nSysLen < 0x104) {
+            strcpy(szPrimaryPath + nSysLen, pCand->pszPrimary);
+            strcpy(szSecondaryPath + nSysLen, pCand->pszSecondary);
+            GLSETUP_DRIVER* pDriver = &g_aGLSetupDrivers[g_nGLSetupDrivers];
+            if (GLSetupValidateDriver(szPrimaryPath, szSecondaryPath, pDriver) == 0) {
+                pDriver->dwFlags = (pDriver->dwFlags & 0x7fffffff) | pCand->dwFlags;
+                if (pCand->pszDisplay[0] != '\0') {
+                    strncpy(pDriver->szId, pCand->pszDisplay, 0x100);
+                }
+                g_nGLSetupDrivers++;
+            }
+        }
+    }
+    return g_nGLSetupDrivers;
 }
