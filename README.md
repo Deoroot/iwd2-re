@@ -108,7 +108,7 @@ The Infinity Engine is split into several subsystems:
 
 ### Requirements
 
-- **Visual Studio 2019** (or newer) with the **MFC** component
+- **Visual Studio 2019** with the **MFC** component (the CMake generator is pinned to `Visual Studio 16 2019`)
 - **Windows 10/11**
 - **C++17**, **Win32 (x86)** target — the binary is 32-bit
 - **DirectDraw**

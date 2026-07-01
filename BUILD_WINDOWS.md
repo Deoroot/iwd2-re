@@ -2,16 +2,16 @@
 
 ## Prerequisites
 
-1. **Visual Studio 2022 Community** (free)
-    - Download: https://visualstudio.microsoft.com/downloads/
+1. **Visual Studio 2019 Community** (free)
+    - Download (under *older downloads*): https://visualstudio.microsoft.com/vs/older-downloads/
     - During install, check **"Desktop development with C++"**
-    - In "Individual components" tab, find and check **"MFC for latest v143 build tools"** (Microsoft Foundation Classes for C++)
+    - In "Individual components" tab, find and check **"MFC for v142 build tools"** (Microsoft Foundation Classes for C++) — v142 is the VS2019 toolset
 
 2. **Git** — https://git-scm.com/
 
 ## Build
 
-Open **Developer PowerShell** (Start → "Developer PowerShell for VS 2022"):
+Open **Developer PowerShell** (Start → "Developer PowerShell for VS 2019"):
 
 ```powershell
 # Clone
@@ -45,7 +45,7 @@ winget install Microsoft.DirectX
 
 ### MSVCP140.dll / VCRUNTIME140.dll missing
 
-Install VS 2022 x86 redistributable (game is Win32, not x64):
+Install the Microsoft Visual C++ x86 redistributable (game is Win32, not x64; the 2015–2022 runtime is unified and works for v142):
 https://aka.ms/vs/17/release/vc_redist.x86.exe
 
 ### Game crashes at startup
