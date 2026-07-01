@@ -2,6 +2,7 @@
 
 #include "CChitin.h"
 
+#include <mbstring.h>
 #include <winver.h>
 
 static void InitOpenGL(HMODULE hOpenGL);
@@ -139,6 +140,34 @@ void InitOpenGL(HMODULE hOpenGL)
 // systems, but recovered here for the IWD2EE OpenGL renderer.
 // -----------------------------------------------------------------------------
 
+#pragma pack(push, 2)
+// One DLL slot of a detected driver: last-write time, file version, and
+// canonical path.
+struct GLSETUP_DRIVER_FILE {
+    /* 0x00 */ DWORD dwWriteTimeHigh;
+    /* 0x04 */ DWORD dwWriteTimeLow;
+    /* 0x08 */ DWORD dwVersionMS;
+    /* 0x0C */ DWORD dwVersionLS;
+    /* 0x10 */ CHAR szPath[0x104];
+};
+
+// One detected GLSetup driver. sizeof == 0x32C; the driver table is
+// g_aGLSetupDrivers[] at 0x906A34 with this stride.
+struct GLSETUP_DRIVER {
+    /* 0x000 */ DWORD dwFlags;   // 0x80000000 valid, 0x40 mini ver fail, 0x60 mini
+                                 //   invalid, 0x10 no ver ("Unknown"), 0x08 in system
+                                 //   dir, 0x04 is the system opengl32.dll
+    /* 0x004 */ CHAR szId[0x100];             // "Company - Description" / "Unknown"
+    /* 0x104 */ GLSETUP_DRIVER_FILE primary;
+    /* 0x218 */ GLSETUP_DRIVER_FILE mini;
+};
+#pragma pack(pop)
+
+// GLSetup control flags: bit0 skips mini-driver validation, bit1 skips the
+// primary/mini same-directory check.
+// 0x9074AC
+static DWORD g_dwGLSetupControl;
+
 // Reads pszFilePath's version resource: stores dwFileVersionMS/LS into the
 // driver record (+0x8 / +0xC), and when pszIdOut is given, formats a
 // "Company - Description" identification string from the version resource.
@@ -231,4 +260,130 @@ static int GLSetupGetDriverVersion(LPCSTR pszFilePath, void* pDriverInfo, char* 
         free(pVerData);
     }
     return bFound;
+}
+
+// Validates a candidate driver: records each DLL's last-write time and file
+// version, classifies it (resides in the system dir, is the system
+// opengl32.dll, ...) via canonical-path comparisons, and rejects a mini-driver
+// that is not co-located with the primary. Returns 0 on success, 4 on failure.
+// 0x7B7940
+static int GLSetupValidateDriver(LPCSTR pszPrimaryPath, LPCSTR pszMiniPath, GLSETUP_DRIVER* pDriver)
+{
+    if (pszPrimaryPath == NULL) {
+        return 4;
+    }
+    if (pDriver == NULL) {
+        return 4;
+    }
+
+    CHAR szSysDir[0x104];
+    CHAR szNormA[0x104];
+    CHAR szNormB[0x104];
+    LPSTR pFilePart;
+    BY_HANDLE_FILE_INFORMATION fi;
+
+    pDriver->primary.dwWriteTimeLow = 0;
+    pDriver->primary.dwWriteTimeHigh = 0;
+
+    HANDLE hFile = CreateFileA(pszPrimaryPath, GENERIC_READ, FILE_SHARE_READ, NULL,
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        return 4;
+    }
+    BOOL bInfo = GetFileInformationByHandle(hFile, &fi);
+    if (bInfo) {
+        pDriver->primary.dwWriteTimeHigh = fi.ftLastWriteTime.dwHighDateTime;
+        pDriver->primary.dwWriteTimeLow = fi.ftLastWriteTime.dwLowDateTime;
+    }
+    CloseHandle(hFile);
+    if (!bInfo) {
+        return 4;
+    }
+
+    pDriver->dwFlags = 0x80000000;
+
+    BOOL bMiniHandled = FALSE;
+    if (pszMiniPath != NULL && *pszMiniPath != '\0' && (g_dwGLSetupControl & 1) == 0) {
+        pDriver->mini.dwWriteTimeLow = 0;
+        pDriver->mini.dwWriteTimeHigh = 0;
+        hFile = CreateFileA(pszMiniPath, GENERIC_READ, FILE_SHARE_READ, NULL,
+                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile != INVALID_HANDLE_VALUE) {
+            BOOL bMiniInfo = FALSE;
+            if (GetFileInformationByHandle(hFile, &fi)) {
+                pDriver->mini.dwWriteTimeHigh = fi.ftLastWriteTime.dwHighDateTime;
+                pDriver->mini.dwWriteTimeLow = fi.ftLastWriteTime.dwLowDateTime;
+                bMiniInfo = TRUE;
+            }
+            CloseHandle(hFile);
+            if (bMiniInfo) {
+                if (GLSetupGetDriverVersion(pszMiniPath, &pDriver->mini, NULL, 0) == 0) {
+                    pDriver->dwFlags |= 0x40;
+                }
+                pDriver->mini.szPath[0] = '\0';
+                if (GetFullPathNameA(pszMiniPath, 0x104, pDriver->mini.szPath, &pFilePart) != 0 &&
+                    GetSystemDirectoryA(szSysDir, 0x104) != 0) {
+                    int nDirLen = (int)(pFilePart - pDriver->mini.szPath);
+                    _mbslwr((unsigned char*)pDriver->mini.szPath);
+                    _mbslwr((unsigned char*)szSysDir);
+                    if (nDirLen - 1 == (int)strlen(szSysDir)) {
+                        strstr(pDriver->mini.szPath, szSysDir);
+                    }
+                    bMiniHandled = TRUE;
+                }
+            }
+        }
+    }
+    if (!bMiniHandled) {
+        pDriver->mini.szPath[0] = '\0';
+        pDriver->dwFlags |= 0x60;
+    }
+
+    if (GLSetupGetDriverVersion(pszPrimaryPath, &pDriver->primary, pDriver->szId, 0x100) == 0) {
+        strncpy(pDriver->szId, "Unknown", 0x100);
+        pDriver->dwFlags |= 0x10;
+    }
+
+    pDriver->primary.szPath[0] = '\0';
+    if (GetFullPathNameA(pszPrimaryPath, 0x104, pDriver->primary.szPath, &pFilePart) == 0 ||
+        GetSystemDirectoryA(szSysDir, 0x104) == 0) {
+        return 4;
+    }
+    {
+        int nDirLen = (int)(pFilePart - pDriver->primary.szPath);
+        _mbslwr((unsigned char*)pDriver->primary.szPath);
+        _mbslwr((unsigned char*)szSysDir);
+        if (nDirLen - 1 == (int)strlen(szSysDir) &&
+            strstr(pDriver->primary.szPath, szSysDir) == pDriver->primary.szPath) {
+            pDriver->dwFlags |= 8;
+        }
+    }
+
+    GetSystemDirectoryA(szSysDir, 0x104);
+    strcat(szSysDir, "\\opengl32.dll");
+    GetFullPathNameA(szSysDir, 0x104, szNormA, &pFilePart);
+    if (GetFullPathNameA(pDriver->primary.szPath, 0x104, szNormB, &pFilePart) != 0) {
+        if (_mbsicmp((unsigned char*)szNormB, (unsigned char*)szNormA) == 0) {
+            pDriver->dwFlags |= 4;
+        }
+    }
+
+    if ((g_dwGLSetupControl & 2) == 0) {
+        LPSTR pFilePartA = NULL;
+        LPSTR pFilePartB = NULL;
+        GetFullPathNameA(pDriver->primary.szPath, 0x104, szNormA, &pFilePartA);
+        GetFullPathNameA(pDriver->mini.szPath, 0x104, szNormB, &pFilePartB);
+        if (pFilePartA != NULL) {
+            *pFilePartA = '\0';
+        }
+        if (pFilePartB != NULL) {
+            *pFilePartB = '\0';
+        }
+        if (_mbsicmp((unsigned char*)szNormA, (unsigned char*)szNormB) != 0) {
+            pDriver->mini.szPath[0] = '\0';
+            pDriver->dwFlags |= 0x60;
+        }
+    }
+
+    return 0;
 }
