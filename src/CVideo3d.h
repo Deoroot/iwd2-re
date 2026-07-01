@@ -8,6 +8,7 @@
 
 typedef BOOL(__stdcall* PFNSWAPBUFFERSPROC)(HDC);
 typedef int(__stdcall* PFNDESCRIBEPIXELFORMATPROC)(HDC, int, UINT, LPPIXELFORMATDESCRIPTOR);
+typedef int(__stdcall* PFNGETPIXELFORMATPROC)(HDC);
 typedef int(__stdcall* PFNCHOOSEPIXELFORMATPROC)(HDC, const PIXELFORMATDESCRIPTOR*);
 typedef BOOL(__stdcall* PFNSETPIXELFORMATPROC)(HDC, int, const PIXELFORMATDESCRIPTOR*);
 typedef HGLRC(__stdcall* PFNWGLGETCURRENTCONTEXTPROC)();
@@ -25,6 +26,7 @@ typedef int(__stdcall* PFNWGLSETLAYERPALETTEENTRIESPROC)(HDC, int, int, int, con
 typedef int(__stdcall* PFNWGLGETLAYERPALETTEENTRIESPROC)(HDC, int, int, int, COLORREF*);
 typedef BOOL(__stdcall* PFNWGLREALIZELAYERPALETTEPROC)(HDC, int, BOOL);
 typedef BOOL(__stdcall* PFNWGLSWAPLAYERBUFFERSPROC)(HDC, UINT);
+typedef BOOL(__stdcall* PFNWGLCOPYCONTEXTPROC)(HGLRC, HGLRC, UINT);
 
 typedef void(__stdcall* PFNGLACCUMPROC)(GLenum op, GLfloat value);
 typedef void(__stdcall* PFNGLALPHAFUNCPROC)(GLenum func, GLclampf ref);
