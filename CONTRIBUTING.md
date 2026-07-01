@@ -1,27 +1,117 @@
 # Contributing to Icewind Dale 2 Reverse Engineering
 
-Thank you for your interest! This guide will help you get started contributing to the project.
+Thank you for your interest! This project is reverse-engineered almost entirely
+under AI guidance, and the workflow is **designed to be reproducible by people
+who are not reverse-engineering experts.** You do not need to read x86 assembly,
+operate Ghidra, write Frida scripts, or hand-write C++ — the tooling and the AI
+agent do that. What you bring is **time**, an **AI subscription**, and the
+discipline to keep every function **byte-for-byte faithful** to `IWD2.exe`
+before moving on.
 
-## Quick Start
+The golden rule never changes: **code must match `IWD2.exe`; missing is better
+than wrong.**
 
-1. Fork the repository
-2. Clone your fork
-3. Build the project (see [README.md](README.md))
-4. Run the game and see what works
-5. Pick an issue or area to contribute
+## What you need (and what you don't)
 
-## Ways to Contribute
+**You do *not* need to:**
 
-### Reverse Engineering (Most Needed)
+- read x86 assembly,
+- operate Ghidra,
+- write Frida trace scripts,
+- be a C++ expert.
 
-Help identify and name unrecognized functions:
+The AI agent reads the disassembly and the decompile, drives Ghidra and Frida
+through the repo's tools, and writes the C++. A beginner's grasp of C++ helps you
+steer and read diffs but is not required — the from-scratch tutorial
+[`docs/recover-tutorial.md`](docs/recover-tutorial.md) assumes no Ghidra, barely
+any assembly, and beginner C++.
 
-1. **Find a `sub_` function** in the source
-2. **Look it up in Ghidra** — decompile to understand behavior
-3. **Give it a real name** — PascalCase, descriptive
-4. **Update source files** — rename declarations and definitions
+**You *do* need:**
 
-Example:
+- **A top-tier reasoning model.** Opus / GPT-5.5-class, via subscription (the
+  author runs Opus on two $20 Claude Pro subscriptions — a single $20 one is
+  enough; two just goes faster). This is the one hard requirement; see *Use a top-tier model* below.
+- **Patience.** The real bottleneck is waiting for message-limit resets, not the
+  technique.
+- **Discipline.** Faithful-or-nothing. One function at a time, proven against the
+  binary before the next.
+
+## The workflow (and how to reproduce it)
+
+This project is built on an **adapted and improved fork of
+[re-agent](https://github.com/dryxio/auto-re-agent)** — the autonomous
+reverse-engineering agent demoed
+[reverse-engineering GTA San Andreas](https://www.youtube.com/watch?v=zBQJYMKmwAs).
+The fork is vendored at [`vendor/auto-re-agent/`](vendor/auto-re-agent/).
+
+**The key difference is philosophy.** re-agent was built to run autonomously
+across a whole game. This project does the opposite on purpose. Instead of letting
+AIs churn 24/7 to *approximately* reverse the entire engine (unaffordable, and it
+buries subtle bugs that surface months later in a different system), the recovery
+advances **one feature at a time**, each made **byte-for-byte faithful** to the
+binary before moving to the next. It is slower to a fully playable game — but far
+cheaper in AI-subscription cost, and far less likely to ship the kind of subtle
+divergence that later costs a Frida-level hunt to track down.
+
+**re-agent is used here as a tool, not as the author.** The C++ is written by a
+steered AI coding agent; `re-agent reverse` is *not* used to auto-generate code
+(it regresses clean recoveries). Instead re-agent provides:
+
+- **Context assembly** —
+  [`scripts/reagent_assemble_context.py`](scripts/reagent_assemble_context.py)
+  bundles, for one function, the resolved decompile, the binary's required call
+  set, the BG2 PDB layout, and IDS constants. The agent reads this bundle, not you.
+- **A faithfulness oracle** — `re-agent parity` reports GREEN / YELLOW / RED,
+  extended from re-agent's 11 signals to **14 signals plus an objective verifier**
+  and a set of custom linters.
+
+## The recover loop, step by step
+
+What *you* do vs. what the tools/AI do:
+
+1. **Pick the next function or feature.** Small and incremental
+   (`grep -r "TODO: Incomplete" src/`, an unnamed `sub_`/`FUN_`, or a visible
+   gameplay gap).
+2. **Assemble context** —
+   `python scripts/reagent_assemble_context.py --address 0xADDR`. *(Tool.)*
+3. **Let the AI write faithful C++** from the bundle, following the ground-truth
+   hierarchy: **PE bytes / disassembly → Frida runtime trace → Ghidra decompile**
+   (the decompile is a fallible lift, used to navigate, never trusted blindly).
+   *(AI.)*
+4. **Verify faithfulness** — `re-agent parity --address 0xADDR` (aim GREEN/YELLOW),
+   plus the custom linters that catch what parity is blind to:
+   `scripts/parity_offsets.py` (right callee, wrong member),
+   `scripts/struct_layout_audit.py` (pack(2) drift),
+   `scripts/ctor_vtable_check.py` (class conflation),
+   `scripts/vtable_audit.py` (missing overrides),
+   `scripts/lint_twin_symmetry.py` (antonym-pair operand swaps). *(Tools — you read
+   a PASS/FAIL, not assembly.)*
+5. **Build Win32** (VS2019 / MFC). Commit only if it compiles.
+6. **Prove it at runtime.** Static parity alone is not proof — it never runs our
+   exe. Run `scripts/vm.sh smoke` on our build with the crash oracle armed; for a
+   *behavioral* claim, capture a Frida differential (original vs. ours, same hooks)
+   and diff the fields/args (see
+   [`docs/frida-differential-tracing.md`](docs/frida-differential-tracing.md)).
+   For *visual/audio* work like spell effects,
+   [`scripts/spell_capture/`](scripts/spell_capture/) auto-records a clip of every
+   cast on both builds and plays them side-by-side
+   (`spellcap.sh compare Fireball`) — you compare the two videos frame-by-frame,
+   no assembly required.
+7. **Only then, move to the next function.**
+
+A full narrated walk-through of one real recovery is in
+[`docs/recover-tutorial.md`](docs/recover-tutorial.md); the validation details are
+in [`docs/recovery-validation-process.md`](docs/recovery-validation-process.md).
+
+## Ways to contribute
+
+You judge **behavior** (does our build act like `IWD2.exe`?), not raw assembly —
+the AI handles the machine code.
+
+### Reverse engineering (most needed)
+
+Recover an unimplemented function, or name an anonymous one:
+
 ```cpp
 // Before
 int CGameAIBase::sub_45B6D0() {
@@ -31,13 +121,13 @@ int CGameAIBase::sub_45B6D0() {
 // After
 // 0x45B6D0
 int CGameAIBase::GetAITarget() {
-    return nfield_58C;
+    return m_nAITargetId;   // at offset 0x58C
 }
 ```
 
-### Implement Stubs
+### Implement stubs
 
-Find `// TODO: Incomplete` markers and implement the function:
+Find `// TODO: Incomplete` markers and recover the body:
 
 ```cpp
 // Before
@@ -46,12 +136,10 @@ void CAIGroup::GroupAction(CAIAction action, BOOL override, CAIAction* leaderAct
 }
 ```
 
-1. Check the binary in Ghidra for the actual implementation
-2. Translate the decompiled pseudocode to C++
-3. Match the existing coding style
-4. Test compilation
+Assemble the context bundle, let the AI translate the binary's behavior, then
+verify with parity + a runtime check. Match the surrounding style.
 
-### Document Fields
+### Document fields
 
 Name `field_` members with meaningful Hungarian notation:
 
@@ -60,203 +148,122 @@ Name `field_` members with meaningful Hungarian notation:
 /* 058C */ int nfield_58C;
 
 // After
-/* 058C */ int m_nAITargetId;  // m_ = member, n = int
+/* 058C */ int m_nAITargetId;   // m_ = member, n = int
 ```
 
 ### Testing
 
-Build the project and test:
-- Does it compile?
-- Does it link?
-- Does it run?
-- What UI screens work?
-- What breaks?
+Build, run against your own game assets, and report what works and what breaks in
+GitHub Issues. This needs **no RE knowledge at all** and is genuinely useful.
 
-Report findings in GitHub Issues.
+## Finding something to do
 
-## Development Workflow
+```bash
+grep -r "TODO: Incomplete" src/     # unimplemented functions
+grep -r "sub_" src/ | head -50      # unnamed functions
+grep -r "field_" src/ | head -50    # unnamed fields
+```
 
-### Finding Something to Do
+Or regenerate the honest progress table:
+`.venv-reagent/bin/python scripts/project_status.py`.
 
-Check these files for work items:
-- `grep -r "TODO: Incomplete" src/` — Unimplemented functions
-- `grep -r "sub_" src/ | head -50` — Unnamed functions
-- `grep -r "field_" src/ | head -50` — Unnamed fields
+## Getting oriented in the code
 
-### Making Changes
+Start with these, in rough order of complexity:
 
-1. **Create a branch** for your work:
-   ```bash
-   git checkout -b feature/name-functions
-   ```
+1. **CGameObject** — base for all world objects
+2. **CGameAIBase** — AI, actions, scripts
+3. **CGameSprite** — characters (huge but central)
+4. **CInfGame** — game-state singleton
+5. **CInfinity** — world renderer
 
-2. **Make minimal changes** — One class or subsystem at a time
+The `sub_` name encodes the address: `sub_45B6D0` → `0x0045B6D0`. Use
+`python scripts/src_find.py NAME` to jump to any recovered symbol, and the
+knowledge-graph MCP tools (see [`README.md`](README.md)) to trace callers/callees.
 
-3. **Follow naming conventions**:
-   - PascalCase for classes and functions
-   - `m_` prefix for members
-   - Address comments: `// 0xNNNNNN`
+## Coding standards
 
-4. **Test compilation** before committing
-
-5. **Commit with clear messages**:
-   ```
-   rename: CGameSprite movement functions
-   
-   Named sub_453160, sub_453170, sub_4531B0:
-   - SetBHiding / GetBHiding — hiding state control
-   - SetField562C — equipment field setter
-   ```
-
-### Submitting Pull Requests
-
-1. Fork the repo
-2. Create a feature branch
-3. Make focused changes
-4. Push to your fork
-5. Open a pull request with description
-
-## Coding Standards
-
-### C++ Style
-
-- **Indentation**: 4 spaces (no tabs)
-- **Brackets**: Allman style
+- **Indentation:** 4 spaces, no tabs.
+- **Brackets:** Allman style.
   ```cpp
   if (condition) {
       // code
   }
   ```
-- **Naming**: PascalCase for types/functions, camelCase for locals
-- **Comments**: `//` style, above the code they describe
+- **Naming:** PascalCase for types/functions, camelCase for locals, `m_` prefix
+  for members.
+- **Address comment:** every recovered function carries its binary address.
+  ```cpp
+  // 0x44C8B0
+  CGameAIBase::CGameAIBase() {
+      // ...
+  }
+  ```
 
-### Hungarian Notation
+### Hungarian notation (MFC-style)
 
-We use MFC-style Hungarian notation:
-- `m_` — class member
-- `n` — int/short
-- `b` — boolean/BYTE
-- `p` — pointer
-- `dw` — DWORD
-- `w` — WORD
-- `sz` — null-terminated string
-- `str` — CString
-- `l` — LONG
-- `f` — float
-- `h` — handle/pointer to struct
+`m_` member · `n` int/short · `b` boolean/BYTE · `p` pointer · `dw` DWORD ·
+`w` WORD · `sz` null-terminated string · `str` CString · `l` LONG · `f` float ·
+`h` handle.
 
-Example:
 ```cpp
 class CGameSprite {
-    int m_nHitPoints;           // HP
-    BOOL m_bInCombat;           // TRUE if fighting
+    int      m_nHitPoints;      // HP
+    BOOL     m_bInCombat;       // TRUE if fighting
     CResRef* m_pResRef;         // Animation resource
-    CDerivedStats* m_pDerived;  // Calculated stats
-    POSITION m_posList;         // List position
 };
 ```
 
-### Address Comments
+## Use a top-tier model (faithful-or-nothing)
 
-Every function should have its binary address:
-```cpp
-// 0x44C8B0
-CGameAIBase::CGameAIBase() {
-    // ...
-}
-```
+You don't need reverse-engineering expertise — **but the AI does the expert work,
+so the AI has to be an expert.** That means a top-tier reasoning model. This is
+the one hard requirement, and it is not negotiable.
 
-## Tools
+Reverse engineering is unforgiving: the produced C++ must match the original
+binary's behavior **exactly**. A single wrong sign, flipped condition, or
+off-by-one constant produces:
 
-### Required
-- **Visual Studio 2019+** — Build environment
-- **Git** — Version control
+1. **Silent divergence** — the game runs but behaves slightly wrong (wrong
+   formation angle, broken pathfinding, incorrect damage).
+2. **Delayed discovery** — the bug surfaces hours or days later, in a different
+   system.
+3. **Brutal debugging** — tracking down "why does this formation rotate 60°
+   wrong?" took Frida-level ground-truth tracing; the culprit was a single sign
+   error (`180.0` vs `-360.0`).
 
-### Recommended
-- **Ghidra** — Static reverse engineering (binary → pseudocode)
-  - GhidraMCP plugin for automated interaction
-  - Our Ghidra project on Codeberg
-- **Frida** — Runtime differential tracing (ground truth from the original `IWD2.exe`)
-  - Hook function entries, capture live args/outputs, diff against our build's `Iwd2DebugLog`
-  - Essential when static analysis is exhausted or the decompiler is ambiguous
-  - See [`docs/frida-differential-tracing.md`](docs/frida-differential-tracing.md)
-  - Template: [`scripts/frida_formation_trace.py`](scripts/frida_formation_trace.py)
-  - `pip install frida-tools`
-- **Near Infinity** — Browse original game files
-- **Process Monitor** — Debug file access issues
+Weaker models (GPT-4o, Haiku, local models) hallucinate C++ that **looks
+convincing** but hides subtle logic errors — orders of magnitude harder to find
+than doing the RE correctly the first time. If you only have access to a weaker
+model, limit yourself to **testing and bug reports**, or to renames/stubs you can
+verify yourself; do not attempt large-scale recovery.
 
-## AI-Assisted Reverse Engineering
+## Submitting pull requests
 
-This codebase involves translating ~3.8M lines of `IWD2.exe` disassembly into C++. AI tools can accelerate this, but choosing the wrong model will **cost you far more time than it saves**.
+1. Fork the repo and create a focused feature branch.
+2. Keep changes small — one class or subsystem at a time.
+3. Ensure it compiles (Win32) before committing.
+4. Write a clear commit message:
+   ```
+   rename: CGameSprite movement functions
 
-### Model Requirements
+   Named sub_453160, sub_453170, sub_4531B0:
+   - SetBHiding / GetBHiding — hiding state control
+   - SetField562C — equipment field setter
+   ```
+5. Open a PR describing what you recovered and how you verified it.
 
-**Use only top-tier reasoning models:**
-- **Claude OPUS** series
-- **OpenAI GPT 5.5+** series
-- Other models with comparable reverse-engineering reasoning capability
+## Getting help
 
-### Why Weaker Models Are Dangerous
-
-Reverse engineering is unforgiving — the produced C++ must match the original binary's behavior **exactly**. A single wrong sign, flipped condition, or off-by-one constant produces:
-1. **Silent divergence** — the game runs but behaves slightly wrong (wrong formation angle, broken pathfinding, incorrect damage calc)
-2. **Delayed discovery** — bugs surface hours or days later, in a different system
-3. **Brutal debugging** — tracking down "why does this formation rotate 60° wrong?" took Frida-level ground-truth tracing; the culprit was a single sign error (`180.0` vs `-360.0`)
-
-Weaker models (GPT-4o, Claude Haiku, local models, etc.) hallucinate C++ that **looks convincing** but contains subtle logic errors. These errors are orders of magnitude harder to find than doing the RE work correctly from the start.
-
-**The rule:** if you don't have access to a top-tier reasoning model (OPUS/GPT 5.5), limit your contributions to:
-- Renaming functions/fields (after verifying in Ghidra manually)
-- Implementing stubs (small, self-contained functions you can verify byte-for-byte)
-- Testing and bug reports
-
-Do **not** attempt large-scale decompilation or complex function recovery with weaker models — it will create regressions that waste everyone's time.
-
-## Understanding the Code
-
-### Key Classes to Know
-
-Start with these in order of complexity:
-
-1. **CGameObject** — Base for all world objects
-2. **CGameAIBase** — AI, actions, scripts
-3. **CGameSprite** — Characters (huge but central)
-4. **CInfGame** — Game state singleton
-5. **CInfinity** — World renderer
-
-### Reading Decompiled Code
-
-Ghidra pseudocode looks like this:
-```c
-int FUN_0045b6d0(int param_1) {
-    return *(int *)(param_1 + 0x58c);
-}
-```
-
-This translates to:
-```cpp
-// 0x45B6D0
-int CGameAIBase::GetAITarget() {
-    return m_nAITargetId;  // at offset 0x58C
-}
-```
-
-### Finding Function Addresses
-
-The `sub_` name encodes the address:
-- `sub_45B6D0` → address `0x0045B6D0`
-- In Ghidra: Search → For Functions → `FUN_0045B6D0`
-
-## Getting Help
-
-- **GitHub Discussions** — Questions about the code
-- **GitHub Issues** — Bug reports and feature requests
-- **Infinity Engine Discords** — General IE modding community
-- **Gibberlings3 Forums** — Technical IE discussions
+- **GitHub Discussions** — questions about the code
+- **GitHub Issues** — bug reports and feature requests
+- **Infinity Engine Discords / Gibberlings3 Forums** — general IE modding and
+  technical discussion
 
 ## License
 
-By contributing, you agree that your code will be under the [Sustainable Use License](LICENSE.md).
+By contributing, you agree that your code will be under the
+[Sustainable Use License](LICENSE.md).
 
 ## Acknowledgments
 

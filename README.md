@@ -22,7 +22,7 @@ I use AI to recover the IWD2 source code because my programming skills are nowhe
 
 Many people criticize using AI to "vibecode" buggy applications because of the hallucinations inherent in LLMs, and I understand those criticisms. But reverse engineering is a near-ideal use case: when properly guided, the AI invents nothing. The ground truth is the binary itself — assembly and pseudocode extracted from `IWD2.exe` with Ghidra, runtime traces captured with Frida, and an automated faithfulness lint that flags any drift from the original. Every recovered function is checked against what the CPU actually runs, not against a guess.
 
-It still requires a human constantly steering the output, plus time and money. I mostly run Opus on two $20 Claude Pro subscriptions. Cheaper models create too many subtle errors to be worth the debugging time on a binary this large. With a $200/month budget the recovery would already be close to finished — the limiting factor is waiting for message limits to reset, not the technique.
+It still requires a human constantly steering the output, plus time and money. I mostly run Opus on two $20 Claude Pro subscriptions. Cheaper models create too many subtle errors to be worth the debugging time on a binary this large. With a $200/month budget the recovery would already be close to finished — the limiting factor is waiting for message limits to reset, not the technique. And you don't need to be a reverse-engineer to do this yourself — see [*Reproduce this workflow*](#reproduce-this-workflow--no-re-background-needed) below.
 
 ---
 
@@ -39,14 +39,14 @@ All numbers below are measured directly from the repo. Regenerate them anytime:
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **`.text` code recovered** | **~77%** (3.47 MB / 4.48 MB) | **Byte-weighted** — share of the binary's executable code that has a faithful C++ body. The honest "how much engine is rebuilt" figure. |
-| **Functions recovered to C++** | ~37% (10,964 / 29,647) | By count. Much lower than the byte figure because the recovered functions are the big ones; what remains is mostly small leaves/stubs. |
-| **Functions named in Ghidra** | ~89% (26,525 / 29,647) | Metadata only — 3,122 still anonymous `FUN_`/`sub_`. Naming ≠ recovery. |
-| **Source code** | ~308,000 lines | 426 `.cpp`/`.h` files |
-| **TODO / FIXME** | 858 | across 119 files; 280 are `TODO: Incomplete` (unimplemented stubs) |
-| **Unnamed fields** | 647 unique | `field_XXX` members still awaiting names |
+| **`.text` code recovered** | **~78.4%** (3.51 MB / 4.48 MB) | **Byte-weighted** — share of the binary's executable code that has a faithful C++ body. The honest "how much engine is rebuilt" figure. |
+| **Functions recovered to C++** | ~37% (11,062 / 29,663) | By count. Much lower than the byte figure because the recovered functions are the big ones; what remains is mostly small leaves/stubs. |
+| **Functions named in Ghidra** | ~89% (26,541 / 29,663) | Metadata only — 3,122 still anonymous `FUN_`/`sub_`. Naming ≠ recovery. |
+| **Source code** | ~314,000 lines | 426 `.cpp`/`.h` files |
+| **TODO / FIXME** | 840 | across 118 files; 262 are `TODO: Incomplete` (unimplemented stubs) |
+| **Unnamed fields** | 663 unique | `field_XXX` members still awaiting names |
 
-**Three numbers, three different things.** *Named in Ghidra* (~89%) is cheap metadata. *Functions recovered* (~37%) counts a 5-byte stub the same as a 2000-instruction monster, so it understates real progress. **The byte-weighted `.text` figure (~77%)** is the one that reflects how much of the actual engine has been rebuilt: recovery has prioritized the large, important functions first, so most of the code mass is done even though a third of the function *count* remains. (The function-size denominator is derived from Ghidra's entry addresses and validated against the PE — the sum matches `.text` VirtualSize to within 2 bytes.)
+**Three numbers, three different things.** *Named in Ghidra* (~89%) is cheap metadata. *Functions recovered* (~37%) counts a 5-byte stub the same as a 2000-instruction monster, so it understates real progress. **The byte-weighted `.text` figure (~78%)** is the one that reflects how much of the actual engine has been rebuilt: recovery has prioritized the large, important functions first, so most of the code mass is done even though a third of the function *count* remains. (The function-size denominator is derived from Ghidra's entry addresses and validated against the PE — the sum matches `.text` VirtualSize to within 2 bytes.)
 
 > `src/NewDiscovered.h` is a **stale manual scratch list** of uncategorized `FUN_` addresses. It is **not `#include`d anywhere** and covers only about a third of the functions still anonymous in Ghidra. Don't treat its header count as a real backlog figure — use `scripts/project_status.py`.
 
@@ -146,9 +146,28 @@ Core tooling lives in `scripts/`:
 | `scripts/spell_info.py` | Dump an IWD2 `.SPL` by resref |
 | `scripts/project_status.py` | Honest progress metrics (this README's table) |
 | `vendor/ghidra-ai-bridge` | Headless PyGhidra export → `gb decompile / xrefs / struct / vtable` |
+| `scripts/reagent_assemble_context.py` | Offline context bundle for a recover (resolved decompile + binary call set + PDB layout + IDS) |
 | `re-agent … parity` | Faithfulness lint comparing recovered C++ to the binary |
 
 Reverse engineering and editing happen on Linux (Ghidra, the knowledge graph, the RE agents); the Windows build, game, and Frida run on a Windows VM. See **[AGENTS.md](AGENTS.md)** and **[CLAUDE.md](CLAUDE.md)** for the full workflow, plus **[docs/](docs/)** for tracing and validation guides.
+
+---
+
+## Reproduce this workflow — no RE background needed
+
+**You do not need to understand Ghidra, Frida, x86 assembly, or even C++ to reproduce what this project does.** What it takes is **time** and an **AI subscription**. The tooling and the AI agent read the disassembly, drive Ghidra and Frida, and write the C++ — your job is to steer them and to judge whether the result behaves like the original.
+
+- **What you bring.** An AI subscription with a top-tier reasoning model (I run Opus on two $20 Claude Pro subscriptions — a single $20 subscription is enough; I use two only to go faster), and patience: the real bottleneck is waiting for message-limit resets, not the technique. A beginner's grasp of C++ helps you steer and read diffs but is not required — the [from-scratch tutorial](docs/recover-tutorial.md) assumes no Ghidra, barely any assembly, and beginner C++.
+
+- **Built on an adapted, improved [re-agent](https://github.com/dryxio/auto-re-agent).** re-agent is the autonomous reverse-engineering agent demoed [reverse-engineering GTA San Andreas](https://www.youtube.com/watch?v=zBQJYMKmwAs); the fork this project uses is vendored at [`vendor/auto-re-agent/`](vendor/auto-re-agent/).
+
+- **A deliberately different philosophy.** re-agent was built to run autonomously across a whole game. This project does the opposite on purpose: instead of letting AIs churn 24/7 to *approximately* reverse the entire engine (which I can't afford, and which buries subtle bugs you pay for months later), it advances **one feature at a time**, each made **byte-for-byte faithful** to the binary before moving on. Slower to a fully playable game — but far cheaper in AI cost, and far less likely to ship a subtle bug that takes a Frida-level hunt to find later.
+
+- **How re-agent is used here — as a tool, not the author.** The C++ is written by a steered AI coding agent, *not* auto-generated (`re-agent reverse` regresses clean code). re-agent instead serves as the **context assembler** ([`scripts/reagent_assemble_context.py`](scripts/reagent_assemble_context.py) bundles the resolved decompile, the binary call set, PDB layout, and IDS constants for one function) and the **faithfulness oracle** (`re-agent parity`, extended from 11 to 14 signals plus an objective verifier and custom linters).
+
+- **You judge behavior, not machine code.** The repo ships tools that let you compare the two builds without reading a single instruction — for example [`scripts/spell_capture/`](scripts/spell_capture/) auto-records a video+audio clip of every spell cast on both the original `IWD2.exe` and our build, then stitches them side-by-side (`spellcap.sh compare Fireball`) for a frame-by-frame, track-by-track diff of each spell's visuals and sound.
+
+The loop, step by step, is documented in **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ---
 
