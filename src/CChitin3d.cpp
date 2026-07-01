@@ -30,6 +30,25 @@ PFNCHOOSEPIXELFORMATPROC CChitin3d::ChoosePixelFormat;
 
 // -----------------------------------------------------------------------------
 
+// GLSetup driver detection -- forward decl + active-driver state used by Init3d
+// (full definitions are below, after InitOpenGL).
+static int GLSetupSelectDriver(unsigned int nDriver);
+
+// Resolved WGL entry points of the driver selected via GLSetup (written by the
+// GL capability probe, read by Init3d).
+// 0x9074C8
+static PFNSWAPBUFFERSPROC      g_pfnGLSetupSwapBuffers;
+// 0x9074D0
+static PFNWGLCREATECONTEXTPROC g_pfnGLSetupWglCreateContext;
+// 0x9074D8
+static PFNWGLDELETECONTEXTPROC g_pfnGLSetupWglDeleteContext;
+// 0x9074DC
+static PFNWGLGETCURRENTDCPROC  g_pfnGLSetupWglGetCurrentDC;
+// 0x9074E4
+static PFNWGLMAKECURRENTPROC   g_pfnGLSetupWglMakeCurrent;
+
+// -----------------------------------------------------------------------------
+
 // #binary-identical
 // 0x7C8980
 void CChitin::InitVariables3D()
@@ -41,16 +60,21 @@ void CChitin::InitVariables3D()
 // 0x7C8990
 BOOL CChitin::Init3d()
 {
-    // NOTE: Original code is different. This function is an entry point to
-    // several functions used to pick and setup various OpenGL drivers which
-    // were available at that time:
-    // - opengl32.dll + glu32.dll
-    // - 3dfxogl.dll + 3dfoglu.dll
-    // - opengl.dll + glu.dll
-    // - 3dfxvgl.dll + 3dfxvglu.dll
-    //
-    // Since it's very unlikely someone still has these drivers and video cards,
-    // this code is omitted.
+    // GLSetup: if enabled, pick and probe a detected OpenGL driver and adopt its
+    // resolved WGL entry points; otherwise fall back to a plain opengl32.dll.
+    if (GetPrivateProfileIntA("Program Options", "Use GLSetup", 1, GetIniFileName()) != 0) {
+        int nDriver = GetPrivateProfileIntA("Program Options", "GLSetup Driver", 0, GetIniFileName());
+        if (GLSetupSelectDriver(nDriver) == 0) {
+            CChitin3d::SwapBuffers = g_pfnGLSetupSwapBuffers;
+            CChitin3d::wglMakeCurrent = g_pfnGLSetupWglMakeCurrent;
+            CChitin3d::wglCreateContext = g_pfnGLSetupWglCreateContext;
+            CChitin3d::wglGetCurrentDC = g_pfnGLSetupWglGetCurrentDC;
+            CChitin3d::wglDeleteContext = g_pfnGLSetupWglDeleteContext;
+            CChitin3d::SetPixelFormat = SetPixelFormat;
+            CChitin3d::ChoosePixelFormat = ChoosePixelFormat;
+            return TRUE;
+        }
+    }
 
     CString sMessage;
     sMessage.LoadStringA(GetIDSOpenGLDll());
