@@ -176,6 +176,10 @@ static unsigned int g_nGLSetupDrivers;
 // 0x906920
 static GLSETUP_DRIVER g_aGLSetupDrivers[3];
 
+// Index of the driver selected by GLSetupSelectDriver, or -1.
+// 0x8BB0A0
+static int g_nSelectedGLSetupDriver = -1;
+
 // Candidate OpenGL driver DLLs probed, in priority order. dwFlags is merged
 // into the driver record's flags on a successful validate.
 struct GLSETUP_CANDIDATE {
@@ -447,4 +451,39 @@ static unsigned int GLSetupEnumDrivers(void)
         }
     }
     return g_nGLSetupDrivers;
+}
+
+// Loads the selected driver's DLLs, creates a GL context, draws test primitives
+// to verify the card renders, and resolves its GL/WGL entry points into the
+// module globals. Returns 0 on success.
+// 0x7B7DA0
+static int GLSetupProbeDriver(const char* pszPrimaryPath, const char* pszMiniPath)
+{
+    // Unrecovered: the ~11.5 KB GL capability probe. Left failing so
+    // GLSetupSelectDriver reports no usable driver until it is recovered, which
+    // keeps Init3d on its plain opengl32.dll fallback (no behaviour change).
+    (void)pszPrimaryPath;
+    (void)pszMiniPath;
+    return 4;
+}
+
+// Ensures drivers are enumerated, then probes driver nDriver; on success records
+// it as the active driver. Returns 0 on success, 4 for a bad index, else the
+// probe's error code.
+// 0x7B7D40
+static int GLSetupSelectDriver(unsigned int nDriver)
+{
+    if (g_nGLSetupDrivers == 0) {
+        GLSetupEnumDrivers();
+    }
+    if (nDriver >= g_nGLSetupDrivers) {
+        return 4;
+    }
+    int nResult = GLSetupProbeDriver(g_aGLSetupDrivers[nDriver].primary.szPath,
+                                     g_aGLSetupDrivers[nDriver].mini.szPath);
+    if (nResult == 0) {
+        g_nSelectedGLSetupDriver = nDriver;
+        return 0;
+    }
+    return nResult;
 }
