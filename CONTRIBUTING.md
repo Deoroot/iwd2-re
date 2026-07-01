@@ -36,6 +36,46 @@ any assembly, and beginner C++.
 - **Discipline.** Faithful-or-nothing. One function at a time, proven against the
   binary before the next.
 
+## Prerequisites
+
+You install these once. You don't need to *understand* them — the AI drives
+Ghidra, Frida, and the disassembler for you.
+
+**To build, run, and test** (all a testing / bug-report contributor needs):
+
+- **Visual Studio 2019 or 2022** with **"Desktop development with C++"** and the
+  **MFC** component — the build targets **Win32/x86** (the binary is 32-bit).
+- **Git**, plus a legitimate copy of Icewind Dale II
+  ([GOG](https://www.gog.com/game/icewind_dale_2) / Steam) for its assets.
+- Step-by-step clone / cmake / run and the DirectX / VC-redist fixes are in
+  **[BUILD_WINDOWS.md](BUILD_WINDOWS.md)**.
+
+**To do recovery work** (the full loop):
+
+- **An AI coding agent on a top-tier model** — e.g. Claude Code with a Claude Pro
+  (Opus) subscription. It does the reading and writing; see *Use a top-tier model*
+  below.
+- **Python 3.10+** in a virtualenv with the `scripts/` dependencies (`pefile`,
+  `capstone`); the repo's tools run through it.
+- **[Ghidra](https://ghidra-sre.org/)** (free) for decompile / disassembly, plus
+  the vendored **[`ghidra-ai-bridge`](vendor/ghidra-ai-bridge/)** for its headless
+  export ([getting-started](vendor/ghidra-ai-bridge/docs/getting-started.md)).
+  Fetch the prebuilt IWD2 Ghidra project with `scripts/ghidra_restore.sh` rather
+  than analyzing the binary yourself.
+- **[`re-agent`](vendor/auto-re-agent/)** (vendored —
+  `pip install -e vendor/auto-re-agent`), the context assembler + parity oracle
+  ([getting-started](vendor/auto-re-agent/docs/getting-started.md)).
+- **Frida** (`pip install frida-tools`) for the runtime differential (original
+  vs. our build).
+- **[`gh`](https://cli.github.com/)** (GitHub CLI) and Git.
+- *Optional:* the [code-review-graph](https://github.com/tirth8205/code-review-graph)
+  MCP server for fast caller/callee navigation.
+
+The RE tools (Ghidra, the agents, the graph) run on Linux / your host; the
+**build, game, and Frida run on Windows** — a Windows VM driven over SSH works
+well. The full host/VM split and tool routing are in
+**[AGENTS.md](AGENTS.md)** / **[CLAUDE.md](CLAUDE.md)**.
+
 ## The workflow (and how to reproduce it)
 
 This project is built on an **adapted and improved fork of
