@@ -43,10 +43,12 @@ Ghidra, Frida, and the disassembler for you.
 
 **To build, run, and test** (all a testing / bug-report contributor needs):
 
-- **Visual Studio 2019 or 2022** with **"Desktop development with C++"** and the
-  **MFC** component — the build targets **Win32/x86** (the binary is 32-bit).
+- **Visual Studio 2019** with **"Desktop development with C++"** and the **MFC**
+  component — the build targets **Win32/x86** (the binary is 32-bit). The CMake
+  generator is pinned to `Visual Studio 16 2019`.
 - **Git**, plus a legitimate copy of Icewind Dale II
-  ([GOG](https://www.gog.com/game/icewind_dale_2) / Steam) for its assets.
+  ([GOG](https://www.gog.com/game/icewind_dale_2) or the original CD) for its
+  assets — IWD2 was never sold on Steam.
 - Step-by-step clone / cmake / run and the DirectX / VC-redist fixes are in
   **[BUILD_WINDOWS.md](BUILD_WINDOWS.md)**.
 
@@ -71,9 +73,11 @@ Ghidra, Frida, and the disassembler for you.
 - *Optional:* the [code-review-graph](https://github.com/tirth8205/code-review-graph)
   MCP server for fast caller/callee navigation.
 
-The RE tools (Ghidra, the agents, the graph) run on Linux / your host; the
-**build, game, and Frida run on Windows** — a Windows VM driven over SSH works
-well. The full host/VM split and tool routing are in
+Only the **build, game, and Frida require Windows**; the RE tools (Ghidra, the
+agents, the graph) run on any OS. Any layout works — the author edits on Linux
+and builds/runs in a Windows VM over SSH, but doing everything on a single
+Windows machine with no VM is just as valid. Tell the AI agent your setup and it
+adapts the workflow. The author's specific host/VM split and tool routing are in
 **[AGENTS.md](AGENTS.md)** / **[CLAUDE.md](CLAUDE.md)**.
 
 ## The workflow (and how to reproduce it)

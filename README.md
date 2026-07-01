@@ -112,7 +112,7 @@ The Infinity Engine is split into several subsystems:
 - **Windows 10/11**
 - **C++17**, **Win32 (x86)** target — the binary is 32-bit
 - **DirectDraw**
-- Original game files from [GOG](https://www.gog.com/game/icewind_dale_2) or Steam
+- Original game files from [GOG](https://www.gog.com/game/icewind_dale_2) or the original CD
 
 The build is driven by `CMakeLists.txt` (`CMAKE_MFC_FLAG 2`, `WIN32` executable) and must compile as **Win32/x86**; commits are expected to build clean.
 
