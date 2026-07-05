@@ -3908,14 +3908,16 @@ BOOL CUIControlPortraitGeneral::Render(BOOL bForce)
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
-    CRect rPortraitClip(pt, m_size);
+    // NOTE: The binary passes the control's DIRTY rect (`lea [this+0x22]` at the
+    // 0x77ACD6 callsite) as the clip, NOT a full control rect -- cursor-region
+    // repaints hand RenderPortrait cursor-sized clip slivers.
     g_pBaldurChitin->GetObjectGame()->RenderPortrait(m_nID,
         pt,
         m_size,
         m_bPressed,
         FALSE,
         FALSE,
-        rPortraitClip,
+        m_rDirty,
         m_pPanel->m_pManager->m_bDoubleSize);
 
     return TRUE;
@@ -4129,14 +4131,17 @@ BOOL CUIControlPortraitWorld::Render(BOOL bForce)
     }
 
     CPoint pt = m_pPanel->m_ptOrigin + m_ptOrigin;
-    CRect rPortraitClip(pt, m_size);
+    // NOTE: The binary passes the control's DIRTY rect (`lea [this+0x22]` at the
+    // 0x77B3FB callsite) as the clip, NOT a full control rect -- cursor-region
+    // repaints hand RenderPortrait cursor-sized clip slivers (the pre-2026-07-05
+    // reading `CRect(pt, m_size)` was wrong).
     g_pBaldurChitin->GetObjectGame()->RenderPortrait(m_nID,
         pt,
         m_size,
         m_bPressed,
         m_bHighlighted,
         TRUE,
-        rPortraitClip,
+        m_rDirty,
         m_pPanel->m_pManager->m_bDoubleSize);
 
     return TRUE;
