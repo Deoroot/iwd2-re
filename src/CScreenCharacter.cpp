@@ -2978,6 +2978,7 @@ void CScreenCharacter::UpdateGeneralInformation(CUIControlTextDisplay* pText, CG
         || pDStats->m_nResistPiercing != 0
         || pDStats->m_nResistSlashing != 0
         || pDStats->m_nMagicDamageResistance != 0) {
+        UpdateText(pText, "");
         UpdateTextForceColor(pText,
             RGB(200, 200, 0),
             "%s",
