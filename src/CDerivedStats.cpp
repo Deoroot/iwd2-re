@@ -1220,6 +1220,32 @@ void DR_ENTRY::SetSource(LONG* pPool, CGameSprite* pCreature, CGameEffect* pEffe
     m_sourceEffectPtr = pEffect;
 }
 
+// 0x447CD0
+BOOL DR_ENTRY::IsGeneral() const
+{
+    // No type filter reduces every kind of damage.  A filter that names all
+    // six physical damage types is likewise general.
+    if (m_damageTypes.empty()) {
+        return TRUE;
+    }
+    return m_damageTypes.find(0x00000000) != m_damageTypes.end()
+        && m_damageTypes.find(0x00100000) != m_damageTypes.end()
+        && m_damageTypes.find(0x01000000) != m_damageTypes.end()
+        && m_damageTypes.find(0x02000000) != m_damageTypes.end()
+        && m_damageTypes.find(0x04000000) != m_damageTypes.end()
+        && m_damageTypes.find(0x08000000) != m_damageTypes.end();
+}
+
+// 0x447E30
+LONG DR_ENTRY::GetEffectiveAmount() const
+{
+    // A pooled entry can reduce no more than the pool's remaining points.
+    if (m_pPool == NULL) {
+        return m_amount;
+    }
+    return *m_pPool < m_amount ? *m_pPool : m_amount;
+}
+
 // 0x448250
 LONG CDerivedStats::ReduceDamage(LONG damage, LONG special, int damageType)
 {
@@ -1260,4 +1286,52 @@ LONG CDerivedStats::ReduceDamage(LONG damage, LONG special, int damageType)
         return pBest->Apply(damage);
     }
     return damage;
+}
+
+// 0x448130
+DR_ENTRY* FindBestGeneralDamageReduction(std::vector<DR_ENTRY>& reductions, int /*threshold*/)
+{
+    // The threshold argument is accepted so the record-sheet loop can share the
+    // typed-query signature, but it is unused: a general entry applies at every
+    // enchantment level.
+    DR_ENTRY* pBest = NULL;
+    for (size_t i = 0; i < reductions.size(); i++) {
+        DR_ENTRY& entry = reductions[i];
+        if (!entry.IsGeneral()) {
+            continue;
+        }
+        if (pBest == NULL || entry.GetEffectiveAmount() > pBest->GetEffectiveAmount()) {
+            pBest = &entry;
+        }
+    }
+    return pBest;
+}
+
+// 0x4481A0
+DR_ENTRY* FindBestTypedDamageReduction(std::vector<DR_ENTRY>& reductions, int threshold, int damageType)
+{
+    DR_ENTRY* pBest = NULL;
+    for (size_t i = 0; i < reductions.size(); i++) {
+        DR_ENTRY& entry = reductions[i];
+
+        // Only entries whose bypass threshold outranks the queried level qualify.
+        if (threshold >= entry.m_threshold) {
+            continue;
+        }
+
+        // A typed entry must list this damage type; an untyped entry falls
+        // through to the general check below and is left to the general query.
+        if (!entry.m_damageTypes.empty()
+            && entry.m_damageTypes.find(damageType) == entry.m_damageTypes.end()) {
+            continue;
+        }
+        if (entry.IsGeneral()) {
+            continue;
+        }
+
+        if (pBest == NULL || entry.GetEffectiveAmount() > pBest->GetEffectiveAmount()) {
+            pBest = &entry;
+        }
+    }
+    return pBest;
 }

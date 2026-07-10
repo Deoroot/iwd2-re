@@ -3062,7 +3062,78 @@ void CScreenCharacter::UpdateGeneralInformation(CUIControlTextDisplay* pText, CG
         (LPCSTR)FetchString(15581), // "Spell Resistance"
         pDStats->m_nResistMagic);
 
-    // TODO: Incomplete (checking unknown STL container for damage reductions).
+    // Damage Reduction block: one line per damage category, showing the best
+    // reduction and the enchantment that bypasses it ("amount/+threshold").
+    // Each category scans thresholds from high to low so the hardest-to-bypass
+    // entry wins over a merely larger one.
+    std::vector<DR_ENTRY>& reductions = pDStats->m_drReductions;
+    if (!reductions.empty()) {
+        UpdateText(pText, "");
+        UpdateTextForceColor(pText,
+            RGB(200, 200, 0),
+            "%s",
+            (LPCSTR)FetchString(39325)); // "Damage Reduction"
+
+        for (int threshold = 5; threshold >= 0; threshold--) {
+            DR_ENTRY* pEntry = FindBestGeneralDamageReduction(reductions, threshold);
+            if (pEntry != NULL) {
+                UpdateText(pText, "%s: %d/+%d",
+                    (LPCSTR)FetchString(41406), // "General"
+                    pEntry->GetEffectiveAmount(), pEntry->m_threshold);
+                break;
+            }
+        }
+
+        for (int threshold = 5; threshold >= 0; threshold--) {
+            DR_ENTRY* pEntry = FindBestTypedDamageReduction(reductions, threshold, 0x00000000);
+            if (pEntry != NULL) {
+                UpdateText(pText, "%s: %d/+%d",
+                    (LPCSTR)FetchString(11770), // "Bludgeoning"
+                    pEntry->GetEffectiveAmount(), pEntry->m_threshold);
+                break;
+            }
+        }
+
+        for (int threshold = 5; threshold >= 0; threshold--) {
+            DR_ENTRY* pEntry = FindBestTypedDamageReduction(reductions, threshold, 0x00100000);
+            if (pEntry != NULL) {
+                UpdateText(pText, "%s: %d/+%d",
+                    (LPCSTR)FetchString(11769), // "Piercing"
+                    pEntry->GetEffectiveAmount(), pEntry->m_threshold);
+                break;
+            }
+        }
+
+        for (int threshold = 5; threshold >= 0; threshold--) {
+            DR_ENTRY* pEntry = FindBestTypedDamageReduction(reductions, threshold, 0x01000000);
+            if (pEntry != NULL) {
+                UpdateText(pText, "%s: %d/+%d",
+                    (LPCSTR)FetchString(11768), // "Slashing"
+                    pEntry->GetEffectiveAmount(), pEntry->m_threshold);
+                break;
+            }
+        }
+
+        for (int threshold = 5; threshold >= 0; threshold--) {
+            DR_ENTRY* pEntry = FindBestTypedDamageReduction(reductions, threshold, 0x02000000);
+            if (pEntry != NULL) {
+                UpdateText(pText, "%s: %d/+%d",
+                    (LPCSTR)FetchString(41404), // "Missile (Piercing)"
+                    pEntry->GetEffectiveAmount(), pEntry->m_threshold);
+                break;
+            }
+        }
+
+        for (int threshold = 5; threshold >= 0; threshold--) {
+            DR_ENTRY* pEntry = FindBestTypedDamageReduction(reductions, threshold, 0x04000000);
+            if (pEntry != NULL) {
+                UpdateText(pText, "%s: %d/+%d",
+                    (LPCSTR)FetchString(41405), // "Missile (Bludgeoning)"
+                    pEntry->GetEffectiveAmount(), pEntry->m_threshold);
+                break;
+            }
+        }
+    }
 }
 
 // 0x5DE2C0

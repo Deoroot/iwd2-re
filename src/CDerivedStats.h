@@ -52,7 +52,13 @@ struct DR_ENTRY {
     void AddDamageType(int damageType);                          // 0x447E50
     void SetSource(LONG* pPool, CGameSprite* pCreature, CGameEffect* pEffect); // 0x447F10
     LONG Apply(LONG damage);                                     // 0x447C20
+    LONG GetEffectiveAmount() const;                             // 0x447E30
+    BOOL IsGeneral() const;                                      // 0x447CD0
 };
+
+// Record-sheet Damage-Reduction queries walking a creature's DR entry list.
+DR_ENTRY* FindBestGeneralDamageReduction(std::vector<DR_ENTRY>& reductions, int threshold);               // 0x448130
+DR_ENTRY* FindBestTypedDamageReduction(std::vector<DR_ENTRY>& reductions, int threshold, int damageType); // 0x4481A0
 
 // STATE.IDS
 
