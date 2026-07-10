@@ -627,20 +627,24 @@ public:
     /* 041C */ CImmunitiesProjectile field_41C;
     /* 0438 */ CImmunitiesItemEquipList m_cImmunitiesItemUse;
     /* 0454 */ CImmunitiesItemTypeEquipList m_cImmunitiesItemTypeUse;
-    // 0x0470 / 0x0480: two effect-opcode trees (16 bytes each; ctors 0x448C40 /
-    // 0x448DA0), separate from the innate m_naturalImmunities set below.  Roles
-    // confirmed by disassembly (the "immunity vs active" split):
-    //  - m_activeEffectOpcodes (0x480): every applied effect registers its own
-    //    opcode through CGameEffect::CheckAdd (0x4C5AE0) -- StoneSkins 218,
-    //    FreeAction, ProtectionFromEvil / ProtectionFromElements, Awaken,
-    //    BarbarianRage, Enfeeblement (a debuff, so this is not a protections-only
-    //    list) and CGameEffectDamage (0x27); pruned on expiry in
-    //    CGameEffect::CheckExpiration.
-    //  - field_470: queried by find (helper 0x4C4C90) only in
-    //    CGameEffectImmunitySpell::Evaluate (0x4BF140) plus the same expiry
-    //    cleanup -- the immunity / spell-protection counterpart.  Kept field-named
-    //    until the Evaluate consequence is traced end-to-end.
-    /* 0470 */ CEffectOpcodeSet field_470;
+    // 0x0480 m_activeEffectOpcodes -- a std::set<int> (ctor 0x448DA0 -> core
+    // 0x44AA80, sentinel 0x8D13F0).  Every applied effect registers its own opcode
+    // here through CGameEffect::CheckAdd -- StoneSkins 218, FreeAction,
+    // ProtectionFromEvil / ProtectionFromElements, Awaken, BarbarianRage,
+    // Enfeeblement (a debuff, so this is not a protections-only list) and
+    // CGameEffectDamage (0x27); pruned on effect expiry in
+    // CGameEffect::CheckExpiration.  16-byte set object; CEffectOpcodeSet fits.
+    //
+    // 0x0470 m_cImmunitiesSpell -- despite sitting next to the opcode set, this is
+    // NOT an opcode-int tree.  Its constructor (0x448C40 -> core 0x44A460) installs
+    // the string-set sentinel 0x8D13E8 and its find/insert helper 0x4C4C90 keys on
+    // strings via TString::Compare (0x4C5ED0), so it is really a std::set<TString>
+    // of spell resrefs -- the spell-immunity list CGameEffectImmunitySpell::Evaluate
+    // (0x4BF140) consults (BG2 PDB name m_cImmunitiesSpell, class
+    // CImmunitiesSpellList).  Our TString omits the copy semantics a std::set<TString>
+    // node needs, so it is stored as a size-matched std::set<int> placeholder (same
+    // 16-byte footprint) until std::set<TString> is modelled.
+    /* 0470 */ CEffectOpcodeSet m_cImmunitiesSpell; // placeholder type; really std::set<TString>
     /* 0480 */ CEffectOpcodeSet m_activeEffectOpcodes;
     // ctor 0x443B30 writes _Myhead@0x494 / _Mysize@0x498 -> the set core sits
     // at 0x490 (the old /* 0480 */ comment was wrong). Used: find/insert in
