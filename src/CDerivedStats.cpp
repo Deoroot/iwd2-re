@@ -380,7 +380,7 @@ CDerivedStats& CDerivedStats::operator=(const CDerivedStats& other)
     m_cImmunitiesItemTypeUse = other.m_cImmunitiesItemTypeUse;
 
     field_470 = other.field_470;
-    field_480 = other.field_480;
+    m_activeEffectOpcodes = other.m_activeEffectOpcodes;
 
     m_naturalImmunities = other.m_naturalImmunities;
 

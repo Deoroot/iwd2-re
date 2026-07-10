@@ -12131,7 +12131,7 @@ BOOL CGameEffectStoneSkins::ApplyEffect(CGameSprite* pSprite)
     }
 
     pSprite->SetColorRange(0xE);
-    pSprite->GetDerivedStats()->field_480.insert(218);
+    pSprite->GetDerivedStats()->m_activeEffectOpcodes.insert(218);
     m_sourceID = 0;
     return TRUE;
 }

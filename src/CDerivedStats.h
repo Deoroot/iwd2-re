@@ -628,12 +628,20 @@ public:
     /* 0438 */ CImmunitiesItemEquipList m_cImmunitiesItemUse;
     /* 0454 */ CImmunitiesItemTypeEquipList m_cImmunitiesItemTypeUse;
     // 0x0470 / 0x0480: two effect-opcode trees (16 bytes each; ctors 0x448C40 /
-    // 0x448DA0).  Effects register their opcode here (StoneSkins writes 0x480 --
-    // opcode 218; FreeAction / ProtectionFromEvil / the multi-opcode sources
-    // also add).  The immunity-vs-active role split is unconfirmed, so the
-    // members stay field-named.  #guess
+    // 0x448DA0), separate from the innate m_naturalImmunities set below.  Roles
+    // confirmed by disassembly (the "immunity vs active" split):
+    //  - m_activeEffectOpcodes (0x480): every applied effect registers its own
+    //    opcode through CGameEffect::CheckAdd (0x4C5AE0) -- StoneSkins 218,
+    //    FreeAction, ProtectionFromEvil / ProtectionFromElements, Awaken,
+    //    BarbarianRage, Enfeeblement (a debuff, so this is not a protections-only
+    //    list) and CGameEffectDamage (0x27); pruned on expiry in
+    //    CGameEffect::CheckExpiration.
+    //  - field_470: queried by find (helper 0x4C4C90) only in
+    //    CGameEffectImmunitySpell::Evaluate (0x4BF140) plus the same expiry
+    //    cleanup -- the immunity / spell-protection counterpart.  Kept field-named
+    //    until the Evaluate consequence is traced end-to-end.
     /* 0470 */ CEffectOpcodeSet field_470;
-    /* 0480 */ CEffectOpcodeSet field_480;
+    /* 0480 */ CEffectOpcodeSet m_activeEffectOpcodes;
     // ctor 0x443B30 writes _Myhead@0x494 / _Mysize@0x498 -> the set core sits
     // at 0x490 (the old /* 0480 */ comment was wrong). Used: find/insert in
     // CGameEffect / IcewindCGameEffects, so it must stay a real std::set<int>.
