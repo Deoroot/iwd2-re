@@ -14,6 +14,21 @@
 class CGameSprite;
 class CGameEffect;
 
+// Ordering functor for the effect-opcode trees at CDerivedStats+0x470/0x480.
+// The binary's trees are 16 bytes (vs a plain 12-byte std::set<int>) because
+// their comparator carries a 4-byte, comparison-irrelevant payload; the extra
+// word is reproduced here so the two members keep the binary's footprint and
+// CDerivedStats' layout is preserved. operator() is a plain ascending compare.
+struct EffectOpcodeCompare {
+    LONG m_unused;
+    bool operator()(int lhs, int rhs) const { return lhs < rhs; }
+};
+
+// A set of effect-opcode IDs, keyed ascending (Frida-confirmed: e.g. opcode
+// 218 = "Protection: Stoneskin"). The binary is a hand-rolled red-black tree;
+// modelled here as std::set for identical behaviour, as with m_naturalImmunities.
+typedef std::set<int, EffectOpcodeCompare> CEffectOpcodeSet;
+
 // One damage-reduction entry (36 bytes in IWD2.exe, at CDerivedStats+0x49C
 // held in a std::vector).  A source of DR (Stoneskin, Protection From Arrows,
 // the ICEWIND_CGAMEEFFECT_DAMAGEREDUCTION opcode) pushes one of these; each hit
@@ -606,8 +621,13 @@ public:
     /* 041C */ CImmunitiesProjectile field_41C;
     /* 0438 */ CImmunitiesItemEquipList m_cImmunitiesItemUse;
     /* 0454 */ CImmunitiesItemTypeEquipList m_cImmunitiesItemTypeUse;
-    // 0x0470-0x0490: ctor-untouched (default-zero containers, not itemized).
-    /* 0470 */ BYTE field_470[0x20];
+    // 0x0470 / 0x0480: two effect-opcode trees (16 bytes each; ctors 0x448C40 /
+    // 0x448DA0).  Effects register their opcode here (StoneSkins writes 0x480 --
+    // opcode 218; FreeAction / ProtectionFromEvil / the multi-opcode sources
+    // also add).  The immunity-vs-active role split is unconfirmed, so the
+    // members stay field-named.  #guess
+    /* 0470 */ CEffectOpcodeSet field_470;
+    /* 0480 */ CEffectOpcodeSet field_480;
     // ctor 0x443B30 writes _Myhead@0x494 / _Mysize@0x498 -> the set core sits
     // at 0x490 (the old /* 0480 */ comment was wrong). Used: find/insert in
     // CGameEffect / IcewindCGameEffects, so it must stay a real std::set<int>.
