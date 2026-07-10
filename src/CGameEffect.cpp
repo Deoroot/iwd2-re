@@ -1327,8 +1327,10 @@ void CGameEffect::FireSpell(CGameSprite* pSprite)
 // probability gate, and the spell-immunity gate (the m_sourceRes resref lookup
 // in the target's m_cImmunitiesSpell set -- the read side of the list
 // CGameEffectImmunitySpell::ApplyEffect at 0x4BFE20 writes -- plus the seven
-// CSevenEyes ward checks).  Still stubbed: the source-notify trigger dispatch
-// that accompanies a rejection (0x4A3619), and the main admission tail
+// CSevenEyes ward checks) and the source-notify trigger dispatch that
+// accompanies a rejection (0x4A3619: the two CMessageSetTrigger posts to the
+// caster, minus the once-only FUN_006F50A0 variable-set sub-block).  Still
+// stubbed: the main admission tail
 // (0x4A3BD3..0x4A3BA0) -- existing-effect dedup through the target effect list
 // (sprite +0xDA4 via the inlined red-black-tree lookups at 0x4C4EF0 / 0x4C5AE0),
 // spell-school / spell-level gating (CRuleTables::GetSpellAbilityValue, 0x547040),
@@ -1342,9 +1344,10 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
     // death state (m_baseStats.m_flags & 0x20000) and the incoming effect is a
     // damage / death / animation opcode, the original shatters the creature and
     // blocks the effect.  Opcode list verified against the cascade at 0x4A3369.
+    bool bReject = false;
     if ((pSprite->m_baseStats.m_flags & 0x20000) != 0) {
         // A source-flagged effect (m_sourceFlags & 0x400) also routes here.
-        bool bShatter = (m_sourceFlags & 0x400) != 0;
+        bReject = (m_sourceFlags & 0x400) != 0;
         switch (m_effectID) {
         case 0x3:   case 0x5:   case 0xc:   case 0xd:   case 0x18:  case 0x19:
         case 0x26:  case 0x27:  case 0x28:  case 0x2d:  case 0x37:  case 0x3a:
@@ -1358,33 +1361,60 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
         case 0x190: case 0x194: case 0x195: case 0x19c: case 0x19e: case 0x1a0:
         case 0x1a3: case 0x1a4: case 0x1a8: case 0x1a9: case 0x1ac: case 0x1af:
         case 0x1b3:
-            bShatter = true;
+            bReject = true;
             break;
         default:
             break;
-        }
-
-        // A B-list opcode (or a source-flagged effect) landing on a death-state
-        // target routes to the source-notify block (0x4A3619) and is rejected.
-        if (bShatter) {
-            // UNIMPLEMENTED: source-notify trigger dispatch (0x4A3619..0x4A3BA0)
-            // -- GetShare(m_sourceID), two CMessageSetTrigger posts (trigger IDs
-            // 0x20 / 0x02 built from the source's AI type), FUN_006f50a0.  The
-            // gate result -- effect rejected -- is faithful; only the
-            // notification side-effect is omitted.
-            return 0;
         }
     }
 
     // Drain-to-death opcodes route to the same source-notify block regardless of
     // the target's death state (0x4A35EC): negative m_effectAmount with opcode
     // 0x12 / 0x17, or positive m_effectAmount with 0x5D / 0x5E.
-    {
+    if (!bReject) {
         LONG nAmount = static_cast<LONG>(m_effectAmount);
-        if ((nAmount < 0 && (m_effectID == 0x12 || m_effectID == 0x17))
-            || (nAmount > 0 && (m_effectID == 0x5d || m_effectID == 0x5e))) {
-            return 0;
+        bReject = (nAmount < 0 && (m_effectID == 0x12 || m_effectID == 0x17))
+            || (nAmount > 0 && (m_effectID == 0x5d || m_effectID == 0x5e));
+    }
+
+    if (bReject) {
+        // Source-notify block (0x4A3619): the effect is rejected; the caster is
+        // shared and sent two CMessageSetTrigger notifications (trigger IDs 0x0020
+        // and 0x0002 from globals 0x847DD8 / 0x847D9C, each carrying a CAITrigger
+        // built from the caster's AI type), then released.
+        if (m_sourceID != CGameObjectArray::INVALID_INDEX) {
+            CGameObject* pSource;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+                    CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                // UNIMPLEMENTED: the once-only first-notify sub-block (0x4A367B)
+                // -- sets the pSprite +0x58C flag | 0x200000 and calls the
+                // thiscall FUN_006F50A0, gated on the caster's AI-type byte at
+                // +4 against the threshold at 0x847C3B.
+                {
+                    CAITrigger trigger(0x0020,
+                        static_cast<CGameAIBase*>(pSource)->GetAIType(), 0);
+                    CMessageSetTrigger* pMessage = new CMessageSetTrigger(trigger,
+                        m_sourceID, pSprite->m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+                }
+                {
+                    CAITrigger trigger(0x0002,
+                        static_cast<CGameAIBase*>(pSource)->GetAIType(), 0);
+                    CMessageSetTrigger* pMessage = new CMessageSetTrigger(trigger,
+                        m_sourceID, pSprite->m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+                }
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
         }
+        return 0;
     }
 
     // Probability gate (0x4A38A6): the roll is the target's per-AI-tick d100
