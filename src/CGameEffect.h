@@ -303,6 +303,8 @@ public:
     /* 0024 */ virtual void OnRemove(CGameSprite* pSprite);
 
     BOOL Compare(const CGameEffect& other);
+    // bCompareSource #guess -- gates the m_source / m_sourceID comparisons.
+    BOOL Compare(const CGameEffect& other, BOOL bCompareSource);
     void PlaySound(const CResRef& soundResRef, CGameSprite* pSprite);
     BOOL CheckExpiration();
     int CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70F7, BYTE* pField70F8, BYTE* pField70F9, BYTE* pField70FA);

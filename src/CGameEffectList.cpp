@@ -301,6 +301,22 @@ BOOL CGameEffectList::IsTypeOnList(WORD effectID)
     return FALSE;
 }
 
+// 0x4C0830
+BOOL CGameEffectList::RemoveEffect(CGameEffect* pEffect)
+{
+    POSITION pos = GetHeadPosition();
+    while (pos != NULL) {
+        POSITION posEffect = pos;
+        CGameEffect* pListEffect = GetNext(pos);
+        if (pEffect->Compare(*pListEffect, FALSE)) {
+            RemoveAt(posEffect);
+            delete pListEffect;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 // 0x4C0890
 BOOL CGameEffectList::ModifyAllOfType(WORD effectID, LONG newEffectAmount, BOOL increment)
 {

@@ -18,6 +18,7 @@ public:
     void Unmarshal(BYTE* data, ULONG nSize, CGameSprite* pSprite, BYTE version);
     BOOL HandleList(CGameSprite* pSprite);
     BOOL CheckEffects();
+    BOOL RemoveEffect(CGameEffect* pEffect);
     BOOL IsTypeOnList(WORD effectID);
     BOOL ModifyAllOfType(WORD effectID, LONG newEffectAmount, BOOL increment);
 

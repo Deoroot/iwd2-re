@@ -1575,6 +1575,56 @@ BOOL CGameEffect::Compare(const CGameEffect& other)
         && m_spellLevel == other.m_spellLevel;
 }
 
+// 0x4A4FC0
+BOOL CGameEffect::Compare(const CGameEffect& other, BOOL bCompareSource)
+{
+    if (m_sourceRes.GetResRefStr().Compare(other.m_sourceRes.GetResRefStr()) != 0) {
+        return FALSE;
+    }
+
+    if (m_effectID != other.m_effectID) {
+        return FALSE;
+    }
+
+    if (m_effectAmount != other.m_effectAmount) {
+        return FALSE;
+    }
+
+    if (m_dwFlags != other.m_dwFlags) {
+        return FALSE;
+    }
+
+    if (m_durationType != other.m_durationType) {
+        return FALSE;
+    }
+
+    if (m_duration != other.m_duration) {
+        return FALSE;
+    }
+
+    if (m_source != other.m_source && bCompareSource) {
+        return FALSE;
+    }
+
+    if (m_sourceID != other.m_sourceID && bCompareSource) {
+        return FALSE;
+    }
+
+    if (m_targetType != other.m_targetType) {
+        return FALSE;
+    }
+
+    if (m_probabilityUpper != other.m_probabilityUpper) {
+        return FALSE;
+    }
+
+    if (m_probabilityLower != other.m_probabilityLower) {
+        return FALSE;
+    }
+
+    return m_spellLevel == other.m_spellLevel;
+}
+
 // 0x48C670
 void CGameEffect::CopyFromBase(CGameEffectBase* pBase)
 {
