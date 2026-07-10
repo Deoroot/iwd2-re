@@ -6,6 +6,7 @@
 #include "CGameSpriteSpells.h"
 #include "CImmunities.h"
 #include "FileFormat.h"
+#include "TString.h"
 
 #include <bitset>
 #include <set>
@@ -14,11 +15,11 @@
 class CGameSprite;
 class CGameEffect;
 
-// Ordering functor for the effect-opcode trees at CDerivedStats+0x470/0x480.
-// The binary's trees are 16 bytes (vs a plain 12-byte std::set<int>) because
-// their comparator carries a 4-byte, comparison-irrelevant payload; the extra
-// word is reproduced here so the two members keep the binary's footprint and
-// CDerivedStats' layout is preserved. operator() is a plain ascending compare.
+// Ordering functor for the effect-opcode tree at CDerivedStats+0x480.
+// The binary's tree is 16 bytes (vs a plain 12-byte std::set<int>) because its
+// comparator carries a 4-byte, comparison-irrelevant payload; the extra word is
+// reproduced here so the member keeps the binary's footprint and CDerivedStats'
+// layout is preserved. operator() is a plain ascending compare.
 struct EffectOpcodeCompare {
     LONG m_unused;
     bool operator()(int lhs, int rhs) const { return lhs < rhs; }
@@ -28,6 +29,21 @@ struct EffectOpcodeCompare {
 // 218 = "Protection: Stoneskin"). The binary is a hand-rolled red-black tree;
 // modelled here as std::set for identical behaviour, as with m_naturalImmunities.
 typedef std::set<int, EffectOpcodeCompare> CEffectOpcodeSet;
+
+// Ordering functor for the spell-resref tree at CDerivedStats+0x470.  Keys are
+// TStrings (resrefs); the binary orders them with the memcmp+length-tiebreak
+// TString::Compare (0x4C5ED0).  Same 4-byte payload trick as EffectOpcodeCompare
+// so std::set<TString, ..> keeps the binary's 16-byte footprint.
+struct TStringResRefCompare {
+    LONG m_unused;
+    bool operator()(const TString& lhs, const TString& rhs) const
+    {
+        return lhs.Compare(0, lhs.Length(), rhs.Data(), rhs.Length()) < 0;
+    }
+};
+
+// A set of spell resrefs (BG2 PDB: m_cImmunitiesSpell / CImmunitiesSpellList).
+typedef std::set<TString, TStringResRefCompare> CSpellImmunitySet;
 
 // One damage-reduction entry (36 bytes in IWD2.exe, at CDerivedStats+0x49C
 // held in a std::vector).  A source of DR (Stoneskin, Protection From Arrows,
@@ -638,13 +654,10 @@ public:
     // 0x0470 m_cImmunitiesSpell -- despite sitting next to the opcode set, this is
     // NOT an opcode-int tree.  Its constructor (0x448C40 -> core 0x44A460) installs
     // the string-set sentinel 0x8D13E8 and its find/insert helper 0x4C4C90 keys on
-    // strings via TString::Compare (0x4C5ED0), so it is really a std::set<TString>
-    // of spell resrefs -- the spell-immunity list CGameEffectImmunitySpell::Evaluate
-    // (0x4BF140) consults (BG2 PDB name m_cImmunitiesSpell, class
-    // CImmunitiesSpellList).  Our TString omits the copy semantics a std::set<TString>
-    // node needs, so it is stored as a size-matched std::set<int> placeholder (same
-    // 16-byte footprint) until std::set<TString> is modelled.
-    /* 0470 */ CEffectOpcodeSet m_cImmunitiesSpell; // placeholder type; really std::set<TString>
+    // strings via TString::Compare (0x4C5ED0): a std::set<TString> of spell resrefs,
+    // the spell-immunity list CGameEffectImmunitySpell::Evaluate (0x4BF140) consults
+    // (BG2 PDB name m_cImmunitiesSpell, class CImmunitiesSpellList).
+    /* 0470 */ CSpellImmunitySet m_cImmunitiesSpell;
     /* 0480 */ CEffectOpcodeSet m_activeEffectOpcodes;
     // ctor 0x443B30 writes _Myhead@0x494 / _Mysize@0x498 -> the set core sits
     // at 0x490 (the old /* 0480 */ comment was wrong). Used: find/insert in

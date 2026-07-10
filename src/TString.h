@@ -19,7 +19,10 @@
 // reached. Assign therefore reproduces 0x44BC20's observable result (an owned heap
 // buffer with the new contents, capacity rounded | 0x1f, a leading refcount byte)
 // without the share/unshare branches that no live path exercises. Copy construction
-// and copy assignment are intentionally not provided.
+// and copy assignment (0x44BA90) share the source buffer and bump the reference
+// count in the binary; we model them as a deep copy into an owned buffer -- the same
+// owned-only simplification as Assign, and observably identical for the resref keys
+// std::set<TString> holds (CDerivedStats::m_cImmunitiesSpell).
 #pragma pack(push, 4)
 class TString {
 public:
@@ -49,6 +52,35 @@ public:
     TString& operator=(const char* s)
     {
         return Assign(s, static_cast<int>(strlen(s)));
+    }
+
+    // Deep-copy into an owned buffer (see the class NOTE: the binary shares +
+    // ref-counts, we model the owned-only result).  Enables std::set<TString>.
+    TString(const TString& other)
+    {
+        m_buf[0] = other.m_buf[0]; // preserve the union-head byte some callers stash
+        m_buf[1] = 0;
+        m_buf[2] = 0;
+        m_buf[3] = 0;
+        m_pData = NULL;
+        m_nLen = 0;
+        m_nRes = 0;
+        if (other.m_pData != NULL && other.m_nLen > 0) {
+            Assign(other.m_pData, other.m_nLen);
+        }
+    }
+
+    TString& operator=(const TString& other)
+    {
+        if (this != &other) {
+            if (other.m_pData != NULL && other.m_nLen > 0) {
+                Assign(other.m_pData, other.m_nLen);
+            } else {
+                Tidy(TRUE);
+            }
+            m_buf[0] = other.m_buf[0];
+        }
+        return *this;
     }
 
     const char* Data() const { return m_pData; }
