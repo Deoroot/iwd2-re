@@ -11801,6 +11801,55 @@ BOOL CGameEffectImmunitySpell::Evaluate(CGameSprite* pSprite)
     }
 }
 
+// 0x4BFE20
+BOOL CGameEffectImmunitySpell::ApplyEffect(CGameSprite* pSprite)
+{
+    if (Evaluate(pSprite) == TRUE) {
+        // The sprite already matches the effect's type predicate, so leave the
+        // immunity list untouched and mark the effect spent.
+        m_done = TRUE;
+    } else {
+        TString sResRef;
+        sResRef = m_res.GetResRefStr();
+
+        if (sResRef.Length() != 0) {
+            pSprite->GetDerivedStats()->m_cImmunitiesSpell.insert(sResRef);
+
+            // Opcode 290 additionally announces the resisted resource by name.
+            // This mirrors CGameEffect::FeedBackImmuneToResource (0x4C4330) but
+            // is inlined here and probes the key table with bWarningIfMissing =
+            // FALSE.
+            if (m_secondaryType != 0 && m_effectID == 290) {
+                if (g_pBaldurChitin->cDimm.m_cKeyTable.FindKey(m_sourceRes, 1005, FALSE)) {
+                    CItem* pItem = new CItem(m_sourceRes, 1, 0, 0, 0, 0);
+                    pSprite->FeedBack(CGameSprite::FEEDBACK_IMMUNE_TO_RESOURCE,
+                        0,
+                        0,
+                        0,
+                        pItem->GetIdentifiedName(),
+                        0,
+                        0);
+                    delete pItem;
+                } else if (g_pBaldurChitin->cDimm.m_cKeyTable.FindKey(m_sourceRes, 1006, FALSE)) {
+                    CSpell* pSpell = new CSpell(m_sourceRes);
+                    pSprite->FeedBack(CGameSprite::FEEDBACK_IMMUNE_TO_RESOURCE,
+                        0,
+                        0,
+                        0,
+                        pSpell->GetGenericName(),
+                        0,
+                        0);
+                    delete pSpell;
+                }
+            }
+        } else {
+            m_done = TRUE;
+        }
+    }
+
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x49C0F0
