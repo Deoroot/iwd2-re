@@ -1445,10 +1445,28 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
         return 0;
     }
 
-    // UNIMPLEMENTED: main admission tail (0x4A3BD3..0x4A3BA0) -- existing-effect
-    // dedup through the target effect list (sprite +0xDA4), the DAT_008AA6C0
-    // special-resref path, spell-school / spell-level gating, dispel feedback,
-    // and the counter-immunity spawn.  Defaults to "effect applies".
+    // UNIMPLEMENTED: main admission tail (0x4A3BD3..0x4A3BA0).  Decoded structure
+    // (writing it faithfully needs runtime verification of the mislabelled
+    // tree-find at 0x4C5AE0 and the counter-effect accumulation, so it is left a
+    // stub rather than guessed):
+    //   1. Look up an existing same-opcode effect in the target list (sprite
+    //      +0xDA4) via the inlined lower_bound at 0x4C5AE0 (Ghidra mis-symbols it
+    //      "CGameEffect::CheckAdd"; it takes &result and &m_effectID).
+    //   2. No conflict (result == end): if m_savingThrow == 0 or there is no
+    //      source, call the save virtual CheckSave (vtable +0x18) with pSprite and
+    //      the field_70F6.. scratch bytes; on success, unless CImmunitiesEffect::
+    //      OnList(this), run the spell-school (sprite[m_school + 0x2BF]) and
+    //      spell-level immunity gates (CSpellResRefList::Find on m_res), then if
+    //      UsesDice() and m_durationType in {0,1,2,9,0x1000} call OnAdd +
+    //      DisplayString.  return 1 on apply, 0 on immunity.
+    //   3. m_savingThrow != 0 with a source: share the caster and fold its spell
+    //      ability value (CRuleTables::GetSpellAbilityValue / GetSpecializationMask
+    //      + FUN_00547620) into m_saveMod before applying.
+    //   4. Conflict (an equal-or-stronger effect already present): emit the dispel
+    //      feedback (FeedBackImmuneToResource) and spawn a counter immunity effect
+    //      (IcewindMisc::CreateEffectImmunitySpell), reject.
+    //   Plus the DAT_008AA6C0 special-resref pre-branch at 0x4A3BA9.
+    // Defaults to "effect applies".
     return 1;
 }
 
