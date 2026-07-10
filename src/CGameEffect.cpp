@@ -14,6 +14,7 @@
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CScreenWorld.h"
+#include "CSevenEyes.h"
 #include "CSpell.h"
 #include "CUtil.h"
 #include "CVidPalette.h"
@@ -1322,16 +1323,18 @@ void CGameEffect::FireSpell(CGameSprite* pSprite)
 // field_70F6..field_70F9 are forwarded to the effect's apply virtual and
 // field_70FA carries the gate level byte.
 //
-// SKELETON.  Only the verified shatter-death gate below is recovered.  The rest
-// of the original (the 0x4A35EC.. normal path: probability/level gating, the
-// seven CSevenEyes checks, spell-school / spell-level immunity, and the
-// dispel-feedback tail) walks the target's internal std::map effect lists
-// (sprite +0xD94 / +0xDA4 via the inlined red-black-tree lookups at 0x4C4EF0 /
-// 0x4C5AE0), spawns CMessage cleanup objects, and runs under SEH -- none of
-// which is modelled yet.  Its spell-level-immunity branch depends on
-// CRuleTables::GetSpellAbilityValue (0x547040, now recovered).  Recovering the
-// tail is a dedicated arc; this method is intentionally NOT wired into
-// AddEffect (which remains the reconstructed minimum), so the documented
+// PARTIAL.  Recovered: the death-state / drain-to-death rejection gate, the
+// probability gate, and the spell-immunity gate (the m_sourceRes resref lookup
+// in the target's m_cImmunitiesSpell set -- the read side of the list
+// CGameEffectImmunitySpell::ApplyEffect at 0x4BFE20 writes -- plus the seven
+// CSevenEyes ward checks).  Still stubbed: the source-notify trigger dispatch
+// that accompanies a rejection (0x4A3619), and the main admission tail
+// (0x4A3BD3..0x4A3BA0) -- existing-effect dedup through the target effect list
+// (sprite +0xDA4 via the inlined red-black-tree lookups at 0x4C4EF0 / 0x4C5AE0),
+// spell-school / spell-level gating (CRuleTables::GetSpellAbilityValue, 0x547040),
+// dispel feedback, and the counter-immunity spawn -- which run under SEH.
+// Recovering that tail is a dedicated arc; this method is intentionally NOT wired
+// into AddEffect (which remains the reconstructed minimum), so the "applies"
 // default below changes no behaviour.
 int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70F7, BYTE* pField70F8, BYTE* pField70F9, BYTE* pField70FA)
 {
@@ -1340,7 +1343,8 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
     // damage / death / animation opcode, the original shatters the creature and
     // blocks the effect.  Opcode list verified against the cascade at 0x4A3369.
     if ((pSprite->m_baseStats.m_flags & 0x20000) != 0) {
-        bool bShatter = false;
+        // A source-flagged effect (m_sourceFlags & 0x400) also routes here.
+        bool bShatter = (m_sourceFlags & 0x400) != 0;
         switch (m_effectID) {
         case 0x3:   case 0x5:   case 0xc:   case 0xd:   case 0x18:  case 0x19:
         case 0x26:  case 0x27:  case 0x28:  case 0x2d:  case 0x37:  case 0x3a:
@@ -1357,49 +1361,64 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
             bShatter = true;
             break;
         default:
-            // 0x12/0x17 shatter only when m_dwFlags is negative; the level-drain
-            // opcodes 0x5d/0x5e only when it is positive.
-            if (static_cast<LONG>(m_dwFlags) < 0) {
-                bShatter = (m_effectID == 0x12 || m_effectID == 0x17);
-            } else if (static_cast<LONG>(m_dwFlags) > 0) {
-                bShatter = (m_effectID == 0x5d || m_effectID == 0x5e);
-            }
             break;
         }
 
+        // A B-list opcode (or a source-flagged effect) landing on a death-state
+        // target routes to the source-notify block (0x4A3619) and is rejected.
         if (bShatter) {
-            // UNIMPLEMENTED: spawn the shatter-death cleanup messages
-            // (CMessageHandler::AddMessage of the 0x847B40 / 0x847BB8 message
-            // objects).  The gate result -- effect blocked -- is faithful; only
-            // the death side-effect is omitted.
+            // UNIMPLEMENTED: source-notify trigger dispatch (0x4A3619..0x4A3BA0)
+            // -- GetShare(m_sourceID), two CMessageSetTrigger posts (trigger IDs
+            // 0x20 / 0x02 built from the source's AI type), FUN_006f50a0.  The
+            // gate result -- effect rejected -- is faithful; only the
+            // notification side-effect is omitted.
             return 0;
         }
     }
 
-    // Main path (0x4A35EC): effects with negative m_effectAmount and opcode
-    // 0x12/0x17, or positive m_effectAmount and opcode 0x5D/0x5E, take the
-    // source-message branch at 0x4A3619 (UNIMPLEMENTED, defaults to pass)
-    // and skip the probability gate.  Everything else reaches it.
-    LONG nAmount = static_cast<LONG>(m_effectAmount);
-    BOOL bSourceBranch = (nAmount < 0 && (m_effectID == 0x12 || m_effectID == 0x17))
-        || (nAmount > 0 && (m_effectID == 0x5d || m_effectID == 0x5e));
-
-    if (!bSourceBranch) {
-        // Probability gate (0x4A38A6): the roll is the target's per-AI-tick
-        // d100 scratch byte (field_70FA), shared by every effect added on the
-        // same tick -- this is what makes exclusive probability ranges (e.g.
-        // the four Summon Monster creature choices) pick exactly one.  The
-        // original calls rand() here and discards the result.
-        rand();
-        WORD roll = *pField70FA;
-        if (roll > m_probabilityUpper || roll < m_probabilityLower) {
+    // Drain-to-death opcodes route to the same source-notify block regardless of
+    // the target's death state (0x4A35EC): negative m_effectAmount with opcode
+    // 0x12 / 0x17, or positive m_effectAmount with 0x5D / 0x5E.
+    {
+        LONG nAmount = static_cast<LONG>(m_effectAmount);
+        if ((nAmount < 0 && (m_effectID == 0x12 || m_effectID == 0x17))
+            || (nAmount > 0 && (m_effectID == 0x5d || m_effectID == 0x5e))) {
             return 0;
         }
     }
 
-    // UNIMPLEMENTED: the remaining immunity path (resref/spell-school/spell-level
-    // immunities, CSevenEyes, dispel feedback; 0x4A38CA..0x4A3BD0).  Defaults to
-    // "effect applies"; see the dedicated-arc note above.
+    // Probability gate (0x4A38A6): the roll is the target's per-AI-tick d100
+    // scratch byte (field_70FA), shared by every effect added on the same tick --
+    // this is what makes exclusive probability ranges (e.g. the four Summon
+    // Monster creature choices) pick exactly one.  rand() is called and discarded.
+    rand();
+    WORD roll = *pField70FA;
+    if (roll > m_probabilityUpper || roll < m_probabilityLower) {
+        return 0;
+    }
+
+    // Spell-immunity gate (0x4A38CA): the target resists when the incoming
+    // effect's source spell (m_sourceRes) is on its spell-immunity list -- the
+    // std::set<TString> that CGameEffectImmunitySpell::ApplyEffect (0x4BFE20)
+    // populates -- or when one of the seven Eye wards intercepts.  Reject either.
+    TString sSourceRes;
+    sSourceRes = m_sourceRes.GetResRefStr();
+    CSpellImmunitySet& cImmunities = pSprite->GetDerivedStats()->m_cImmunitiesSpell;
+    if (cImmunities.find(sSourceRes) != cImmunities.end()
+        || CSevenEyes::CheckEyeOfStone(pSprite, this)
+        || CSevenEyes::CheckEyeOfSpirit(pSprite, this)
+        || CSevenEyes::CheckEyeOfMind(pSprite, this)
+        || CSevenEyes::CheckEyeOfFortitude(pSprite, this)
+        || CSevenEyes::CheckEyeOfVenom(pSprite, this)
+        || CSevenEyes::CheckEyeOfMage(pSprite, this)
+        || CSevenEyes::CheckEyeOfSword(pSprite, this)) {
+        return 0;
+    }
+
+    // UNIMPLEMENTED: main admission tail (0x4A3BD3..0x4A3BA0) -- existing-effect
+    // dedup through the target effect list (sprite +0xDA4), the DAT_008AA6C0
+    // special-resref path, spell-school / spell-level gating, dispel feedback,
+    // and the counter-immunity spawn.  Defaults to "effect applies".
     return 1;
 }
 
