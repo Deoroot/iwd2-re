@@ -1155,3 +1155,104 @@ CGameSpriteGroupedSpellList* CDerivedStats::GetSpellsByClass(const BYTE& nClass)
 
     return &(m_spells.m_spellsByClass[nClassIndex]);
 }
+
+// 0x447B60
+DR_ENTRY::DR_ENTRY(LONG amount, LONG threshold)
+    : m_amount(amount)
+    , m_threshold(threshold)
+    , m_damageTypes()
+    , m_pPool(NULL)
+    , m_sourceCreaturePtr(NULL)
+    , m_sourceEffectPtr(NULL)
+{
+}
+
+// 0x447C20
+LONG DR_ENTRY::Apply(LONG damage)
+{
+    if (m_pPool == NULL) {
+        damage -= m_amount;
+    } else if (*m_pPool < damage) {
+        // The remaining pool cannot cover this hit: absorb what is left, empty
+        // the pool, and remove the source effect from both of the target's
+        // effect lists (the skin shatters).
+        damage -= *m_pPool;
+        *m_pPool = 0;
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CDerivedStats.cpp
+        // __LINE__: 2206
+        UTIL_ASSERT(m_sourceCreaturePtr != NULL);
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CDerivedStats.cpp
+        // __LINE__: 2207
+        UTIL_ASSERT(m_sourceEffectPtr != NULL);
+
+        m_sourceCreaturePtr->m_equipedEffectList.RemoveEffect(m_sourceEffectPtr);
+        m_sourceCreaturePtr->m_timedEffectList.RemoveEffect(m_sourceEffectPtr);
+    } else {
+        LONG nReduce = damage < m_amount ? damage : m_amount;
+        damage -= nReduce;
+        *m_pPool -= nReduce;
+    }
+
+    if (damage < 0) {
+        return 0;
+    }
+    return damage;
+}
+
+// 0x447E50
+void DR_ENTRY::AddDamageType(int damageType)
+{
+    m_damageTypes.insert(damageType);
+}
+
+// 0x447F10
+void DR_ENTRY::SetSource(LONG* pPool, CGameSprite* pCreature, CGameEffect* pEffect)
+{
+    m_pPool = pPool;
+    m_sourceCreaturePtr = pCreature;
+    m_sourceEffectPtr = pEffect;
+}
+
+// 0x448250
+LONG CDerivedStats::ReduceDamage(LONG damage, LONG special, int damageType)
+{
+    DR_ENTRY* pBest = NULL;
+    for (size_t i = 0; i < m_drReductions.size(); i++) {
+        DR_ENTRY& entry = m_drReductions[i];
+
+        // An entry is bypassed once the attacker's enchantment reaches its
+        // threshold.
+        if (special >= entry.m_threshold) {
+            continue;
+        }
+
+        // A type filter, when present, must contain this damage type.
+        if (!entry.m_damageTypes.empty()
+            && entry.m_damageTypes.find(damageType) == entry.m_damageTypes.end()) {
+            continue;
+        }
+
+        // Keep the entry offering the greater effective reduction (a pooled
+        // entry can offer no more than its remaining pool).
+        if (pBest != NULL) {
+            LONG nThis = entry.m_pPool != NULL
+                ? (*entry.m_pPool < entry.m_amount ? *entry.m_pPool : entry.m_amount)
+                : entry.m_amount;
+            LONG nBest = pBest->m_pPool != NULL
+                ? (*pBest->m_pPool < pBest->m_amount ? *pBest->m_pPool : pBest->m_amount)
+                : pBest->m_amount;
+            if (nThis <= nBest) {
+                continue;
+            }
+        }
+
+        pBest = &entry;
+    }
+
+    if (pBest != NULL) {
+        return pBest->Apply(damage);
+    }
+    return damage;
+}

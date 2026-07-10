@@ -3320,6 +3320,16 @@ CGameEffect* IcewindCGameEffectProtectionFromArrows::Copy()
     return copy;
 }
 
+// 0x56AF80
+BOOL IcewindCGameEffectProtectionFromArrows::ApplyEffect(CGameSprite* pSprite)
+{
+    DR_ENTRY entry(10, m_dwFlags);
+    entry.AddDamageType(0x4000000);
+    entry.AddDamageType(0x2000000);
+    pSprite->GetDerivedStats()->m_drReductions.push_back(entry);
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x4A22C0

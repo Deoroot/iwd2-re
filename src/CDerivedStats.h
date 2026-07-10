@@ -9,6 +9,35 @@
 
 #include <bitset>
 #include <set>
+#include <vector>
+
+class CGameSprite;
+class CGameEffect;
+
+// One damage-reduction entry (36 bytes in IWD2.exe, at CDerivedStats+0x49C
+// held in a std::vector).  A source of DR (Stoneskin, Protection From Arrows,
+// the ICEWIND_CGAMEEFFECT_DAMAGEREDUCTION opcode) pushes one of these; each hit
+// consults them via CDerivedStats::ReduceDamage.  Field names come from the
+// binary's own asserts (CDerivedStats.cpp lines 0x89E/0x89F).  Laid out for our
+// STL sizes rather than the binary's, so no /* 0xNN */ offset comments here --
+// only the containing std::vector's 16-byte footprint must match the binary,
+// which it does regardless of this struct's size.
+struct DR_ENTRY {
+    LONG m_amount;                     // 0x00: reduction subtracted per hit
+    LONG m_threshold;                  // 0x04: enchantment that bypasses it (m_special >= this)
+    // 0x08: damage-type flags this entry reduces (empty => every type).  The
+    // binary's inlined std::less<int> storage is the two low-amount bytes the
+    // ctor writes into set+0/+1; our std::set owns that, so it is not a field.
+    std::set<int> m_damageTypes;       // 0x08 (_Myhead at +4, i.e. entry+0x0C)
+    LONG* m_pPool;                     // remaining shared pool (NULL = unlimited)
+    CGameSprite* m_sourceCreaturePtr;  // asserted non-NULL on pool exhaustion
+    CGameEffect* m_sourceEffectPtr;    // the effect removed when the pool empties
+
+    DR_ENTRY(LONG amount, LONG threshold);                       // 0x447B60
+    void AddDamageType(int damageType);                          // 0x447E50
+    void SetSource(LONG* pPool, CGameSprite* pCreature, CGameEffect* pEffect); // 0x447F10
+    LONG Apply(LONG damage);                                     // 0x447C20
+};
 
 // STATE.IDS
 
@@ -550,6 +579,10 @@ public:
     BOOL HasClass(INT iClassType);
     INT GetBestClass();
     CGameSpriteGroupedSpellList* GetSpellsByClass(const BYTE& nClass);
+    // Damage-reduction: pick the strongest applicable entry for a hit of
+    // damageType with the attacker's enchantment `special`, apply it, and
+    // return the reduced amount (0x448250).
+    LONG ReduceDamage(LONG damage, LONG special, int damageType);
 
     /* 0188 */ CImmunitiesProjectile m_cImmunitiesProjectile;
     /* 01A4 */ CImmunitiesEffect m_cImmunitiesEffect;
@@ -579,8 +612,9 @@ public:
     // at 0x490 (the old /* 0480 */ comment was wrong). Used: find/insert in
     // CGameEffect / IcewindCGameEffects, so it must stay a real std::set<int>.
     /* 0490 */ std::set<int> m_naturalImmunities;
-    // 0x049C-0x04AC: 2nd container core zeroed by ctor (byte + three dwords).
-    /* 049C */ BYTE field_49C[0x10];
+    // 0x049C-0x04AC: the damage-reduction vector (alloc/first/last/end); the
+    // ctor zeroes its four dwords.  16 bytes in our build, matching the binary.
+    /* 049C */ std::vector<DR_ENTRY> m_drReductions;
     /* 04AC */ CPtrList field_4AC;
     /* 04C8 */ CPtrList field_4C8;
     /* 04E4 */ CPtrList field_4E4;

@@ -2890,11 +2890,14 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
             }
         }
 
-        // HACK: the conditional damage-reduction pass is unrecovered -- when
-        // m_special != -1 the binary walks the reduction table at
-        // CDerivedStats+0x49C (36-byte entries, helpers 0x448A50 / 0x447C20)
-        // and rewrites the amount -- replaces the call to 0x448250 at
-        // 0x4A82AC.
+        // Damage reduction (Stoneskin, Protection From Arrows, ...): unless the
+        // attack's enchantment waives it, the strongest applicable entry on the
+        // target's derived stats rewrites the amount.
+        if (static_cast<LONG>(m_special) != -1) {
+            m_effectAmount = pSprite->GetDerivedStats()->ReduceDamage(m_effectAmount,
+                static_cast<LONG>(m_special),
+                damageType);
+        }
 
         if (m_effectAmount < 0) {
             m_effectAmount = 0;
