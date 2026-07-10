@@ -1445,29 +1445,140 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
         return 0;
     }
 
-    // UNIMPLEMENTED: main admission tail (0x4A3BD3..0x4A3BA0).  Decoded structure
-    // (writing it faithfully needs runtime verification of the mislabelled
-    // tree-find at 0x4C5AE0 and the counter-effect accumulation, so it is left a
-    // stub rather than guessed):
-    //   1. Look up an existing same-opcode effect in the target list (sprite
-    //      +0xDA4) via the inlined lower_bound at 0x4C5AE0 (Ghidra mis-symbols it
-    //      "CGameEffect::CheckAdd"; it takes &result and &m_effectID).
-    //   2. No conflict (result == end): if m_savingThrow == 0 or there is no
-    //      source, call the save virtual CheckSave (vtable +0x18) with pSprite and
-    //      the field_70F6.. scratch bytes; on success, unless CImmunitiesEffect::
-    //      OnList(this), run the spell-school (sprite[m_school + 0x2BF]) and
-    //      spell-level immunity gates (CSpellResRefList::Find on m_res), then if
-    //      UsesDice() and m_durationType in {0,1,2,9,0x1000} call OnAdd +
-    //      DisplayString.  return 1 on apply, 0 on immunity.
-    //   3. m_savingThrow != 0 with a source: share the caster and fold its spell
-    //      ability value (CRuleTables::GetSpellAbilityValue / GetSpecializationMask
-    //      + FUN_00547620) into m_saveMod before applying.
-    //   4. Conflict (an equal-or-stronger effect already present): emit the dispel
-    //      feedback (FeedBackImmuneToResource) and spawn a counter immunity effect
-    //      (IcewindMisc::CreateEffectImmunitySpell), reject.
-    //   Plus the DAT_008AA6C0 special-resref pre-branch at 0x4A3BA9.
-    // Defaults to "effect applies".
-    return 1;
+    // Main admission tail (0x4A3BD3).  The SPWI420 special-resref pre-branch at
+    // 0x4A3B90 -- taken only when m_res == "SPWI420" and the target's AI type is
+    // at or below the 0x847C3B threshold, where the original plays a spell-blocked
+    // feedback then rejects -- is not recovered; we always take the normal
+    // admission path below.
+    CDerivedStats* pStats = pSprite->GetDerivedStats();
+
+    // Conflict lookup (0x4A3BD3): an effect with this opcode is already active on
+    // the target when m_effectID is in m_activeEffectOpcodes.  The binary inlines
+    // a std::set lower_bound (0x4C5AE0, mis-symbolled "CGameEffect::CheckAdd") and
+    // confirms the exact match.
+    CEffectOpcodeSet::iterator itActive =
+        pStats->m_activeEffectOpcodes.lower_bound(static_cast<int>(m_effectID));
+    bool bAlreadyActive = itActive != pStats->m_activeEffectOpcodes.end()
+        && static_cast<DWORD>(*itActive) == m_effectID;
+
+    if (!bAlreadyActive) {
+        // No conflict.  When the effect carries a saving throw and a live source,
+        // share the caster and fold its spell-ability save value into m_saveMod
+        // before the save roll (0x4A3CE3).
+        if (m_savingThrow != 0 && m_sourceID != CGameObjectArray::INVALID_INDEX) {
+            CGameObject* pSource;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+                    CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                // m_casterLevel packs the save-ability descriptor: byte 1 = class,
+                // byte 2 = specialisation index, byte 0 = caster level.  Only a
+                // creature source with a class contributes (0x4A3D80).
+                BYTE nClass = static_cast<BYTE>(m_casterLevel >> 8);
+                if (nClass != 0 && pSource->GetObjectType() == '1') {
+                    BYTE nSpecIndex = static_cast<BYTE>(m_casterLevel >> 16);
+                    DWORD nSpecialization = 0;
+                    if (nClass == 3) {
+                        nSpecialization = g_pBaldurChitin->GetObjectGame()
+                            ->GetRuleTables().GetSpecializationMask(3, nSpecIndex);
+                    }
+                    m_saveMod += CRuleTables::GetSpellAbilityValue(
+                        static_cast<CGameSprite*>(pSource), m_sourceRes, m_savingThrow,
+                        nClass, nSpecialization, static_cast<BYTE>(m_casterLevel));
+                }
+                // UNIMPLEMENTED (0x4A3E13): when m_sourceRes matches the global
+                // resref at 0x8F8E60, the original also folds FUN_00547620(1,
+                // pSource, m_saveMod, m_spellLevel) into m_saveMod.  Left out
+                // pending recovery of 0x547620.
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
+
+        // Saving-throw roll (0x4A3E4F): the effect's own save virtual decides
+        // whether it is resisted.  It applies only if the save is not made and the
+        // target does not already carry an effect-list immunity to it.
+        if (CheckSave(pSprite, pField70F6, pField70F7, pField70F8, pField70F9)
+            && !pStats->m_cImmunitiesEffect.OnList(this)) {
+
+            // Spell-level immunity (0x4A3E94): a set per-level slot blocks the
+            // effect, unless it is a level-1 innate / bard-song / shapeshift spell.
+            bool bImmunityGatePassed;
+            BYTE nLevel = static_cast<BYTE>(m_spellLevel);
+            if (nLevel < 9 && pStats->m_cImmunitiesSpellLevel.m_levels[nLevel] != 0) {
+                UINT nID = 0;
+                CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+                bImmunityGatePassed = m_spellLevel == 1
+                    && (pGame->m_innateSpells.Find(m_res, nID)
+                        || pGame->m_songs.Find(m_res, nID)
+                        || pGame->m_shapeshifts.Find(m_res, nID));
+            } else {
+                bImmunityGatePassed = true;
+            }
+
+            if (bImmunityGatePassed) {
+                BOOL bApply = UsesDice();
+                if (!bApply) {
+                    // Class-level range gate (0x4A3F13) for non-dice effects: the
+                    // caster class level must fall within [m_minLevel, m_maxLevel].
+                    if (m_maxLevel == 0
+                        || pStats->GetClassMaskLevel(0xFFF) <= m_maxLevel) {
+                        if (m_minLevel > 0xFFFF) {
+                            m_minLevel = 0;
+                        }
+                        bApply = pStats->GetClassMaskLevel(0xFFF) >= m_minLevel;
+                    }
+                }
+                if (bApply) {
+                    // Effect admitted (0x4A3F7E).
+                    if (m_durationType == 0x1000 || m_durationType == 0
+                        || m_durationType == 1 || m_durationType == 2
+                        || m_durationType == 9) {
+                        CGameEffect::OnAdd(pSprite);
+                        DisplayString(pSprite);
+                    }
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+
+    // Conflict (0x4A3C1F): an effect with this opcode is already present.  Share
+    // the caster; if the incoming effect names a source resref, emit the "immune
+    // to resource" feedback and add a counter spell-immunity effect -- carrying
+    // the same caster level -- to the target.  Reject regardless.
+    CGameObject* pSource;
+    BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+        CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+    if (rc == CGameObjectArray::SUCCESS) {
+        if (m_sourceRes.GetResRef()[0] != '\0') {
+            CGameEffect::FeedBackImmuneToResource(pSprite, m_sourceRes);
+            CGameEffect* pCounter = IcewindMisc::CreateEffectImmunitySpell(pSource,
+                m_sourceRes.GetResRef(), 0, 0, 0, 2);
+            pCounter->m_casterLevel = m_casterLevel;
+            pSprite->AddEffect(pCounter, 1, TRUE, TRUE);
+        }
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+    return 0;
+}
+
+// 0x4A42F0
+// UNIMPLEMENTED: the base saving-throw computation (323 instructions -- a d20 save
+// against m_savingThrow using the target's class level, trap-sense and
+// specialisation-school bonuses, sharing the caster and consuming the field_70F6..
+// accumulators, then feeding back the save result).  Stubbed to admit the effect
+// (the save is treated as failed) until it is recovered; CheckAdd's immunity and
+// conflict gates already run around this call.  Non-zero == the save did not block.
+int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70F7, BYTE* pField70F8, BYTE* pField70F9)
+{
+    return TRUE;
 }
 
 // 0x799E60

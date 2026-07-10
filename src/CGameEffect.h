@@ -298,6 +298,10 @@ public:
     /* 000C */ virtual BOOL ResolveEffect(CGameSprite* pSprite);
     /* 0010 */ virtual void OnAdd(CGameSprite* pSprite);
     /* 0014 */ virtual void OnLoad(CGameSprite* pSprite);
+    // Saving-throw check dispatched from CheckAdd (0x4A3E75).  The four scratch
+    // bytes are the same field_70F6..field_70F9 save accumulators CheckAdd is
+    // handed; pField70FA (the probability roll) is not forwarded.
+    /* 0018 */ virtual int CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70F7, BYTE* pField70F8, BYTE* pField70F9);
     /* 001C */ virtual BOOL UsesDice();
     /* 0020 */ virtual void DisplayString(CGameSprite* pSprite);
     /* 0024 */ virtual void OnRemove(CGameSprite* pSprite);
