@@ -3302,6 +3302,32 @@ CGameEffect* IcewindCGameEffectDamageReduction::Copy()
     return copy;
 }
 
+// 0x56ADC0
+BOOL IcewindCGameEffectDamageReduction::ApplyEffect(CGameSprite* pSprite)
+{
+    // The binary leaves the amount uninitialized on the m_effectAmount != 0
+    // path, so it holds the incoming pSprite argument slot; only the
+    // m_effectAmount == 0 path -- which this opcode's data always takes, the DR
+    // value being the m_dwFlags "level" x5 -- assigns it.
+    LONG amount = reinterpret_cast<LONG>(pSprite);
+    if (m_effectAmount == 0) {
+        if (m_dwFlags == 6) {
+            m_dwFlags = 3;
+        }
+        amount = m_dwFlags * 5;
+    }
+
+    DR_ENTRY entry(amount, m_dwFlags);
+    entry.AddDamageType(0);
+    entry.AddDamageType(0x100000);
+    entry.AddDamageType(0x1000000);
+    entry.AddDamageType(0x2000000);
+    entry.AddDamageType(0x4000000);
+    entry.AddDamageType(0x8000000);
+    pSprite->GetDerivedStats()->m_drReductions.push_back(entry);
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x4A21D0
