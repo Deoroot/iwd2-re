@@ -12077,6 +12077,65 @@ CGameEffect* CGameEffectStoneSkins::Copy()
     return copy;
 }
 
+// 0x4C0250
+BOOL CGameEffectStoneSkins::ApplyEffect(CGameSprite* pSprite)
+{
+    if (m_dwFlags == 0) {
+        // Stoneskin: a pool of physical-damage reduction.
+        if (m_secondaryType != 0) {
+            DisplayStringRef(pSprite, 0x323);
+        }
+
+        pSprite->GetDerivedStats()->m_spellStates[SPLSTATE_STONESKIN] = true;
+        AddPortraitIcon(pSprite, 0x2E);
+
+        if (m_secondaryType != 0) {
+            DWORD nPool = static_cast<BYTE>(m_casterLevel) * 10;
+            if (nPool > 149) {
+                nPool = 150;
+            }
+            m_effectAmount2 = nPool;
+        }
+
+        DR_ENTRY entry(10, 5);
+        entry.AddDamageType(0);
+        entry.AddDamageType(0x100000);
+        entry.AddDamageType(0x1000000);
+        entry.AddDamageType(0x2000000);
+        entry.AddDamageType(0x4000000);
+        entry.AddDamageType(0x8000000);
+        entry.SetSource(&m_effectAmount2, pSprite, this);
+        pSprite->GetDerivedStats()->m_drReductions.push_back(entry);
+    } else if (m_dwFlags == 1) {
+        // Iron Skins: flat physical resistance plus a stone-skin pool.
+        if (m_secondaryType != 0) {
+            DisplayStringRef(pSprite, 0x324);
+        }
+
+        pSprite->GetDerivedStats()->m_spellStates[SPLSTATE_IRON_SKINS] = true;
+        AddPortraitIcon(pSprite, 0x59);
+
+        pSprite->GetDerivedStats()->m_nResistCrushing += 10;
+        pSprite->GetDerivedStats()->m_nResistPiercing += 10;
+        pSprite->GetDerivedStats()->m_nResistSlashing += 10;
+
+        if (pSprite->GetDerivedStats()->m_nStoneSkins < m_effectAmount) {
+            pSprite->GetDerivedStats()->m_nStoneSkins = m_effectAmount;
+        }
+
+        CMessage* message = new CMessageVisualEffect(0x17,
+            static_cast<BYTE>(pSprite->GetDerivedStats()->m_nStoneSkins),
+            pSprite->GetId(),
+            pSprite->GetId());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
+
+    pSprite->SetColorRange(0xE);
+    pSprite->GetDerivedStats()->field_480.insert(218);
+    m_sourceID = 0;
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x49CC30

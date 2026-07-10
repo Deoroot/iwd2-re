@@ -1828,6 +1828,7 @@ class CGameEffectStoneSkins : public CGameEffect {
 public:
     CGameEffectStoneSkins(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
     CGameEffect* Copy() override;
+    BOOL ApplyEffect(CGameSprite* pSprite) override;
 };
 
 class CGameEffectProtectionCircle : public CGameEffect {

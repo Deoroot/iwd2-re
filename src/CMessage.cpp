@@ -13069,7 +13069,7 @@ CMessageVisualEffect::CMessageVisualEffect(BYTE nEffectType, BYTE nEffectPropert
     : CMessage(caller, target)
 {
     m_nEffectType = nEffectType;
-    nEffectProperty = nEffectProperty;
+    m_nEffectProperty = nEffectProperty;
 }
 
 // 0x453510
