@@ -726,6 +726,30 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileFireball();
         break;
 
+    case 0xFF: {
+        // Enchantment-school area spell-hit carrier (projectile 255): SPWI420
+        // Emotion: Fear and the other leaf-less point-cast Enchantment AOE
+        // spells.  The binary (0x525bcd) builds the base spell-hit projectile
+        // directly -- no dedicated leaf -- with nType 0x96, then stamps
+        // emission slot 0's Enchantment detonation cell (EnchanX) and area
+        // sound (ARE_M21) and arms copy-from-back on its visual.
+        //
+        // Without this case the missile fell to the default plain CProjectile,
+        // whose Fire() (0x78E740) is a stub, so the targetType-2 gameplay
+        // effects the caster attached in ForceSpellPointAction (State: Horror,
+        // the save rider, ...) never travelled, gathered, or delivered -- the
+        // creatures in the AOE were never affected.  The base spell-hit family
+        // arrives instantly (m_bHasTravelCell = 0), detonates, and its
+        // AIUpdate -> GatherTargets -> Strike -> StrikeTarget pass spawns a
+        // per-victim carrier loaded with a copy of the effect list.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
     case 0x5F:
         // Stinking Cloud (SPWI213): the persistent-gas area spell-hit projectile.
         // Sibling of Fireball -- another bare IcewindCProjectileSpellHit leaf; all

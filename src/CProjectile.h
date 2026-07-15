@@ -519,6 +519,12 @@ protected:
 // The base ctor stamps the two _Alval padding bytes (= type byte, don't-care) and
 // the _Multi flag (= 0) of each; the container ctors fill _Myhead / _Mysize.
 class IcewindCProjectileSpellHit /*#guess*/ : public IcewindCProjectileTravellingVFX {
+    // DecodeProjectile (a CProjectile method) builds the bare spell-hit carrier
+    // for the leaf-less area spells (case 0xFF, projectile 255) and stamps its
+    // emission slot-0 detonation visual directly -- the same member-poke licence
+    // the family base already grants CProjectile (IcewindCProjectileTravellingVFX).
+    friend class CProjectile;
+
 public:
     IcewindCProjectileSpellHit(SHORT nType);   // 0x56EDD0
     ~IcewindCProjectileSpellHit() override;     // 0x56F1F0 (deleting thunk 0x56F070, vtable slot 0)
