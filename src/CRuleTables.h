@@ -443,6 +443,10 @@ public:
     void GetBaseCombatValues(CGameSprite* pSprite, int& a2, int& a3, int& a4, BOOL a5) const;
     DWORD GetMaxSpellLevel(const BYTE& nClass, const UINT& nLevel) const;
     static int GetSpellAbilityValue(CGameSprite* pSprite, const CResRef& resRef, int nSaveMod, BYTE nClass, DWORD nSpecialization, BYTE nCasterLevel);
+    // #guess name: the only field read is m_derivedStats.m_nSkills[1] -- the Animal
+    // Empathy skill (SKILLS.IDS index 1).  CGameEffect::CheckAdd folds the result into
+    // the save DC for the spell whose resref constant lives at 0x8F8E60.
+    static int GetAnimalEmpathySaveMod(int nType, CGameSprite* pSprite, int nSaveMod, int nEffectAmount);
     static bool CheckUseMagicDevice(CGameSprite* pSprite, CItem* pItem);
     BYTE GetSpecializationIndex(BYTE nClass, DWORD nSpecialization) const;
     DWORD GetSpecializationMask(BYTE nClass, BYTE nIndex) const;
