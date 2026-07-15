@@ -1445,11 +1445,49 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
         return 0;
     }
 
-    // Main admission tail (0x4A3BD3).  The SPWI420 special-resref pre-branch at
-    // 0x4A3B90 -- taken only when m_res == "SPWI420" and the target's AI type is
-    // at or below the 0x847C3B threshold, where the original plays a spell-blocked
-    // feedback then rejects -- is not recovered; we always take the normal
-    // admission path below.
+    // SPWI420 special-resref pre-branch (0x4A39F0): before the normal admission,
+    // a party member of class 7 (paladin) with the general-state bit 0x800 clear
+    // intercepts the incoming effect when its source spell (m_sourceRes) is
+    // "SPWI420" (Emotion: Fear).  It runs only for a
+    // good-aligned target (AI enemy-ally at or below EA_GOODCUTOFF) that carries a
+    // live source resref; any other case drops straight through to the admission
+    // tail below.
+    if (pSprite->GetAIType().m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF
+        && m_sourceRes.GetResRef()[0] != '\0'
+        && memcmp(m_sourceRes.GetResRef(), "SPWI420", 7) == 0) {
+
+        // Party/state/class gate (0x4A3A3F): the block bites only on a party member
+        // (owns a portrait), whose general-state bit 0x800 is clear -- the binary's
+        // (~m_generalState >> 0xB) & 1 -- and who has at least two levels in class 7.
+        CDerivedStats* pStats = pSprite->GetDerivedStats();
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->m_id)
+                != CGameObjectArray::INVALID_INDEX
+            && (((~pStats->m_generalState) >> 0xB) & 1) != 0
+            && pStats->GetClassLevel(7) >= 2) {
+
+            if (m_effectID == 0x18) {
+                // UNIMPLEMENTED (0x4A3A8A): the "spell blocked" feedback.  The binary
+                // copies m_sourceRes into a temp CResRef, requests the spell resource
+                // (0x4699F0 with the resref built via CResRef::operator= 0x78AD40),
+                // and on a live resource prints CSpell::GetGenericName through
+                // CGameSprite::FeedBack(0x85C11A, ...), then tears the request down
+                // (CResRef::operator!= 0x78AB40 / CRes::CancelRequest /
+                // CDimm::ReleaseResObject).  None of that machinery is recoverable;
+                // the reject below is preserved.
+            }
+
+            // Reject (0x4A3BA0).  The binary's tail-merged epilogue at 0x4A3B9B also
+            // calls CGameObjectArray::ReleaseShare(m_sourceID, THREAD_ASYNCH, INFINITE)
+            // here; it balances the single caster share the binary holds open across
+            // this whole region.  This recovery manages the caster share locally in
+            // each reject path instead (see the source-notify and conflict blocks), so
+            // no share is held at this point -- emitting the release would unbalance
+            // it, so it is intentionally omitted.
+            return 0;
+        }
+    }
+
+    // Main admission tail (0x4A3BD3).
     CDerivedStats* pStats = pSprite->GetDerivedStats();
 
     // Conflict lookup (0x4A3BD3): an effect with this opcode is already active on
