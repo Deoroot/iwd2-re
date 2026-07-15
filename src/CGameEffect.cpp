@@ -1463,9 +1463,10 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
 
     if (!bAlreadyActive) {
         // No conflict.  When the effect carries a saving throw and a live source,
-        // share the caster and fold its spell-ability save value into m_saveMod
-        // before the save roll (0x4A3CE3).
-        if (m_savingThrow != 0 && m_sourceID != CGameObjectArray::INVALID_INDEX) {
+        // share the caster and fold its spell-ability save value into m_special
+        // before the save roll (0x4A3CE3).  The save-type bitmask lives at 0x3C
+        // (header m_saveMod) and the accumulated modifier at 0x40 (header m_special).
+        if (m_saveMod != 0 && m_sourceID != CGameObjectArray::INVALID_INDEX) {
             CGameObject* pSource;
             BYTE rc;
             do {
@@ -1485,13 +1486,13 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
                         nSpecialization = g_pBaldurChitin->GetObjectGame()
                             ->GetRuleTables().GetSpecializationMask(3, nSpecIndex);
                     }
-                    m_saveMod += CRuleTables::GetSpellAbilityValue(
-                        static_cast<CGameSprite*>(pSource), m_sourceRes, m_savingThrow,
+                    m_special += CRuleTables::GetSpellAbilityValue(
+                        static_cast<CGameSprite*>(pSource), m_sourceRes, m_saveMod,
                         nClass, nSpecialization, static_cast<BYTE>(m_casterLevel));
                 }
                 // UNIMPLEMENTED (0x4A3E13): when m_sourceRes matches the global
                 // resref at 0x8F8E60, the original also folds FUN_00547620(1,
-                // pSource, m_saveMod, m_spellLevel) into m_saveMod.  Left out
+                // pSource, m_special, m_effectAmount) into m_special.  Left out
                 // pending recovery of 0x547620.
 
                 g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
