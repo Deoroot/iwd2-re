@@ -3839,3 +3839,23 @@ DWORD CRuleTables::GetSpecializationMask(BYTE nClass, BYTE nIndex) const
 
     return 0;
 }
+
+// 0x547620
+// #guess name (see the declaration).  When nMode is 1 the original returns the
+// sprite's Animal Empathy skill (m_derivedStats.m_nSkills[1], read signed) reduced
+// by nSaveMod, nSpellLevel and a flat 5; otherwise 0.  CGameEffect::CheckAdd folds
+// the result into the save DC (m_saveMod).
+int CRuleTables::GetAnimalEmpathySaveMod(int nMode, CGameSprite* pSprite, int nSaveMod, int nSpellLevel)
+{
+    if (pSprite == NULL) {
+        CUtil::UtilAssert(7295, "C:\\Projects\\Icewind2\\src\\Baldur\\CRuleTables.cpp",
+            "pSprite != NULL", "Invalid Sprite.");
+    }
+
+    int nResult = 0;
+    if (nMode == 1) {
+        nResult = ((static_cast<signed char>(pSprite->m_derivedStats.m_nSkills[1]) - nSaveMod)
+            - nSpellLevel) - 5;
+    }
+    return nResult;
+}

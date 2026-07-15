@@ -1489,10 +1489,16 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
                         static_cast<CGameSprite*>(pSource), m_sourceRes, m_savingThrow,
                         nClass, nSpecialization, static_cast<BYTE>(m_casterLevel));
                 }
-                // UNIMPLEMENTED (0x4A3E13): when m_sourceRes matches the global
-                // resref at 0x8F8E60, the original also folds FUN_00547620(1,
-                // pSource, m_saveMod, m_spellLevel) into m_saveMod.  Left out
-                // pending recovery of 0x547620.
+                // Source-resref fold (0x4A3E13): when m_sourceRes matches the resref
+                // stored at the global 0x8F8E60 (a runtime-populated spell filter that
+                // does not resolve statically), fold the Animal Empathy save modifier
+                // (0x547620) into m_saveMod as well.  The binary compares m_sourceRes
+                // as two raw dwords against 0x8F8E60 / 0x8F8E64.
+                if (reinterpret_cast<const DWORD*>(&m_sourceRes)[0] == *reinterpret_cast<const DWORD*>(0x008F8E60)
+                    && reinterpret_cast<const DWORD*>(&m_sourceRes)[1] == *reinterpret_cast<const DWORD*>(0x008F8E64)) {
+                    m_saveMod += CRuleTables::GetAnimalEmpathySaveMod(1,
+                        static_cast<CGameSprite*>(pSource), m_saveMod, m_spellLevel);
+                }
 
                 g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
                     CGameObjectArray::THREAD_ASYNCH, INFINITE);
