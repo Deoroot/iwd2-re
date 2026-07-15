@@ -719,10 +719,12 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     case 0x26:
         // Fireball (SPWI304): the large area spell-hit projectile. The binary
         // builds it bare (case 0x26 = `new CProjectileFireball()`); all
-        // configuration is in the leaf ctor (0x571E80). It travels and arrives
-        // through the inherited family virtuals, but the SpellHit AOE strike
-        // (vtable slots 36/37/38) and the OnArrival/Fire/AIUpdate overrides are
-        // not yet recovered, so no area damage fires yet.
+        // configuration is in the leaf ctor (0x571E80). It travels, arrives and
+        // fires the AOE strike through the inherited IcewindCProjectileSpellHit
+        // virtuals -- AIUpdate (slot 3) -> GatherTargets (36) -> Strike (37) ->
+        // StrikeTarget (38), plus OnArrival (28)/Fire (27) -- all now recovered,
+        // so each victim gets a carrier loaded with a copy of the effect list on
+        // detonation.
         pProjectile = new CProjectileFireball();
         break;
 
@@ -753,11 +755,13 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     case 0x5F:
         // Stinking Cloud (SPWI213): the persistent-gas area spell-hit projectile.
         // Sibling of Fireball -- another bare IcewindCProjectileSpellHit leaf; all
-        // configuration is in the leaf ctor (0x574B80). Like Fireball the inherited
-        // SpellHit AOE strike and the gas area (ARE_M02) are not yet recovered, but
-        // the detonation visual fires through the inherited OnArrival. Previously this
-        // type fell through to the default `new CProjectile()`, so casting Stinking
-        // Cloud produced nothing.
+        // configuration is in the leaf ctor (0x574B80). The inherited SpellHit AOE
+        // strike (AIUpdate -> GatherTargets -> Strike -> StrikeTarget) is recovered
+        // and the detonation visual fires through the inherited OnArrival; the
+        // persistent gas-area overlay (ARE_M02) rides the same periodic re-strike
+        // clock (m_strikePeriod/m_strikeInterval). Previously this type fell through
+        // to the default `new CProjectile()`, so casting Stinking Cloud produced
+        // nothing.
         pProjectile = new CProjectileStinkingCloud();
         break;
 

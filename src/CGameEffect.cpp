@@ -1754,12 +1754,14 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
         nRoll = nWillRoll;
         nSaveTotal = pSprite->m_derivedStats.m_nSaveVSWill + nWillRoll;
 
-        // UNIMPLEMENTED (0x4A47EA): the SPWI420 (Emotion: Fear) rogue trap-sense
-        // aura.  When the source spell is SPWI420 and the target is good-aligned (EA
-        // <= EA_GOODCUTOFF), the original scans the party for a nearby rogue (class
-        // 7, level >= 2, within squared distance 0x2711) carrying trap sense and adds
-        // +4 to the will save.  Same special-cased resref CheckAdd's pre-branch
-        // (0x4A3B90) leaves unrecovered; dropped here for parity.
+        // UNIMPLEMENTED (0x4A47EA): the SPWI420 (Emotion: Fear) paladin aura of
+        // courage.  When the source spell is SPWI420 the original scans the party
+        // for a nearby paladin -- GetClassLevel(7) >= 2, general-state bit 0x800
+        // clear, within squared distance 0x2711 of the target -- and, if one is
+        // found, adds +4 to the will save.  (class 7 = PALADIN in CLASS.IDS; the
+        // +4-vs-fear ally aura is the D&D 3e Aura of Courage.)  Same special-cased
+        // resref CheckAdd's pre-branch (0x4A3B90) leaves unrecovered; dropped here
+        // for parity.
 
         if (m_effectID == 0x18 && pSprite->GetAIType().m_nRace == 5) {
             nSaveTotal += 2;
