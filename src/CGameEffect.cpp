@@ -1570,15 +1570,220 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
 }
 
 // 0x4A42F0
-// UNIMPLEMENTED: the base saving-throw computation (323 instructions -- a d20 save
-// against m_savingThrow using the target's class level, trap-sense and
-// specialisation-school bonuses, sharing the caster and consuming the field_70F6..
-// accumulators, then feeding back the save result).  Stubbed to admit the effect
-// (the save is treated as failed) until it is recovered; CheckAdd's immunity and
-// conflict gates already run around this call.  Non-zero == the save did not block.
+// The base saving-throw computation: a d20 save against the effect's save-type
+// bitmask, scored against DC = m_special + 10 + m_effectAmount.  Note the header's
+// save-field names are mislabelled versus the binary: m_saveMod (0x3C) actually
+// holds the fortitude/reflex/will bitmask (bits 0x4/0x8/0x10) and m_special (0x40)
+// the accumulated save modifier -- CheckAdd folds GetSpellAbilityValue into 0x40.
+// The four scratch bytes are pre-rolled d20/percentile values with a sticky 0x80
+// "consumed" flag: F6 = fortitude roll, F7 = reflex roll, F8 = will roll, F9 = the
+// magic-resistance roll.  Returns non-zero when the save did NOT block the effect.
 int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70F7, BYTE* pField70F8, BYTE* pField70F9)
 {
-    return TRUE;
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    BYTE nFortRoll = *pField70F6 & 0x7f;
+    BYTE nReflexRoll = *pField70F7 & 0x7f;
+    BYTE nWillRoll = *pField70F8 & 0x7f;
+    BYTE nResistRoll = *pField70F9 & 0x7f;
+
+    int nSaveTotal = 0;
+    int nRoll = nResistRoll;
+    BOOL bSaveRolled = FALSE;
+
+    // Objects whose AI race id is 0xBE never save (0x4A4374).
+    if (pSprite->GetAIType().m_nRace == (BYTE)0xBE) {
+        return TRUE;
+    }
+
+    // Friendly-fire gate (0x4A4387): with the party-conflict game flag set, only a
+    // self-targeted effect, opcode 0x68, or opcode 0x0D carrying a set field_18C may
+    // roll a save; everything else is blocked outright.  field_18C lives in the
+    // derived-effect slice, past CGameEffect's own layout.
+    if (*reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x43e6) == 1) {
+        if (pSprite->m_id == m_sourceID) {
+            return TRUE;
+        }
+        if (m_targetType == 0x68) {
+            return TRUE;
+        }
+        if (m_targetType != 0xd) {
+            return FALSE;
+        }
+        if (*reinterpret_cast<int*>(reinterpret_cast<BYTE*>(this) + 0x18c) == 0) {
+            return FALSE;
+        }
+    }
+
+    // Petrified / frozen targets cannot be affected by opcode 0x19, or by opcode
+    // 0x8E under duration type 6, while they carry stoneskins or mirror images
+    // (0x4A43C8).
+    if (m_targetType == 0x19
+        && (pSprite->m_derivedStats.m_nMirrorImages != 0
+            || pSprite->m_derivedStats.m_nStoneSkins > 0)) {
+        return FALSE;
+    }
+    if (m_targetType == 0x8e && m_durationType == 6
+        && (pSprite->m_derivedStats.m_nMirrorImages != 0
+            || pSprite->m_derivedStats.m_nStoneSkins > 0)) {
+        return FALSE;
+    }
+
+    // Magic-resistance gate (0x4A4414): dispellable projectile effects (flagged
+    // 0x400, m_effectAmount2 bit 0 set and bit 1 clear) roll against the target's
+    // magic resistance -- halved for opcode 0x1C3.  A resist clears the duration,
+    // marks the roll consumed and blocks the effect.
+    if ((m_projectileType & 0x400) != 0
+        && (m_effectAmount2 & 2) == 0
+        && (m_effectAmount2 & 1) != 0) {
+        SHORT nResist = pSprite->m_derivedStats.m_nResistMagic;
+        if (m_targetType == 0x1c3) {
+            nResist = (SHORT)(nResist / 2);
+        }
+        // UNIMPLEMENTED (0x4A445A): the magic-resistance feedback -- a CGameSprite::
+        // FeedBack floating number and, on a resist, the "resisted" TLK message
+        // (0x4B18) assembled through the CSound/CString helpers at 0x5864F0 /
+        // 0x7FC98F / 0x7FCED7 / 0x7FA83C.  Only the display is dropped.
+        if ((int)(BYTE)m_firstCall + (int)m_secondaryType + (int)nResistRoll < (int)nResist) {
+            m_durationType &= ~3u;
+            *pField70F9 |= 0x80;
+            return FALSE;
+        }
+    }
+
+    // No save-type bitmask set -> the effect always lands (0x4A4642).
+    if (m_saveMod == 0) {
+        return TRUE;
+    }
+
+    int nSaveDC = (int)m_special + 10 + (int)m_effectAmount;
+
+    // Fortitude save (0x4A4653): bitmask bit 0x4.
+    if ((m_saveMod & 4) != 0) {
+        nRoll = nFortRoll;
+        nSaveTotal = pSprite->m_derivedStats.m_nSaveVSFortitude + nFortRoll;
+        if (m_targetType == 0x19) {
+            if (pSprite->GetAIType().m_nRace == 4) {
+                nSaveTotal += 2;
+            }
+            if (pSprite->HasFeat(0x3b)) {
+                nSaveTotal += 2;
+            }
+            if (pSprite->HasFeat(0x32)) {
+                nSaveTotal += 4;
+            }
+        }
+        if ((*pField70F6 & 0x80) == 0) {
+            *pField70F6 |= 0x80;
+            bSaveRolled = TRUE;
+        }
+    }
+
+    // Reflex save (0x4A46E2): bitmask bit 0x8.  When the effect's source object is a
+    // trap ('A'), the target's trap-sense bonus is folded in.
+    if ((m_saveMod & 8) != 0) {
+        nRoll = nReflexRoll;
+        int nTrapSense = 0;
+        if (m_sourceID != CGameObjectArray::INVALID_INDEX) {
+            CGameObject* pSource;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceID,
+                    CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                if (pSource->GetObjectType() == 'A') {
+                    nTrapSense = g_pBaldurChitin->GetObjectGame()->GetRuleTables()
+                        .GetTrapSenseBonus(*pSprite->GetDerivedStats());
+                }
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceID,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
+        nSaveTotal = pSprite->m_derivedStats.m_nSaveVSReflex + nReflexRoll + nTrapSense;
+        if ((*pField70F7 & 0x80) == 0) {
+            *pField70F7 |= 0x80;
+            bSaveRolled = TRUE;
+        }
+    }
+
+    // Will save (0x4A47B4): bitmask bit 0x10.
+    if ((m_saveMod & 0x10) != 0) {
+        nRoll = nWillRoll;
+        nSaveTotal = pSprite->m_derivedStats.m_nSaveVSWill + nWillRoll;
+
+        // UNIMPLEMENTED (0x4A47EA): the SPWI420 rogue trap-sense aura.  When the
+        // source spell is SPWI420 and the target is good-aligned (EA <= GOODCUTOFF),
+        // the original scans the party for a nearby rogue (class 7, level >= 2,
+        // within squared distance 0x2711) carrying trap sense and adds +4 to the will
+        // save.  This is the same SPWI420 special-case CheckAdd's pre-branch
+        // (0x4A3B90) leaves unrecovered; dropped here for parity.
+
+        if (m_targetType == 0x18 && pSprite->GetAIType().m_nRace == 5) {
+            nSaveTotal += 2;
+        }
+        if (pSprite->m_typeAI.m_nRace == 2 && pSprite->m_typeAI.m_nSubRace == 1) {
+            nSaveTotal += 2;
+        }
+        if ((*pField70F8 & 0x80) == 0) {
+            *pField70F8 |= 0x80;
+            bSaveRolled = TRUE;
+        }
+    }
+
+    // Shared modifiers applied to whichever save was rolled (0x4A498B).
+    if ((pSprite->m_baseStats.field_2FB & 1) != 0) {
+        nSaveTotal += 5;
+    }
+    if (pSprite->GetAIType().m_nEnemyAlly != CAIObjectType::EA_PC) {
+        // Difficulty-based save adjustment for non-PCs (globals hold -4 / -2).
+        int nDifficulty = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x4456);
+        if (nDifficulty == 1) {
+            nSaveTotal += *reinterpret_cast<const int*>(0x0084EB04);
+        } else if (nDifficulty == 2) {
+            nSaveTotal += *reinterpret_cast<const int*>(0x0084EB08);
+        }
+    }
+    BYTE nRace = pSprite->GetAIType().m_nRace;
+    if ((nRace == 2 || nRace == 3) && field_48 == 4) {
+        nSaveTotal += 2;
+    }
+    if (nRace == 6 && field_48 == 5) {
+        nSaveTotal += 2;
+    }
+    if ((m_effectAmount2 & 2) == 0 && nRace == 4) {
+        nSaveTotal += 2;
+    }
+    if (pSprite->GetClassLevel(6) >= 3 && field_48 == 4) {
+        nSaveTotal += 2;
+    }
+    if (field_48 != 0) {
+        BYTE nSchool = g_pBaldurChitin->GetObjectGame()->GetRuleTables()
+            .MapCharacterSpecializationToSchool((WORD)pSprite->m_baseStats.m_specialization);
+        if ((DWORD)nSchool == (DWORD)field_48) {
+            nSaveTotal += 2;
+        }
+    }
+
+    // Resolve the save (0x4A4A5E): a natural 20 always saves; otherwise the total
+    // must reach the DC and not be a natural 1.
+    BOOL bSaveMade;
+    if (nRoll == 20) {
+        bSaveMade = TRUE;
+    } else if (nSaveTotal >= nSaveDC && nRoll != 1) {
+        bSaveMade = TRUE;
+    } else {
+        bSaveMade = FALSE;
+    }
+
+    if (bSaveRolled) {
+        // UNIMPLEMENTED (0x4A4A86): the save-result feedback -- FUN_00765830 shows
+        // the "saved / failed" floating text with the roll and margin, its name
+        // string built by FUN_005864F0.  Both helpers are unrecovered.
+    }
+
+    return bSaveMade ? FALSE : TRUE;
 }
 
 // 0x799E60
