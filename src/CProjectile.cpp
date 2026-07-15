@@ -752,6 +752,117 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    // The following leaf-less point-cast AOE spell-hit cases share case 0xFF's shape:
+    // a projectile type our switch lacked, so the missile fell to the default plain
+    // CProjectile (stub Fire()), silently dropping the caster's targetType-2 gameplay
+    // effects. Each reproduces its binary jump-table handler and delivers through the
+    // recovered IcewindCProjectileSpellHit strike chain (proven by case 0xFF).
+    //
+    // The sibling travelling-VFX carriers (Icelance 0xFB, Otiluke 0x10D, Vitriolic
+    // 0x13C -- IcewindCProjectileTravellingVFX) are deliberately NOT recovered here:
+    // routing an effect-carrying spell through that class crashes on arrival (its
+    // CProjectileTravelling delivery path is only partly recovered).  Left for a
+    // dedicated fix rather than shipping a crash -- missing beats wrong.
+
+    case 0xF0: {
+        // See Invisibility (SPWI203) / Invisibility Purge (SPPR309): base spell-hit
+        // carrier (0x525725, nType 0x12c). Seeds the strike filter from the caster's
+        // allegiance, then stamps slot 0's detonation cell (Area2X) + area sound
+        // (EFF_M99) + copy-from-back.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12c);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area2X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xFD: {
+        // Priest/innate area spell-hit carrier (0x525b26, nType 0x258): SPPR313,
+        // SPIN209 and siblings. Stamps slot 0's detonation cell (Area1X) + impact
+        // sound (EFF_P99) + copy-from-back.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x258);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x104: {
+        // Priest/innate area spell-hit carrier (0x525d03, nType 0x258): SPPR414,
+        // SPIN210. Twin of case 0xFD (Area1X / EFF_P99 / copy-from-back).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x258);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x13E: {
+        // Horrid Wilting (SPWI805): Necromancy area spell-hit carrier (0x5275b6,
+        // nType 0x12c). Twin of case 0xFF, differing only in nType and the resrefs:
+        // detonation cell ADHWilX + area sound ARE_M17 + copy-from-back.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12c);
+        pSpellHit->m_visual1.m_cellResRef.Set("ADHWilX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M17");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x151: {
+        // Holy Smite (SPIN203 innate / SPPR324 priest, strref 3925): radiant-burst
+        // area spell-hit carrier (0x527a18, nType 0xC8). Shared tail 0x527abe stamps
+        // emission slot 3's detonation cell (HSmiteA) with a transparent (0x40)
+        // visual, the fan-emission respawn/anim flags and 0x12C density, and the
+        // recurring strike clock (period 0x2710, interval 0xA) over a 0x2D-tick life.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual3.m_cellResRef.Set("HSmiteA");
+        pSpellHit->m_visual3.m_fx.SetTransparency(TRUE, 0x40);
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3DensityBase = 0x12C;
+        pSpellHit->m_strikePeriod = 0x2710;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x2D;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x152: {
+        // Unholy Blight (SPPR325, strref 4346): the evil twin of Holy Smite --
+        // identical shared-tail config (0x527a6c -> 0x527abe) but detonation cell
+        // UBlighA. nType 0xC8.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual3.m_cellResRef.Set("UBlighA");
+        pSpellHit->m_visual3.m_fx.SetTransparency(TRUE, 0x40);
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3DensityBase = 0x12C;
+        pSpellHit->m_strikePeriod = 0x2710;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x2D;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x175: {
+        // Control Undead (SPWI717) / Mass Dominate (SPWI911): Enchantment domination
+        // area spell-hit carrier (0x5286ef, nType 0xC8). Like case 0xFF: detonation
+        // cell EnchanX + area sound ARE_M21 + copy-from-back.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
     case 0x5F:
         // Stinking Cloud (SPWI213): the persistent-gas area spell-hit projectile.
         // Sibling of Fireball -- another bare IcewindCProjectileSpellHit leaf; all
