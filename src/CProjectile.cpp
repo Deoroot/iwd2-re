@@ -566,6 +566,104 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    // The single-target spell-projectile family: each of these builds the
+    // IcewindCProjectileTravellingVFX carrier directly (like case 0x18) and
+    // stamps its own animation cell / velocity / facing / sound, so the spell's
+    // effects ride the recovered travel -> OnArrival -> DeliverEffects path.
+    // Previously every one fell to `default: new CProjectile()` (empty Fire),
+    // silently dropping the payload.  Transcribed from the 0x528e7c jump-table
+    // handlers (blocks 0x525a55 / 0x525f00 / 0x525fec / 0x526492 / 0x526a35 /
+    // 0x527436 / 0x527c77); the ctor 0x578110 already seeds height + colours.
+    case 0xFB: {
+        // ICELANT -- Ice Lance's travelling ice bolt ("IcelanT" BAM): the
+        // copy-from-back tinted travelling VFX, 16 directional sequences,
+        // launch sound TRA_19.
+        IcewindCProjectileTravellingVFX* pLance = new IcewindCProjectileTravellingVFX(CResRef("IcelanT"));
+        pLance->m_visualEffect.SetCopyFromBack(TRUE);
+        pLance->m_dirCount = 0x10;
+        pLance->m_fireSoundRef = CResRef("TRA_19");
+        pProjectile = pLance;
+        break;
+    }
+
+    case 0x10C: {
+        // DISINTT -- Disintegrate's travelling ray ("DisintT" BAM): the
+        // copy-from-back tinted travelling VFX, 16 directional sequences,
+        // launch sound TRA_20.
+        IcewindCProjectileTravellingVFX* pRay = new IcewindCProjectileTravellingVFX(CResRef("DisintT"));
+        pRay->m_visualEffect.SetCopyFromBack(TRUE);
+        pRay->m_dirCount = 0x10;
+        pRay->m_fireSoundRef = CResRef("TRA_20");
+        pProjectile = pRay;
+        break;
+    }
+
+    case 0x10F: {
+        // OFSPHET -- Otiluke's Freezing Sphere travelling orb ("OFSpheT" BAM):
+        // the copy-from-back tinted travelling VFX, 16 directional sequences.
+        // The block writes no sound or height override (ctor defaults stand).
+        IcewindCProjectileTravellingVFX* pSphere = new IcewindCProjectileTravellingVFX(CResRef("OFSpheT"));
+        pSphere->m_visualEffect.SetCopyFromBack(TRUE);
+        pSphere->m_dirCount = 0x10;
+        pProjectile = pSphere;
+        break;
+    }
+
+    case 0x11D: {
+        // MSPORET -- the Myconid "Sprays Spores" travelling VFX ("MSporeT" BAM).
+        // The factory first shows the "Sprays Spores" combat-feedback line
+        // (strref 4386) over the caster, then builds the plain travelling VFX
+        // with no member overrides (constructor defaults only).
+        IcewindMisc::DisplayFeedbackMessage(static_cast<CGameSprite*>(pCaster), 4386, 0);
+        pProjectile = new IcewindCProjectileTravellingVFX(CResRef("MSporeT"));
+        break;
+    }
+
+    case 0x12A: {
+        // ALANCET -- Alicorn Lance (SPPR216.SPL, strref 21421): the silver
+        // alicorn-horn lance's travelling VFX ("ALanceT" BAM), a copy-from-back
+        // tinted bolt flying at double the ctor's base velocity, 16 rotation
+        // frames, north-facing fold off, launch sound TRA_57.
+        IcewindCProjectileTravellingVFX* pLance = new IcewindCProjectileTravellingVFX(CResRef("ALanceT"));
+        pLance->m_velocity = static_cast<SHORT>(pLance->m_velocity * 2);
+        pLance->m_visualEffect.SetCopyFromBack(TRUE);
+        pLance->m_dirCount = 0x10;
+        pLance->m_bMirrorNorth = 0;
+        pLance->m_fireSoundRef = CResRef("TRA_57");
+        pProjectile = pLance;
+        break;
+    }
+
+    case 0x13C: {
+        // VSPHERT -- Vitriolic Sphere's travelling acid orb ("VSpherT" BAM):
+        // the copy-from-back tinted travelling VFX flying at double the ctor's
+        // base velocity, single (non-directional) sequence, height + area
+        // height-offset on, launch sound TRA_60, no arrival sound.
+        IcewindCProjectileTravellingVFX* pSphere = new IcewindCProjectileTravellingVFX(CResRef("VSpherT"));
+        pSphere->m_visualEffect.SetCopyFromBack(TRUE);
+        pSphere->m_velocity = static_cast<SHORT>(pSphere->m_velocity << 1);
+        pSphere->m_dirCount = 1;
+        pSphere->m_bHasHeight = TRUE;
+        pSphere->m_useHeightOffset = 1;
+        pSphere->m_fireSoundRef = CResRef("TRA_60");
+        pSphere->m_arrivalSoundRef = CResRef("");
+        pProjectile = pSphere;
+        break;
+    }
+
+    case 0x158: {
+        // MFMISST -- the travelling fire-missile VFX ("MFMissT" BAM): a
+        // copy-from-back tinted bolt flying at double the ctor's base velocity,
+        // height + area height-offset on.  No sound or facing overrides.
+        IcewindCProjectileTravellingVFX* pMissile = new IcewindCProjectileTravellingVFX(CResRef("MFMissT"));
+        pMissile->m_velocity = static_cast<SHORT>(pMissile->m_velocity * 2);
+        pMissile->m_visualEffect.SetCopyFromBack(TRUE);
+        pMissile->m_bHasHeight = TRUE;
+        pMissile->m_useHeightOffset = 1;
+        pProjectile = pMissile;
+        break;
+    }
+
     case 0x25: {
         // MAGICMIS -- the plain single Magic Missile bolt (SPMAGMIS BAM, no
         // sparkle trail), launch whoosh TRA_02 like the launcher's
