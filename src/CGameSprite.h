@@ -375,6 +375,17 @@ public:
     static const WORD FEEDBACK_LEAVEFAILED_LEVELUP;
     static const WORD FEEDBACK_LEAVEFAILED_STORE;
 
+    // 0x84C7B8 -- same address CGameSprite::LeaveArea's LEAVEAREA_GATHER_RANGE
+    // reads (a party-gather squared-distance radius reused across both "everyone
+    // must be near X before we travel" handlers). Named separately here because
+    // this PR is independent of the LeaveArea recovery.
+    static const LONG TRAVEL_TRIGGER_GATHER_RANGE;
+    // 0x8D71DC -- tighter "already essentially on top of the trigger" squared
+    // radius: CPathSearch::GRID_SQUARE_SIZEX^2 * 16 (confirmed via the static
+    // initializer at 0x4CCA60, mirrors CGameTrigger::RANGE_EDGE's formula shape
+    // at the adjacent address 0x8D71C4, but without the TRAVEL_WIDTH term).
+    static const LONG TRAVEL_TRIGGER_RANGE_CLOSE;
+
     static const CPoint PORTRAIT_ICON_SIZE;
     static const CResRef SPIN110;
     static const CResRef SPIN111;
@@ -709,6 +720,7 @@ public:
     SHORT JumpToArea(CString areaName, const CPoint& dest, SHORT facingDirection, SHORT delay);
     void MoveOntoArea(CGameArea* pArea, const CPoint& dest, SHORT facingDirection);
     SHORT LeaveArea();
+    SHORT ArriveAtTravelTrigger();
 
     void SetResRef(const CResRef& resRef);
     void SetHiding(int a1);
