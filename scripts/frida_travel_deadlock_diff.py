@@ -36,6 +36,19 @@ Hooks (function ENTRIES, absolute addresses, ImageBase 0x400000, no ASLR):
   Thread slots: THREAD_ASYNCH=0 (AI thread), THREAD_1=1 (Render), THREAD_
   SEARCH=2.
 
+  GetDeny/ReleaseDeny are call-depth/sequence paired (added to resolve the
+  prior run's "same-millisecond ReleaseDeny -- is it really the SAME lock?"
+  ambiguity): every GetDeny that actually SUCCEEDS (rc==0) for this object
+  gets a monotonic seq# pushed onto a per-threadNum stack; every ReleaseDeny
+  pops the most recent matching-threadNum entry (LIFO) and reports exactly
+  which seq# it closes (pairedSeq) plus the resulting nesting depth
+  (depthAfter). GetDeny_enter/_exit also report `depth`, the nesting level
+  at that moment. This makes it possible to tell, unambiguously, whether the
+  outer per-tick GetDeny(threadNum=0) genuinely stays open across the whole
+  ArriveAtTravelTrigger/LoadArea/WaitForEngine chain, or whether the
+  same-millisecond ReleaseDeny seen previously was really an unrelated,
+  earlier lock on this object.
+
 Run:  python scripts/frida_travel_deadlock_diff.py
 Then: load the SAME save used on our build ("000000004-Staircase Transition"
       under MPSave, via the in-game Load Game screen -- the original exe has
@@ -66,6 +79,7 @@ const GetShare = ptr(0x599A50);
 const GetDeny = ptr(0x599C70);
 const ReleaseDeny = ptr(0x59A010);
 const SpriteAIUpdate = ptr(0x6F5FF0);
+const LoadArea = ptr(0x5A24D0);
 const CHITIN = ptr(0x8CF6D8);
 
 function u32(p){ try { return p.readU32() >>> 0; } catch(e){ return null; } }
@@ -146,17 +160,34 @@ safeAttach(GetShare, {
   }
 }, 'GetShare');
 
+// Call-depth-aware GetDeny/ReleaseDeny pairing (UPDATE 13's open ambiguity):
+// a monotonic seq is assigned to each GetDeny call that actually SUCCEEDS
+// (rc==0) for this object, pushed onto a per-threadNum-aware stack. Each
+// ReleaseDeny pops the most recent matching-threadNum entry (LIFO -- correct
+// for a normal nested call stack) and reports exactly which GetDeny seq# it
+// closes, plus the resulting nesting depth. This removes the "same
+// millisecond, but is it really the SAME lock?" ambiguity that a bare
+// timestamp comparison couldn't resolve.
+let denySeq = 0;
+let denyStack = []; // {seq, threadNum}
+
 safeAttach(GetDeny, {
   onEnter(args) {
     const index = args[0].toInt32();
     if (targetId === null || index !== targetId) return;
     this.isTarget = true;
     this.threadNum = args[1].toInt32() & 0xff;
-    send({tag: 'GetDeny_enter', t: Date.now(), index: index, threadNum: this.threadNum});
+    send({tag: 'GetDeny_enter', t: Date.now(), index: index, threadNum: this.threadNum, depth: denyStack.length});
   },
   onLeave(retval) {
     if (!this.isTarget) return;
-    send({tag: 'GetDeny_exit', t: Date.now(), threadNum: this.threadNum, rc: retval.toInt32() & 0xff});
+    const rc = retval.toInt32() & 0xff;
+    let seq = null;
+    if (rc === 0) {
+      seq = ++denySeq;
+      denyStack.push({seq: seq, threadNum: this.threadNum});
+    }
+    send({tag: 'GetDeny_exit', t: Date.now(), threadNum: this.threadNum, rc: rc, seq: seq, depth: denyStack.length});
   }
 }, 'GetDeny');
 
@@ -164,7 +195,16 @@ safeAttach(ReleaseDeny, {
   onEnter(args) {
     const index = args[0].toInt32();
     if (targetId === null || index !== targetId) return;
-    send({tag: 'ReleaseDeny', t: Date.now(), index: index, threadNum: args[1].toInt32() & 0xff});
+    const threadNum = args[1].toInt32() & 0xff;
+    let pairedSeq = null;
+    for (let i = denyStack.length - 1; i >= 0; i--) {
+      if (denyStack[i].threadNum === threadNum) {
+        pairedSeq = denyStack[i].seq;
+        denyStack.splice(i, 1);
+        break;
+      }
+    }
+    send({tag: 'ReleaseDeny', t: Date.now(), index: index, threadNum: threadNum, pairedSeq: pairedSeq, depthAfter: denyStack.length});
   }
 }, 'ReleaseDeny');
 
@@ -184,6 +224,21 @@ safeAttach(SpriteAIUpdate, {
   onLeave(retval) {
   }
 }, 'CGameSprite::AIUpdate');
+
+// CInfGame::LoadArea itself -- settles definitively whether it's called
+// from WITHIN the seq-paired GetDeny/ReleaseDeny bracket already captured
+// around ArriveAtTravelTrigger's last logged entry, or from some later,
+// uncaptured re-entry into ArriveAtTravelTrigger. Not filtered by id (LoadArea
+// is a CInfGame method, not a CGameSprite one -- this+0x5C isn't meaningful
+// here); only fires once per real area transition so noise isn't a concern.
+safeAttach(LoadArea, {
+  onEnter(args) {
+    send({tag: 'LoadArea_enter', t: Date.now(), ret: this.returnAddress.toString()});
+  },
+  onLeave(retval) {
+    send({tag: 'LoadArea_exit', t: Date.now()});
+  }
+}, 'CInfGame::LoadArea');
 """
 
 
@@ -230,13 +285,18 @@ def main() -> int:
         elif tag == "GetShare_exit":
             print(f"[+{rel(p['t'])}ms] [GetShare exit] threadNum={p['threadNum']} rc={p['rc']}")
         elif tag == "GetDeny_enter":
-            print(f"[+{rel(p['t'])}ms] [GetDeny enter] index={p['index']} threadNum={p['threadNum']}")
+            print(f"[+{rel(p['t'])}ms] [GetDeny enter] index={p['index']} threadNum={p['threadNum']} depth={p['depth']}")
         elif tag == "GetDeny_exit":
-            print(f"[+{rel(p['t'])}ms] [GetDeny exit] threadNum={p['threadNum']} rc={p['rc']}")
+            print(f"[+{rel(p['t'])}ms] [GetDeny exit] threadNum={p['threadNum']} rc={p['rc']} seq={p['seq']} depth={p['depth']}")
         elif tag == "ReleaseDeny":
-            print(f"[+{rel(p['t'])}ms] [ReleaseDeny] index={p['index']} threadNum={p['threadNum']}")
+            print(f"[+{rel(p['t'])}ms] [ReleaseDeny] index={p['index']} threadNum={p['threadNum']} "
+                  f"pairedSeq={p['pairedSeq']} depthAfter={p['depthAfter']}")
         elif tag == "SpriteAIUpdate_enter":
             print(f"[+{rel(p['t'])}ms] [CGameSprite::AIUpdate enter] id={p['id']} CALLER_RET={p['ret']}  <== who calls this?")
+        elif tag == "LoadArea_enter":
+            print(f"[+{rel(p['t'])}ms] [CInfGame::LoadArea ENTER] CALLER_RET={p['ret']}  <== should be 0x74de7c (ArriveAtTravelTrigger)")
+        elif tag == "LoadArea_exit":
+            print(f"[+{rel(p['t'])}ms] [CInfGame::LoadArea EXIT]")
 
     script = session.create_script(JS)
     script.on("message", on_message)

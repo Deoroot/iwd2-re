@@ -22722,6 +22722,18 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
 
         pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 
+        // Drop my own outer per-tick Deny lock before the (potentially slow)
+        // message-handshake/LoadArea sequence below -- confirmed via disasm
+        // at 0x74DA10-0x74DA21, unconditional regardless of bFlag4. Without
+        // this, CGameArea::AIUpdate's caller keeps holding this sprite's
+        // GetDeny for the whole LoadArea/WaitForEngine wait, which deadlocks
+        // against CGameArea::Render's GetShare(this, THREAD_1) walk. The
+        // placement loop below already calls GetDeny(nCharacterId, ...) for
+        // every formation member including this one, so the lock is
+        // naturally reacquired once LoadArea returns -- no new mechanism
+        // needed here.
+        pGame->GetObjectArray()->ReleaseDeny(m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
         // HACK: the multiplayer "resource-suggest-load" handshake (GetBaldurMessage
         // -based GetDeny-retry loop) that the binary runs here when bFlag4 is set is
         // not reproduced -- single-player-only path below. Not confirmed safe to
@@ -22736,6 +22748,23 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
         // rather than letting LoadArea() do it, so pass that through explicitly.
         BYTE nTravelImage = static_cast<BYTE>(rand() % 5);
         CGameArea* pNewArea = pGame->LoadArea(areaResRef, nTravelImage, bFlag4, FALSE);
+
+        // Reacquire my own outer per-tick Deny lock, dropped earlier (see
+        // the ReleaseDeny(m_id, ...) above) for the LoadArea/message-
+        // handshake wait -- confirmed via disasm at 0x74DE8B-0x74DEA1,
+        // unconditional and happening before the pNewArea==NULL check
+        // below. GetDeny is a counting lock per calling thread (its own
+        // recovered body only checks OTHER threads' share counts), so the
+        // placement loop's own Get/ReleaseDeny(m_id, ...) for this sprite's
+        // own iteration nests safely on top of this and nets out correctly
+        // against the outer AIUpdate wrapper's final ReleaseDeny.
+        CGameObject* pSelfObj = NULL;
+        BYTE rcSelf = pGame->GetObjectArray()->GetDeny(m_id, CGameObjectArray::THREAD_ASYNCH, &pSelfObj, INFINITE);
+        if (rcSelf != CGameObjectArray::SUCCESS) {
+            UTIL_ASSERT(FALSE);
+            return ACTION_ERROR;
+        }
+
         if (pNewArea == NULL) {
             UTIL_ASSERT(FALSE);
             return ACTION_ERROR;
