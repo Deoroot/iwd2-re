@@ -18798,22 +18798,30 @@ SHORT CGameSprite::ExecuteAction()
         return actionReturn;
     }
 
-    // 0x7295D5 (ExecuteAction jumptable case 0x28). LEAVEAREA(91): TODO --
-    // still unrecovered on this branch (a separate, independent PR).
+    // LEAVEAREA(91): TODO -- still unrecovered on this branch (a separate,
+    // independent PR).
 
-    // 0x7295E5 (ExecuteAction jumptable case 0x29). Action 92 (no ACTION.IDS
-    // name found locally): travel-trigger arrival, resolves the CGameTrigger
-    // and performs the area jump. See ArriveAtTravelTrigger()'s own comment
-    // for the still-unresolved "who queues this" invocation-chain gap.
-    if (m_curAction.m_actionID == 92) {
-        return ArriveAtTravelTrigger();
+    // Action 21 (no ACTION.IDS name found locally): LeaveParty -- remove this
+    // sprite from the active party. NOTE: this dispatch is via ExecuteAction's
+    // byte-table-then-jumptable mechanism (0x72B520 -> 0x72B348), which is a
+    // genuine indirect jump table, NOT laid out in actionID order -- confirmed
+    // by a live Frida trace against the original exe (this.returnAddress on a
+    // 0x751CD0 hook), not by address arithmetic (an earlier attempt to infer
+    // this from sequential case-body addresses was wrong and got 92/93 backwards).
+    if (m_curAction.m_actionID == 21) {
+        return LeaveParty();
     }
 
-    // 0x7295F5 (ExecuteAction jumptable case 0x2A). Action 93 (no ACTION.IDS
-    // name found locally): LeaveParty -- remove this sprite from the active
-    // party.
+    // Action 93 (no ACTION.IDS name found locally): travel-trigger arrival --
+    // resolves the CGameTrigger named by this action's own m_specificID and
+    // performs the area jump. Confirmed correct by the same live trace: a real
+    // staircase click on the original exe shows CGameTrigger::OnActionButton's
+    // existing, untouched m_triggerType==2 marker (CAIAction(93, ...)) landing
+    // exactly here, repeatedly, until the whole party is gathered -- so
+    // CGameTrigger.cpp was never buggy; this session's earlier suspicion of it
+    // was based on the same wrong jumptable-order assumption above.
     if (m_curAction.m_actionID == 93) {
-        return LeaveParty();
+        return ArriveAtTravelTrigger();
     }
 
     return CGameAIBase::ExecuteAction();
@@ -19635,11 +19643,18 @@ SHORT CGameSprite::ReturnToSavedLocation()
 
 // 0x751CD0
 //
-// ACTION.IDS action 93 (dispatched via CGameSprite::ExecuteAction's jumptable,
-// table[93]=0x2A at 0x72B520): the real, engine-wide "remove this sprite from the
-// active party" handler -- not related to CGameTrigger travel arrival despite the
-// action-93 numeric collision documented on CGameSprite::ArriveAtTravelTrigger
-// (0x74CDB0).
+// Action 21 (no ACTION.IDS name found locally): the engine-wide "remove this
+// sprite from the active party" handler. Dispatched via CGameSprite::
+// ExecuteAction's byte-table-then-jumptable mechanism -- `movsx eax,[esi+0x476]
+// (m_curAction.m_actionID); mov dl,[eax+0x72B520]; jmp [edx*4+0x72B348]` at
+// address 0x728FEC -- a genuine indirect jump table, NOT laid out in actionID
+// order. Read both tables directly from the binary (not inferred): byte
+// table[21]=0x11, and the real jump table's entry 0x11 (at address 0x72B38C)
+// is 0x7295F5, whose `call 0x751CD0` matches this address exactly. An earlier
+// same-session guess (action 93, derived from a WRONG assumption that
+// jumptable case bodies are laid out sequentially by index) was disproven by
+// a live Frida trace on CGameSprite::ArriveAtTravelTrigger showing action 93
+// lands there instead.
 SHORT CGameSprite::LeaveParty()
 {
     LONG mySlot = -1; /*#guess: raw offset-derived local, matches decompile's local_88*/
@@ -22422,32 +22437,38 @@ void CGameSprite::MoveOntoArea(CGameArea* pArea, const CPoint& dest, SHORT facin
 
 // 0x74CDB0
 //
-// Action 92 (no ACTION.IDS name found locally -- data/near_infinity_export/IDS/
+// Action 93 (no ACTION.IDS name found locally -- data/near_infinity_export/IDS/
 // ACTION.IDS isn't present on this machine, and refs/iesdp + refs/gemrb have no
-// hit either). Dispatched from CGameSprite::ExecuteAction's jumptable (the byte
-// table at 0x72B520 maps table[92] to jumptable index 0x29, confirmed by reading
-// its raw bytes). Resolves the CGameTrigger this action's own m_curAction.m_specificID
-// names (real offset +0x52C, confirmed via `mov ecx, [edi+0x52c]` at 0x74CDDC --
-// NOT field_54C, which sits further into the embedded CAIAction), waits for every
+// hit either). Dispatched from CGameSprite::ExecuteAction via a genuine indirect
+// jump table (`movsx eax,[esi+0x476]; mov dl,[eax+0x72B520]; jmp [edx*4+0x72B348]`
+// at 0x728FEC) that is NOT laid out in actionID order -- confirmed live against
+// the original exe with a Frida hook reading `this.returnAddress` on entry to
+// this function during a real staircase click: the call consistently comes
+// from address 0x7295E5 (`call 0x74CDB0`), which is jumptable index 0x2A,
+// exactly where byte-table[93] points. An earlier pass this session assumed jumptable
+// case bodies were laid out sequentially by index (so table[92]=0x29 was taken
+// to mean "the case body right after LeaveArea's") and wired this to action 92
+// instead -- that assumption was wrong; action 92 actually dispatches to a
+// different, unrecovered function at 0x729D4E, and CGameSprite::LeaveParty
+// (0x751CD0) is action 21, not 93 (see its own comment). CGameTrigger::
+// OnActionButton's m_triggerType==2 branch, which queues action 93 for the whole
+// group with specificID=0 via CAIAction(93, travelType, 0, 0, 0), was NEVER
+// buggy -- it was already correct before this session; the "bug" investigated
+// at length here was an artifact of this session's own wrong dispatch-table
+// assumption, not a real defect in existing code. (One live-observed detail
+// worth another look someday: the trace showed `specificId=3342387`, the
+// trigger's own m_id, on `m_curAction` at the moment ArriveAtTravelTrigger ran
+// -- consistent with `m_specificID` carrying the trigger id as this function
+// expects, though CGameTrigger.cpp's own source passes literal `0` for that
+// argument; not fully reconciled, but doesn't change that 93/here is correct.)
+//
+// Resolves the CGameTrigger this action's own m_curAction.m_specificID names
+// (real offset +0x52C, confirmed via `mov ecx, [edi+0x52c]` at 0x74CDDC -- NOT
+// field_54C, which sits further into the embedded CAIAction), waits for every
 // group member to be gathered near it and tagged (CGameSprite::m_triggerId ==
 // m_curAction.m_specificID -- m_triggerId is set by CAIGroup::SetGroupTriggerId,
-// called from CGameTrigger::OnActionButton's m_triggerType==2 branch when the
-// trigger was clicked), then performs the actual area jump via the trigger's own
-// m_newArea/m_newEntryPoint.
-//
-// NOTE: nothing in currently-recovered source actually queues action 92.
-// CGameTrigger::OnActionButton's travel-region branch queues action 93 for the
-// whole group instead (CAIAction(93, ...), confirmed against the binary -- DAT_
-// 0084782E really is 93), and the binary's own jumptable (table[93]=0x2A,
-// confirmed the same way) dispatches action 93 to CGameSprite::LeaveParty -- a
-// real, unrelated "remove this sprite from the party" handler, not trigger glue.
-// So clicking a travel trigger, taken at face value, would run LeaveParty on the
-// whole group rather than ever reaching this function. That is almost certainly a
-// pre-existing bug in CGameTrigger.cpp (most likely: the marker action should
-// carry actionID 92 with m_specificID = the trigger's own m_id, matching exactly
-// what this function reads) rather than anything wrong with this recovery, but
-// confirming/fixing it needs its own careful disasm or Frida pass -- not guessed
-// here. Left as a known gap; see [[iwd2-re-fun-0074cdb0-findings]] memory.
+// called from CGameTrigger::OnActionButton when the trigger was clicked), then
+// performs the actual area jump via the trigger's own m_newArea/m_newEntryPoint.
 SHORT CGameSprite::ArriveAtTravelTrigger()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
@@ -22478,6 +22499,7 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
     }
 
     CString areaResRef(pTrigger->m_newArea); /*#guess: FUN_007fcd57 == CString(RESREF) ctor, cf. the CString(m_areaEdgeSouth)-style idiom already used elsewhere for the same RESREF type*/
+    CString entryPointName(pTrigger->m_newEntryPoint);
     BOOL bFlag4 = (pTrigger->m_dwFlags & 4) != 0; /*#guess: exact meaning of this m_dwFlags bit unconfirmed*/
     CPoint ptTrigger = pTrigger->GetPos();
 
@@ -22698,7 +22720,7 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
                before proceeding; not confirmed. Missing better than wrong. */
         }
 
-        pGame->GetObjectArray()->ReleaseDeny(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 
         // HACK: the multiplayer "resource-suggest-load" handshake (GetBaldurMessage
         // -based GetDeny-retry loop) that the binary runs here when bFlag4 is set is
@@ -22716,14 +22738,12 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
         CGameArea* pNewArea = pGame->LoadArea(areaResRef, nTravelImage, bFlag4, FALSE);
         if (pNewArea == NULL) {
             UTIL_ASSERT(FALSE);
-            pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
             return ACTION_ERROR;
         }
 
         CPoint ptEntry;
         SHORT nEntryFacing;
-        if (!pNewArea->GetEntryPoint(CString(pTrigger->m_newEntryPoint), ptEntry, nEntryFacing)) {
-            pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        if (!pNewArea->GetEntryPoint(entryPointName, ptEntry, nEntryFacing)) {
             return ACTION_ERROR;
         }
 
@@ -22771,7 +22791,7 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
                     pMember->m_animation.GetPersonalSpace(),
                     nEntryFacing);
 
-                CPoint offset = (offsets != NULL) ? offsets[nPortrait] : CPoint(0, 0);
+                CPoint offset = (offsets != NULL && nPortrait < nFormationCount) ? offsets[nPortrait] : CPoint(0, 0);
                 CPoint ptFinal(
                     CPathSearch::GRID_SQUARE_SIZEX * (ptCandidate.x + offset.x) + CPathSearch::GRID_SQUARE_SIZEX / 2,
                     CPathSearch::GRID_SQUARE_SIZEY * (ptCandidate.y + offset.y) + CPathSearch::GRID_SQUARE_SIZEY / 2);
@@ -22866,8 +22886,6 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
         if (bFlag4) {
             pGame->SaveGame(1, 0, 0);
         }
-
-        pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 
         g_pChitin->cSoundMixer.UpdateSoundList();
         g_pBaldurChitin->m_pEngineWorld->m_weather.OnAreaChange(TRUE);
