@@ -486,6 +486,13 @@ const WORD CGameSprite::FEEDBACK_LEAVEFAILED_LEVELUP = 92;
 // 0x85C158
 const WORD CGameSprite::FEEDBACK_LEAVEFAILED_STORE = 93;
 
+// 0x84C7B8
+const LONG CGameSprite::TRAVEL_TRIGGER_GATHER_RANGE = 0x10000;
+
+// 0x8D71DC
+const LONG CGameSprite::TRAVEL_TRIGGER_RANGE_CLOSE =
+    CPathSearch::GRID_SQUARE_SIZEX * CPathSearch::GRID_SQUARE_SIZEX * 16;
+
 // 0x8F94B8
 const CPoint CGameSprite::PORTRAIT_ICON_SIZE(10, 10);
 
@@ -18791,6 +18798,24 @@ SHORT CGameSprite::ExecuteAction()
         return actionReturn;
     }
 
+    // 0x7295D5 (ExecuteAction jumptable case 0x28). LEAVEAREA(91): TODO --
+    // still unrecovered on this branch (a separate, independent PR).
+
+    // 0x7295E5 (ExecuteAction jumptable case 0x29). Action 92 (no ACTION.IDS
+    // name found locally): travel-trigger arrival, resolves the CGameTrigger
+    // and performs the area jump. See ArriveAtTravelTrigger()'s own comment
+    // for the still-unresolved "who queues this" invocation-chain gap.
+    if (m_curAction.m_actionID == 92) {
+        return ArriveAtTravelTrigger();
+    }
+
+    // 0x7295F5 (ExecuteAction jumptable case 0x2A). Action 93 (no ACTION.IDS
+    // name found locally): LeaveParty -- remove this sprite from the active
+    // party.
+    if (m_curAction.m_actionID == 93) {
+        return LeaveParty();
+    }
+
     return CGameAIBase::ExecuteAction();
 }
 
@@ -19609,9 +19634,106 @@ SHORT CGameSprite::ReturnToSavedLocation()
 }
 
 // 0x751CD0
+//
+// ACTION.IDS action 93 (dispatched via CGameSprite::ExecuteAction's jumptable,
+// table[93]=0x2A at 0x72B520): the real, engine-wide "remove this sprite from the
+// active party" handler -- not related to CGameTrigger travel arrival despite the
+// action-93 numeric collision documented on CGameSprite::ArriveAtTravelTrigger
+// (0x74CDB0).
 SHORT CGameSprite::LeaveParty()
 {
-    // TODO: Incomplete.
+    LONG mySlot = -1; /*#guess: raw offset-derived local, matches decompile's local_88*/
+
+    // Host-only: find which of the (up to 6) active character slots is me.
+    if (g_pChitin->cNetwork.m_bIsHost) {
+        for (SHORT i = 0; i < 6; i++) {
+            if (g_pBaldurChitin->GetObjectGame()->GetCharacterSlot(i) == m_id) {
+                mySlot = i;
+            }
+        }
+    }
+
+    // Not helplessly incapacitated (unnamed SHORT field at +0x5C0, /*#guess*/
+    // -- decompile shows `param_1[0x170] < 1`, likely an animation/state
+    // counter rather than m_nHitPoints) and not stone/frozen-dead: play a
+    // short "step aside and face the protagonist" departure flourish before
+    // actually leaving.
+    if (*reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(this) + 0x5C0) < 1 /*#guess*/
+        && (m_derivedStats.m_generalState & (STATE_STONE_DEATH | STATE_FROZEN_DEATH)) == 0) {
+        LONG nProtagonistId = g_pBaldurChitin->GetObjectGame()->GetProtagonist();
+        CGameObject* pProtagonistObj = NULL;
+        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nProtagonistId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pProtagonistObj,
+            INFINITE);
+        if (rc == CGameObjectArray::SUCCESS) {
+            CGameSprite* pProtagonist = static_cast<CGameSprite*>(pProtagonistObj);
+            if (m_pArea == NULL) {
+                // HACK: 0x751DAE/0x751DB6 (FUN_007fcc88 + FUN_00754ee0) --
+                // likely a "no area, can't face them" text/no-op fallback, not
+                // reproduced. Missing better than wrong.
+            } else {
+                CPoint& protPos = pProtagonist->GetPos();
+                CPoint gridPos(protPos.x / CPathSearch::GRID_SQUARE_SIZEX, protPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+                CPoint ptNear;
+                m_pArea->m_search.FindNearbyPassablePoint(&ptNear,
+                    gridPos.x,
+                    gridPos.y,
+                    GetTerrainTable(),
+                    m_animation.GetPersonalSpace(),
+                    0);
+                CPoint ptDeparture(
+                    CPathSearch::GRID_SQUARE_SIZEX * ptNear.x + CPathSearch::GRID_SQUARE_SIZEX / 2,
+                    CPathSearch::GRID_SQUARE_SIZEY * ptNear.y + CPathSearch::GRID_SQUARE_SIZEY / 2);
+                SetTarget(ptDeparture, FALSE);
+                SetSequence(CGAMESPRITE_SEQ_READY);
+                SetFacing(GetDirection(pProtagonist->GetPos()));
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nProtagonistId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+    }
+
+    BOOL overflow = FALSE;
+    if (g_pBaldurChitin->GetObjectGame()->RemoveCharacterFromParty(m_id, overflow)) {
+        // HACK: 0x751FD8-0x752017 -- the binary sends a CMessage (a
+        // CMessageHandler::AddMessage carrying a small vtable-only object at
+        // &PTR_FUN_0084c3c4) and decrements a byte counter at m_pArea+0x1ED
+        // here; not reproduced, exact message type/field unconfirmed.
+    } else if (g_pBaldurChitin->GetObjectGame()->RemoveCharacterFromAllies(m_id)) {
+        // Removed from the allies list -- nothing further.
+    } else if (g_pBaldurChitin->GetObjectGame()->RemoveCharacterFromFamiliars(m_id)) {
+        // Removed from the familiars list -- nothing further.
+    } else {
+        // HACK: 0x751F1E-0x751F9A -- the binary walks CInfGame's own linked
+        // creature list (CInfGame+0x384C) looking for a matching node and, if
+        // found, calls the unresolved FUN_007fb3e3 on it. This "I wasn't in
+        // any of the three known lists" fallback path is not reproduced.
+        // Missing better than wrong.
+    }
+
+    if (mySlot != -1 && m_pArea != NULL) {
+        // HACK: 0x751FB0-0x752610 -- the departing character's own AI
+        // takeover (FUN_007fc95b to detach the message-driven control,
+        // CAIScript::CAIScript + CAITrigger::CAITrigger/operator= x5 to give
+        // the now-independent NPC its own General/Race/Class/Default/Combat
+        // scripts, CMultiplayerSettings::SetCharacterControlledByPlayer/
+        // SignalCharacterStatus/SetCharacterReady for the MP handoff,
+        // CInfGame::AddCharacterToParty to pull in a replacement from the
+        // waiting queue, and the trailing per-item CItem/CInfGame::
+        // AddDisposableItem/CGameSprite::Unequip drop-on-the-ground sweep --
+        // is not reproduced. This is a large, mostly self-contained
+        // sub-recovery (comparable in size to this function itself);
+        // deliberately left unimplemented rather than guessed. See
+        // scripts/reagent_assemble_context.py --address 0x751cd0 for the full
+        // decompile if picking this back up.
+    }
+
+    if (m_pArea != NULL && m_pArea->m_nCharacters == 0) {
+        g_pBaldurChitin->GetObjectGame()->SelectCharacter(g_pBaldurChitin->GetObjectGame()->GetProtagonist(), FALSE);
+        g_pBaldurChitin->GetObjectGame()->SelectToolbar();
+    }
 
     return ACTION_DONE;
 }
@@ -22296,6 +22418,472 @@ SHORT CGameSprite::JumpToArea(CString areaName, const CPoint& dest, SHORT facing
 void CGameSprite::MoveOntoArea(CGameArea* pArea, const CPoint& dest, SHORT facingDirection)
 {
     // TODO: Incomplete.
+}
+
+// 0x74CDB0
+//
+// Action 92 (no ACTION.IDS name found locally -- data/near_infinity_export/IDS/
+// ACTION.IDS isn't present on this machine, and refs/iesdp + refs/gemrb have no
+// hit either). Dispatched from CGameSprite::ExecuteAction's jumptable (the byte
+// table at 0x72B520 maps table[92] to jumptable index 0x29, confirmed by reading
+// its raw bytes). Resolves the CGameTrigger this action's own m_curAction.m_specificID
+// names (real offset +0x52C, confirmed via `mov ecx, [edi+0x52c]` at 0x74CDDC --
+// NOT field_54C, which sits further into the embedded CAIAction), waits for every
+// group member to be gathered near it and tagged (CGameSprite::m_triggerId ==
+// m_curAction.m_specificID -- m_triggerId is set by CAIGroup::SetGroupTriggerId,
+// called from CGameTrigger::OnActionButton's m_triggerType==2 branch when the
+// trigger was clicked), then performs the actual area jump via the trigger's own
+// m_newArea/m_newEntryPoint.
+//
+// NOTE: nothing in currently-recovered source actually queues action 92.
+// CGameTrigger::OnActionButton's travel-region branch queues action 93 for the
+// whole group instead (CAIAction(93, ...), confirmed against the binary -- DAT_
+// 0084782E really is 93), and the binary's own jumptable (table[93]=0x2A,
+// confirmed the same way) dispatches action 93 to CGameSprite::LeaveParty -- a
+// real, unrelated "remove this sprite from the party" handler, not trigger glue.
+// So clicking a travel trigger, taken at face value, would run LeaveParty on the
+// whole group rather than ever reaching this function. That is almost certainly a
+// pre-existing bug in CGameTrigger.cpp (most likely: the marker action should
+// carry actionID 92 with m_specificID = the trigger's own m_id, matching exactly
+// what this function reads) rather than anything wrong with this recovery, but
+// confirming/fixing it needs its own careful disasm or Frida pass -- not guessed
+// here. Left as a known gap; see [[iwd2-re-fun-0074cdb0-findings]] memory.
+SHORT CGameSprite::ArriveAtTravelTrigger()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    SHORT nMyPortrait = pGame->GetCharacterPortraitNum(m_id);
+    LONG nTriggerId = m_curAction.m_specificID;
+    BOOL bRanSummonCleanup = FALSE;
+    BOOL bCloseEnough = TRUE;
+
+    if (m_pArea != NULL) {
+        m_pArea->SaveMusicPosition();
+    }
+
+    CGameObject* pTriggerObj = NULL;
+    BYTE rc = pGame->GetObjectArray()->GetShare(nTriggerId,
+        CGameObjectArray::THREAD_ASYNCH,
+        &pTriggerObj,
+        INFINITE);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return ACTION_ERROR;
+    }
+    CGameTrigger* pTrigger = static_cast<CGameTrigger*>(pTriggerObj);
+
+    // m_dwFlags bit 0x100: another member is already driving this same
+    // trigger's arrival through to completion -- re-entrancy guard.
+    if ((pTrigger->m_dwFlags & 0x100) != 0) {
+        pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return ACTION_ERROR;
+    }
+
+    CString areaResRef(pTrigger->m_newArea); /*#guess: FUN_007fcd57 == CString(RESREF) ctor, cf. the CString(m_areaEdgeSouth)-style idiom already used elsewhere for the same RESREF type*/
+    BOOL bFlag4 = (pTrigger->m_dwFlags & 4) != 0; /*#guess: exact meaning of this m_dwFlags bit unconfirmed*/
+    CPoint ptTrigger = pTrigger->GetPos();
+
+    // Not a viewed character and not a tracked familiar either -- nothing to
+    // gather for this sprite.
+    if (nMyPortrait == -1 && pGame->m_familiars.Find(reinterpret_cast<int*>(m_id)) == NULL) {
+        pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return ACTION_DONE;
+    }
+
+    if (!Orderable(FALSE)) {
+        pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return ACTION_DONE;
+    }
+
+    // Am I myself close enough to the trigger?
+    {
+        LONG dy = ptTrigger.y - m_pos.y;
+        LONG dx = ptTrigger.x - m_pos.x;
+        if ((dy * dy * 16) / 9 + dx * dx > TRAVEL_TRIGGER_GATHER_RANGE) {
+            pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return ACTION_DONE;
+        }
+    }
+
+    if (!bFlag4 || pGame->m_singlePlayerPermissions.GetSinglePermission(CGamePermission::AREA_TRANSITION)) {
+        if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL) {
+            if (bFlag4) {
+                if (pGame->m_multiplayerSettings.CountViewedCharacters() > 0) {
+                    FeedBack(0x3b, 0, 0, 0, -1, 0, 0);
+                    pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    return ACTION_DONE;
+                }
+                if (pGame->m_multiplayerSettings.CountReadyPlayers() > 0) {
+                    FeedBack(0x5c, 0, 0, 0, -1, 0, 0);
+                    pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    return ACTION_DONE;
+                }
+            }
+            if (pGame->CountNPCs() > 0) {
+                FeedBack(0x5d, 0, 0, 0, -1, 0, 0);
+                pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                return ACTION_DONE;
+            }
+        }
+
+        // Whether *I* am within the tighter RANGE_CLOSE radius of the trigger
+        // (vs. the broader TRAVEL_TRIGGER_GATHER_RANGE checked above).
+        {
+            LONG dy = ptTrigger.y - m_pos.y;
+            LONG dx = ptTrigger.x - m_pos.x;
+            if ((dy * dy * 16) / 9 + dx * dx > TRAVEL_TRIGGER_RANGE_CLOSE) {
+                bCloseEnough = FALSE;
+            }
+        }
+
+        // Sweep the rest of the viewed party: everyone must already be tagged
+        // for this exact trigger (m_triggerId == m_curAction.m_specificID) and
+        // within TRAVEL_TRIGGER_GATHER_RANGE of it. A member who isn't ready
+        // yet re-queues the group's marker action (93) on itself and bails.
+        for (SHORT nPortrait = 0; nPortrait < pGame->m_nCharacters; nPortrait++) {
+            if (nPortrait == nMyPortrait) {
+                continue;
+            }
+
+            LONG nCharacterId = (nPortrait < pGame->m_nCharacters)
+                ? pGame->m_characterPortraits[nPortrait]
+                : CGameObjectArray::INVALID_INDEX;
+
+            CGameObject* pObject = NULL;
+            BYTE rcMember = pGame->GetObjectArray()->GetShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+            if (rcMember != CGameObjectArray::SUCCESS) {
+                UTIL_ASSERT(FALSE);
+                pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                return ACTION_ERROR;
+            }
+            CGameSprite* pMember = static_cast<CGameSprite*>(pObject);
+
+            if (!bFlag4 && pMember->m_triggerId != nTriggerId) {
+                pGame->GetObjectArray()->ReleaseShare(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                continue;
+            }
+
+            if (pMember->m_bInvisible != 0) {
+                pGame->GetObjectArray()->ReleaseShare(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                STR_RES strRes;
+                g_pBaldurChitin->GetTlkTable().Fetch(0x4511, strRes);
+                g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""), strRes.szText, -1, FALSE);
+                return ACTION_ERROR;
+            }
+
+            CPoint& memberPos = pMember->GetPos();
+            if ((pMember->m_derivedStats.m_generalState & 0x800) == 0) {
+                BOOL bOwnedHere = !Orderable(FALSE)
+                    && (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                        || g_pChitin->cNetwork.m_idLocalPlayer == pMember->m_remotePlayerID);
+                LONG dy = ptTrigger.y - memberPos.y;
+                LONG dx = ptTrigger.x - memberPos.x;
+                LONG distSq = (dy * dy * 16) / 9 + dx * dx;
+
+                if (bOwnedHere || pMember->m_pArea != m_pArea || distSq > TRAVEL_TRIGGER_GATHER_RANGE) {
+                    pGame->GetObjectArray()->ReleaseShare(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+                    if (!pGame->m_soundNeedParty.cSound.IsSoundPlaying()) {
+                        pGame->m_soundNeedParty.cSound.SetChannel(0, 0);
+                        pGame->m_soundNeedParty.cSound.Play(FALSE);
+                        g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
+                            pGame->m_soundNeedParty.szText,
+                            -1,
+                            FALSE);
+                    }
+
+                    CAIObjectType travelType(0, 0, 0, 0, 0, 0, 0, 0, m_id, 0, 0);
+                    AddAction(CAIAction(93 /* DAT_0084782E, same marker CGameTrigger queues */,
+                        travelType,
+                        0,
+                        0,
+                        0));
+                    return ACTION_ERROR;
+                }
+
+                if (!bCloseEnough && distSq <= TRAVEL_TRIGGER_RANGE_CLOSE) {
+                    bCloseEnough = TRUE;
+                }
+
+                // 0x5872C0: Icewind586B70's per-summon dismiss/message cleanup
+                // for this now-gathered member -- unrecovered (same callee
+                // CGameSprite::LeaveArea's gather sweep leaves unrecovered),
+                // not reproduced. Missing better than wrong.
+                bRanSummonCleanup = TRUE;
+            }
+
+            pGame->GetObjectArray()->ReleaseShare(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+
+        // Second sweep: the familiars list (CInfGame::m_familiars stores
+        // character ids as ints disguised as pointers), same gather check.
+        for (POSITION pos = pGame->m_familiars.GetHeadPosition(); pos != NULL;) {
+            LONG nFamiliarId = reinterpret_cast<LONG>(pGame->m_familiars.GetNext(pos));
+            if (nFamiliarId == m_id) {
+                continue;
+            }
+
+            CGameObject* pObject = NULL;
+            BYTE rcMember = pGame->GetObjectArray()->GetShare(nFamiliarId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+            if (rcMember != CGameObjectArray::SUCCESS) {
+                UTIL_ASSERT(FALSE);
+                pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                return ACTION_ERROR;
+            }
+            CGameSprite* pFamiliar = static_cast<CGameSprite*>(pObject);
+
+            if (!bFlag4 && pFamiliar->m_triggerId != nTriggerId) {
+                pGame->GetObjectArray()->ReleaseShare(nFamiliarId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                continue;
+            }
+
+            CPoint& familiarPos = pFamiliar->GetPos();
+            if ((pFamiliar->m_derivedStats.m_generalState & 0x800) == 0) {
+                BOOL bOwnedHere = !Orderable(FALSE)
+                    && (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                        || g_pChitin->cNetwork.m_idLocalPlayer == pFamiliar->m_remotePlayerID);
+                LONG dy = ptTrigger.y - familiarPos.y;
+                LONG dx = ptTrigger.x - familiarPos.x;
+                LONG distSq = (dy * dy * 16) / 9 + dx * dx;
+
+                if (bOwnedHere || pFamiliar->m_pArea != m_pArea || distSq > TRAVEL_TRIGGER_GATHER_RANGE) {
+                    pGame->GetObjectArray()->ReleaseShare(nFamiliarId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+                    if (!pGame->m_soundNeedParty.cSound.IsSoundPlaying()) {
+                        pGame->m_soundNeedParty.cSound.SetChannel(0, 0);
+                        pGame->m_soundNeedParty.cSound.Play(FALSE);
+                        g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
+                            pGame->m_soundNeedParty.szText,
+                            -1,
+                            FALSE);
+                    }
+
+                    CAIObjectType travelType(0, 0, 0, 0, 0, 0, 0, 0, m_id, 0, 0);
+                    AddAction(CAIAction(93, travelType, 0, 0, 0));
+                    return ACTION_ERROR;
+                }
+
+                if (!bCloseEnough && distSq <= TRAVEL_TRIGGER_RANGE_CLOSE) {
+                    bCloseEnough = TRUE;
+                }
+            }
+
+            pGame->GetObjectArray()->ReleaseShare(nFamiliarId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+
+        if (!bCloseEnough) {
+            if (bFlag4 && !pGame->m_soundNeedParty.cSound.IsSoundPlaying()) {
+                pGame->m_soundNeedParty.cSound.SetChannel(0, 0);
+                pGame->m_soundNeedParty.cSound.Play(FALSE);
+                g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""),
+                    pGame->m_soundNeedParty.szText,
+                    -1,
+                    FALSE);
+            }
+            pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return ACTION_ERROR;
+        }
+
+        // Whole party gathered and close enough -- commit to the transition.
+        if (nMyPortrait == -1 && !bRanSummonCleanup) {
+            /* HACK: FUN_007fb41a's own gate on the familiar-only path is not
+               reproduced here -- the binary re-checks something on `this`
+               before proceeding; not confirmed. Missing better than wrong. */
+        }
+
+        pGame->GetObjectArray()->ReleaseDeny(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+        // HACK: the multiplayer "resource-suggest-load" handshake (GetBaldurMessage
+        // -based GetDeny-retry loop) that the binary runs here when bFlag4 is set is
+        // not reproduced -- single-player-only path below. Not confirmed safe to
+        // guess at for a networked game. Replaces 0x74DA26-0x74DB16.
+
+        g_pBaldurChitin->GetBaldurMessage()->CleanLeaveAreaNameRequest();
+
+        g_pChitin->cSoundMixer.UpdateSoundList();
+        g_pBaldurChitin->m_pEngineWorld->m_weather.OnAreaChange(TRUE);
+
+        // The binary picks its own random travel-screen image here (rand() % 5)
+        // rather than letting LoadArea() do it, so pass that through explicitly.
+        BYTE nTravelImage = static_cast<BYTE>(rand() % 5);
+        CGameArea* pNewArea = pGame->LoadArea(areaResRef, nTravelImage, bFlag4, FALSE);
+        if (pNewArea == NULL) {
+            UTIL_ASSERT(FALSE);
+            pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return ACTION_ERROR;
+        }
+
+        CPoint ptEntry;
+        SHORT nEntryFacing;
+        if (!pNewArea->GetEntryPoint(CString(pTrigger->m_newEntryPoint), ptEntry, nEntryFacing)) {
+            pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return ACTION_ERROR;
+        }
+
+        CPoint gridEntry(ptEntry.x / CPathSearch::GRID_SQUARE_SIZEX, ptEntry.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+        CPoint* offsets = pGame->GetGroup()->GetFormationOffsets(6, 0, FALSE);
+        if (offsets == NULL) {
+            UTIL_ASSERT(FALSE);
+        }
+
+        SHORT nFormationCount = static_cast<SHORT>(pGame->GetGroup()->GetCount());
+        if (nFormationCount < 1) {
+            nFormationCount = 6;
+        }
+
+        for (SHORT nPortrait = 0; nPortrait < nFormationCount; nPortrait++) {
+            LONG nCharacterId = (nPortrait < pGame->m_nCharacters)
+                ? pGame->m_characterPortraits[nPortrait]
+                : CGameObjectArray::INVALID_INDEX;
+            if (nCharacterId == CGameObjectArray::INVALID_INDEX) {
+                continue;
+            }
+
+            CGameObject* pObject = NULL;
+            BYTE rcMember = pGame->GetObjectArray()->GetDeny(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+            if (rcMember != CGameObjectArray::SUCCESS) {
+                UTIL_ASSERT(FALSE);
+                continue;
+            }
+            CGameSprite* pMember = static_cast<CGameSprite*>(pObject);
+
+            if (bFlag4 || pMember->m_triggerId == nTriggerId) {
+                pMember->m_triggerId = CGameObjectArray::INVALID_INDEX;
+                pMember->m_bDeleteOnRemove = FALSE;
+                pMember->RemoveFromArea();
+
+                CPoint ptCandidate;
+                pNewArea->m_search.FindNearbyPassablePoint(&ptCandidate,
+                    gridEntry.x,
+                    gridEntry.y,
+                    pMember->GetTerrainTable(),
+                    pMember->m_animation.GetPersonalSpace(),
+                    nEntryFacing);
+
+                CPoint offset = (offsets != NULL) ? offsets[nPortrait] : CPoint(0, 0);
+                CPoint ptFinal(
+                    CPathSearch::GRID_SQUARE_SIZEX * (ptCandidate.x + offset.x) + CPathSearch::GRID_SQUARE_SIZEX / 2,
+                    CPathSearch::GRID_SQUARE_SIZEY * (ptCandidate.y + offset.y) + CPathSearch::GRID_SQUARE_SIZEY / 2);
+
+                // Line-of-sight fallback: if the offset landing spot can't see
+                // the entry point, try the un-offset entry cell, then the raw
+                // offset with no snap -- whichever passes CheckLOS first wins;
+                // if none do, the last candidate is used as-is (matches the
+                // binary's own three-candidate fallback shape).
+                if (!pNewArea->CheckLOS(ptEntry, ptFinal, pMember->GetTerrainTable(), FALSE)) {
+                    ptFinal.x = CPathSearch::GRID_SQUARE_SIZEX * ptCandidate.x + CPathSearch::GRID_SQUARE_SIZEX / 2;
+                    ptFinal.y = CPathSearch::GRID_SQUARE_SIZEY * ptCandidate.y + CPathSearch::GRID_SQUARE_SIZEY / 2;
+                    if (!pNewArea->CheckLOS(ptEntry, ptFinal, pMember->GetTerrainTable(), FALSE)) {
+                        ptFinal.x = CPathSearch::GRID_SQUARE_SIZEX * offset.x + CPathSearch::GRID_SQUARE_SIZEX / 2;
+                        ptFinal.y = CPathSearch::GRID_SQUARE_SIZEY * offset.y + CPathSearch::GRID_SQUARE_SIZEY / 2;
+                    }
+                }
+
+                pMember->AddToArea(pNewArea, ptFinal, 0, LIST_FRONT);
+                pMember->SetFacing(nEntryFacing);
+
+                if (pGame->GetGroup()->GetGroupLeader() == nCharacterId) {
+                    // Centre the view on the leader's new position, matching
+                    // the CGameArea.cpp GetInfinity()->SetViewPosition idiom
+                    // (view-rect half-width/height subtracted from the target).
+                    CRect viewRect = g_pBaldurChitin->m_pEngineWorld->GetNewViewSize();
+                    pNewArea->GetInfinity()->SetViewPosition(
+                        ptFinal.x - (viewRect.right - viewRect.left) / 2,
+                        ptFinal.y - (viewRect.bottom - viewRect.top) / 2,
+                        TRUE);
+                    pGame->SelectCharacter(nCharacterId, FALSE);
+                } else {
+                    pGame->UnselectAll();
+                    pGame->SelectCharacter(nCharacterId, FALSE);
+                }
+
+                if (pMember->m_bGlobal || nMyPortrait != -1) {
+                    CMessage* pMsg = new CMessageSpriteUpdate(pMember, nCharacterId, nCharacterId);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                }
+            }
+
+            pGame->GetObjectArray()->ReleaseDeny(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+
+        delete[] offsets;
+
+        // Same placement pass, second sweep: familiars.
+        for (POSITION pos = pGame->m_familiars.GetHeadPosition(); pos != NULL;) {
+            LONG nFamiliarId = reinterpret_cast<LONG>(pGame->m_familiars.GetNext(pos));
+
+            CGameObject* pObject = NULL;
+            BYTE rcMember = pGame->GetObjectArray()->GetDeny(nFamiliarId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+            if (rcMember != CGameObjectArray::SUCCESS) {
+                UTIL_ASSERT(FALSE);
+                continue;
+            }
+            CGameSprite* pFamiliar = static_cast<CGameSprite*>(pObject);
+
+            if (bFlag4 || pFamiliar->m_triggerId == nTriggerId) {
+                pFamiliar->m_triggerId = CGameObjectArray::INVALID_INDEX;
+                pFamiliar->m_bDeleteOnRemove = FALSE;
+                pFamiliar->RemoveFromArea();
+
+                CPoint ptCandidate;
+                pNewArea->m_search.FindNearbyPassablePoint(&ptCandidate,
+                    gridEntry.x,
+                    gridEntry.y,
+                    pFamiliar->GetTerrainTable(),
+                    pFamiliar->m_animation.GetPersonalSpace(),
+                    nEntryFacing);
+
+                CPoint ptFinal(
+                    CPathSearch::GRID_SQUARE_SIZEX * ptCandidate.x + CPathSearch::GRID_SQUARE_SIZEX / 2,
+                    CPathSearch::GRID_SQUARE_SIZEY * ptCandidate.y + CPathSearch::GRID_SQUARE_SIZEY / 2);
+
+                pFamiliar->AddToArea(pNewArea, ptFinal, 0, LIST_FRONT);
+                pFamiliar->SetFacing(nEntryFacing);
+
+                pGame->UnselectAll();
+
+                CMessage* pMsg = new CMessageSpriteUpdate(pFamiliar, nFamiliarId, nFamiliarId);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            }
+
+            pGame->GetObjectArray()->ReleaseDeny(nFamiliarId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+
+        if (bFlag4) {
+            pGame->SaveGame(1, 0, 0);
+        }
+
+        pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+        g_pChitin->cSoundMixer.UpdateSoundList();
+        g_pBaldurChitin->m_pEngineWorld->m_weather.OnAreaChange(TRUE);
+        pGame->SelectToolbar();
+
+        return ACTION_DONE;
+    }
+
+    if (!pGame->m_soundNeedParty.cSound.IsSoundPlaying()) {
+        pGame->m_soundNeedParty.cSound.SetChannel(0, 0);
+        pGame->m_soundNeedParty.cSound.Play(FALSE);
+        g_pBaldurChitin->m_pEngineWorld->DisplayText(CString(""), pGame->m_soundNeedParty.szText, -1, FALSE);
+    }
+
+    pGame->GetObjectArray()->ReleaseShare(nTriggerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    return ACTION_DONE;
 }
 
 // 0x42FDC0
