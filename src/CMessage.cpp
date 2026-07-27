@@ -5221,7 +5221,13 @@ CMessageHandler::CMessageHandler()
 // 0x4F7490
 CMessageHandler::~CMessageHandler()
 {
-    // TODO: Incomplete.
+    while (!m_messageList.IsEmpty()) {
+        CMessage* pMsg = m_messageList.RemoveHead();
+        if (pMsg != NULL) {
+            delete pMsg;
+        }
+    }
+    m_messageList.RemoveAll();
 }
 
 static BOOL Iwd2MessageRunRecovered(BYTE subType);
