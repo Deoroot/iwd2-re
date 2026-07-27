@@ -11163,7 +11163,30 @@ BOOL CGameSprite::CanAct()
 // 0x720310
 void CGameSprite::CheckSequence(BYTE& sequence)
 {
-    // TODO: Incomplete.
+    if (sequence != CGAMESPRITE_SEQ_SHOOT && sequence != CGAMESPRITE_SEQ_ATTACK) {
+        return;
+    }
+
+    CItem* pWeapon = m_equipment.m_items[m_equipment.m_selectedWeapon];
+    if (pWeapon != NULL) {
+        pWeapon->Demand();
+        const ITEM_ABILITY* ability = pWeapon->GetAbility(m_equipment.m_selectedWeaponAbility);
+        if (ability == NULL) {
+            sequence = CGAMESPRITE_SEQ_HEAD_TURN;
+            if (m_pArea != NULL && m_pArea->m_bAreaLoaded
+                && g_pBaldurChitin->GetObjectGame()->IsAreaSaveAllowed(m_pArea)) {
+                sequence = CGAMESPRITE_SEQ_READY;
+            }
+        }
+        pWeapon->Release();
+        return;
+    }
+
+    sequence = CGAMESPRITE_SEQ_HEAD_TURN;
+    if (m_pArea != NULL && m_pArea->m_bAreaLoaded
+        && g_pBaldurChitin->GetObjectGame()->IsAreaSaveAllowed(m_pArea)) {
+        sequence = CGAMESPRITE_SEQ_READY;
+    }
 }
 
 // 0x7204C0

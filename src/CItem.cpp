@@ -336,7 +336,14 @@ CItem::CItem(CResRef id, WORD useCount1, WORD useCount2, WORD useCount3, int wea
 // 0x4E8180
 CItem::~CItem()
 {
-    // TODO: Incomplete.
+    // m_useSound[2] and the CResHelper<CResItem, 1005> base are cleaned up
+    // automatically (real typed members) -- the binary's own dtor body just
+    // resets these five fields before that automatic teardown runs.
+    m_nAbilities = 0;
+    m_useCount1 = 1;
+    m_useCount2 = 1;
+    m_useCount3 = 1;
+    m_wear = 0;
 }
 
 // 0x4E8240

@@ -4517,7 +4517,51 @@ CStore* CInfGame::GetServerStore(const CResRef& store)
 // 0x5AF160
 void CInfGame::SwapCharacters(DWORD pos1, DWORD pos2)
 {
-    // TODO: Incomplete.
+    UTIL_ASSERT(pos1 < static_cast<DWORD>(m_nCharacters) && pos2 < static_cast<DWORD>(m_nCharacters));
+
+    LONG idAtPos1 = m_characterPortraits[pos2];
+    LONG idAtPos2 = m_characterPortraits[pos1];
+    m_characterPortraits[pos1] = idAtPos1;
+    m_characterPortraits[pos2] = idAtPos2;
+
+    CGameObject* pObject;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+            idAtPos2, CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+    pSprite->FetchCommonStrings();
+    UpdatePortraitToolTip(pos2, pSprite->GetNameRef());
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(
+        idAtPos2, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+            idAtPos1, CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    pSprite = static_cast<CGameSprite*>(pObject);
+    pSprite->FetchCommonStrings();
+    UpdatePortraitToolTip(pos1, pSprite->GetNameRef());
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(
+        idAtPos1, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    // Portrait slot 0 is the protagonist -- broadcast a click sound if either
+    // swapped slot is the leader, matching the binary's single shared block
+    // (both branches build the identical CMessagePlaySound(2, ...)).
+    if (pos1 == 0 || pos2 == 0) {
+        CMessage* message = new CMessagePlaySound(
+            2, TRUE, FALSE, m_characterPortraits[0], m_characterPortraits[0]);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    }
 }
 
 // 0x5AF360
@@ -8257,7 +8301,15 @@ DWORD CInfGame::GetScrollSpeed()
 // 0x5BDBA0
 void CInfGame::SetReputation(int a1, BOOL a2)
 {
-    // TODO: Incomplete.
+    m_nReputation = static_cast<SHORT>(a1 * REPUTATION_MULTIPLIER);
+    if (a2) {
+        if (m_nReputation > 200) {
+            m_nReputation = 200;
+        }
+        if (m_nReputation < REPUTATION_MULTIPLIER) {
+            m_nReputation = REPUTATION_MULTIPLIER;
+        }
+    }
 }
 
 // 0x5BDC00
