@@ -155,6 +155,7 @@
 
 class CBlood;
 class CGameButtonList;
+class CGameEffectDamage;
 class CMemINIValue;
 class CPersistantEffect;
 class CProjectile;
@@ -658,6 +659,11 @@ public:
     SHORT GetTHAC0Bonuses(CItem* curWeapon, const ITEM_ABILITY* curAttack);
     SHORT GetTHAC0();
     SHORT GetProficiencyTHAC0Bonus(CItem* curWeapon);
+    SHORT GetTouchAC();
+    SHORT GetTwoWeaponPenalty(BOOL bMainHand);
+    BOOL RollToHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, BOOL* pCritical, int nSpecialAttackFlag, BYTE nAttackNumber);
+    CGameEffectDamage* ResolveDamage(CItem* pWeapon, CItem* pOffHandWeapon, INT nAbility, BOOL bCritical, CAIObjectType targetTypeAI,
+        SHORT nAttackerDirection, SHORT nTargetDirection, CGameSprite* pTarget, BOOL bIsMainHandAttack);
     SHORT MoveToPoint();
     SHORT MoveToObject(CGameObject* pTarget);
     SHORT UseContainer();
@@ -674,6 +680,7 @@ public:
     SHORT LeaveParty();
     void MoveGlobal(const CString& sArea, const CPoint& ptStart);
     SHORT GroupAttack(CGameSprite* pTarget);
+    SHORT Attack(CGameSprite* pTarget);
     SHORT Enemy();
     SHORT SetDialog();
     void SelectWeaponAbility(unsigned char a1, unsigned char a2, unsigned char a3, unsigned char a4);
@@ -1026,7 +1033,7 @@ public:
     /* 56E4 */ CResRef field_56E4;
     /* 56EC */ BOOLEAN m_sequenceTest;
     /* 56EE */ STR_RES m_speech[64];
-    /* 70EE */ int field_70EE;
+    /* 70EE */ int m_lastAttackFeedbackTargetId;
     /* 70F2 */ int m_bInvisible;
     /* 70F6 */ BYTE field_70F6;
     /* 70F7 */ BYTE field_70F7;

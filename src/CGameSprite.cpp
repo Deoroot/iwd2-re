@@ -1131,7 +1131,7 @@ CGameSprite::CGameSprite(BYTE* pCreature, LONG creatureSize, int a3, WORD type, 
 
         LoadSoundEntries();
 
-        field_70EE = 0;
+        m_lastAttackFeedbackTargetId = 0;
         m_bOnSearchMap = 0;
         m_bInvisible = 0;
         if (IcewindMisc::IsLarge(this) == TRUE) {
@@ -15542,6 +15542,233 @@ void CGameSprite::sub_737990()
     // That engine/multiplayer tail is deferred with the rest of the MP path.
 }
 
+// 0x737EF0
+//
+// The ATTACK/ATTACKNOSOUND gate: bails out if the target is unreachable
+// (gone, flying off the front vert list, invisible, sanctuaried, or dead --
+// the dead case retargets the nearest same-type enemy instead), resolves the
+// current weapon's ability, flags ammo-out/charge-depleted weapons, then
+// checks range/LOS -- an in-range hit should finalize via 0x739B60 (the real
+// to-hit/damage resolver, its own ~1160-line arc, not yet recovered) or
+// otherwise move closer first. See the HACK comment below for the exact gap.
+SHORT CGameSprite::Attack(CGameSprite* pTarget)
+{
+    if (pTarget == NULL) {
+        AutoPause(0x20);
+        CAITrigger targetUnreachable(CAITRIGGER_TARGETUNREACHABLE, m_curAction.m_acteeID, 0);
+        CMessage* message = new CMessageSetTrigger(targetUnreachable, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        return ACTION_ERROR;
+    }
+
+    if (pTarget->m_baseStats.m_bStealthMode == TRUE) {
+        return ACTION_ERROR;
+    }
+
+    UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
+
+    if (pTarget->m_animation.m_animation->GetListType() == CGameObject::LIST_FLIGHT /*#guess*/) {
+        AutoPause(0x20);
+        CAITrigger targetUnreachable(CAITRIGGER_TARGETUNREACHABLE, m_curAction.m_acteeID, 0);
+        CMessage* message = new CMessageSetTrigger(targetUnreachable, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        return ACTION_ERROR;
+    }
+
+    if (!pTarget->CheckInvisibility(GetCanSeeInvisible())
+        || pTarget->m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]) {
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        if (pGame->m_lastTarget == pTarget->m_id) {
+            pGame->m_lastClick = CPoint(-1, -1);
+            pGame->m_lastTarget = CGameObjectArray::INVALID_INDEX;
+        }
+
+        AutoPause(0x20);
+        CAITrigger targetUnreachable(CAITRIGGER_TARGETUNREACHABLE, m_curAction.m_acteeID, 0);
+        CMessage* message = new CMessageSetTrigger(targetUnreachable, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        return ACTION_ERROR;
+    }
+
+    if (pTarget->m_id == m_id) {
+        return ACTION_DONE;
+    }
+
+    if (pTarget->m_derivedStats.m_generalState & STATE_DEAD) {
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        if (pGame->m_lastTarget == pTarget->m_id) {
+            pGame->m_lastClick = CPoint(-1, -1);
+            pGame->m_lastTarget = CGameObjectArray::INVALID_INDEX;
+        }
+
+        AutoPause(0x20);
+
+        // The target died mid-swing: look for the nearest replacement of the
+        // same enemy type and queue a fresh attack against it. Either way
+        // this action instance is finished.
+        CAIObjectType enemyType(m_typeAI.GetEnemyOf());
+        LONG nearestId = m_pArea->GetNearest(
+            m_id,
+            enemyType,
+            GetVisualRange(),
+            m_terrainTable,
+            /*checkLOS=*/TRUE,
+            GetCanSeeInvisible(),
+            /*ignoreSleeping=*/FALSE,
+            /*nNearest=*/0,
+            /*ignoreDead=*/FALSE);
+
+        if (nearestId != CGameObjectArray::INVALID_INDEX) {
+            AddAction(CAIAction(CAIAction::ATTACK, enemyType, nearestId, 0, 0));
+        }
+        return ACTION_DONE;
+    }
+
+    if ((pTarget->m_derivedStats.m_generalState & STATE_SLEEPING)
+        && m_equipment.m_selectedWeapon == CGameSpriteEquipment::SLOT_FIST
+        && !GetAIType().IsClassValid(6 /*#guess -- unnamed class id in this codebase*/)) {
+        AutoPause(0x20);
+        return ACTION_DONE;
+    }
+
+    CItem* pWeapon = m_equipment.m_items[m_equipment.m_selectedWeapon];
+    if (pWeapon == NULL) {
+        EquipMostDamagingMelee();
+        AutoPause(1);
+        return ACTION_ERROR;
+    }
+
+    pWeapon->Demand();
+    ITEM_ABILITY* ability = pWeapon->GetAbility(m_equipment.m_selectedWeaponAbility);
+    if (ability == NULL) {
+        AutoPause(1);
+        pWeapon->Release();
+        return ACTION_ERROR;
+    }
+
+    if (ability->type == 4) {
+        // Launcher with no usable ammo.
+        CString itemResRef;
+        // NOTE: built but never consumed below -- same dead-debug-print
+        // idiom already documented in CGameArea::GetNearest.
+        pWeapon->cResRef.CopyToString(itemResRef);
+        CAITrigger trigger(CAITrigger::UNUSABLE, 0);
+        CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        pWeapon->Release();
+        return ACTION_ERROR;
+    }
+
+    if (ability->usageFlags == 3
+        && pWeapon->GetUsageCount(m_equipment.m_selectedWeaponAbility) == 0
+        && ability->maxUsageCount != 0) {
+        // Charge-limited item that's used up.
+        CString itemResRef;
+        pWeapon->cResRef.CopyToString(itemResRef);
+        CAITrigger trigger(CAITrigger::UNUSABLE, 0);
+        CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        pWeapon->Release();
+        return ACTION_ERROR;
+    }
+
+    if (m_lastAttackFeedbackTargetId != pTarget->m_id) {
+        FeedBack(FEEDBACK_ATTACKS, 0, 0, 0, pTarget->GetNameRef(), 0, 0);
+        m_lastAttackFeedbackTargetId = pTarget->m_id;
+    }
+
+    CString animBodyResRef;
+    UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
+    pTarget->m_animation.m_animation->GetAnimationResRef(animBodyResRef, CGameAnimationType::RANGE_BODY);
+
+    // DEFERRED: the binary skips the battle song for four generic/golem body
+    // resrefs ("MGEN"/"MKG1"/"MKG2"/"MKG3", compared via an unrecovered
+    // string-compare helper at 0x7E7A54) -- always play it here instead.
+    if (m_pArea != NULL) {
+        m_pArea->PlaySong(3, 0x101f4);
+    }
+
+    LONG distSquares;
+    CItem* pLauncher = NULL;
+    ITEM_ABILITY* launcherAbility = NULL;
+
+    if (ability->type == 2) {
+        CPoint targetPos = pTarget->GetPos();
+        CPoint selfPos = GetPos();
+        LONG dx = (selfPos.x / CPathSearch::GRID_SQUARE_SIZEX) - (targetPos.x / CPathSearch::GRID_SQUARE_SIZEX);
+        LONG dy = (selfPos.y / CPathSearch::GRID_SQUARE_SIZEY) - (targetPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+        distSquares = dx * dx + dy * dy;
+
+        SHORT launcherSlot;
+        pLauncher = GetLauncher(ability, launcherSlot);
+        if (pLauncher != NULL) {
+            pLauncher->Demand();
+            launcherAbility = pLauncher->GetAbility(0);
+        }
+    } else {
+        CPoint targetCell(pTarget->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+            pTarget->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
+        CPoint selfCell(GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+            GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
+        distSquares = CAIUtil::CountSquares(selfCell, targetCell);
+        distSquares = distSquares * distSquares;
+    }
+
+    SHORT effectiveRange = ability->range + 1;
+    if (launcherAbility != NULL) {
+        SHORT launcherRange = launcherAbility->range + 1;
+        if (launcherRange > effectiveRange) {
+            effectiveRange = launcherRange;
+        }
+    }
+
+    if (pLauncher != NULL) {
+        pLauncher->Release();
+    }
+    pWeapon->Release();
+
+    BYTE combinedSpace = m_animation.GetPersonalSpace();
+    combinedSpace = static_cast<BYTE>(
+        ((pTarget->m_animation.GetPersonalSpace() - 1) >> 1) + ((combinedSpace - 1) >> 1) - 1);
+
+    LONG totalRange = combinedSpace + effectiveRange;
+    BOOL bInRange = distSquares <= totalRange * totalRange
+        || (field_7118 != 0 && distSquares <= (totalRange + 1) * (totalRange + 1));
+
+    if (bInRange) {
+        BOOL bLOS = m_pArea->CheckLOS(pTarget->GetPos(), GetPos(), m_terrainTable, pTarget->Orderable(FALSE));
+        if (bLOS) {
+            if (m_pPath != NULL) {
+                // DEFERRED: post the clear-search message (vtable 0x84C44C @
+                // binary 0x738B30, the same one CGameSprite::MoveToObject
+                // already defers) so a path in progress halts before the
+                // swing lands.
+            }
+
+            if (m_attackFrame == -2) {
+                m_attackFrame = -1;
+            }
+
+            // HACK: the actual to-hit/damage resolution (0x739B60, ~1160
+            // decompile lines, 51 callees -- projectile decode, THAC0/feat
+            // checks, the attack roll itself) is not yet recovered as its
+            // own sizable arc. Range/LOS gating above is faithful; an
+            // in-range attack is acknowledged here but does not yet land.
+            // Replaces 0x739B60.
+            m_lastActionID = CAIAction::ATTACK;
+            return ACTION_INTERRUPTABLE;
+        }
+    }
+
+    SHORT moveReturn = MoveToObject(pTarget);
+    if (moveReturn == ACTION_ERROR) {
+        return ACTION_DONE;
+    }
+
+    m_lastActionID = CAIAction::MOVETOOBJECT;
+    return moveReturn == ACTION_DONE ? ACTION_INTERRUPTABLE : moveReturn;
+}
+
 // 0x71CC90
 //
 // Refresh the weapon-proficiency contribution after the equipped weapons may
@@ -17754,6 +17981,30 @@ BOOLEAN CGameSprite::CheckWeaponUsability(BOOL a1)
     return TRUE;
 }
 
+// 0x723DB0
+//
+// Touch-AC variant used when an attack's ability ignores armor (abilityFlags
+// bit 0x10000): the same misc AC bonuses and attacks-per-round as GetAC(),
+// but zeroing the DEX bonus while blind (mirroring GetAC()'s own gate) rather
+// than folding in the armor/shield bonuses touch attacks bypass.
+SHORT CGameSprite::GetTouchAC()
+{
+    INT nDexBonus = GetMaxDexterityBonus(
+        g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nDEX));
+    if ((m_derivedStats.m_generalState & STATE_BLIND) != 0
+        && nDexBonus > 0
+        && !HasFeat(6 /*#guess*/)) {
+        nDexBonus = 0;
+    }
+
+    return static_cast<SHORT>(10
+        + m_derivedStats.m_nACDodgeBonus
+        + m_derivedStats.m_nACDeflectionBonus
+        + m_derivedStats.m_nACNaturalBonus
+        + GetAttacksPerRound()
+        + nDexBonus);
+}
+
 // 0x73B740
 SHORT CGameSprite::GetCriticalHitBonus()
 {
@@ -18014,6 +18265,801 @@ SHORT CGameSprite::GetTHAC0Bonuses(CItem* curWeapon, const ITEM_ABILITY* curAtta
     }
 
     return mod;
+}
+
+// 0x73D080
+//
+// Two-weapon-fighting THAC0 penalty: only applies when both the main and off
+// hand of the current weapon set are populated. Ambidexterity (feat 1) softens
+// the main-hand penalty; Two-Weapon Style (feat 0x46 /*#guess*/) removes the
+// remaining +2 off-hand-only penalty. A couple of ranger-shaped exemptions
+// (druid/no-armor-or-shield class-8 check) skip the penalty entirely.
+SHORT CGameSprite::GetTwoWeaponPenalty(BOOL bMainHand)
+{
+    if (m_equipment.m_selectedWeapon == 0x2a /*#guess -- "no weapon selected" sentinel*/) {
+        return 0;
+    }
+
+    INT nMainSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet;
+    if (m_equipment.m_items[nMainSlot] == NULL || m_equipment.m_items[nMainSlot + 1] == NULL) {
+        return 0;
+    }
+
+    if (m_equipment.m_items[nMainSlot]->GetItemType() == 0x2f
+        || m_equipment.m_items[nMainSlot]->GetItemType() == 0x35
+        || m_equipment.m_items[nMainSlot]->GetItemType() == 0x31
+        || m_equipment.m_items[nMainSlot]->GetItemType() == 0x29) {
+        return 0;
+    }
+
+    SHORT nPenalty = bMainHand ? -10 : -6;
+
+    if (m_derivedStats.GetClassLevel(8) >= 1 && !HasArmorType(3) && !HasArmorType(2)) {
+        // Lightly-armored class-8 (druid/ranger #guess): unconditional +2, no feat check.
+        if (bMainHand) {
+            nPenalty += 4;
+        }
+        nPenalty += 2;
+    } else {
+        if (HasFeat(1 /*#guess Ambidexterity*/) && bMainHand) {
+            nPenalty += 4;
+        }
+        if (HasFeat(0x46 /*#guess Two-Weapon Style*/)) {
+            nPenalty += 2;
+        }
+    }
+
+    if (m_equipment.m_items[nMainSlot + 1]->GetItemType() == 0x10
+        || m_equipment.m_items[nMainSlot + 1]->GetItemType() == 0x13) {
+        nPenalty += 2;
+    }
+
+    return nPenalty;
+}
+
+// 0x73B760
+//
+// The attack roll: THAC0 (or touch AC for touch-attack abilities) vs. a
+// d20 + every hit-bonus source, with a handful of unconditional auto-hit/
+// auto-miss gates (target berserk, global Time Stop, target Tortoise Shell
+// active, self-inflicted friendly-fire chance, target Sneak Attack immunity
+// chance) ahead of the roll. On a hit it plays the Stunning Blow/Quivering
+// Palm follow-up effect for a monk's unarmed strike.
+//
+// DEFERRED (documented, not guessed -- each references undocumented globals
+// or narration-only UI code with no safe way to verify the exact mechanic
+// from statics alone): the critical/special-roll narration (0x73C490), the
+// racial ammo bonus (0x4E9840), the launcher-vs-weapon proficiency compare
+// (0x73CF10 -- GetProficiencyTHAC0Bonus() alone is used instead), and the
+// melee-range/selective-bonus modifier (0x73D1B0).
+BOOL CGameSprite::RollToHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, BOOL* pCritical, int nSpecialAttackFlag, BYTE nAttackNumber)
+{
+    CItem* pSelectedWeapon = m_equipment.m_items[GetWeaponSlot()];
+    BOOL bOffHand;
+    if (nSpecialAttackFlag != 0
+        && m_equipment.m_selectedWeapon != 0x2a
+        && pSelectedWeapon != NULL
+        && pSelectedWeapon->GetItemType() != 0x2f
+        && pSelectedWeapon->GetItemType() != 0x35
+        && pSelectedWeapon->GetItemType() != 0x31
+        && pSelectedWeapon->GetItemType() != 0x29) {
+        bOffHand = TRUE;
+    } else {
+        bOffHand = (pSelectedWeapon == pWeapon);
+    }
+
+    UTIL_ASSERT(m_derivedStats.m_nNumberOfAttacks >= nAttackNumber);
+
+    if (pTarget->m_derivedStats.m_generalState & STATE_BERSERK) {
+        return TRUE;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != pTarget->m_id) {
+        return TRUE;
+    }
+
+    if (pTarget->m_derivedStats.m_spellStates[SPLSTATE_TORTOISE_SHELL]) {
+        return TRUE;
+    }
+
+    if (m_derivedStats.m_spellStates[SPLSTATE_BLINK] && (rand() % 100 < 0x14)) {
+        FeedBack(0x3e, 0, 0, 0, -1, 0, 0);
+        return FALSE;
+    }
+
+    if (pTarget->m_derivedStats.m_spellStates[SPLSTATE_BLINK] && (rand() % 100 < 0x32)) {
+        FeedBack(0x3f, 0, 0, 0, -1, 0, 0);
+        return FALSE;
+    }
+
+    // 0x85BBD0: a zeroed fallback ability used when GetAbility() has nothing.
+    static const ITEM_ABILITY s_emptyAbility = {};
+
+    pWeapon->Demand();
+    const ITEM_ABILITY* curAttack = pWeapon->GetAbility(nAbility);
+    if (curAttack == NULL) {
+        curAttack = &s_emptyAbility;
+    }
+
+    if (curAttack->thac0Bonus == static_cast<SHORT>(0x7fff) /*#guess -- "ability can't attack" sentinel*/) {
+        pWeapon->Release();
+        return TRUE;
+    }
+
+    CAIObjectType typeAI(GetAIType());
+
+    INT nAC = (curAttack->abilityFlags & 0x10000) == 0 ? GetAC() : GetTouchAC();
+
+    if (curAttack->type != 2
+        && (m_derivedStats.m_generalState & (STATE_INVISIBLE | STATE_IMPROVEDINVISIBILITY)) != 0
+        && !HasFeat(6 /*#guess*/)
+        && pTarget->m_baseStats.m_barbarianLevel < 2
+        && pTarget->m_baseStats.m_rogueLevel < 3) {
+        nAC -= g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(pTarget->m_derivedStats.m_nDEX);
+    }
+
+    nAC += GetDamageTypeACMod(pTarget, pWeapon, curAttack);
+
+    // d20, weighted by Luck.
+    SHORT nRoll = static_cast<SHORT>(CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1);
+    CHAR nAttackBaseOverride = static_cast<CHAR>(m_baseStats.m_attackBase);
+
+    INT nBaseTHAC0, nAttacksPerRound, nUnusedFlags;
+    g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetBaseCombatValues(this, nBaseTHAC0, nAttacksPerRound, nUnusedFlags, TRUE);
+
+    if (!IcewindMisc::IsPC(this)) {
+        if (nAttackBaseOverride != 0 && nAttackBaseOverride != nBaseTHAC0) {
+            nBaseTHAC0 = nAttackBaseOverride;
+        }
+        if (m_derivedStats.m_nNumberOfAttacks != 0 && m_derivedStats.m_nNumberOfAttacks != nAttacksPerRound) {
+            nUnusedFlags = 0;
+            nAttacksPerRound = m_derivedStats.m_nNumberOfAttacks;
+        }
+        if (m_baseStats.field_2FB & 1) {
+            nBaseTHAC0 += 15;
+            nAttacksPerRound += 3;
+        }
+    }
+
+    if (bOffHand) {
+        nAttackNumber = 1;
+    }
+
+    BOOL bHasLauncherAbility = FALSE;
+    SHORT nLauncherSlot;
+    CItem* pLauncher = GetLauncher(curAttack, nLauncherSlot);
+    if (pLauncher != NULL) {
+        pLauncher->Demand();
+        if (pLauncher->GetAbility(0) != NULL) {
+            bHasLauncherAbility = TRUE;
+        }
+        pLauncher->Release();
+    } else if (curAttack->type == 2) {
+        bHasLauncherAbility = TRUE;
+    }
+
+    if ((m_derivedStats.m_generalState & 0x1000000) != 0 && bHasLauncherAbility && nAttackNumber == 1) {
+        nBaseTHAC0 -= 5;
+    }
+
+    INT nEffectiveTHAC0 = nBaseTHAC0;
+    if ((m_derivedStats.m_generalState & 0x1000000) != 0 && bHasLauncherAbility) {
+        nEffectiveTHAC0 -= 2;
+    }
+
+    INT nAbilityHitBonus = GetAbilityHitBonus(pWeapon, curAttack);
+    INT nRacialAttackPenalty = GetRacialAttackPenalty();
+    INT nRacialTargetBonus = GetRacialTargetBonus(pTarget);
+
+    UTIL_ASSERT(pWeapon != NULL);
+    UTIL_ASSERT(curAttack != NULL);
+
+    INT nDualWieldBonus = 0;
+    if (m_typeAI.m_nClass == 5 && curAttack->type == 2) {
+        switch (pWeapon->GetItemType()) {
+        case 0xe:
+        case 0x10:
+        case 0x15:
+        case 0x18:
+        case 0x19:
+        case 0x1d:
+            nDualWieldBonus = 1 /*halfling-sling-style dual-wield bonus*/;
+        }
+    }
+
+    UTIL_ASSERT(pTarget != NULL);
+
+    nEffectiveTHAC0 += nAbilityHitBonus + nRacialAttackPenalty + nRacialTargetBonus + nDualWieldBonus;
+
+    INT nHatedRaceBonus = 0;
+    if (typeAI.IsClassValid(8 /*#guess Ranger*/)
+        && g_pBaldurChitin->GetObjectGame()->GetRuleTables().IsHatedRace(pTarget->m_typeAI, m_baseStats)) {
+        BYTE nRace = pTarget->m_typeAI.m_nRace;
+        nHatedRaceBonus = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetHatedRaceBonus(nRace, m_baseStats);
+    }
+
+    UTIL_ASSERT(curAttack != NULL);
+
+    INT nTHAC0Bonuses = GetTHAC0Bonuses(pWeapon, curAttack);
+    // DEFERRED: FUN_0073CF10's launcher-vs-weapon proficiency compare and
+    // unproficient-PC table lookup -- using the weapon's own proficiency
+    // bonus alone (a real, already-recovered call) instead of guessing at
+    // the launcher comparison.
+    INT nProficiencyBonus = GetProficiencyTHAC0Bonus(pWeapon);
+    // DEFERRED 0x73D080 already covered above via GetTwoWeaponPenalty.
+    INT nArmorCheckPenalty = GetArmorCheckPenalty();
+    INT nShieldCheckPenalty = GetShieldCheckPenalty();
+    INT nTwoWeaponPenalty = GetTwoWeaponPenalty(bOffHand == FALSE);
+    // DEFERRED 0x73D1B0 (melee-range/selective-bonus modifier): undocumented
+    // distance-threshold globals and several unnamed feats -- real risk of
+    // silently-wrong combat math, left at 0.
+    INT nMeleeRangeBonus = 0;
+
+    INT nStunBonus = (m_derivedStats.m_generalState & 2) != 0 ? 2 : 0;
+
+    INT nDifficultyBonus = 0;
+    CAIObjectType targetType(pTarget->GetAIType());
+    if (targetType.m_nEnemyAlly == 2 /*#guess -- EA_FAMILIAR?*/) {
+        CAIObjectType selfType(GetAIType());
+        if (selfType.m_nEnemyAlly != 2) {
+            // #guess -- unnamed CInfGame field (0x4456), likely difficulty setting.
+            switch (*reinterpret_cast<int*>(reinterpret_cast<BYTE*>(g_pBaldurChitin->GetObjectGame()) + 0x4456)) {
+            case 1:
+                nDifficultyBonus = -4;
+                break;
+            case 2:
+                nDifficultyBonus = -2;
+                break;
+            case 4:
+                nDifficultyBonus = 3;
+                break;
+            case 5:
+                nDifficultyBonus = 9;
+                break;
+            }
+        }
+    }
+
+    nEffectiveTHAC0 += nHatedRaceBonus + nTHAC0Bonuses + nProficiencyBonus + nArmorCheckPenalty
+        + nShieldCheckPenalty + nTwoWeaponPenalty + nMeleeRangeBonus + nStunBonus + nDifficultyBonus;
+
+    if ((m_derivedStats.m_generalState & 0x8000000) != 0 && !bHasLauncherAbility) {
+        INT nCHRBonus = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nCHR);
+        if (nCHRBonus > 0) {
+            nEffectiveTHAC0 += nCHRBonus;
+        }
+    }
+
+    pWeapon->Release();
+
+    BOOL bHit = (nRoll == 20) || (nAC <= nEffectiveTHAC0 + nRoll);
+
+    // DEFERRED 0x73C490: gates whether this attack is even eligible for
+    // combat feedback at all (a target-visibility/concealment-shaped check
+    // with a 20%/50% miss roll of its own) -- stubbed TRUE so the real
+    // to-hit math above always governs; only that extra concealment-based
+    // override is skipped.
+    BOOL bShowFeedback = TRUE;
+
+    if (bShowFeedback) {
+        FeedBack(FEEDBACK_TOHIT, nRoll, static_cast<CHAR>(nDualWieldBonus), nEffectiveTHAC0, -1, bOffHand, nAttackNumber);
+
+        // Critical-hit confirmation: a second, harder roll against the same AC.
+        SHORT nCritThreshold = m_derivedStats.m_nCriticalHitBonus;
+        if (HasFeat(0x1e /*#guess Improved Critical*/)) {
+            nCritThreshold++;
+        }
+        // DEFERRED 0x4E9840 (racial ammo bonus to the crit-confirm threshold) -- 0 here.
+        SHORT nRacialAmmoBonus = 0;
+        BOOL bCritConfirmed = FALSE;
+        if (20 <= nRacialAmmoBonus + nCritThreshold + nRoll
+            && (pTarget->m_baseStats.field_2FB & 2) == 0) {
+            SHORT nCritRoll = static_cast<SHORT>(CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1);
+            FeedBack(0x28, nCritRoll, bCritConfirmed, nEffectiveTHAC0, -1, bOffHand, nAttackNumber);
+            bCritConfirmed = (nAC <= nEffectiveTHAC0 + nCritRoll);
+        }
+
+        if (bCritConfirmed) {
+            *pCritical = TRUE;
+
+            // DEFERRED: the on-screen portrait-flash ping for a visible PC
+            // attacker (screen-rect/view-position math, cosmetic only).
+
+            if (HasFeat(0xe /*#guess*/)) {
+                BYTE nTargetRace = pTarget->m_typeAI.m_nRace;
+                if (nTargetRace != 0xa7 && nTargetRace != 0x9c && nTargetRace != 0x98 /*#guess -- construct/undead race ids immune to this effect*/) {
+                    WORD nEffectId = (rand() & 1) == 1 ? 0x28 : 0x4a;
+                    ITEM_EFFECT effect;
+                    CGameEffect::ClearItemEffect(&effect, nEffectId);
+                    effect.targetType = 1;
+                    effect.spellLevel = 1;
+                    effect.durationType = 0;
+                    effect.duration = 0x23;
+                    effect.savingThrow = 4;
+                    effect.saveMod = 4;
+                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                    // #guess -- straddles CGameEffect's m_source/m_target CPoint
+                    // fields in the binary; approximated as a single source point.
+                    pEffect->m_source = GetPos();
+                    pEffect->m_effectAmount2 &= ~1;
+                    pEffect->m_sourceID = m_id;
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, pTarget->m_id, m_id), FALSE);
+                }
+            }
+        }
+
+        // A clean hit (not a natural 1) skips the Stunning Blow/Quivering
+        // Palm tail below entirely -- that special-attack application
+        // belongs to the damage resolver (0x73D560), not here. This
+        // function only clears the pending flag (with a no-op effect) on
+        // a miss or a natural-1 fumble.
+        if (nRoll == 1) {
+            bHit = FALSE;
+        } else if (bHit) {
+            return bHit;
+        }
+    } else {
+        FeedBack(0x51, 0, 0, 0, -1, 0, 0);
+        bHit = FALSE;
+    }
+
+    if (pWeapon == m_equipment.m_items[CGameSpriteEquipment::SLOT_FIST]) {
+        if (m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70]) {
+            m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70] = FALSE;
+            ITEM_EFFECT effect;
+            CGameEffect::ClearItemEffect(&effect, 0xfe);
+            effect.targetType = 1;
+            effect.spellLevel = 0;
+            effect.durationType = 1;
+            effect.duration = 0;
+            m_resRef.GetResRef(effect.res);
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+            // #guess -- see straddle note above.
+            pEffect->m_source = GetPos();
+            pEffect->m_effectAmount2 &= ~1;
+            pEffect->m_sourceID = m_id;
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, m_id, m_id), FALSE);
+        }
+        if (m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM]) {
+            m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM] = FALSE;
+            ITEM_EFFECT effect;
+            CGameEffect::ClearItemEffect(&effect, 0xfe);
+            effect.targetType = 1;
+            effect.spellLevel = 0;
+            effect.durationType = 1;
+            effect.duration = 0;
+            m_resRef.GetResRef(effect.res);
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+            pEffect->m_source = GetPos();
+            pEffect->m_effectAmount2 &= ~1;
+            pEffect->m_sourceID = m_id;
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, m_id, m_id), FALSE);
+        }
+    }
+
+    return bHit;
+}
+
+// 0x73D560
+//
+// Builds the damage total + damage-type flags for a landed attack, and
+// applies every damage-adjacent side effect the binary attaches at this
+// point: the base weapon dice (Kai gives flat max damage instead of a roll),
+// sneak attack (bonus dice, plus an Arterial Strike/Hamstring style effect
+// when the attacker has picked one), Berserk, the ability's own STR bonus
+// (halved off-hand, floored for a finesse-flagged weapon), Smite Evil,
+// Weapon Focus, the ability's flat bonus, the attacker's main/off-hand
+// CDerivedStats damage bonus, hated race, two smaller feat bonuses, the
+// weapon's CSelectiveBonusList entry, the critical-hit multiplier, and the
+// damage-type flags. Cleave and -- only for a bare-fisted attack -- the
+// Stunning Blow/Quivering Palm monk specials (or, for a real weapon, Poison
+// Coat) are applied directly to pTarget as their own CGameEffects. The
+// returned CGameEffectDamage carries the final amount/flags for
+// FUN_00739B60 (its own unrecovered arc) to apply to pTarget.
+//
+// DEFERRED: the weapon-type-vs-something bonus table (0x73CD00 and its four
+// shared sub-helpers FUN_007E8BF2/FUN_007E93AB/FUN_007E93D9/FUN_007EA8C0) --
+// the same undocumented, zero-named-globals table already deferred inside
+// RollToHit, shared verbatim with this function. Left at 0.
+CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWeapon, INT nAbility, BOOL bCritical, CAIObjectType targetTypeAI,
+    SHORT nAttackerDirection, SHORT nTargetDirection, CGameSprite* pTarget, BOOL bIsMainHandAttack)
+{
+    BOOL bMainHandRealWeapon = FALSE;
+    if (bIsMainHandAttack /*#guess*/
+        && m_equipment.m_selectedWeapon != 0x2a
+        && m_equipment.m_items[GetWeaponSlot() & 0xff] != NULL) {
+        SHORT nMainSlotType = m_equipment.m_items[GetWeaponSlot() & 0xff]->GetItemType();
+        if (nMainSlotType != 0x35 && nMainSlotType != 0x2f && nMainSlotType != 0x31) {
+            bMainHandRealWeapon = (nMainSlotType != 0x29);
+        }
+    }
+
+    pWeapon->Demand();
+    static const ITEM_ABILITY s_emptyAbility = {};
+    const ITEM_ABILITY* curAttack = pWeapon->GetAbility(nAbility);
+    const ITEM_ABILITY* curOffHandAttack = NULL;
+    if (pOffHandWeapon != NULL) {
+        pOffHandWeapon->Demand();
+        curOffHandAttack = pOffHandWeapon->GetAbility(0);
+    }
+    if (curAttack == NULL) {
+        curAttack = &s_emptyAbility;
+    }
+
+    // Kai: the monk deals flat maximum damage instead of rolling.
+    INT nDamage = 0;
+    BOOL bBackstabCapableWeapon = FALSE;
+    BOOL bHasDamageDice = (curAttack->damageDiceCount != 0);
+    if (m_derivedStats.m_spellStates[SPLSTATE_KAI_64]) {
+        nDamage = curAttack->damageDice * curAttack->damageDiceCount;
+    } else {
+        for (BYTE i = 0; i < curAttack->damageDiceCount; i++) {
+            nDamage += CUtil::UtilRandInt(curAttack->damageDice, m_derivedStats.m_nLuck) + 1;
+        }
+    }
+    if (curAttack->damageDiceCount != 0 && curAttack->damageDice != 0) {
+        bBackstabCapableWeapon = TRUE;
+    }
+    if (curAttack->damageDiceBonus != 0) {
+        bBackstabCapableWeapon = TRUE;
+    }
+
+    if (curOffHandAttack != NULL) {
+        if (curOffHandAttack->damageDiceCount != 0) {
+            bBackstabCapableWeapon = TRUE;
+            for (BYTE i = 0; i < curOffHandAttack->damageDiceCount; i++) {
+                nDamage += CUtil::UtilRandInt(curOffHandAttack->damageDice, m_derivedStats.m_nLuck) + 1;
+            }
+            if (curOffHandAttack->damageDice != 0) {
+                bBackstabCapableWeapon = TRUE;
+            }
+        }
+        nDamage += curOffHandAttack->damageDiceBonus;
+        if (curOffHandAttack->damageDiceBonus != 0) {
+            bBackstabCapableWeapon = TRUE;
+        }
+    }
+
+    if (bBackstabCapableWeapon) {
+        // Sneak attack requires a non-ranged ability, actual rogue levels,
+        // an un-immune target, and the target not already carrying its own
+        // per-hit sneak-attack immunity.
+        if (curAttack->type != 2
+            && m_baseStats.m_rogueLevel != 0
+            && !pTarget->m_derivedStats.m_spellStates[SPLSTATE_SNEAK_ATTACK_IMMUNITY]
+            && (pTarget->m_baseStats.field_2FB & 2) == 0) {
+            BOOL bTargetFlatFooted = (pTarget->m_derivedStats.m_generalState & STATE_HELPLESS) != 0;
+            if (!bTargetFlatFooted) {
+                UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
+                bTargetFlatFooted = (pTarget->m_animation.m_animation->GetMoveScale() == 0);
+            }
+
+            // #guess -- attacker/target direction assignment for the facing
+            // window below; a swap would just mirror the arc, not change its
+            // shape. DAT_00847c3b (a byte at this+9, name unresolved) = 30.
+            BOOL bFlankingAngle = (*((BYTE*)this + 9) > 30)
+                || (((nTargetDirection - nAttackerDirection + 19) % 16) <= 6);
+
+            BOOL bSneakAttackQualifies = FALSE;
+            if (bFlankingAngle) {
+                // Barbarian/Rogue uncanny dodge: a sufficiently-leveled
+                // barbarian or a level-6+ rogue target resists a flanked
+                // sneak attack unless the attacker's own rogue level clears
+                // the target's by 4+.
+                if ((pTarget->m_baseStats.m_barbarianLevel > 4
+                        && (INT)(m_baseStats.m_rogueLevel - pTarget->m_baseStats.m_barbarianLevel) < 4)
+                    || (pTarget->m_baseStats.m_rogueLevel > 5
+                        && (INT)(m_baseStats.m_rogueLevel - pTarget->m_baseStats.m_rogueLevel) < 4)) {
+                    FeedBack(0x52, 0, 0, 0, -1, 0, 0);
+                } else {
+                    bSneakAttackQualifies = TRUE;
+                }
+            } else {
+                bSneakAttackQualifies = bTargetFlatFooted;
+            }
+
+            if (bSneakAttackQualifies) {
+                INT nSneakDamage = 0;
+                INT nSneakRolls = IcewindMisc::GetSneakAttackRolls(this);
+                for (INT i = 0; i < nSneakRolls; i++) {
+                    INT nSneakDice = IcewindMisc::GetSneakAttackDice();
+                    nSneakDamage += 1 + (nSneakDice == 0 ? 0 : rand() % nSneakDice);
+                }
+
+                STRREF nFeedbackStrRef;
+                if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_ARTERIAL_STRIKE] && HasFeat(5)) {
+                    // Arterial Strike.
+                    ITEM_EFFECT effect;
+                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_BLEEDINGWOUNDS);
+                    effect.targetType = 2;
+                    effect.savingThrow = 0x46;
+                    CGameEffect* pStyleEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                    pStyleEffect->m_source = GetPos();
+                    pStyleEffect->m_sourceID = m_id;
+                    pTarget->AddEffect(pStyleEffect, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+                    nFeedbackStrRef = 0x9b94;
+                } else if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_HAMSTRING] && HasFeat(0x1b)) {
+                    // Hamstring.
+                    ITEM_EFFECT effect;
+                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_MOVEMENTRATEWITHPORTRAIT);
+                    effect.targetType = 2;
+                    effect.durationType = 2;
+                    effect.duration = 0x32;
+                    effect.savingThrow = 0x46;
+                    CGameEffect* pStyleEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                    pStyleEffect->m_source = GetPos();
+                    pStyleEffect->m_sourceID = m_id;
+                    pTarget->AddEffect(pStyleEffect, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+                    nFeedbackStrRef = 0x9b95;
+                } else {
+                    nFeedbackStrRef = 0x61dd;
+                }
+
+                FeedBack(0x34, nSneakDamage, 0, 0, nFeedbackStrRef, 0, 0);
+
+                pTarget->AddEffect(IcewindMisc::CreateEffectImmunityToBackstab(this, IcewindMisc::GetMaxFavoredEnemies()),
+                    CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+
+                if (HasFeat(0xb)) {
+                    pTarget->AddEffect(IcewindMisc::CreateEffectSTR(this, -1, 700, 0),
+                        CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+                }
+
+                nDamage += nSneakDamage;
+            }
+        }
+
+        if ((m_derivedStats.m_generalState & STATE_BERSERK) != 0) {
+            nDamage += 2;
+        }
+    }
+
+    if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL] && IcewindMisc::IsEvil(pTarget)) {
+        nDamage += m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_PALADIN);
+    }
+
+    if (bBackstabCapableWeapon && curAttack->type == 1 && HasFeat(0x2f) && GetFeatRank(0x2f) > 0) {
+        nDamage += GetFeatRank(0x2f);
+    }
+
+    nDamage += curAttack->damageDiceBonus;
+
+    if (bBackstabCapableWeapon) {
+        // Ability applies a STR bonus: halved for the main hand, or
+        // floored (instead of rounded) for a finesse-flagged off-hand
+        // weapon that isn't the bare fist.
+        if ((curAttack->abilityFlags & 1) != 0 || (curOffHandAttack != NULL && (curOffHandAttack->abilityFlags & 1) != 0)) {
+            INT nSTRMod = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nSTR);
+            if (bMainHandRealWeapon) {
+                if (nSTRMod > 1) {
+                    nSTRMod /= 2;
+                }
+            } else if ((pWeapon->GetFlagsFile() & 2) != 0) {
+                CResRef fistIcon("FIST");
+                if (pWeapon->GetItemIcon() != fistIcon && nSTRMod > 0) {
+                    nSTRMod = static_cast<INT>(static_cast<float>(nSTRMod) * 0.5f);
+                }
+            }
+            nDamage += nSTRMod;
+        }
+
+        nDamage += m_derivedStats.m_nDamageBonus;
+        nDamage += (pOffHandWeapon != NULL) ? m_derivedStats.m_DamageBonusLeft : m_derivedStats.m_DamageBonusRight;
+    }
+
+    if (pOffHandWeapon != NULL) {
+        pOffHandWeapon->Release();
+    }
+
+    if (bBackstabCapableWeapon
+        && g_pBaldurChitin->GetObjectGame()->GetRuleTables().IsHatedRace(targetTypeAI, m_baseStats)
+        && GetAIType().IsClassValid(CAIOBJECTTYPE_C_ROGUE)) {
+        nDamage += 4;
+    }
+
+    if (HasFeat(0x18)) {
+        // #guess -- specific race ids (unnamed in this codebase's RACE.IDS
+        // mapping) granting a flat +2, matching the pattern already used for
+        // construct/undead ids in RollToHit.
+        BYTE nTargetRace = pTarget->m_typeAI.m_nRace;
+        if (nTargetRace == 0xba || nTargetRace == 0xa4 || nTargetRace == 0x76
+            || nTargetRace == 0x9a || nTargetRace == 0xbb || nTargetRace == 0xbc) {
+            nDamage += 2;
+        }
+    }
+
+    // DEFERRED: HasFeat(0x1c)'s follow-up reads a byte at
+    // pTarget->GetAIType()+0x18 (bits 0xc) that falls outside CAIObjectType's
+    // own small layout -- unmapped field, left unevaluated. Replaces
+    // 0x73DD9B-0x73DDB1 (a flat +3 when it fires).
+
+    // DEFERRED: the weapon-type-vs-something bonus table (0x73CD00) -- see
+    // function comment above.
+    INT nWeaponTypeBonus = 0;
+
+    // Floor: at least 1 damage when the ability actually has damage dice,
+    // otherwise at least 0 (never negative).
+    INT nMinDamage = bHasDamageDice ? 1 : 0;
+    INT nTotalDamage = nDamage + nWeaponTypeBonus;
+    if (nTotalDamage < nMinDamage) {
+        nTotalDamage = nMinDamage;
+    }
+
+    if (bCritical) {
+        nTotalDamage *= pWeapon->GetCriticalHitMultiplier();
+    }
+
+    nTotalDamage += m_derivedStats.m_cDamageBonusList.GetBonus(targetTypeAI);
+
+    DWORD nDamageTypeFlags;
+    switch (curAttack->damageType) {
+    case 1:
+        nDamageTypeFlags = 0x100000; // PIERCING
+        break;
+    case 2:
+        nDamageTypeFlags = 0; // CRUSHING
+        break;
+    case 3:
+        nDamageTypeFlags = 0x1000000; // SLASHING
+        break;
+    case 4:
+        nDamageTypeFlags = 0x2000000; // missile+piercing
+        break;
+    case 5:
+        nDamageTypeFlags = 0x8000000; // missile
+        break;
+    case 6:
+        // Piercing/crushing choice: whichever the target resists less.
+        nDamageTypeFlags = (pTarget->m_derivedStats.m_nResistPiercing <= pTarget->m_derivedStats.m_nResistCrushing) ? 0x100000 : 0;
+        break;
+    case 7:
+        // Piercing/slashing choice.
+        nDamageTypeFlags = (pTarget->m_derivedStats.m_nResistPiercing <= pTarget->m_derivedStats.m_nResistSlashing) ? 0x100000 : 0x1000000;
+        break;
+    case 8:
+        // Crushing/slashing choice.
+        nDamageTypeFlags = (pTarget->m_derivedStats.m_nResistCrushing <= pTarget->m_derivedStats.m_nResistSlashing) ? 0x1000000 : 0;
+        break;
+    case 9:
+        nDamageTypeFlags = 0x4000000; // missile+crushing
+        break;
+    default:
+        nDamageTypeFlags = 0;
+        break;
+    }
+
+    pWeapon->Release();
+
+    if (nTotalDamage >= pTarget->m_baseStats.m_hitPoints
+        && curAttack->type == 1
+        && HasFeat(8)
+        && GetFeatValue(8) == 1
+        && (!m_timedEffectList.IsTypeOnList(ICEWIND_CGAMEEFFECT_FEATCLEAVE) || GetFeatValue(8) == 2)) {
+        ITEM_EFFECT effect;
+        CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_FEATCLEAVE);
+        effect.effectAmount = GetFeatValue(8) - 1;
+        effect.durationType = 8;
+        effect.savingThrow = 7;
+        CGameEffect* pCleaveEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+        pCleaveEffect->m_source = GetPos();
+        pCleaveEffect->m_sourceID = m_id;
+        pTarget->AddEffect(pCleaveEffect, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+    }
+
+    if (pWeapon == m_equipment.m_items[CGameSpriteEquipment::SLOT_FIST]) {
+        if (m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70]) {
+            if (pTarget->m_derivedStats.m_nMirrorImages <= 0) {
+                m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70] = FALSE;
+                RemovePortraitIcon(134); // #guess -- SPIN232's portrait icon id
+                ITEM_EFFECT removeEffect;
+                CGameEffect::ClearItemEffect(&removeEffect, 0xfe);
+                removeEffect.targetType = 1;
+                removeEffect.durationType = 1;
+                SPIN232.GetResRef(removeEffect.res);
+                CGameEffect* pRemoveEffect = CGameEffect::DecodeEffect(&removeEffect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                pRemoveEffect->m_source = GetPos();
+                pRemoveEffect->m_sourceID = m_id;
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pRemoveEffect, m_id, m_id), FALSE);
+
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_STUN);
+                effect.targetType = 2;
+                effect.probabilityLower = 1;
+                INT nStunDC = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nWIS)
+                    - 1 + m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_MONK) / 2;
+                effect.saveMod = nStunDC;
+                CGameEffect* pStunEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                // Unlike the "remove pending resource" message above (sourced
+                // from the attacker), the real effect sources from the
+                // target itself -- confirmed via disasm (vtable+0x1c called
+                // through param_9/edi, not param_1/ebp).
+                pStunEffect->m_source = pTarget->GetPos();
+                pStunEffect->m_sourceID = pTarget->m_id;
+                pStunEffect->m_flags |= 3;
+                // Also queued rather than applied directly (unlike Arterial
+                // Strike/Hamstring above) -- confirmed via disasm.
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pStunEffect, m_id, pTarget->m_id), FALSE);
+            }
+        } else if (m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM]) {
+            if (pTarget->m_derivedStats.m_nMirrorImages <= 0) {
+                m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM] = FALSE;
+                RemovePortraitIcon(135); // #guess -- SPIN233's portrait icon id
+                ITEM_EFFECT removeEffect;
+                CGameEffect::ClearItemEffect(&removeEffect, 0xfe);
+                removeEffect.targetType = 1;
+                removeEffect.durationType = 1;
+                SPIN233.GetResRef(removeEffect.res);
+                CGameEffect* pRemoveEffect = CGameEffect::DecodeEffect(&removeEffect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                pRemoveEffect->m_source = GetPos();
+                pRemoveEffect->m_sourceID = m_id;
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pRemoveEffect, m_id, m_id), FALSE);
+
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_DEATH);
+                effect.targetType = 2;
+                effect.savingThrow = 4;
+                INT nDeathDC = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nWIS)
+                    - 1 + m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_MONK) / 2;
+                effect.saveMod = nDeathDC;
+                CGameEffect* pDeathEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                // Sources from the target itself and is queued, same as
+                // Stunning Blow above.
+                pDeathEffect->m_source = pTarget->GetPos();
+                pDeathEffect->m_sourceID = pTarget->m_id;
+                pDeathEffect->m_flags &= ~1;
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pDeathEffect, m_id, pTarget->m_id), FALSE);
+            }
+        }
+    } else if (m_derivedStats.m_spellStates[SPLSTATE_COAT_WEAPON_WITH_POISON]) {
+        // HACK: 0x4C4B90(SPLSTATE_COAT_WEAPON_WITH_POISON, 0) -- unresolved,
+        // 46 callers across various CGameEffect::ApplyEffect overrides, not
+        // just a bit clear (the Stunning Blow/Quivering Palm branches above
+        // clear their own spellstate bit directly instead; this one doesn't
+        // in the decompile, implying it does something more, e.g. removing
+        // an active equipped effect of that type). Not reproduced -- replaces
+        // 0x73DDD5.
+        RemovePortraitIcon(116); // #guess -- SPIN231's portrait icon id
+        ITEM_EFFECT removeEffect;
+        CGameEffect::ClearItemEffect(&removeEffect, 0xfe);
+        removeEffect.targetType = 1;
+        removeEffect.durationType = 1;
+        SPIN231.GetResRef(removeEffect.res);
+        CGameEffect* pRemoveEffect = CGameEffect::DecodeEffect(&removeEffect, CPoint(-1, -1), -1, CPoint(-1, -1));
+        pRemoveEffect->m_source = GetPos();
+        pRemoveEffect->m_sourceID = m_id;
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pRemoveEffect, m_id, m_id), FALSE);
+
+        ITEM_EFFECT effect;
+        CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_POISON);
+        effect.targetType = 2;
+        effect.probabilityLower = 10;
+        effect.effectAmount = -1 - (rand() % 6);
+        effect.savingThrow = 7;
+        CGameEffect* pPoisonEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+        // Sources from the target itself and is queued, same as the monk
+        // specials above.
+        pPoisonEffect->m_source = pTarget->GetPos();
+        pPoisonEffect->m_sourceID = pTarget->m_id;
+        pPoisonEffect->m_flags &= ~1;
+        // DEFERRED: the binary also overwrites m_special with a second
+        // `-1 - rand() % 6` roll before queuing -- purpose unconfirmed
+        // (m_special is normally a DR-bypass bitmask elsewhere), not
+        // reproduced.
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pPoisonEffect, m_id, pTarget->m_id), FALSE);
+    }
+
+    CGameEffectDamage* pDamage = new CGameEffectDamage();
+    pDamage->m_effectAmount = nTotalDamage;
+    pDamage->m_dwFlags = nDamageTypeFlags;
+    pDamage->m_source = GetPos();
+    pDamage->m_sourceID = m_id;
+
+    CWeaponIdentification weaponId;
+    pWeapon->LoadWeaponIdentification(weaponId);
+    pDamage->m_special = weaponId.m_attributes;
+
+    return pDamage;
 }
 
 // 0x73D420
