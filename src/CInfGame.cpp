@@ -2295,7 +2295,6 @@ BOOL CInfGame::SaveGame(unsigned char bProgressBarRequired, unsigned char bProgr
         }
     }
 
-
     return bResult;
 }
 
@@ -7390,7 +7389,6 @@ BYTE CInfGame::GetFrameRate()
 // 0x5BE900
 void CInfGame::SynchronousUpdate()
 {
-
     if (m_bSaveScreen == 0) {
         DestroyDisposableItems();
         return;

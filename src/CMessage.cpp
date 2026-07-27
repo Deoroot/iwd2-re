@@ -11754,6 +11754,12 @@ BYTE CMessageSpriteUpdate::GetMsgSubType()
     return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SPRITE_UPDATE;
 }
 
+// 0x50D6F0
+void CMessageSpriteUpdate::Run()
+{
+    // TODO: Incomplete.
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x4F6390

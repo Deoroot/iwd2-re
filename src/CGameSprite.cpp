@@ -23168,6 +23168,13 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
             CGameSprite* pMember = static_cast<CGameSprite*>(pObject);
 
             if (bFlag4 || pMember->m_triggerId == nTriggerId) {
+                // Captured before RemoveFromArea/AddToArea below mutate it --
+                // confirmed via disasm at 0x74E164/0x74E16B (mov esi,[pMember+0x12];
+                // mov [esp+0x6c],esi), i.e. this member's OWN pre-transition area,
+                // read right after the trigger-id gate and well before any
+                // placement call touches it.
+                CGameArea* pMemberOldArea = pMember->m_pArea;
+
                 pMember->m_triggerId = CGameObjectArray::INVALID_INDEX;
                 pMember->m_bDeleteOnRemove = FALSE;
                 pMember->RemoveFromArea();
@@ -23180,7 +23187,20 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
                     pMember->m_animation.GetPersonalSpace(),
                     nEntryFacing);
 
+                // GetFormationOffsets returns offsets pre-scaled by
+                // CAIGroup::OFFSET_MULTIPLIER (1000) -- every other caller in
+                // CAIGroup.cpp divides it back out before use. Confirmed via
+                // disasm at 0x74E4C2-0x74E4D9: `idiv [0x8479e4]` (=1000) is
+                // applied to both offset.x and offset.y immediately after
+                // reading offsets[nPortrait], before any placement math. This
+                // was missing here, so the raw *1000 value only surfaced when
+                // both LOS candidates below failed and the code fell through
+                // to the third, offset-only fallback -- which then placed the
+                // member ~2000 grid units off the map and crashed
+                // CVisibilityMap::SetTileVisible with an out-of-range index.
                 CPoint offset = (offsets != NULL && nPortrait < nFormationCount) ? offsets[nPortrait] : CPoint(0, 0);
+                offset.x /= CAIGroup::OFFSET_MULTIPLIER;
+                offset.y /= CAIGroup::OFFSET_MULTIPLIER;
                 CPoint ptFinal(
                     CPathSearch::GRID_SQUARE_SIZEX * (ptCandidate.x + offset.x) + CPathSearch::GRID_SQUARE_SIZEX / 2,
                     CPathSearch::GRID_SQUARE_SIZEY * (ptCandidate.y + offset.y) + CPathSearch::GRID_SQUARE_SIZEY / 2);
@@ -23202,8 +23222,30 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
                 pMember->AddToArea(pNewArea, ptFinal, 0, LIST_FRONT);
                 pMember->SetFacing(nEntryFacing);
 
-                if (pGame->GetGroup()->GetGroupLeader() == nCharacterId) {
-                    // Centre the view on the leader's new position, matching
+                // 0x74E819-0x74E94A: the real gate is NOT group-leader identity,
+                // and NOT `this`'s own area either (CAIGroup::GetGroupLeader is
+                // never called anywhere in this function -- confirmed absent
+                // from the full resolved callee list). It is whether THIS
+                // MEMBER was already sitting in pNewArea before its own
+                // placement ran this iteration, i.e. `pMemberOldArea ==
+                // pNewArea` -- confirmed via disasm: [esp+0x6c] (compared
+                // against pNewArea at 0x74E8E4/0x74E8F5/0x74E935) is written at
+                // 0x74E16B from `pMember+0x12` (m_pArea), read fresh per
+                // iteration immediately after the trigger-id gate, well before
+                // RemoveFromArea/AddToArea run for that same member -- not a
+                // `this`-level flag that gets latched true forever once `this`
+                // itself is processed (the earlier, wrong reading of this
+                // gate). `edi` at 0x74E819 (pGame->GetVisibleArea() read via
+                // CInfGame+0x37E0/+0x37E2 = m_visibleArea/m_gameAreas) and
+                // `ebx` (compared against, matching CGameArea's own
+                // +0x4CC/+0x514 CInfinity/view-rect offsets at the
+                // SetViewPosition call sites) confirm bAreaVisible is correct
+                // as already written.
+                bool bAlreadyPlaced = (pMemberOldArea == pNewArea);
+                bool bAreaVisible = (pGame->GetVisibleArea() == pNewArea);
+
+                if (!bAreaVisible || bAlreadyPlaced) {
+                    // Centre the view on this member's new position, matching
                     // the CGameArea.cpp GetInfinity()->SetViewPosition idiom
                     // (view-rect half-width/height subtracted from the target).
                     CRect viewRect = g_pBaldurChitin->m_pEngineWorld->GetNewViewSize();
@@ -23211,9 +23253,12 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
                         ptFinal.x - (viewRect.right - viewRect.left) / 2,
                         ptFinal.y - (viewRect.bottom - viewRect.top) / 2,
                         TRUE);
-                    pGame->SelectCharacter(nCharacterId, FALSE);
-                } else {
-                    pGame->UnselectAll();
+                }
+
+                if (!bAlreadyPlaced) {
+                    if (!bAreaVisible) {
+                        pGame->UnselectAll();
+                    }
                     pGame->SelectCharacter(nCharacterId, FALSE);
                 }
 
@@ -23273,7 +23318,62 @@ SHORT CGameSprite::ArriveAtTravelTrigger()
         }
 
         if (bFlag4) {
-            pGame->SaveGame(1, 0, 0);
+            // Confirmed via disasm 0x74DC84-0x74DD2D that the binary primes
+            // CInfGame::SynchronousUpdate's screenshot/portrait capture+copy
+            // state machine around this call. [g_pChitin+0x96e] ==
+            // CNetwork::SERV_PROV_NULL (0x85E65C, confirmed via sym.py) is
+            // g_pChitin->cNetwork.GetServiceProvider()==SERV_PROV_NULL, i.e.
+            // single-player. [g_pChitin+0x91c] is g_pChitin->cVideo.
+            // Is3dAccelerated() (CVideo+0x132 == CChitin+0x7EA+0x132 ==
+            // CChitin+0x91C) -- live-confirmed FALSE in this environment
+            // (DDrawCompat/software path).
+            //
+            // HACK: ordering deviates from the binary's own (capture-then-
+            // SaveGame) sequence -- deliberately, verified necessary by live
+            // testing, not guessed. Priming+capturing BEFORE SaveGame races
+            // against SaveGame's own end-of-Marshal commit (DirectoryRemoveFiles
+            // (GetDirSave()) + DirectoryCopyFiles back in, src/CInfGame.cpp
+            // ~2258-2266): a natural CInfGame::SynchronousUpdate tick on the
+            // main thread can copy the captured screenshot into the save
+            // folder WHILE SaveGame is still mid-commit on this (AI) thread,
+            // and SaveGame's own directory wipe then deletes it right back out
+            // -- reproduced live (log showed a successful CopyFileA, but the
+            // file was gone by the time SaveGame returned). Running this
+            // entire block AFTER SaveGame returns (commit already done)
+            // removes that race.
+            //
+            // Reproducing the binary's own direct pGame->SynchronousUpdate()
+            // call here also hung on a first attempt: its capture path does
+            // BeginListManipulation/EnterCriticalSection(pArea->field_1FC)/
+            // Sleep(100)/EnterCriticalSection(m_pEngineWorld->field_106)/
+            // SaveScreen() -- the same render-thread-adjacent shape that
+            // needed the explicit Deny-lock release/reacquire around
+            // LoadArea() above, and BeginListManipulation is the same
+            // primitive WaitForEngine's m_ListManipulationThreadId check
+            // already guards elsewhere in this file. Wrapping the call the
+            // same way (release this sprite's own outer Deny lock before,
+            // reacquire after) fixed it the same way it fixed LoadArea.
+            pGame->SaveGame(1, 0, 1);
+
+            if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                && !g_pChitin->cVideo.Is3dAccelerated()) {
+                pGame->m_bSaveScreen = 1;
+                pGame->field_50DC = 0;
+                if (!pGame->field_50D8) {
+                    pGame->GetObjectArray()->ReleaseDeny(m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    pGame->SynchronousUpdate();
+                    CGameObject* pSelfObj = NULL;
+                    BYTE rcSelf = pGame->GetObjectArray()->GetDeny(m_id, CGameObjectArray::THREAD_ASYNCH, &pSelfObj, INFINITE);
+                    if (rcSelf != CGameObjectArray::SUCCESS) {
+                        UTIL_ASSERT(FALSE);
+                    }
+                }
+                // Re-arm for the copy-into-savedir pass: the capture call
+                // above (if it ran) already reset m_bSaveScreen=0 and set
+                // field_50D8=TRUE as part of its own completion.
+                pGame->m_bSaveScreen = 1;
+                pGame->field_50DC = 0;
+            }
         }
 
         g_pChitin->cSoundMixer.UpdateSoundList();
