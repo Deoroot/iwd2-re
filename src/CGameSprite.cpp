@@ -10936,7 +10936,7 @@ void CGameSprite::DisplayTextRef(STRREF nameRef, STRREF textRef, COLORREF nameCo
     STR_RES strResText;
     CString name;
 
-    if (nameRef >= -7 && nameRef != -1) {
+    if (nameRef >= -7 && nameRef <= -2) {
         LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetCharacterSlot(-2 - nameRef);
 
         CGameSprite* pSprite;
@@ -17027,7 +17027,7 @@ void CGameSprite::FeedBack(WORD nFeedBackId, LONG a3, LONG a4, LONG a5, LONG a6,
 
             CString sName;
             STR_RES strRes2;
-            if (a6 >= -7 && a6 != -1) {
+            if (a6 >= -7 && a6 <= -2) {
                 LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetCharacterSlot(-2 - a6);
 
                 CGameSprite* pSprite;

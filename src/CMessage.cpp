@@ -7464,7 +7464,7 @@ void CMessageDisplayTextRef::Run()
     BYTE rc;
     CGameSprite* pSprite;
 
-    if (m_name >= -7 && m_name != -1) {
+    if (m_name >= -7 && m_name <= -2) {
         LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetCharacterSlot(-2 - m_name);
 
         do {
@@ -13577,7 +13577,7 @@ void CMessageDisplayTextRefSend::Run()
     BYTE rc;
     CGameSprite* pSprite;
 
-    if (m_name >= -7 && m_name != -1) {
+    if (m_name >= -7 && m_name <= -2) {
         LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetCharacterSlot(-2 - m_name);
 
         do {
