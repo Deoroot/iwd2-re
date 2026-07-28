@@ -664,6 +664,7 @@ public:
     BOOL RollToHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, BOOL* pCritical, int nSpecialAttackFlag, BYTE nAttackNumber);
     CGameEffectDamage* ResolveDamage(CItem* pWeapon, CItem* pOffHandWeapon, INT nAbility, BOOL bCritical, CAIObjectType targetTypeAI,
         SHORT nAttackerDirection, SHORT nTargetDirection, CGameSprite* pTarget, BOOL bIsMainHandAttack);
+    SHORT ResolveAttack(CGameSprite* pTarget);
     SHORT MoveToPoint();
     SHORT MoveToObject(CGameObject* pTarget);
     SHORT UseContainer();

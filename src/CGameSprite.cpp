@@ -15548,9 +15548,8 @@ void CGameSprite::sub_737990()
 // (gone, flying off the front vert list, invisible, sanctuaried, or dead --
 // the dead case retargets the nearest same-type enemy instead), resolves the
 // current weapon's ability, flags ammo-out/charge-depleted weapons, then
-// checks range/LOS -- an in-range hit should finalize via 0x739B60 (the real
-// to-hit/damage resolver, its own ~1160-line arc, not yet recovered) or
-// otherwise move closer first. See the HACK comment below for the exact gap.
+// checks range/LOS -- an in-range hit finalizes via ResolveAttack (0x739B60,
+// the real to-hit/damage resolver) or otherwise moves closer first.
 SHORT CGameSprite::Attack(CGameSprite* pTarget)
 {
     if (pTarget == NULL) {
@@ -15749,14 +15748,8 @@ SHORT CGameSprite::Attack(CGameSprite* pTarget)
                 m_attackFrame = -1;
             }
 
-            // HACK: the actual to-hit/damage resolution (0x739B60, ~1160
-            // decompile lines, 51 callees -- projectile decode, THAC0/feat
-            // checks, the attack roll itself) is not yet recovered as its
-            // own sizable arc. Range/LOS gating above is faithful; an
-            // in-range attack is acknowledged here but does not yet land.
-            // Replaces 0x739B60.
             m_lastActionID = CAIAction::ATTACK;
-            return ACTION_INTERRUPTABLE;
+            return ResolveAttack(pTarget);
         }
     }
 
@@ -18317,6 +18310,538 @@ SHORT CGameSprite::GetTwoWeaponPenalty(BOOL bMainHand)
     return nPenalty;
 }
 
+// 0x739B60
+//
+// The per-attack-frame state machine CGameSprite::Attack calls once range/
+// LOS is confirmed. Re-entered once per tick while m_attackFrame advances
+// through the current weapon's swing/reload animation; the animation
+// type's own CGameAnimation::GetAttackFrameType classifier buckets the
+// current frame into: 0 = idle-transition check, 6/7 = draw-back/loose
+// (queues the shoot/attack sequence), 9 = the hit-resolution frame for the
+// FIRST attack this round, default (frameType > 9) = the same resolution
+// for a subsequent attack in a multi-attack round (frameType - 9 is the
+// attack index), 0xF = windup complete. Selects the weapon (and, for a
+// ranged weapon, its launcher) exactly like CGameSprite::ResolveDamage's
+// own bMainHandRealWeapon check, and on m_attackFrame == -1 (a fresh
+// attack, matching the -2 -> -1 bump CGameSprite::Attack does right
+// before calling this) reseeds m_speedFactor from the ability's own speed
+// factor plus monk/luck/feat adjustments and decodes a fresh projectile if
+// the weapon is a launcher. On the hit-resolution frame(s): rolls to hit,
+// resolves damage, fires/updates the CProjectile message, applies every
+// CGameEffect::m_targetType-dispatched ability effect on both the weapon
+// and (if ranged) its launcher -- the exact same case 1-8 dispatch already
+// established in CGameSprite::ApplyCastingEffect, except case 2 here is
+// reachable (a target-directed CMessageAddEffect) and case 7 reads
+// pTarget's own GetAIType().m_nSpecific rather than the caster's -- then
+// consumes one charge and refreshes the quick-attack button.
+//
+// DEFERRED (raw FUN_ tokens too large for this pass -- each is its own
+// arc): FUN_0071F860 (a second, launcher-ability-effect applicator run
+// after a live-projectile hit); FUN_0075D450 (393 decompile lines -- the
+// ammo/charge-depletion handler that can force ACTION_ERROR and unequip
+// the weapon); FUN_00761AB0 (a melee-only hit VFX helper, driven by
+// IcewindCGameEffects::BuildSubSpellEffects); FUN_006F50A0 (sets a script
+// variable via CInfGame::GetVariables the first time pTarget is hit by an
+// attacker below a level cutoff -- a "first hit" trigger); FUN_007FB089 (a
+// generic safe-release helper that conditionally nulls m_curProjectile
+// after firing). Also deferred: the two CAITrigger-based
+// CMessageSetTrigger notifications built from local scratch fields deep in
+// the case 9 / default hit-confirmation branches -- the binary clearly
+// pre-builds two CAITrigger locals from m_typeAI (CAITRIGGER_ATTACKEDBY
+// and CAITRIGGER_HITBY) at function entry for this, but which of the two
+// feeds which branch could not be pinned down from the decompile alone.
+// None of these gate the core to-hit/damage/message-queue path.
+//
+// SIMPLIFICATION, called out explicitly rather than left silent: case 9
+// (the true first-attack hit-resolution frame) and the >9 "default" case
+// (a subsequent attack in a multi-attack round) are two SEPARATE, only
+// mostly-parallel bodies in the binary -- this recovery merges them into
+// one shared block via fallthrough once the attack-index bookkeeping is
+// done, which reproduces the core RollToHit/ResolveDamage/effect-dispatch
+// path faithfully but drops two case-9-only details the merge couldn't
+// preserve: (1) a second, m_startTypeAI-tagged CAIObjectType::Set call
+// into an effect-template buffer inside case 9's own ranged sub-branch
+// (apuStack_48, distinct from the CMessageSetLastAttacker built earlier),
+// purpose not confirmed; (2) a second CProjectile::DecodeProjectile call
+// at the tail of case 9's ranged sub-branch that reassigns m_curProjectile
+// again after firing. Both are narrow, case-9-only wrinkles on top of the
+// otherwise-shared logic -- flagged for a future dedicated pass rather
+// than guessed at here.
+SHORT CGameSprite::ResolveAttack(CGameSprite* pTarget)
+{
+    // Select the weapon ability to resolve with, exactly mirroring
+    // CGameSprite::ResolveDamage's own bMainHandRealWeapon check.
+    SHORT nSelectedWeapon = m_equipment.m_selectedWeapon;
+    SHORT nSelectedAbility = m_equipment.m_selectedWeaponAbility;
+    if (field_5632 != 0
+        && m_equipment.m_selectedWeapon != CGameSpriteEquipment::SLOT_FIST
+        && m_equipment.m_items[GetWeaponSlot() & 0xff] != NULL) {
+        SHORT nMainSlotType = m_equipment.m_items[GetWeaponSlot() & 0xff]->GetItemType();
+        if (nMainSlotType != 0x35 && nMainSlotType != 0x2f && nMainSlotType != 0x31 && nMainSlotType != 0x29) {
+            nSelectedWeapon = static_cast<SHORT>(GetWeaponSlot());
+            nSelectedAbility = 0;
+        }
+    }
+
+    CItem* pWeapon = m_equipment.m_items[nSelectedWeapon];
+    BOOL bNeedRelease = TRUE;
+    const ITEM_ABILITY* ability;
+    if (pWeapon == NULL) {
+        EquipMostDamagingMelee();
+        pWeapon = m_equipment.m_items[CGameSpriteEquipment::SLOT_FIST];
+        UTIL_ASSERT(pWeapon != NULL);
+        pWeapon->Demand();
+        ability = pWeapon->GetAbility(0);
+        nSelectedAbility = 0;
+    } else {
+        pWeapon->Demand();
+        ability = pWeapon->GetAbility(nSelectedAbility);
+    }
+
+    m_cGameStats.RecordWeaponUse(pWeapon->cResRef);
+
+    static const ITEM_ABILITY s_emptyAbility = {};
+    if (ability == NULL) {
+        ability = &s_emptyAbility;
+    }
+
+    if (ability->type == 4) {
+        // Ammo-out launcher: bail without touching the animation state.
+        pWeapon->Release();
+        return ACTION_ERROR;
+    }
+
+    CItem* pLauncher = NULL;
+    const ITEM_ABILITY* launcherAbility = NULL;
+    SHORT launcherSlot;
+    if (ability->type == 2) {
+        pLauncher = GetLauncher(ability, launcherSlot);
+        if (pLauncher != NULL) {
+            pLauncher->Demand();
+            launcherAbility = pLauncher->GetAbility(0);
+        }
+    }
+
+    if (pTarget != NULL) {
+        CPoint targetPos = pTarget->GetPos();
+        SHORT nNewDirection = GetDirection(targetPos);
+        if (m_nDirection != nNewDirection) {
+            CMessage* message = new CMessageSetDirection(targetPos, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        }
+    }
+
+    // Fresh attack: reseed the speed factor and, for a launcher, decode a
+    // new projectile.
+    if (m_attackFrame == -1) {
+        m_attackFrame = 0;
+        m_speedFactor = static_cast<SHORT>(static_cast<BYTE>(ability->speedFactor));
+
+        CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+        // #guess -- unnamed CDerivedStats table entry, byte offset 0x318
+        // (falls inside m_cBounceSpellLevel's own internal layout; no
+        // named field exists for it in this codebase yet).
+        SHORT nSpeedTableValue = *reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(&stats) + 0x318);
+        SHORT nAfterTable = static_cast<SHORT>(m_speedFactor - nSpeedTableValue);
+        m_speedFactor = (nAfterTable < 0) ? 0 : nAfterTable;
+        m_speedFactor = static_cast<SHORT>(m_speedFactor + CUtil::UtilRandInt(6, -stats.m_nLuck));
+        m_speedFactor -= 3; // DAT_0085bba3 >> 1, DAT_0085bba3 == 6
+        if (m_typeAI.m_nClassMask & 0x20) { // bit 5 = Monk (class id 6, 1-indexed, matches CDerivedStats::GetClassLevel's own indexing)
+            LONG nMonkLevel = m_derivedStats.GetClassLevel(6 /*#guess -- Monk*/);
+            if (nMonkLevel > 7) {
+                m_speedFactor -= 1;
+            }
+            if (nMonkLevel > 0xb) {
+                m_speedFactor -= 1;
+            }
+        }
+        if (HasFeat(0x20)) {
+            m_speedFactor -= 1;
+        }
+        if (m_speedFactor < 0) {
+            m_speedFactor = 0;
+        } else if (m_speedFactor > 10) {
+            m_speedFactor = 10;
+        }
+
+        field_5630 = 0;
+        field_7118 = 0;
+        field_5632 = 0;
+
+        if (ability->type == 2) {
+            if (m_curProjectile != NULL) {
+                delete m_curProjectile;
+                m_curProjectile = NULL;
+            }
+            CWeaponIdentification weaponId;
+            pWeapon->LoadWeaponIdentification(weaponId);
+            m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
+        }
+    }
+
+    BYTE frameType = 0;
+    if (m_derivedStats.m_nNumberOfAttacks > 0) {
+        frameType = m_animation.GetAttackFrameType(
+            static_cast<BYTE>(m_derivedStats.m_nNumberOfAttacks),
+            static_cast<BYTE>(m_speedFactor),
+            static_cast<BYTE>(m_attackFrame));
+    }
+
+    SHORT nResult = ACTION_NORMAL;
+    switch (frameType) {
+    case 0:
+        field_7118 = 0;
+        if (m_nSequence != GetIdleSequence() && m_nSequence != 0x1108 /*#guess DAT_0085bbba -- raw sequence constant, could not be named confidently*/
+            && m_nSequence != 0x0100 /*#guess DAT_0085bbb0 -- raw sequence constant, could not be named confidently*/) {
+            CMessage* message = new CMessageSetSequence(static_cast<BYTE>(GetIdleSequence()), m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        }
+        nResult = ACTION_INTERRUPTABLE;
+        break;
+
+    default:
+    {
+        BYTE nAttackNumber = static_cast<BYTE>(frameType - 9);
+        field_5636 = nAttackNumber;
+        UTIL_ASSERT(m_derivedStats.m_nNumberOfAttacks >= static_cast<SHORT>(nAttackNumber));
+
+        LONG nAttackIndex = frameType - 9;
+        if (nAttackIndex >= 1) {
+            LONG nNumAttacks = m_derivedStats.m_nNumberOfAttacks;
+            if (nNumAttacks < 6) {
+                if (nNumAttacks < nAttackIndex) {
+                    field_7118 = 0;
+                    field_5630 = 0;
+                    field_5632 = 0;
+                } else {
+                    field_7118 = 1;
+                    field_5630 = 1;
+                    if (nAttackIndex == nNumAttacks) {
+                        field_5632 = 1;
+                    }
+                }
+            } else {
+                if (nNumAttacks - 5 <= nAttackIndex) {
+                    field_7118 = 0;
+                    field_5630 = 0;
+                    field_5632 = 0;
+                } else {
+                    field_7118 = 1;
+                    field_5630 = 1;
+                    if (nAttackIndex == nNumAttacks - 6) {
+                        field_5632 = 1;
+                    }
+                }
+            }
+
+            if (ability->type == 2) {
+                if (m_nSequence != 0x1108 /*#guess DAT_0085bbba*/ && field_5630 != 0) {
+                    CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    // DEFERRED: the binary also stamps either
+                    // m_animation.m_animation+0x1cde or +0x34f8 with
+                    // m_attackFrame here depending on the animation
+                    // sub-type -- an animation-internal bookkeeping field
+                    // this pass does not have a name for.
+                }
+                break;
+            }
+
+            if (m_nSequence != 0x0100 /*#guess DAT_0085bbb0*/) {
+                CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            }
+            break;
+        }
+
+        // nAttackIndex == 0: fall through to the same hit-resolution logic
+        // as case 9 below (this is a subsequent attack in the round).
+    }
+    // fallthrough intentional -- see case 9 comment
+    case 9:
+    {
+        nResult = ACTION_NORMAL;
+        field_5636 = static_cast<BYTE>(frameType == 9 ? 0 : frameType - 9);
+
+        CMessage* pAttackerMsg = new CMessageSetLastAttacker(
+            frameType == 9 ? m_startTypeAI : m_typeAI, m_id, pTarget->m_id);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pAttackerMsg, FALSE);
+
+        if (frameType == 9) {
+            CheckInvisibility(0);
+            // DEFERRED: two CGameEffect::DecodeEffect + CMessageAddEffect
+            // queues here (opcodes 0x88 and 0xA0, the latter gated on
+            // m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL]) --
+            // narrow, self-targeted engine effects not yet named.
+            if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL]) {
+                CGameEffect* pRemoveEffect = IcewindMisc::CreateEffectRemoveAllOfType(this, 0x1be, 0);
+                CMessage* pRemoveMsg = new CMessageAddEffect(pRemoveEffect, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pRemoveMsg, FALSE);
+            }
+        }
+
+        BOOL bHitLanded = FALSE;
+        SHORT nAbilityIndex = nSelectedAbility;
+        BOOL bCritical = FALSE;
+
+        if (ability->type == 2) {
+            if (m_curProjectile == NULL) {
+                m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
+                CWeaponIdentification weaponIdOuter;
+                pWeapon->LoadWeaponIdentification(weaponIdOuter);
+                if (m_curProjectile != NULL && field_5630 != 0) {
+                    bHitLanded = RollToHit(pTarget, pWeapon, nAbilityIndex, &bCritical, field_5632, field_5636);
+                    if (!bHitLanded) {
+                        m_curProjectile->ClearEffects();
+                    } else {
+                        CWeaponIdentification weaponId;
+                        pWeapon->LoadWeaponIdentification(weaponId);
+                        if ((!pTarget->GetAIType().IsClassValid(6 /*#guess Monk*/)
+                                || m_derivedStats.GetClassLevel(6) < 0x14
+                                || (weaponId.m_itemFlags & 0x40))
+                            && !pTarget->m_derivedStats.m_cImmunitiesWeapon.OnList(weaponId)) {
+                            SHORT nAttackerDir = pTarget->m_nDirection;
+                            SHORT nBearingToTarget = GetDirection(pTarget->GetPos());
+                            CGameEffectDamage* pDamage = ResolveDamage(pWeapon, pLauncher, nAbilityIndex, bCritical,
+                                pTarget->m_typeAI, nAttackerDir, nBearingToTarget, pTarget, field_5632);
+                            m_curProjectile->AddEffect(pDamage);
+                            // DEFERRED: FUN_0071F860(m_curProjectile, pWeapon, ability index, target dir)
+                        } else {
+                            FeedBack(0x25, 0, 0, 0, -1, 0, 0);
+                            m_curProjectile->ClearEffects();
+                        }
+                    }
+
+                    CMessage* pFireMsg = new CMessageFireProjectile(
+                        m_curProjectile->m_projectileType, pTarget->m_id, pTarget->GetPos(),
+                        m_curProjectile->DetermineHeight(this), m_id, pTarget->m_id, 0);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pFireMsg, FALSE);
+
+                    m_curProjectile->Fire(m_pArea, m_id, pTarget->m_id, pTarget->GetPos(),
+                        m_curProjectile->DetermineHeight(this), 6 /*#guess DAT_0084d5e8*/);
+
+                    // DEFERRED: FUN_007FB089-driven conditional
+                    // m_curProjectile = NULL after Fire().
+                }
+            } else if (field_5630 != 0) {
+                bHitLanded = RollToHit(pTarget, pWeapon, nAbilityIndex, &bCritical, field_5632, field_5636);
+                if (!bHitLanded) {
+                    m_curProjectile->ClearEffects();
+                } else {
+                    CWeaponIdentification weaponId;
+                    pWeapon->LoadWeaponIdentification(weaponId);
+                    if ((!pTarget->GetAIType().IsClassValid(6 /*#guess Monk*/)
+                            || m_derivedStats.GetClassLevel(6) < 0x14
+                            || (weaponId.m_itemFlags & 0x40))
+                        && !pTarget->m_derivedStats.m_cImmunitiesWeapon.OnList(weaponId)) {
+                        SHORT nAttackerDir = pTarget->m_nDirection;
+                        SHORT nBearingToTarget = GetDirection(pTarget->GetPos());
+                        CGameEffectDamage* pDamage = ResolveDamage(pWeapon, pLauncher, nAbilityIndex, bCritical,
+                            pTarget->m_typeAI, nAttackerDir, nBearingToTarget, pTarget, field_5632);
+                        m_curProjectile->AddEffect(pDamage);
+                        // DEFERRED: FUN_0071F860(m_curProjectile, pWeapon, ability index, target dir)
+                    } else {
+                        FeedBack(0x25, 0, 0, 0, -1, 0, 0);
+                        m_curProjectile->ClearEffects();
+                    }
+                }
+
+                CMessage* pFireMsg = new CMessageFireProjectile(
+                    m_curProjectile->m_projectileType, pTarget->m_id, pTarget->GetPos(),
+                    m_curProjectile->DetermineHeight(this), m_id, pTarget->m_id, 0);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pFireMsg, FALSE);
+            }
+        } else if (field_5630 != 0) {
+            // Melee / instant (non-launcher) resolution.
+            bHitLanded = RollToHit(pTarget, pWeapon, nAbilityIndex, &bCritical, field_5632, field_5636);
+            if (bHitLanded) {
+                // DEFERRED: the CAITrigger-based CMessageSetTrigger AI
+                // notification (CAITRIGGER_ATTACKEDBY or _HITBY, built
+                // from m_typeAI at function entry) is queued here in the
+                // binary -- see the top-of-function comment.
+
+                CWeaponIdentification weaponId;
+                pWeapon->LoadWeaponIdentification(weaponId);
+                SHORT nAttackerDir = pTarget->m_nDirection;
+                SHORT nBearingToTarget = GetDirection(pTarget->GetPos());
+                CGameEffectDamage* pDamage = ResolveDamage(pWeapon, pLauncher, nAbilityIndex, bCritical,
+                    pTarget->m_typeAI, nAttackerDir, nBearingToTarget, pTarget, field_5632);
+                CMessage* pDamageMsg = new CMessageAddEffect(pDamage, m_id, pTarget->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pDamageMsg, FALSE);
+
+                for (LONG i = 0; i < ability->effectCount; ++i) {
+                    CGameEffect* pEffect = pWeapon->GetAbilityEffect(nAbilityIndex, i, this);
+                    pEffect->m_source = m_pos;
+                    pEffect->m_sourceID = m_id;
+                    pEffect->m_target = pTarget->m_pos;
+                    IcewindMisc::ApplyDamageModifiers(this, pEffect);
+                    switch (pEffect->m_targetType) {
+                    case 1: {
+                        CMessage* m = new CMessageAddEffect(pEffect, m_id, m_id);
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(m, FALSE);
+                        continue;
+                    }
+                    case 2: {
+                        CMessage* m = new CMessageAddEffect(pEffect, m_id, pTarget->m_id);
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(m, FALSE);
+                        continue;
+                    }
+                    case 3:
+                        ApplyEffectToParty(pEffect);
+                        break;
+                    case 4:
+                        m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, NULL);
+                        break;
+                    case 5:
+                        m_pArea->ApplyEffect(pEffect, TRUE, FALSE, 0, NULL);
+                        break;
+                    case 6:
+                        m_pArea->ApplyEffect(pEffect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
+                        break;
+                    case 7:
+                        m_pArea->ApplyEffect(pEffect, FALSE, TRUE, pTarget->GetAIType().m_nSpecific, NULL);
+                        break;
+                    case 8:
+                        m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, this);
+                        break;
+                    default:
+                        break;
+                    }
+                    delete pEffect;
+                }
+
+                if (pLauncher != NULL && launcherAbility != NULL) {
+                    for (LONG i = 0; i < launcherAbility->effectCount; ++i) {
+                        CGameEffect* pEffect = pLauncher->GetAbilityEffect(0, i, this);
+                        pEffect->m_source = m_pos;
+                        pEffect->m_sourceID = m_id;
+                        pEffect->m_target = pTarget->m_pos;
+                        IcewindMisc::ApplyDamageModifiers(this, pEffect);
+                        switch (pEffect->m_targetType) {
+                        case 1: {
+                            CMessage* m = new CMessageAddEffect(pEffect, m_id, m_id);
+                            g_pBaldurChitin->GetMessageHandler()->AddMessage(m, FALSE);
+                            continue;
+                        }
+                        case 2:
+                            m_curProjectile->AddEffect(pEffect);
+                            break;
+                        case 3:
+                            ApplyEffectToParty(pEffect);
+                            break;
+                        case 4:
+                            m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, NULL);
+                            break;
+                        case 5:
+                            m_pArea->ApplyEffect(pEffect, TRUE, FALSE, 0, NULL);
+                            break;
+                        case 6:
+                            m_pArea->ApplyEffect(pEffect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
+                            break;
+                        case 7:
+                            m_pArea->ApplyEffect(pEffect, FALSE, TRUE, pTarget->GetAIType().m_nSpecific, NULL);
+                            break;
+                        case 8:
+                            m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, this);
+                            break;
+                        default:
+                            break;
+                        }
+                        delete pEffect;
+                    }
+                }
+
+                if (ability->type == 1) {
+                    // DEFERRED: FUN_00761AB0(this) -- melee hit VFX helper.
+                }
+            }
+        }
+
+        if (field_5630 != 0 && ability->maxUsageCount != 0
+            && (ability->type != 1 || bHitLanded)) {
+            WORD nUsage = pWeapon->GetUsageCount(nAbilityIndex);
+            pWeapon->SetUsageCount(nAbilityIndex, nUsage - 1);
+        }
+
+        if (field_5630 != 0 && ability->maxUsageCount != 0) {
+            CAbilityId buttonAbility;
+            buttonAbility.m_itemType = 2;
+            buttonAbility.m_itemNum = nSelectedWeapon;
+            buttonAbility.m_abilityNum = nSelectedAbility;
+            UpdateQuickButtons(buttonAbility, -1, FALSE, FALSE);
+        }
+
+        if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL]) {
+            CGameEffect* pRemoveEffect = IcewindMisc::CreateEffectRemoveAllOfType(this, 0x1be, 0);
+            CMessage* pRemoveMsg = new CMessageAddEffect(pRemoveEffect, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pRemoveMsg, FALSE);
+        }
+
+        bNeedRelease = FALSE;
+        pWeapon->Release();
+
+        // DEFERRED: FUN_0075D450(nSelectedWeapon, nSelectedAbility) -- the
+        // ammo/charge-depletion handler. When it reports depletion the
+        // binary calls AutoPause(1) and returns ACTION_ERROR instead of
+        // the CMessageSetTrigger built below.
+        nResult = ACTION_NORMAL;
+
+        // DEFERRED: the second CAITrigger-based CMessageSetTrigger AI
+        // notification (see the top-of-function comment).
+        break;
+    }
+
+    case 6:
+        if (ability->type != 2) {
+            if (m_nSequence != 0x0100 /*#guess DAT_0085bbb0*/) {
+                CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            }
+        }
+        break;
+
+    case 7:
+        field_7118 = 1;
+        if (ability->type == 2) {
+            if (m_nSequence != 0x1108 /*#guess DAT_0085bbba*/ && field_5630 != 0) {
+                CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            }
+        } else if (m_nSequence != 0x0100 /*#guess DAT_0085bbb0*/) {
+            CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        }
+        break;
+
+    case 8:
+        field_7118 = 0;
+        break;
+
+    case 0xf:
+        field_7118 = 0;
+        if (m_nSequence != GetIdleSequence() && m_nSequence != 0x1108 /*#guess DAT_0085bbba*/
+            && m_nSequence != 0x0100 /*#guess DAT_0085bbb0*/) {
+            CMessage* message = new CMessageSetSequence(static_cast<BYTE>(GetIdleSequence()), m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        }
+        if (ability->type == 2 && m_curProjectile != NULL) {
+            delete m_curProjectile;
+            m_curProjectile = NULL;
+        }
+        m_attackFrame = -2;
+        break;
+    }
+
+    if (pLauncher != NULL) {
+        pLauncher->Release();
+    }
+    if (bNeedRelease) {
+        pWeapon->Release();
+    }
+
+    return nResult;
+}
+
 // 0x73B760
 //
 // The attack roll: THAC0 (or touch AC for touch-attack abilities) vs. a
@@ -18656,7 +19181,7 @@ BOOL CGameSprite::RollToHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, 
 // Stunning Blow/Quivering Palm monk specials (or, for a real weapon, Poison
 // Coat) are applied directly to pTarget as their own CGameEffects. The
 // returned CGameEffectDamage carries the final amount/flags for
-// FUN_00739B60 (its own unrecovered arc) to apply to pTarget.
+// CGameSprite::ResolveAttack to apply to pTarget.
 //
 // DEFERRED: the weapon-type-vs-something bonus table (0x73CD00 and its four
 // shared sub-helpers FUN_007E8BF2/FUN_007E93AB/FUN_007E93D9/FUN_007EA8C0) --
