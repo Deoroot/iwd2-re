@@ -20205,6 +20205,40 @@ SHORT CGameSprite::ExecuteAction()
         SetCurrAction(GetNextAction(m_aiAction));
     }
 
+    // 0x7290DB (jumptable case 0x02). Attack(3) / AttackNoSound(98): resolve the
+    // target sprite and delegate to Attack() for the actual range/gate/damage
+    // resolution -- the real combat entry point this dispatch has been missing.
+    // Two things NOT reproduced, both binary-only and inert without a target:
+    // a profiler-zone timer wrapping the whole case (DAT_008cf6dc+0x1ab6/+0x1af6/
+    // +0x1a76 bookkeeping, pure telemetry, no named fields exist for it); and a
+    // PC-only auto-target-acquisition fallback (0x729123-0x7291af, only reached
+    // when GetCharacterPortraitNum(m_id) != -1 and no target is already queued)
+    // that builds a CAIObjectType enemy-of filter from m_typeAI.GetEnemyOf() and
+    // hands it to the unrecovered FUN_0045c030 -- left NULL here, same as if
+    // that lookup had failed to find anything.
+    if (m_curAction.m_actionID == CAIAction::ATTACK
+        || m_curAction.m_actionID == CAIAction::ATTACKNOSOUND) {
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
+        CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
+
+        // "First hostile encounter with a good-aligned creature" latch: the
+        // first time this sprite attacks something whose GetAIType().m_nEnemyAlly
+        // is EA_GOODCUTOFF or better, set m_baseStats.m_flags bit 0x100000 so
+        // the check doesn't repeat (what else reads this flag is unconfirmed).
+        if (pTarget != NULL && (m_baseStats.m_flags & 0x100000) == 0) {
+            if (pTarget->GetAIType().m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
+                m_baseStats.m_flags |= 0x100000;
+            }
+        }
+
+        SHORT actionReturn = Attack(pTarget);
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        return actionReturn;
+    }
+
     // 0x729A84 (jumptable case 0x19). Spell(31) / SpellNoDec(191).  Spell()
     // is called unconditionally -- a NULL target still runs its prologue
     // (projectile cleanup, aura-cleansing feedback) before its own NULL
