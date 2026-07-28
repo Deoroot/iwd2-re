@@ -3386,9 +3386,7 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
     pSprite->m_nBloodFlashAmount = 0x80;
     pSprite->m_nDamageLocatorTime = 0x80;
 
-    // HACK: the armor hit-thud is unrecovered -- it picks a HIT_0xx variant
-    // from the target's armor animation type -- replaces the call at 0x4A8420
-    // (0x4A8DF0).
+    PlayHitSound(damageType, pSprite);
 
     // On-hit feedback keyed on the damage type: the elemental types pair a
     // fixed cue with the matching flash overlay (which also queues the
@@ -3648,6 +3646,154 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 
     m_done = TRUE;
     return TRUE;
+}
+
+// 0x4A8DF0
+//
+// Picks and plays the armor/weapon "hit-thud" sound for a damage
+// application -- called once per hit from ApplyEffect, right before its own
+// damage-type switch (which only splatters blood / plays an elemental cue
+// for the physical types). No-ops for every damage type that switch already
+// handles explicitly (ACID/COLD/ELECTRICITY/FIRE/MAGIC) -- this covers only
+// CRUSHING/PIERCING/SLASHING plus the two types ApplyEffect's own switch
+// bleeds together with them (MAGICFIRE/MAGICCOLD, sic), plus one more fixed
+// damage type (0x8000000, no IDS name found for it) that always plays a
+// single fixed cue with no randomization.
+//
+// Builds a resref shaped <damage-type prefix><armor/size-tier suffix><digit>
+// (e.g. "PC_MS3"): the target's worn armor (SLOT_ARMOR) supplies an explicit
+// two-character animation-type code if equipped -- a WORD packed as two
+// ASCII chars, confirmed via real disasm (CItem::GetAnimationType()'s
+// returned WORD, low byte 'A' marks "explicit code present", high byte is
+// the tier digit '1'-'4' consumed by a switch). With no explicit code, three
+// fixed animation IDs get a dedicated "bony creature" suffix (#guess -- no
+// IDS mapping exists for them), else the tier comes from the animation
+// type's own GetPersonalSpace() (small/medium/large).
+//
+// DEFERRED: the binary retries the randomly-picked digit (wrapping back to
+// '1' past the branch's own max variant count) if FUN_007E7A54 -- an
+// unnamed "does this resource exist" probe with no recoverable prototype
+// anywhere in this codebase -- reports the file missing. That retry could
+// not be reproduced, so this always keeps the first random digit; a miss
+// just fails CResHelper::SetResRef's own GetResObject call below and leaves
+// the sound silent, same as the binary's own missing-resource path.
+// #guess: the exact variant COUNT per branch (confirmed via disasm to
+// differ, 3/4/5-way depending on damage type and which suffix was picked)
+// is approximated uniformly at 4-way here -- only the prefix/suffix
+// SELECTION logic itself was verified branch-by-branch against real disasm.
+//
+// The two-stage "compare against a cached resref, cancel+reload only if it
+// changed" dance in the tail is CResHelper<CResWave,4>::SetResRef (already
+// implemented, src/CRes.h) inlined by the compiler -- confirmed both via its
+// exact match to that template body (same GetResObject/Request/CancelRequest
+// call shape, same nType==4) and via a live Frida trace against the retail
+// binary: across 5 real hits, the "cached" slots this comparison reads were
+// always exactly zero, because this function always default-constructs a
+// brand-new CSound (whose inherited cResRef starts empty) right before
+// calling it -- the cache branch is real code, but never actually reuses
+// anything in this call site.
+void CGameEffectDamage::PlayHitSound(DWORD damageType, CGameSprite* pTarget)
+{
+    UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
+    USHORT nAnimationID = pTarget->m_animation.m_animation->m_animationID;
+    UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
+    BYTE nPersonalSpace = pTarget->m_animation.m_animation->GetPersonalSpace();
+
+    BOOL bExplicitCode = FALSE;
+    char cExplicitDigit = 0;
+    CItem* pArmor = pTarget->m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR];
+    if (pArmor == NULL) {
+        UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
+        nAnimationID = pTarget->m_animation.m_animation->m_animationID;
+    } else {
+        WORD wArmorAnimType = pArmor->GetAnimationType();
+        if (wArmorAnimType != 0) {
+            bExplicitCode = (static_cast<BYTE>(wArmorAnimType) == 'A');
+            cExplicitDigit = static_cast<char>(wArmorAnimType >> 8);
+        }
+    }
+
+    // #guess: no IDS mapping exists anywhere in this codebase for these
+    // three animation IDs -- skeletons/other bony monsters, going by the
+    // dedicated "BN" (bone) suffix they force below.
+    BOOL bBonyException = (nAnimationID == 0x6403 || nAnimationID == 0xE62C || nAnimationID == 0xF019);
+
+    CString sPrefix;
+    switch (damageType) {
+    case 0x0:       // CRUSHING
+        sPrefix = "BL_";
+        break;
+    case 0x100000:  // PIERCING
+        sPrefix = "PC_";
+        break;
+    case 0x1000000: // SLASHING
+        sPrefix = "SL_";
+        break;
+    case 0x2000000: // MAGICFIRE (sic)
+    case 0x4000000: // MAGICCOLD (sic)
+        sPrefix = "ML_";
+        break;
+    case 0x8000000:
+        {
+            CSound cSound;
+            cSound.SetResRef(CResRef("HIT_03A"), TRUE, TRUE);
+            if (cSound.m_nLooping == 0) {
+                cSound.SetFireForget(TRUE);
+            }
+            cSound.SetChannel(0xE, reinterpret_cast<DWORD>(pTarget->m_pArea));
+            cSound.Play(pTarget->GetPos().x, pTarget->GetPos().y, 0, FALSE);
+
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessagePlaySoundRef(CResRef("HIT_03A"), pTarget->m_id, pTarget->m_id), FALSE);
+        }
+        return;
+    default:
+        // ACID/COLD/ELECTRICITY/FIRE/MAGIC and anything else: ApplyEffect's
+        // own damage-type switch already queues its own cue -- no-op here.
+        return;
+    }
+
+    CString sSuffix;
+    if (bExplicitCode) {
+        switch (cExplicitDigit) {
+        case '1':
+            sSuffix = "CL";
+            break;
+        case '2':
+            sSuffix = "LR";
+            break;
+        case '3':
+            sSuffix = "Ch";
+            break;
+        case '4':
+            sSuffix = "PT";
+            break;
+        default:
+            return;
+        }
+    } else if (bBonyException) {
+        sSuffix = "BN";
+    } else if (nPersonalSpace < 3) {
+        sSuffix = "MS";
+    } else if (nPersonalSpace < 6) {
+        sSuffix = "MM";
+    } else {
+        sSuffix = "ML";
+    }
+
+    CString sResRef = sPrefix + sSuffix;
+    sResRef += static_cast<char>('1' + (rand() % 4));
+
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+        new CMessagePlaySoundRef(CResRef(sResRef), pTarget->m_id, pTarget->m_id), FALSE);
+
+    CSound cSound;
+    cSound.SetResRef(CResRef(sResRef), TRUE, TRUE);
+    cSound.SetChannel(0xE, reinterpret_cast<DWORD>(pTarget->m_pArea));
+    if (cSound.m_nLooping == 0) {
+        cSound.SetFireForget(TRUE);
+    }
+    cSound.Play(pTarget->GetPos().x, pTarget->GetPos().y, 0, FALSE);
 }
 
 // -----------------------------------------------------------------------------

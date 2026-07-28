@@ -456,6 +456,7 @@ public:
     void DisplayString(CGameSprite* pSprite) override;
 
     void WakeOnDamage(CGameSprite* pSprite);
+    void PlayHitSound(DWORD damageType, CGameSprite* pTarget);
 };
 
 class CGameEffectDeath : public CGameEffect {
