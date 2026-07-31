@@ -193,21 +193,49 @@ def cmd_disasm(addr, count=24):
             break
 
 
-def cmd_findptr(value):
+def find_pointers(value, limit=65):
+    """Every location holding *value* as a little-endian dword, as (va, section)."""
     pat = struct.pack("<I", value)
-    hits = 0
+    hits = []
     for sec in pe().sections:
         name = sec.Name.rstrip(b"\0").decode("latin-1")
         data = sec.get_data()
         base = image_base() + sec.VirtualAddress
         off = data.find(pat)
         while off != -1:
-            print(f"0x{base + off:08x}  {name}{annot(value)}")
-            hits += 1
-            if hits > 64:
-                print("... (>64 hits, stopping)")
-                return
+            hits.append((base + off, name))
+            if len(hits) >= limit:
+                return hits
             off = data.find(pat, off + 4)
+    return hits
+
+
+def find_callsites(target):
+    """Every `.text` E8 rel32 call whose destination is *target*."""
+    sites = []
+    for sec in pe().sections:
+        if not sec.Name.startswith(b".text"):
+            continue
+        data = sec.get_data()
+        base = image_base() + sec.VirtualAddress
+        off = data.find(b"\xe8")
+        while off != -1:
+            if off + 5 <= len(data):
+                (rel,) = struct.unpack_from("<i", data, off + 1)
+                site = base + off
+                if (site + 5 + rel) & 0xFFFFFFFF == target:
+                    sites.append(site)
+            off = data.find(b"\xe8", off + 1)
+    return sites
+
+
+def cmd_findptr(value):
+    hits = find_pointers(value)
+    for va, name in hits[:64]:
+        print(f"0x{va:08x}  {name}{annot(value)}")
+    if len(hits) > 64:
+        print("... (>64 hits, stopping)")
+        return
     if not hits:
         print("no hit")
         sys.exit(1)
@@ -239,25 +267,12 @@ def cmd_scan(hexbytes, sect=b".text"):
 
 
 def cmd_callsites(target):
-    for sec in pe().sections:
-        if not sec.Name.startswith(b".text"):
-            continue
-        data = sec.get_data()
-        base = image_base() + sec.VirtualAddress
-        hits = 0
-        off = data.find(b"\xe8")
-        while off != -1:
-            if off + 5 <= len(data):
-                (rel,) = struct.unpack_from("<i", data, off + 1)
-                site = base + off
-                if (site + 5 + rel) & 0xFFFFFFFF == target:
-                    nm = addr2name(site) or "?"
-                    print(f"0x{site:08x}  {nm}")
-                    hits += 1
-            off = data.find(b"\xe8", off + 1)
-        if not hits:
-            print("no call site")
-            sys.exit(1)
+    sites = find_callsites(target)
+    for site in sites:
+        print(f"0x{site:08x}  {addr2name(site) or '?'}")
+    if not sites:
+        print("no call site")
+        sys.exit(1)
 
 
 def cmd_vtable(addr, slots=16):
