@@ -145,6 +145,21 @@ base already returns the same value, declaring the override changes nothing;
 where it does not, this is a silent behaviour change. Check the base before
 dismissing.
 
+### E + F — **DONE, `13dc1654`.** (24 overrides declared, audit 50 → 26)
+
+> Every MISSING already meant the derived slot *differs* from the base, so none
+> were cosmetic. Six of the E stubs are outright inversions (`GetPathSmooth`
+> ×3 FALSE→TRUE, `IsFalseColor` TRUE→FALSE, `CheckSystemKeyCtrl` and
+> `CheckMouseRButton` on CScreenStart FALSE→TRUE); eight are empty-over-empty,
+> inert but structurally real.
+>
+> All 8 F targets were functions already recovered under whichever class the
+> linker folded them onto. Recovering `GetCurrentSequenceAndFrame` exposed a
+> pre-existing family bug: 0x6C2D70 writes *through* both parameters, but the
+> base and all four existing overrides took them **by value**, so every
+> assignment was discarded and no caller ever got a sequence or frame. Fixed to
+> `SHORT&` across 10 sites.
+
 ### F. Undeclared real override — 14.
 
 Same as E but the target is real code, so declaring it is a genuine recovery:
