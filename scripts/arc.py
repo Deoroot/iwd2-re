@@ -1235,7 +1235,10 @@ HOOK_BLOCK = f"""
 #                git commit --no-verify      (skips everything, including the graph)
 [ -n "$ARC_SKIP" ] && exit 0
 _arc="$(git rev-parse --show-toplevel)/scripts/hooks/pre-commit-arc"
-[ -x "$_arc" ] && exec "$_arc"
+# Run through sh rather than exec'ing the file: this repo has core.fileMode
+# false, so a lost exec bit would turn the gate into a silent no-op. Missing
+# file (fresh clone, bisect into old history) still degrades to a no-op.
+[ -f "$_arc" ] && exec sh "$_arc"
 exit 0
 """
 
