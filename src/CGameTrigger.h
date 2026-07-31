@@ -14,6 +14,7 @@ public:
     /* 0000 */ ~CGameTrigger() override;
     /* 000C */ void AIUpdate() override;
     /* 001C */ CPoint& GetPos() override;
+    /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
     /* 0030 */ void DebugDump(const CString& message, BOOLEAN bEchoToScreen) override;
     /* 0034 */ BOOL IsOver(const CPoint& pt) override;

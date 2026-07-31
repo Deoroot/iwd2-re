@@ -419,6 +419,13 @@ BOOLEAN CGameTrigger::DoAIUpdate(BOOLEAN active, LONG counter)
     return CResRef(m_scriptRes) != CResRef();
 }
 
+// 0x47C830
+BOOLEAN CGameTrigger::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
+}
+
 // 0x4CE180
 BOOLEAN CGameTrigger::CompressTime(DWORD deltaTime)
 {

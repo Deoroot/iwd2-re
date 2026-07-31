@@ -248,8 +248,17 @@ def audit(img, classes, amap, allad, only=None, quiet=False):
         blen = 0
         if base and base in classes:
             vbbase, _ = find_vtable(img, base, classes, amap)
+            # A base that resolves to the DERIVED class's own table means the
+            # base lookup failed -- typically a base whose only anchor is a
+            # method the derived class inherits verbatim, so both tables match
+            # it. Comparing against it makes every slot look "== base" and
+            # reports the whole class as SPURIOUS. Refuse the comparison
+            # instead: no base means MISSING/WRONGADDR still work, and the
+            # bogus SPURIOUS wave disappears.
+            if vbbase == vbase:
+                vbbase = None
             if vbbase is not None:
-                blen = vtable_len(img, vbbase)
+                blen = vtable_len(img, vbbase, next_base=next_base_after(vbbase))
 
         for off in range(0, min(vlen, maxslot + 4), 4):
             a = img.d32(vbase + off)

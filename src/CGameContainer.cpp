@@ -311,6 +311,13 @@ void CGameContainer::AIUpdate()
     ProcessAI();
 }
 
+// 0x47C830
+BOOLEAN CGameContainer::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
+}
+
 // 0x47E040
 void CGameContainer::DebugDump(const CString& message, BOOLEAN bEchoToScreen)
 {

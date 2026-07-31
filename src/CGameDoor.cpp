@@ -348,6 +348,13 @@ void CGameDoor::AIUpdate()
     }
 }
 
+// 0x47C830
+BOOLEAN CGameDoor::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
+}
+
 // 0x4876E0
 void CGameDoor::DebugDump(const CString& message, BOOLEAN bEchoToScreen)
 {
