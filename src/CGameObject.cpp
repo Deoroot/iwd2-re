@@ -4,6 +4,7 @@
 #include "CGameArea.h"
 #include "CGameObjectArray.h"
 #include "CGameText.h"
+#include "CGameTrigger.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CScreenWorld.h"
@@ -420,11 +421,11 @@ void CGameObject::FloatText(STRREF strRef, int a2, int a3)
 
     CSound sound;
 
-    // Multiplayer pacing: with a network session connected (g_pChitin+0x96E,
-    // inside cNetwork) and the dev fast-message toggle (g_pChitin+0x1033)
-    // clear, the original sleeps 25ms before spawning the floating text.
-    if (*reinterpret_cast<const int*>(reinterpret_cast<const BYTE*>(g_pChitin) + 0x96E) != 0
-        && *(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1033) == 0) {
+    // Multiplayer pacing: with a network service provider selected and this
+    // machine not hosting, the original sleeps 25ms before spawning the
+    // floating text so the client trails the host.
+    if (g_pChitin->cNetwork.m_nServiceProvider != 0
+        && g_pChitin->cNetwork.m_bIsHost == 0) {
         Sleep(0x19);
     }
 
@@ -466,8 +467,8 @@ void CGameObject::FloatText(STRREF strRef, int a2, int a3)
 
     CPoint pos;
     if (GetObjectType() == TYPE_TRIGGER) {
-        // Triggers float their text at the info/launch point (+0x616), not m_pos.
-        pos = *reinterpret_cast<const CPoint*>(reinterpret_cast<const BYTE*>(this) + 0x616);
+        // Triggers float their text at the trap origin, not m_pos.
+        pos = static_cast<const CGameTrigger*>(this)->m_posTrapOrigin;
     } else {
         pos = m_pos;
     }

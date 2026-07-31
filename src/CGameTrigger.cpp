@@ -215,7 +215,7 @@ void CGameTrigger::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL 
 
             if (m_trapDetected != 0) {
                 if (m_drawPoly != 400
-                        && *(reinterpret_cast<char*>(g_pBaldurChitin) + 0x497E) == 0) {
+                        && !g_pBaldurChitin->GetBaldurMessage()->m_bInMessageSetDrawPoly) {
                     g_pBaldurChitin->GetMessageHandler()->AddMessage(
                         new CMessageSetDrawPoly(400, m_id, m_id), FALSE);
                 }

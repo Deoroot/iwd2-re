@@ -16342,11 +16342,8 @@ BOOLEAN CGameSprite::DoAIUpdate(BOOLEAN active, LONG counter)
                 if (nEnemyAlly < 0xC8 && nEnemyAlly > 0x0F
                     && pGame->GetCharacterPortraitNum(m_id) == -1) {
                     BOOL bVisible = TRUE;
-                    // 0x8CF6D8 = g_pChitin; the byte at +0x1032 is the dev "draw-all
-                    // / disable-cull" toggle (0 in normal play).  CChitin's layout
-                    // there is #guess, so read the offset directly instead of
-                    // modelling a member at an uncertain location.
-                    if (*(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032) != 1) {
+                    // Skipped once a network session is established.
+                    if (g_pChitin->cNetwork.m_bConnectionEstablished != 1) {
                         LONG heightOffset = m_pArea->GetHeightOffset(m_pos, m_listType);
                         CRect rFx;
                         CPoint ptReference;
@@ -19827,11 +19824,11 @@ SHORT CGameSprite::RemoveTraps(CGameAIBase* pTarget)
     CMessage* message = new CMessageSetForceActionPick(TRUE, m_id, pTarget->GetId());
     g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
-    // 0x8CF6D8 = g_pChitin; the bytes at +0x1032/+0x1033 are dev toggles (off in
-    // normal play).  When both are set the trap may be reached from farther away.
+    // A multiplayer client (session established, not hosting) searches twice
+    // as far; the host and single player use the tighter range.
     int searchRange = 0x20;
-    if (*(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032) != 1
-        || *(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1033) != 0) {
+    if (g_pChitin->cNetwork.m_bConnectionEstablished != 1
+        || g_pChitin->cNetwork.m_bIsHost != 0) {
         searchRange = 0x10;
     }
 

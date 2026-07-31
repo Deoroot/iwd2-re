@@ -623,12 +623,12 @@ void CGameDialogSprite::AsynchronousUpdate()
             return;
         }
 
-        // CChitin field at offset 0x1032 is the game-pause flag. When the
-        // game is unpaused we tick once per AU; when paused we slow down to
-        // one tick per 10 AU bumps so dialog doesn't race.
-        BYTE bPaused = *(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032);
+        // Single player ticks the freeze counter once per AU; in a connected
+        // network session we slow down to one tick per 10 AU bumps so dialog
+        // doesn't race the other clients.
+        BOOLEAN bNetworkGame = g_pChitin->cNetwork.m_bConnectionEstablished;
 
-        if (bPaused == 0) {
+        if (bNetworkGame == 0) {
             LONG counterBefore = m_dialogFreezeCounter--;
             if (counterBefore > 0) {
                 return;

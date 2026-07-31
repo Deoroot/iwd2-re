@@ -2176,17 +2176,17 @@ BOOL IcewindCGameEffectApplyEffectsList::ApplyEffect(CGameSprite* pSprite)
     case 0x3e:  if (IcewindMisc::IsChaotic(pSprite)) return TRUE; break;
     case 0x3f:  if (pSprite->GetAIType().m_nRace != 0xa0) return TRUE; break;
     case 0x40:  if (pSprite->GetAIType().m_nRace == 0xa0) return TRUE; break;
-    case 0x41:  // CGameSprite state flag (+0xA10 bit 0x40) -- field not yet named
-        if ((*reinterpret_cast<const BYTE*>(reinterpret_cast<const char*>(pSprite) + 0xa10) & 0x40) == 0) return TRUE;
+    case 0x41:  // target is deafened
+        if (!pSprite->GetDerivedStats()->m_spellStates.test(SPLSTATE_DEAFENED)) return TRUE;
         break;
     case 0x42:
-        if ((*reinterpret_cast<const BYTE*>(reinterpret_cast<const char*>(pSprite) + 0xa10) & 0x40) != 0) return TRUE;
+        if (pSprite->GetDerivedStats()->m_spellStates.test(SPLSTATE_DEAFENED)) return TRUE;
         break;
-    case 0x47:  // caster effectAmount vs target level (CGameSprite +0x5C0, not yet named)
-        if (static_cast<int>(*reinterpret_cast<const SHORT*>(reinterpret_cast<const char*>(pSprite) + 0x5c0)) <= m_effectAmount) return TRUE;
+    case 0x47:  // caster effectAmount vs the target's current hit points
+        if (static_cast<int>(pSprite->GetBaseStats()->m_hitPoints) <= m_effectAmount) return TRUE;
         break;
     case 0x48:
-        if (m_effectAmount <= static_cast<int>(*reinterpret_cast<const SHORT*>(reinterpret_cast<const char*>(pSprite) + 0x5c0))) return TRUE;
+        if (m_effectAmount <= static_cast<int>(pSprite->GetBaseStats()->m_hitPoints)) return TRUE;
         break;
     case 0x49:  // race 2, subrace 1
         if (pSprite->GetAIType().m_nRace != 2 || pSprite->GetAIType().m_nSubRace != 1) return TRUE;
@@ -2200,11 +2200,11 @@ BOOL IcewindCGameEffectApplyEffectsList::ApplyEffect(CGameSprite* pSprite)
     case 0x4c:
         if (pSprite->GetAIType().m_nRace == 4 && pSprite->GetAIType().m_nSubRace == 2) return TRUE;
         break;
-    case 0x4d:  // CGameSprite state flag (+0x5BC bit 0x10000000) -- field not yet named
-        if ((*reinterpret_cast<const DWORD*>(reinterpret_cast<const char*>(pSprite) + 0x5bc) & 0x10000000) == 0) return TRUE;
+    case 0x4d:  // target is a summoned creature
+        if ((pSprite->GetBaseStats()->m_generalState & STATE_SUMMONED_CREATURE) == 0) return TRUE;
         break;
     case 0x4e:
-        if ((*reinterpret_cast<const DWORD*>(reinterpret_cast<const char*>(pSprite) + 0x5bc) & 0x10000000) != 0) return TRUE;
+        if ((pSprite->GetBaseStats()->m_generalState & STATE_SUMMONED_CREATURE) != 0) return TRUE;
         break;
     case 0x4f:  if (pSprite->GetAIType().m_nRace != 0x9b) return TRUE; break;
     case 0x50:  if (pSprite->GetAIType().m_nRace == 0x9b) return TRUE; break;

@@ -656,9 +656,9 @@ void CGameContainer::Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
     // __LINE__: 1267
     UTIL_ASSERT(pVidMode != NULL);
 
-    // pGame +0x3896: container/loot highlight-on-hover flag (not yet broken out
-    // in the CInfGame layout; read by offset to match IWD2.exe).
-    const BYTE bHighlightOnHover = *(reinterpret_cast<const BYTE*>(pGame) + 0x3896);
+    // The container only highlights while at least one party member is
+    // selected; the binary inlines CAIGroup::GetCount() here.
+    const BYTE nSelectedCount = pGame->GetGroup()->GetCount();
 
     BOOL bDrewFill = FALSE;
 
@@ -737,7 +737,7 @@ void CGameContainer::Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
                     BOOLEAN bSkipClippingPolys = FALSE;
 
                     for (BYTE i = m_nPileVidCell; i > 0; i--) {
-                        if (bPicked && bHighlightOnHover != 0 && nState == 0) {
+                        if (bPicked && nSelectedCount != 0 && nState == 0) {
                             m_pileVidCell[i - 1].m_bShadowOn = TRUE;
                         } else {
                             m_pileVidCell[i - 1].m_bShadowOn = FALSE;
@@ -788,7 +788,7 @@ void CGameContainer::Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
 
     if (m_id == m_pArea->m_iPicked
         && m_pArea->m_visibility.IsTileExplored(m_pArea->m_visibility.PointToTile(CPoint(m_pos.x, m_pos.y)))) {
-        if (bHighlightOnHover != 0 && nState == 0) {
+        if (nSelectedCount != 0 && nState == 0) {
             if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
                 RenderClippedPoly(pArea, pVidMode, nSurface,
                     g_pChitin->GetCurrentVideoMode()->GetColor(RGB(0x20, 0x40, 0xA0)));
