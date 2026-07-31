@@ -179,6 +179,8 @@ def main() -> int:
     ap.add_argument("--strict", action="store_true",
                     help="also fail on markers with no function defined there")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
+    ap.add_argument("--quiet", action="store_true",
+                    help="only failures, as `path:line: message` for the arc gate")
     ap.add_argument("--show-undefined", type=int, default=10,
                     help="print up to N `undefined` findings (0 to suppress)")
     args = ap.parse_args()
@@ -207,7 +209,15 @@ def main() -> int:
     merged = [f for f in inside if f["referenced"] is True]
     unchecked = [f for f in inside if f["referenced"] is None]
 
-    if args.json:
+    if args.quiet:
+        for f in unreferenced:
+            print(f"{f['file']}:{f['line']}: 0x{f['address']:08X} {f['symbol']} is not a"
+                  f" function start -- nothing calls or points at it (inside"
+                  f" {f['owner_name']}+0x{f['delta']:X})")
+        for f in unchecked:
+            print(f"{f['file']}:{f['line']}: 0x{f['address']:08X} {f['symbol']} unjudged --"
+                  f" could not read the binary (run under .venv-reagent/bin/python)")
+    elif args.json:
         print(json.dumps({
             "markers": len(markers),
             "ok": len(ok),

@@ -767,6 +767,7 @@ def lint_steps(scope_file: str | None, mode: str) -> list[Step]:
             s("lint_infinite_loop", "infloop", [scope_file, "--quiet"]),
             s("lint_stuck_loop_index", "stuckidx", [scope_file, "--quiet"]),
             s("lint_uninit_member", "uninit", ["--quiet"]),
+            s("lint_address_markers", "markers", ["--quiet"]),
         ]
     audit = mode == "all"
     return [
@@ -778,6 +779,7 @@ def lint_steps(scope_file: str | None, mode: str) -> list[Step]:
         s("lint_stuck_loop_index", "stuckidx", ["--quiet"]),
         s("lint_uninit_member", "uninit", ["--all"] if audit else ["--quiet"],
           advisory=audit),
+        s("lint_address_markers", "markers", ["--quiet"]),
     ]
 
 
@@ -957,8 +959,10 @@ def cmd_verify(args) -> int:
     reports: list[Report] = []
 
     # phase 1 -- lints on the touched file, folded into one row
-    lints = runner.run_parallel(lint_steps(info["file"], "file"))
-    reports.append(fold(lints, "lint", f"7 checks on {Path(info['file']).name}"))
+    steps = lint_steps(info["file"], "file")
+    lints = runner.run_parallel(steps)
+    reports.append(fold(lints, "lint",
+                        f"{len(steps)} checks on {Path(info['file']).name}"))
 
     # phase 2 -- binary oracles, parallel
     bin_steps: list[Step] = [
