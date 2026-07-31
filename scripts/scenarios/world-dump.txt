@@ -1,0 +1,7 @@
+# Smallest useful scenario: wait for the world, dump its UI tree.
+# Cross-check: panel 1 must hold the action bar, controls 6..17
+# (CInfButtonArray.cpp:598,627) -- those ids are known from the source,
+# independently of this tool, so they prove the walk is correct.
+wait world 3000
+dump
+expect controls 1 12
