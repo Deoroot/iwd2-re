@@ -582,6 +582,14 @@ public:
     // Lightning / Static Charge engine when arming each strike bolt.
     void SetStrikeTargetFilter(CGameObject* pSource);
 
+    // 0x5703F0 (non-virtual).  The mirror of SetStrikeTargetFilter: the same
+    // allegiance test, the two EnemyAlly constants swapped, so the strike pass
+    // gathers the source's OWN side.  DecodeProjectile arms it on the beneficial
+    // area spells (Bless, Defensive Harmony, Mass Invisibility, Invisibility
+    // Sphere, Mass Haste, ...).  Name guessed -- the class carries no RTTI or
+    // BG2 PDB carry-over.
+    void SetStrikeAllyFilter(CGameObject* pSource);   // #guess (name only)
+
 protected:
     // The IE reference-counted string CProjectileCone inlines for its cone-BAM
     // name (share-count byte at block[-1], character data at block + 1); here it

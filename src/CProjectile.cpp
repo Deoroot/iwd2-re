@@ -5860,6 +5860,27 @@ void IcewindCProjectileSpellHit::SetStrikeTargetFilter(CGameObject* pSource)
     m_targetType.Set(filter);
 }
 
+// 0x5703F0.  The mirror of SetStrikeTargetFilter above: byte-for-byte the same
+// shape with the two EnemyAlly constants swapped, so the strike pass gathers the
+// source's OWN side instead of its enemies -- a good source (EnemyAlly <=
+// GOODCUTOFF) strikes ALLY, anyone else strikes ENEMY.  DecodeProjectile arms it
+// on the beneficial area spells, which detonate on the party rather than on the
+// creatures around it.
+void IcewindCProjectileSpellHit::SetStrikeAllyFilter(CGameObject* pSource)
+{
+    if (pSource == NULL) {
+        return;
+    }
+
+    CAIObjectType filter;
+    if (pSource->GetAIType().GetEnemyAlly() > CAIObjectType::EA_GOODCUTOFF) {
+        filter.m_nEnemyAlly = CAIObjectType::EA_ENEMY;
+    } else {
+        filter.m_nEnemyAlly = CAIObjectType::EA_ALLY;
+    }
+    m_targetType.Set(filter);
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x56FED0 (vtable slot 36). The gather pass: collect every m_targetType object
