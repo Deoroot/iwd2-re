@@ -961,6 +961,205 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    // The school-detonation spell-hit cases.  Every one of them builds the bare
+    // carrier, optionally seeds the strike filter from the caster's allegiance --
+    // SetStrikeTargetFilter for the offensive spells, SetStrikeAllyFilter for the
+    // beneficial ones -- and stamps emission slot 0 with the school's detonation
+    // cell (Area1X..Area4X for the generic bursts, AbjuraX / AlteraX / EnchanX for
+    // the school-coloured ones), the area sound, and copy-from-back.  Same shape as
+    // case 0xFF above; they differ only in nType (the gather radius), the filter and
+    // the two resrefs.  All of them fell to the default plain CProjectile until now.
+
+    case 0xEC: {
+        // Bless (SPPR101, SPITM02).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xED: {
+        // Bane (SPPR111): the hostile twin of Bless -- same radius and detonation,
+        // the enemy-side filter (0x5255D7 -> 0x52559D, case 0xEC's tail).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xEE: {
+        // Remove Fear (SPPR108, SPIN198): Abjuration detonation on the caster's side.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xEF: {
+        // Detect Evil (SPIN120): no filter -- the gather pass takes everyone in range.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area2X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF1: {
+        // Horror (SPWI205).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area4X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF2: {
+        // Resist Fear (SPWI210): twin of case 0xEE (0x5257DC -> 0x52565A).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF3: {
+        // Chant (SPPR203): the widest of the group (nType 0x15E), no filter.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x15E);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF5: {
+        // Silence, 15' Radius (SPPR211, SPPR988): Alteration detonation, no filter.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF7: {
+        // Ally-side Alteration burst (0x525953 -> 0x525B07, case 0xFC's tail). No
+        // .SPL in the shipped game selects this projectile.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF8: {
+        // Slow (SPWI312): the hostile twin of case 0xF7.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xFA: {
+        // Remove Paralysis (SPPR308, SPIN248): Abjuration burst on the caster's side
+        // (0x525A0B -> 0x52566D, case 0xEE's tail).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xFC: {
+        // Strength of One (SPPR312).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xFE: {
+        // Confusion (SPWI401): Enchantment burst, enemy-side (0x525B68 -> 0x52872C,
+        // the EnchanX / ARE_M21 tail case 0xFF also lands on).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x100: {
+        // Malison (SPWI412): same shape as case 0xFE.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x101: {
+        // Defensive Harmony (SPPR406): the tightest radius of the group (nType 0x64),
+        // ally-side.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x64);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x102: {
+        // Magic Circle Against Evil (SPPR408) / Holy Aura (SPPR801).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x108: {
+        // Chaos (SPWI509): Enchantment burst, enemy-side (0x525DF0 -> 0x525C36,
+        // case 0x100's tail).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
     case 0x5F:
         // Stinking Cloud (SPWI213): the persistent-gas area spell-hit projectile.
         // Sibling of Fireball -- another bare IcewindCProjectileSpellHit leaf; all
