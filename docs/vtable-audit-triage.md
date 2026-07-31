@@ -152,7 +152,22 @@ Same as E but the target is real code, so declaring it is a genuine recovery:
 `CGameDoor`, `CGameTrigger` at slot 0x0028; `0x6c2d70` shared by three
 `CGameAnimationTypeMonster*` at 0x00cc.
 
-### G. Spurious override — 3.
+### G. Spurious override — 3. **DONE, `c8cd9fe5`.**
+
+> Two were tool bugs: `find_vtable` resolved `CPersistantEffect84C4A4` to its
+> *derived* class's table (0x84C420), because the base's only anchor is
+> inherited verbatim — comparing a class against itself makes every slot look
+> `== base`. Reading both tables shows the class really does override.
+> `audit()` now refuses a base whose vtable equals the derived one.
+>
+> The third, `CGameAIBase::CanSaveGame`, is a real and *deliberate* divergence
+> — now marked `// HACK:`. Its premise was narrowed: of the seven subclasses,
+> five override slot 0x0028 to `0x47C830` (return TRUE) and CGameSprite has its
+> own; the three that were undeclared (`CGameContainer`, `CGameDoor`,
+> `CGameTrigger` — also bucket F entries) are now recovered. Only
+> `CGameTiledObject` still inherits the FALSE, and its vtable resolves from a
+> single anchor, too weak to bet saving on. Audit 55 → 50.
+
 
 We declare an override where the binary's slot equals the base's:
 `CGameAIBase::CanSaveGame` (0x0028), `CPersistantEffect84C420::Copy` (0x0008)
