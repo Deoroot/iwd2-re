@@ -10997,11 +10997,11 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
         // re-application as CheckModal case 0, but ally-filtered and longer.
         if (HasFeat(CGAMESPRITE_FEAT_LINGERING_SONG) == 1) {
             CInfGame* pLingerGame = g_pBaldurChitin->GetObjectGame();
-            // A silenced singer (derived or base state) cannot sing; the game
-            // flag at +0x43E6 (store/dialog/cutscene gate) also suppresses it.
+            // A silenced singer (derived or base state) cannot sing; a running
+            // cutscene also suppresses it.
             if ((m_derivedStats.m_generalState & STATE_SILENCED) == 0
                 && (m_baseStats.m_generalState & STATE_SILENCED) == 0
-                && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pLingerGame) + 0x43E6) != 1) {
+                && pLingerGame->m_gameSave.m_cutScene != 1) {
                 UTIL_ASSERT(m_nLastSong < pLingerGame->m_songs.m_nCount);
                 CResRef songRes = pLingerGame->m_songs.Get636(m_nLastSong);
 
@@ -11019,7 +11019,7 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
                         GetTerrainTable(), targets, TRUE, FALSE, FALSE);
                     targets.AddTail(reinterpret_cast<LONG*>(m_id));
 
-                    SHORT nEffects = *reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(pAbility) + 0x1E);
+                    SHORT nEffects = static_cast<SHORT>(pAbility->effectCount);
 
                     POSITION pos = targets.GetHeadPosition();
                     while (pos != NULL) {
@@ -11037,8 +11037,8 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
 
                             // SPIN147 (the hostile Siren's Yearning) is meant to
                             // target enemies, so it gets its own pre-filter that
-                            // skips allies, charm-immune sprites, and sprites
-                            // flagged at +0xA10 & 0x40.  But this branch and the
+                            // skips allies, charm-immune sprites, and the deafened
+                            // (who cannot hear it).  But this branch and the
                             // every-other-song branch both fall into the same final
                             // AreAllies gate below (0x71FFCB), which only lets allies
                             // through -- so the enemy pre-filter is dead code and
@@ -11050,7 +11050,7 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
                             if (songRes == "SPIN147"
                                 && (IcewindMisc::AreAllies(this, pAllySprite)
                                     || IcewindMisc::sud_585070(pAllySprite)
-                                    || (*(reinterpret_cast<BYTE*>(pAllySprite) + 0xA10) & 0x40))) {
+                                    || pAllySprite->m_derivedStats.m_spellStates.test(SPLSTATE_DEAFENED))) {
                                 skip = TRUE;
                             }
 
@@ -11062,15 +11062,14 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
 
                                 for (SHORT i = 0; i < nEffects; i++) {
                                     CGameEffect* pEff = spell.BuildAbilityEffect(0, i, this, 0, 0, 0);
-                                    *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x7C) = m_pos.x;
-                                    *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x80) = m_pos.y;
+                                    pEff->m_source.x = m_pos.x;
+                                    pEff->m_source.y = m_pos.y;
                                     pEff->m_sourceID = m_id;
                                     IcewindMisc::ApplyDamageModifiers(this, pEff);
                                     // Re-tag a "Duration"-timed song effect to expire
                                     // two rounds out (game time + 200) so the lingering
                                     // buff survives instead of reading as already past.
-                                    if (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) == 0
-                                        && *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) == 7) {
+                                    if (pEff->m_durationType == 0 && pEff->m_duration == 7) {
                                         pEff->m_durationType = 0x1000;
                                         pEff->m_duration =
                                             g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + 200;
@@ -12360,11 +12359,11 @@ void CGameSprite::CheckModal()
     case 0: {  // bard song -- re-apply the song to nearby allies this cycle
         CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
-        // A silenced singer (derived or base general state) cannot sing; the
-        // game flag at +0x43E6 (store/dialog/cutscene gate) also suppresses it.
+        // A silenced singer (derived or base general state) cannot sing; a
+        // running cutscene also suppresses it.
         if ((m_derivedStats.m_generalState & STATE_SILENCED) == 0
             && (m_baseStats.m_generalState & STATE_SILENCED) == 0
-            && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x43E6) != 1) {
+            && pGame->m_gameSave.m_cutScene != 1) {
             if (!CheckInvisibility(FALSE)) {
                 // Singing is a visible action: a non-invisible singer re-asserts
                 // visibility this cycle by delivering a FORCEVISIBLE effect (0x88)
@@ -12399,8 +12398,7 @@ void CGameSprite::CheckModal()
                     GetTerrainTable(), targets, TRUE, FALSE, FALSE);
                 targets.AddTail(reinterpret_cast<LONG*>(m_id));
 
-                // SPELL_ABILITY effect count.
-                SHORT nEffects = *reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(pAbility) + 0x1E);
+                SHORT nEffects = static_cast<SHORT>(pAbility->effectCount);
 
                 POSITION pos = targets.GetHeadPosition();
                 while (pos != NULL) {
@@ -12424,21 +12422,15 @@ void CGameSprite::CheckModal()
                         for (SHORT i = 0; i < nEffects; i++) {
                             CGameEffect* pEff = spell.BuildAbilityEffect(0, i, this, 0, 0, 0);
                             // Source the effect at the singer's position and id.
-                            *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x7C) = m_pos.x;
-                            *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x80) = m_pos.y;
+                            pEff->m_source.x = m_pos.x;
+                            pEff->m_source.y = m_pos.y;
                             pEff->m_sourceID = m_id;
                             IcewindMisc::ApplyDamageModifiers(this, pEff);
                             // Re-tag a "Duration"-timed song effect so it expires a
                             // round later (game time + 100), keeping the per-cycle
                             // buff alive instead of letting ResolveEffect treat it
-                            // as already past.  The binary writes the raw effect
-                            // bytes at +0x20/+0x24, but those map to m_duration /
-                            // m_probabilityUpper in our field layout; write through
-                            // the typed members so ResolveEffect / CheckExpiration
-                            // (which read m_durationType / m_duration) see a future
-                            // expiry.
-                            if (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) == 0
-                                && *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) == 7) {
+                            // as already past.
+                            if (pEff->m_durationType == 0 && pEff->m_duration == 7) {
                                 pEff->m_durationType = 0x1000;
                                 pEff->m_duration =
                                     g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + 100;
@@ -12625,19 +12617,19 @@ SHORT CGameSprite::sub_757B40()
         m_bHiding = FALSE;
         FeedBack(0xD, 0, 0, 0, -1, 0, 0);
         m_nStealthGreyOut = 90;
-        *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35F6) = 100;
+        pGame->GetButtonArray()->m_nSelectedButton = 100;
         SetModalState(0, TRUE);
         // If this sprite owns the selected portrait and the mouse is not in a
         // special targeting cursor mode, refresh the action toolbar.
         if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
                 == pGame->GetCharacterPortraitNum(m_id)) {
-            int nCursorState = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35FA);
-            if (nCursorState != 0x66 && nCursorState != 0x65 && nCursorState != 0x68
-                && nCursorState != 0x67 && nCursorState != 0x69 && nCursorState != 0x70
-                && nCursorState != 0x73 && nCursorState != 0x74 && nCursorState != 0x75
-                && nCursorState != 0x76 && nCursorState != 0x77 && nCursorState != 0x78
-                && nCursorState != 0x79 && nCursorState != 0x7A && nCursorState != 0x7B
-                && nCursorState != 0x6A) {
+            int nButtonState = pGame->GetButtonArray()->m_nState;
+            if (nButtonState != 0x66 && nButtonState != 0x65 && nButtonState != 0x68
+                && nButtonState != 0x67 && nButtonState != 0x69 && nButtonState != 0x70
+                && nButtonState != 0x73 && nButtonState != 0x74 && nButtonState != 0x75
+                && nButtonState != 0x76 && nButtonState != 0x77 && nButtonState != 0x78
+                && nButtonState != 0x79 && nButtonState != 0x7A && nButtonState != 0x7B
+                && nButtonState != 0x6A) {
                 pGame->GetButtonArray()->ResetState();
             }
         }
@@ -12749,17 +12741,17 @@ SHORT CGameSprite::sub_757B40()
         m_nModalState = 0;
         FeedBack(0xD, 0, 0, 0, -1, 0, 0);
         m_nStealthGreyOut = 90;
-        *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35F6) = 100;
+        pGame->GetButtonArray()->m_nSelectedButton = 100;
         SetModalState(0, TRUE);
         if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
                 == pGame->GetCharacterPortraitNum(m_id)) {
-            int nCursorState = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35FA);
-            if (nCursorState != 0x66 && nCursorState != 0x65 && nCursorState != 0x68
-                && nCursorState != 0x67 && nCursorState != 0x69 && nCursorState != 0x70
-                && nCursorState != 0x73 && nCursorState != 0x74 && nCursorState != 0x75
-                && nCursorState != 0x76 && nCursorState != 0x77 && nCursorState != 0x78
-                && nCursorState != 0x79 && nCursorState != 0x7A && nCursorState != 0x7B
-                && nCursorState != 0x6A) {
+            int nButtonState = pGame->GetButtonArray()->m_nState;
+            if (nButtonState != 0x66 && nButtonState != 0x65 && nButtonState != 0x68
+                && nButtonState != 0x67 && nButtonState != 0x69 && nButtonState != 0x70
+                && nButtonState != 0x73 && nButtonState != 0x74 && nButtonState != 0x75
+                && nButtonState != 0x76 && nButtonState != 0x77 && nButtonState != 0x78
+                && nButtonState != 0x79 && nButtonState != 0x7A && nButtonState != 0x7B
+                && nButtonState != 0x6A) {
                 pGame->GetButtonArray()->ResetState();
             }
         }
@@ -12871,13 +12863,14 @@ STRREF CGameSprite::GetNameRef()
 // The sprite is hidden iff the observer cannot see invisible
 // (`bSeesInvisible == FALSE`), the sprite carries the regular invisibility
 // state (`m_generalState & STATE_INVISIBLE`), and the sprite has not been
-// re-exposed (`m_baseStats` byte at `+0x2FC` bit 0 clear, i.e. not currently
-// rendered visible to the local player).
+// re-exposed: bit 0 of `m_baseStats.m_critSectService` is the force-visible
+// flag CGameEffectForceVisible::ApplyEffect sets on an improved-invisible
+// target and CGameEffectInvisible::ApplyEffect clears.
 BOOL CGameSprite::CheckInvisibility(BOOL bSeesInvisible)
 {
     if (bSeesInvisible == FALSE
         && (m_derivedStats.m_generalState & STATE_INVISIBLE) != 0
-        && (*reinterpret_cast<BYTE*>(reinterpret_cast<BYTE*>(&m_baseStats) + 0x2FC) & 0x1) == 0) {
+        && (m_baseStats.m_critSectService & 0x1) == 0) {
         return FALSE;
     }
     return TRUE;
