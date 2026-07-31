@@ -1527,13 +1527,13 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
                         static_cast<CGameSprite*>(pSource), m_sourceRes, m_savingThrow,
                         nClass, nSpecialization, static_cast<BYTE>(m_casterLevel));
                 }
-                // Source-resref fold (0x4A3E13): when m_sourceRes matches the resref
-                // stored at the global 0x8F8E60 (a runtime-populated spell filter that
-                // does not resolve statically), fold the Animal Empathy save modifier
-                // (0x547620) into m_saveMod as well.  The binary compares m_sourceRes
-                // as two raw dwords against 0x8F8E60 / 0x8F8E64.
-                if (reinterpret_cast<const DWORD*>(&m_sourceRes)[0] == *reinterpret_cast<const DWORD*>(0x008F8E60)
-                    && reinterpret_cast<const DWORD*>(&m_sourceRes)[1] == *reinterpret_cast<const DWORD*>(0x008F8E64)) {
+                // Source-resref fold (0x4A3E13): the effect only takes the Animal
+                // Empathy save modifier (0x547620) when it came from Charm Animal
+                // itself.  0x4A3DFD/0x4A3E0B compare m_sourceRes as two dwords against
+                // the global CResRef at 0x8F8E60 / 0x8F8E64 -- that global is
+                // CGameSprite::SPIN108 ("SPIN108", Charm Animal), the same one
+                // CInfButtonArray builds the Animal Empathy button from.
+                if (m_sourceRes == CGameSprite::SPIN108) {
                     m_saveMod += CRuleTables::GetAnimalEmpathySaveMod(1,
                         static_cast<CGameSprite*>(pSource), m_saveMod, m_spellLevel);
                 }
@@ -1780,12 +1780,16 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
         nSaveTotal += 5;
     }
     if (pSprite->GetAIType().m_nEnemyAlly != CAIObjectType::EA_PC) {
-        // Difficulty-based save adjustment for non-PCs (globals hold -4 / -2).
-        int nDifficulty = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x4456);
+        // Difficulty-based save adjustment for non-PCs (0x4A49B0).  The binary reads
+        // the difficulty at pGame+0x4456, which is m_cOptions (+0x43EA) plus
+        // CGameOptions::m_nDifficultyLevel (+0x6C), and adds one of two read-only
+        // .data constants: 0x84EB04 = -4 on difficulty 1, 0x84EB08 = -2 on 2.
+        // Nothing in the image writes either, and this is their only reader.
+        DWORD nDifficulty = pGame->m_cOptions.m_nDifficultyLevel;
         if (nDifficulty == 1) {
-            nSaveTotal += *reinterpret_cast<const int*>(0x0084EB04);
+            nSaveTotal += -4;
         } else if (nDifficulty == 2) {
-            nSaveTotal += *reinterpret_cast<const int*>(0x0084EB08);
+            nSaveTotal += -2;
         }
     }
     BYTE nRace = pSprite->GetAIType().m_nRace;
