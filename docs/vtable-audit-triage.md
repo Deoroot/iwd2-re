@@ -46,7 +46,17 @@ Slot reading itself was never wrong: `0x847fe4` really does contain
 
 ## The 72 real findings
 
-### A. Wrong implementation dispatched — 12. **Fix these first.**
+### A. Wrong implementation dispatched — 12. **DONE (11/12), `ce9eff57`.**
+
+> Every one was a *correct body carrying the wrong `// 0xADDR`* — relabels, not
+> rewrites. Plus one real constant fix (`CSCREENSINGLEPLAYER_VIRTUAL_KEYS`
+> 92 → 90, which `struct_layout_audit` confirmed was widening the compiled
+> class by 16 + 2 bytes). The 12th, `CGameAIBase::ProcessAI`, is **not** fixed:
+> slot 0x008C holds an unrecovered 736-byte wrapper (0x45C730) that *calls*
+> ProcessAI, and ProcessAI itself is not virtual at all. Removing `virtual`
+> would shift every slot below it, so the declaration carries a TODO with the
+> recipe instead. Audit went 72 → 61.
+
 
 The binary's slot points at a different function than our source declares. This
 is the Fireball wrong-render class of bug: the call compiles, runs, and does
