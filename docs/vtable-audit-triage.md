@@ -117,7 +117,16 @@ The last one is a genuine behavioural inversion: **returns TRUE where the binary
 returns FALSE.** `CGameEffect::OnAdd` is worth checking first anyway — it is on
 the spell-effect path.
 
-### D. Slot shift — 2. Small and mechanical.
+### D. Slot shift — 2. **DONE, `93ab04fb`.**
+
+> A copy-paste: `CChitin.h` and `CBaldurChitin.h` both declared
+> `GetLogFileName` **and** `GetErrFileName` at `/* 00A8 */`. The returned
+> literals settle it — 0x00A8 gives `"Chitin.log"` / `".\Icewind2.log"`, 0x00AC
+> gives the `.err` twins. All four .cpp definitions already had the right
+> addresses and the declaration order was already right, so the emitted vtable
+> was never wrong; comments only. Audit 58 → 55, and the only WRONGADDR left in
+> the tree is `CGameAIBase::ProcessAI`.
+
 
 `CBaldurChitin` and `CBaldurProjector` declare `GetErrFileName` at slot 0x00a8,
 but the binary has `GetLogFileName` there (`0x422e00` = `mov eax,0x8a6db0; ret`,
