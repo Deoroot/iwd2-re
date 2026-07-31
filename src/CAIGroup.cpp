@@ -1169,7 +1169,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
         } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
         if (rc == CGameObjectArray::SUCCESS) {
-            if (pSprite->m_curAction.m_actionID == 2) {
+            if (pSprite->m_derivedStats.m_nEncumberance == 2) {
                 pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
             } else {
                 CAIAction* moveAction = new CAIAction(CAIAction::MOVETOPOINT, target, 0, -1);
@@ -1344,7 +1344,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
             }
         }
 
-        if (pSprite->m_curAction.m_actionID == 2) {
+        if (pSprite->m_derivedStats.m_nEncumberance == 2) {
             pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
         } else {
             moveAction->m_dest = memberDest;
