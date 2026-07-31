@@ -1,0 +1,18 @@
+# Prove CAIGroup::GroupAction runs. It has no one-click UI trigger: it fires
+# when a world object is clicked (CGameSprite/CGameDoor/CGameContainer/
+# CGameTrigger::OnActionButton), so the scenario has to find one first.
+#
+# Slot 3 loads with the camera 1600 pixels below the party -- a save restores
+# its own viewport -- so `center` first, then `ground` prints the render list
+# with the screen point that hits each object. The sprite next to the party
+# sits at (259,232) once centred; clicking it makes the group follow it.
+wait world 3000
+waitgo 6000
+sleep 30
+center
+sleep 30
+ground
+hover 259 232
+sleep 10
+clickxy 259 232
+sleep 60
