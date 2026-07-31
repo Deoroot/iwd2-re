@@ -20,8 +20,8 @@
 
 // Splits a raw DLG script blob (one or more BIOC-style "Trigger(args)"
 // expressions juxtaposed without separators) into the line-per-call shape
-// CAIScriptFile::Parse{Conditional,Response}String expects. Binary at
-// 0x483527..0x4836f0 keeps two CStrings -- a shrinking source and a growing
+// CAIScriptFile::Parse{Conditional,Response}String expects. The binary keeps
+// two CStrings at 0x483527..0x4836F0 -- a shrinking source and a growing
 // accumulator -- and walks ')' to ')'.
 static CString DLGNormalize(const char* pBytes, int nLen)
 {

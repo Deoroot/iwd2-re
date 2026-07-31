@@ -15910,7 +15910,7 @@ BOOL CGameSprite::ProcessEffectList()
                 }
             }
 
-            // 0x72EC3A: re-derive party-ally membership from the allegiance.  A
+            // Re-derive party-ally membership from the allegiance, at 0x72EC3A.  A
             // controlled sprite (or one at EA 7) that the game is not already
             // tracking as an ally or a familiar, and that holds no portrait slot,
             // is enrolled in the ally list; a sprite at or past GOODCUTOFF is

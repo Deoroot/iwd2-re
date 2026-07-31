@@ -3691,7 +3691,8 @@ SHORT CGameAIBase::StartCutScene()
     return ACTION_DONE;
 }
 
-// 0x4507E0 - case body for FloatMessage (0xF1).
+// Case body for FloatMessage (0xF1), at 0x4507E0 inside ExecuteAction --
+// not a function of its own, so no address marker.
 // Resolves m_acteeID, queues a CMessageFloatText so the strref (m_specificID)
 // is displayed above the target sprite.  Binary takes an SP fast path
 // calling FUN_004C80E0 directly; routing through CMessageFloatText::Run
@@ -3717,7 +3718,8 @@ SHORT CGameAIBase::FloatMessage()
     return ACTION_DONE;
 }
 
-// 0x452020 - case body for HideCreature (0xE9).
+// Case body for HideCreature (0xE9), at 0x452020 inside ExecuteAction --
+// not a function of its own, so no address marker.
 // Resolves target via m_acteeID and calls SetStealthState(m_specificID).
 // TODO: Skips the FUN_0045BDD0 immunity/distance filter and the MP
 // broadcast (CMessage90) -- SP semantics are preserved.
