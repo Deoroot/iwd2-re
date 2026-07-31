@@ -96,7 +96,16 @@ The binary overrides a slot with a function we have not recovered. Notable:
 `CGameAnimationTypeMonsterMulti` 0x000c/0x0090/0x00ac, `CBaldurEngine` 0x0004.
 These are legitimate `arc targets` entries.
 
-### C. Binary has a stub, we wrote real code — 3. **"No hacks" violation.**
+### C. Binary has a stub, we wrote real code — 3. **DONE, `369ea705`.**
+
+> `CScreenCreateChar::CheckMouseRButton` deleted (slot 0x0088 = the inherited
+> `CWarp` FALSE; 17 of 18 screens override it to TRUE, this one deliberately
+> does not). `CVidInf::DestroySurfaces3d` is no longer an `override` — slot
+> 0x0124 is identical to `CVidMode`'s, and the real teardown is a non-virtual
+> member with one direct caller. `CGameEffect::OnAdd` was only mislabelled: its
+> no-op body was already right, but it had drifted above `FireSpell`'s
+> `// 0x4A3FF0` comment block. Audit 61 → 58.
+
 
 | class | slot | method | binary actually does |
 |---|---|---|---|
