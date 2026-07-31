@@ -1533,7 +1533,7 @@ void CScreenOptions::OnErrorButtonClick(INT nButton)
                         if (!pGame->field_50D8) {
                             pGame->SynchronousUpdate();
                         }
-                        pGame->field_50D8;
+                        pGame->field_50D8 = TRUE;
                     }
                 }
 
@@ -1541,7 +1541,7 @@ void CScreenOptions::OnErrorButtonClick(INT nButton)
 
                 // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenOptions.cpp
                 // __LINE__: 1670
-                UTIL_ASSERT(FALSE);
+                UTIL_ASSERT(pSave != NULL);
 
                 pSave->StartSave(1);
                 SelectEngine(pSave);
