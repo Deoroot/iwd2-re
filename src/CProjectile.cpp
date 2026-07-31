@@ -1359,6 +1359,216 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    // The persistent-cloud spell-hit cases.  Same bare carrier, but the
+    // configuration lands on emission slot 2 (m_visual3, the re-emitting fan) or
+    // slot 1 (m_visual2) instead of slot 0, and most of them arm the recurring
+    // strike clock so the cloud keeps striking whatever stands in it for the whole
+    // of m_lifetime.  All fell to the default plain CProjectile until now.
+
+    case 0x11A: {
+        // Releases Acidic Vapor (SPIN993, strref 4388): a creature attack rather
+        // than a cast spell -- it announces itself before building the carrier.
+        IcewindMisc::DisplayFeedbackMessage(static_cast<CGameSprite*>(pCaster), 4388, 0);
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x64);
+        pSpellHit->m_visual2.m_cellResRef.Set("SCloudR");
+        pSpellHit->m_visual2.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual2AnimMode = 1;
+        pSpellHit->m_visual2MaxSpawn = 7;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x11E: {
+        // Incendiary cloud, second stage (SPIN983).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual3.m_cellResRef.Set("ICloudB");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3AnimFlag36 = 1;
+        pSpellHit->m_visual3DensityBase = 0x1F4;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x11F: {
+        // Incendiary cloud, first stage (SPIN981, SPIN982): respawns from the pool
+        // instead of animating a flag, and outlives 0x11E (0xC8 ticks).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual3.m_cellResRef.Set("ICloudA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3DensityBase = 0x1F4;
+        pSpellHit->m_lifetime = 0xC8;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x12B: {
+        // Soul Eater (SPWI619) / Orrick's Soul Devourer (SPIN969).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x78);
+        pSpellHit->m_visual3.m_cellResRef.Set("SEaterA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_M18");
+        pSpellHit->m_visual3DensityBase = 0xC8;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x12C: {
+        // Spike Growth (SPPR320, SPIN206): the longest-lived cloud in the family
+        // (0x7D0 ticks) re-striking every tenth pass.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual1.m_cellResRef.Set("SGrowtX");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P111");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3.m_cellResRef.Set("SGrowtA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("AFT_P24");
+        pSpellHit->m_visual3DensityBase = 0xFA;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x7D0;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x12D: {
+        // Rainstorm (SPPR221).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->m_visual3.m_cellResRef.Set("CloudBA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_P24");
+        pSpellHit->m_visual3DensityBase = 0x64;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0xC8;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x133: {
+        // Mist of Eldath (SPPR720): the only case here that stamps slot 0's sound
+        // without a slot-0 cell -- the detonation is silent-visual, audible-only.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x78);
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P104");
+        pSpellHit->m_visual3.m_cellResRef.Set("MoEldaA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3DensityBase = 0x4B0;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x135: {
+        // Cloud of Pestilence (SPPR417): a half-transparent (0x80) fan rather than
+        // a copy-from-back one. Shares case 0x13D's clock tail (0x52707B -> 0x52758C).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual3.m_cellResRef.Set("CoPestA");
+        pSpellHit->m_visual3.m_fx.SetTransparency(TRUE, 0x80);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_P25");
+        pSpellHit->m_visual3DensityBase = 0xAF;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x190;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x136: {
+        // Undead Ward (SPPR516): sound only -- no cell in any slot -- and the widest
+        // re-strike interval in the family (0x2710), so the ward strikes once and
+        // then holds for its 0x3E8-tick life.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_P28");
+        pSpellHit->m_visual3.m_soundResRef.Set("AFT_P27");
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0x2710;
+        pSpellHit->m_lifetime = 0x3E8;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x13D: {
+        // Suffocate (SPWI711).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x78);
+        pSpellHit->m_visual3.m_cellResRef.Set("SuffocA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("AFT_M18");
+        pSpellHit->m_visual3DensityBase = 0x3E8;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x190;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x15F: {
+        // Releases Jelly Vapor (SPIN182, strref 27030): a creature attack, and the
+        // twin of case 0x11A -- it lands on slot 1 through the same tail (0x527F29).
+        IcewindMisc::DisplayFeedbackMessage(static_cast<CGameSprite*>(pCaster), 27030, 0);
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x7D);
+        pSpellHit->m_visual2.m_cellResRef.Set("CloudKR");
+        pSpellHit->m_visual2.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual2AnimMode = 1;
+        pSpellHit->m_visual2MaxSpawn = 7;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x16E: {
+        // Meteor Swarm (SPWI908): the fan neither respawns from the pool nor
+        // animates, and the carrier is pinned to a single direction.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->m_visual3.m_cellResRef.Set("MSwarmA");
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_P03");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3RespawnFlag = 0;
+        pSpellHit->m_visual3AnimMode = 0;
+        pSpellHit->m_visual3DensityBase = 0xFA;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0x2710;
+        pSpellHit->m_lifetime = 0x2D;
+        pSpellHit->m_dirCount = 1;
+        pSpellHit->m_aoeRange = 0x12C;  // re-stores the value the ctor already set
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x179: {
+        // Breathes Mind Fog (SPIN221): case 0x135's cloud on a shorter life.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual3.m_cellResRef.Set("CoPestA");
+        pSpellHit->m_visual3.m_fx.SetTransparency(TRUE, 0x80);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_P25");
+        pSpellHit->m_visual3DensityBase = 0xAF;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x12C;
+        pProjectile = pSpellHit;
+        break;
+    }
+
     case 0x5F:
         // Stinking Cloud (SPWI213): the persistent-gas area spell-hit projectile.
         // Sibling of Fireball -- another bare IcewindCProjectileSpellHit leaf; all
