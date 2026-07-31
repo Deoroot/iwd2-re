@@ -57,7 +57,10 @@ public:
     /* 006C */ void OnLButtonDblClk(CPoint pt) override;
     /* 0070 */ void OnLButtonDown(CPoint pt) override;
     /* 0074 */ void OnLButtonUp(CPoint pt) override;
-    /* 0088 */ BOOL CheckMouseRButton() override;
+    // No CheckMouseRButton override: slot 0x0088 holds 0x78E6E0, the same
+    // `return FALSE` as CWarp's, so character creation inherits it. 17 of the
+    // 18 screens DO override it to return TRUE -- this one deliberately does
+    // not, and we had it returning TRUE.
     /* 0090 */ void OnRButtonDown(CPoint pt) override;
     /* 0094 */ void OnRButtonUp(CPoint pt) override;
     /* 00A0 */ SHORT GetNumVirtualKeys() override;

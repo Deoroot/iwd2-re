@@ -1243,6 +1243,17 @@ BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
     return bResult;
 }
 
+// 0x799E60
+void CGameEffect::OnAdd(CGameSprite* pSprite)
+{
+    // Base no-op; subclasses override to react to effect application.
+    //
+    // The binary really is empty here: vtable slot 0x0010 of CGameEffect holds
+    // 0x799E60, a bare `ret 4` shared by /OPT:ICF with every other one-argument
+    // no-op virtual in the image. It is NOT 0x4A3FF0 -- that is FireSpell
+    // below, whose marker this function had drifted above.
+}
+
 // 0x4A3FF0
 //
 // Fired when a delayed effect's deadline elapses (waiting types 6/7/8 in
@@ -1250,11 +1261,6 @@ BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
 // m_sourceID, the original takes a share on the source object and posts
 // CMessage feedback back to it.  Name from the BG2 PDB CGameEffect method
 // list (FireSpell).
-void CGameEffect::OnAdd(CGameSprite* pSprite)
-{
-    // Base no-op; subclasses override to react to effect application.
-}
-
 void CGameEffect::FireSpell(CGameSprite* pSprite)
 {
     // 0x4A3FF0.  When a delayed effect (duration type 6/7/8) reaches its
