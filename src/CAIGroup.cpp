@@ -426,9 +426,7 @@ CAIGroup::CAIGroup(SHORT id)
     m_groupChanged = FALSE;
 }
 
-// FIXME: `action` should be reference.
-//
-// 0x404E80
+// 0x404D00
 void CAIGroup::GroupAction(CAIAction action, BOOL override, CAIAction* leaderAction)
 {
     if (m_memberList.IsEmpty()) {
@@ -440,16 +438,71 @@ void CAIGroup::GroupAction(CAIAction action, BOOL override, CAIAction* leaderAct
     while (pos != NULL) {
         LONG memberId = reinterpret_cast<LONG>(m_memberList.GetNext(pos));
 
+        CGameSprite* pSprite;
+
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(memberId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        if (override) {
+            pSprite->ClearActions(FALSE);
+            pSprite->m_interrupt = TRUE;
+        }
+
+        pSprite->m_userCommandPause = CGameSprite::USER_OVERRIDE_COUNT;
+        pSprite->m_triggerId = CGameObjectArray::INVALID_INDEX;
+
         // The first member is the group leader and receives leaderAction (the
         // "then" action, e.g. PLAYERDIALOG); the remaining members receive the
-        // primary action.
-        CAIAction& memberAction =
-            (bLeader && leaderAction != NULL) ? *leaderAction : action;
+        // primary action. An overloaded member cannot move, so a move order
+        // becomes feedback instead of an action.
+        if (bLeader) {
+            bLeader = FALSE;
 
-        CMessageAddAction* pMsg = new CMessageAddAction(memberAction, memberId, memberId);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            if (leaderAction != NULL) {
+                if (leaderAction->m_actionID == CAIAction::MOVETOPOINT
+                    && pSprite->m_derivedStats.m_nEncumberance == 2) {
+                    pSprite->FeedBack(CGameSprite::FEEDBACK_TOOHEAVY_STOPPED, TRUE, 0, 0, -1, 0, 0);
+                } else {
+                    CMessageAddAction* pMsg = new CMessageAddAction(*leaderAction, pSprite->m_id, pSprite->m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                }
+            } else {
+                if (action.m_actionID == CAIAction::MOVETOPOINT
+                    && pSprite->m_derivedStats.m_nEncumberance == 2) {
+                    pSprite->FeedBack(CGameSprite::FEEDBACK_TOOHEAVY_STOPPED, TRUE, 0, 0, -1, 0, 0);
+                } else {
+                    CMessageAddAction* pMsg = new CMessageAddAction(action, pSprite->m_id, pSprite->m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                }
+            }
 
-        bLeader = FALSE;
+            if (override && action.m_actionID != CAIAction::GROUPATTACK) {
+                pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+            }
+        } else {
+            if (action.m_actionID == CAIAction::MOVETOPOINT
+                && pSprite->m_derivedStats.m_nEncumberance == 2) {
+                pSprite->FeedBack(CGameSprite::FEEDBACK_TOOHEAVY_STOPPED, TRUE, 0, 0, -1, 0, 0);
+            } else {
+                CMessageAddAction* pMsg = new CMessageAddAction(action, pSprite->m_id, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            }
+        }
+
+        pSprite->m_inFormation = TRUE;
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
     }
 }
 
