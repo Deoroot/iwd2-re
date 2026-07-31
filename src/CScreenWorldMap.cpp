@@ -1502,3 +1502,10 @@ void CUIControlButtonWorldMapWorldMap::OnMouseMove(CPoint pt)
 
     pWorldMap->OnMapMouseMove(pt);
 }
+
+// 0x799CA0
+void CScreenWorldMap::CancelEngine()
+{
+    // Empty in the binary: the slot holds a folded no-op stub distinct from
+    // the base's, so the override exists but does nothing.
+}

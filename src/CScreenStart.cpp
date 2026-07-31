@@ -762,3 +762,36 @@ void CUIControlButtonStart670770::OnLButtonClick(CPoint pt)
 
     pStart->DismissPopup4();
 }
+
+// 0x49FC40
+BOOL CScreenStart::CheckSystemKeyCtrl()
+{
+    return TRUE;
+}
+
+// 0x71E750
+void CScreenStart::OnLButtonDblClk(CPoint pt)
+{
+    // Empty in the binary: the slot holds a folded no-op stub distinct from
+    // the base's, so the override exists but does nothing.
+}
+
+// 0x49FC40
+BOOL CScreenStart::CheckMouseRButton()
+{
+    return TRUE;
+}
+
+// 0x71E750
+void CScreenStart::OnRButtonDown(CPoint pt)
+{
+    // Empty in the binary: the slot holds a folded no-op stub distinct from
+    // the base's, so the override exists but does nothing.
+}
+
+// 0x71E750
+void CScreenStart::OnRButtonUp(CPoint pt)
+{
+    // Empty in the binary: the slot holds a folded no-op stub distinct from
+    // the base's, so the override exists but does nothing.
+}

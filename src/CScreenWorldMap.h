@@ -49,6 +49,7 @@ public:
     /* 00AC */ void OnKeyDown(SHORT nKeysFlags) override;
     /* 00C0 */ void TimerAsynchronousUpdate() override;
     /* 00C4 */ void TimerSynchronousUpdate() override;
+    /* 0104 */ void CancelEngine() override;
     /* 0110 */ void GetChatEditBoxStatus(CString& sChatText, BOOL& bInputCapture) override;
     /* 0114 */ void SetChatEditBoxStatus(const CString& sChatText, BOOL bInputCapture) override;
 

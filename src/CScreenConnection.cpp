@@ -5209,3 +5209,10 @@ BOOL CScreenConnection::IsValidAddress(const CString& sAddress)
         && nByte3 >= 0 && nByte3 <= 255
         && nByte4 >= 0 && nByte4 <= 255;
 }
+
+// 0x5D72C0
+void CScreenConnection::EngineDestroyed()
+{
+    // Folded with CScreenWorldMap::EngineGameUninit at 0x5D72C0.
+    m_cUIManager.fUninit();
+}

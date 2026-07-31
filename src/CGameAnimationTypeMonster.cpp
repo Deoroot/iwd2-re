@@ -1506,3 +1506,17 @@ SHORT CGameAnimationTypeMonster::SetSequence(SHORT nSequence)
 
     return nSequence;
 }
+
+// 0x6BB190
+void CGameAnimationTypeMonster::CalculateFxRectMax(CRect& rFx, CPoint& ptReference, LONG posZ)
+{
+    // Folded with CGameAnimationTypeMonsterQuadrant::CalculateFxRectMax
+    // at 0x6BB190.
+    ptReference.x = 512;
+    ptReference.y = 512;
+
+    rFx.left = 0;
+    rFx.top = 0;
+    rFx.right = 1024;
+    rFx.bottom = 1024;
+}

@@ -3635,3 +3635,10 @@ BOOL CUIControlButtonMultiPlayerSelection::Render(BOOL bForce)
     }
     return CUIControlButton::Render(bForce);
 }
+
+// 0x5D72C0
+void CScreenMultiPlayer::EngineDestroyed()
+{
+    // Folded with CScreenWorldMap::EngineGameUninit at 0x5D72C0.
+    m_cUIManager.fUninit();
+}

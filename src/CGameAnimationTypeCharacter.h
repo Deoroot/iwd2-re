@@ -39,7 +39,7 @@ public:
     /* 00A8 */ void SetColorRangeAll(BYTE rangeValue) override;
     /* 00AC */ SHORT SetSequence(SHORT nSequence) override;
     /* 00C8 */ SHORT GetCurrentFrame() override;
-    /* 00CC */ BOOLEAN GetCurrentSequenceAndFrame(SHORT nSequence, SHORT nFrame) override;
+    /* 00CC */ BOOLEAN GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame) override;
     /* 00D0 */ BOOLEAN GetCurrentResRef(CString& resBody, CString& resWeapon, CString& resShield, CString& resHelmet) override;
 
     void Equip1HWeapon(const CString& resRef, BYTE* colorRangeValues);

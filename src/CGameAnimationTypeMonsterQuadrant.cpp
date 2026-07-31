@@ -1004,7 +1004,7 @@ SHORT CGameAnimationTypeMonsterQuadrant::SetSequence(SHORT nSequence)
 }
 
 // 0x6C2D70
-BOOLEAN CGameAnimationTypeMonsterQuadrant::GetCurrentSequenceAndFrame(SHORT nSequence, SHORT nFrame)
+BOOLEAN CGameAnimationTypeMonsterQuadrant::GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame)
 {
     nSequence = m_currentVidCell->m_nCurrentSequence;
     nFrame = m_currentVidCell->m_nCurrentFrame;

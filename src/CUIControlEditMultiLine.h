@@ -10,6 +10,7 @@ class CUIControlEditMultiLine : public CUIControlBase {
 public:
     CUIControlEditMultiLine(CUIPanel* panel, UI_CONTROL_EDIT* controlInfo, int a3);
     /* 0000 */ ~CUIControlEditMultiLine() override;
+    /* 0004 */ void SetActive(BOOLEAN bActive) override;
     /* 000C */ void KillFocus() override;
     /* 0010 */ void SetFocus() override;
     /* 0014 */ void OnMouseMove(CPoint pt) override;

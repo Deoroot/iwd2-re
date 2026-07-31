@@ -780,3 +780,10 @@ BOOL CGameDoor::IsOpen()
 {
     return m_dwFlags & 0x1;
 }
+
+// 0x47D7F0
+BOOLEAN CGameDoor::DoAIUpdate(BOOLEAN active, LONG counter)
+{
+    // Folded with CGameContainer::DoAIUpdate at 0x47D7F0.
+    return active && (counter & m_AISpeed) == (m_AISpeed & m_id);
+}

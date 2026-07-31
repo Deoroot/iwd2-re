@@ -373,7 +373,7 @@ public:
     /* 00C0 */ virtual SHORT GetAwakePlayInReverse();
     /* 00C4 */ virtual SHORT GetCastHeight();
     /* 00C8 */ virtual SHORT GetCurrentFrame();
-    /* 00CC */ virtual BOOLEAN GetCurrentSequenceAndFrame(SHORT nSequence, SHORT nFrame);
+    /* 00CC */ virtual BOOLEAN GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame);
     /* 00D0 */ virtual BOOLEAN GetCurrentResRef(CString& resBody, CString& resWeapon, CString& resShield, CString& resHelmet);
 
     /* 0004 */ USHORT m_animationID;
