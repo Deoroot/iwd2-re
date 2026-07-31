@@ -1,0 +1,25 @@
+# Prove ReadyQuickSlotByMode runs. OnLButtonPressed routes an action-bar click
+# there when the slot carries a quick-slot type: 0x46+ spell, 0x50+ item,
+# 0x5A+ ability. Slot N is control (N + 6) on panel 1.
+#
+# Select a party member first (panel 1 controls 0..5 are the portraits): with
+# nobody selected the bar shows the group actions, which carry no quick slot.
+#
+# Slot 3's first character has bar = 7,3C,3D,5,B,4,5D,5E,50,51,52,A, so slots
+# 6..10 (controls 12..16) are the quick abilities 0x5D/0x5E and the quick items
+# 0x50/0x51/0x52 -- modes 4 and 3. This bar carries no quick spell, so mode 2
+# stays unexercised here. The quick-weapon slots (0x3C/0x3D at controls 7/8)
+# open the picker instead: that case is still an approximation in the port.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 30
+click 1 12
+sleep 20
+click 1 14
+sleep 20
+click 1 15
+sleep 30

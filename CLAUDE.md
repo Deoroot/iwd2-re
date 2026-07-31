@@ -154,7 +154,7 @@ scripts/arc.py explain <step>  # the tool prose arc deliberately did NOT print
 scripts/arc.py targets         # what to work on next
 ```
 
-`verify` runs everything the bullets below describe, in cheap→expensive order, and prints ~10 lines. **Read those 10 lines, not 9 tool outputs** — every step's full stdout is captured under `.arc/<run>/` and is one `arc explain` away. Flags: `--static` (no VM), `--no-parity` (skip the ~60s PyGhidra boot), `--slot N --hold S --hit SYM`, `--json`, `--strict` (warn→fail), `--require exe,vm` (turn skips into failures).
+`verify` runs everything the bullets below describe, in cheap→expensive order, and prints ~10 lines. **Read those 10 lines, not 9 tool outputs** — every step's full stdout is captured under `.arc/<run>/` and is one `arc explain` away. Flags: `--static` (no VM), `--no-parity` (skip the ~60s PyGhidra boot), `--slot N --hold S --hit SYM`, `--ui scripts/scenarios/<s>.txt` (drive a UI-reachable path so `--hit` can actually fire — without it the smoke of any UI path is a bare CLEAN that proves nothing), `--json`, `--strict` (warn→fail), `--require exe,vm` (turn skips into failures).
 
 - Exit **0** = no failure · **1** = a failure · **2** = harness error (or address not recovered).
 - A missing capability (VM down, no `.ghidra-exports/`, **Ghidra GUI open**) is a `skip`, never a `fail`.

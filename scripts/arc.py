@@ -1017,6 +1017,8 @@ def cmd_verify(args) -> int:
         else:
             smoke_argv = [str(SCRIPTS / "vm.sh"), "smoke", str(args.slot),
                           str(args.hold)]
+            if args.ui:
+                smoke_argv += ["--ui", args.ui]
             hit = args.hit or sym
             if args.expect:
                 smoke_argv += ["--expect", args.expect]
@@ -1375,6 +1377,9 @@ def main(argv: list[str]) -> int:
     v.add_argument("--slot", type=int, default=3)
     v.add_argument("--hold", type=int, default=90)
     v.add_argument("--hit", help="symbol the smoke must observe executing")
+    v.add_argument("--ui", metavar="SCRIPT",
+                   help="AutoUI scenario the smoke replays, so a UI-reachable "
+                        "path can actually be driven (see scripts/scenarios/)")
     v.add_argument("--expect", help="regex the debug log must contain after the smoke")
     v.add_argument("--no-build", action="store_true")
     v.add_argument("--no-smoke", action="store_true")
