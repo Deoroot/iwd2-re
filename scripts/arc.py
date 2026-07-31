@@ -1143,32 +1143,20 @@ def summarize_stats(stats: dict, prev: dict | None) -> list[str]:
         f"({stats.get('recovery_pct')}%)   named {stats.get('named_pct')}%   "
         f"TODO/FIXME {src.get('todo_fixme')}   stubs {src.get('todo_incomplete')}",
     ]
-    # The line above uses project_status.py's denominator, which counts ~19.6k
-    # Unwind@/Catch@ SEH funclets as functions. Print the honest one next to it
-    # so nobody reads 37% as "a third of the game".
-    sc = real_scope()
-    if sc:
+    # The legacy line above divides by a denominator that is ~19.6k Unwind@/
+    # Catch@ SEH funclets. Print the honest one next to it so nobody reads 37%
+    # as "a third of the game". Same source as the legacy line, so the two
+    # cannot drift apart.
+    r = stats.get("real")
+    if r:
         out.append(
-            f"         real {sc['recovered']:,}/{sc['real']:,} "
-            f"({100 * sc['recovered'] / max(1, sc['real']):.1f}%)   "
-            f"{sc['remaining']:,} left   "
-            f"({sc['funclets']:,} SEH funclets/thunks excluded)")
+            f"         real {r['recovered']:,}/{r['total']:,} ({r['pct']}%)   "
+            f"{r['remaining']:,} left   "
+            f"({r['funclets_excluded']:,} SEH funclets/thunks excluded)")
     if prev:
         out.append(f"         last sweep {prev.get('date')} ({prev.get('commit')}): "
                    f"{prev.get('verdict')}")
     return out
-
-
-def real_scope() -> dict | None:
-    script = SCRIPTS / "next_targets.py"
-    if not script.exists():
-        return None
-    try:
-        proc = subprocess.run([PY, str(script), "--scope"], cwd=REPO,
-                              capture_output=True, text=True, timeout=180)
-        return json.loads(proc.stdout) if proc.returncode == 0 else None
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        return None
 
 
 def last_history() -> dict | None:

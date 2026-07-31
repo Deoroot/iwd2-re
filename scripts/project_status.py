@@ -45,6 +45,10 @@ INCOMPLETE_RE = re.compile(rb"TODO:\s?Incomplete")
 FUN_RE = re.compile(rb"\bFUN_[0-9A-Fa-f]{6,8}\b")
 FIELD_RE = re.compile(rb"\bfield_[0-9A-Fa-f]+\b")
 PLACEHOLDER_PREFIXES = ("FUN_", "sub_", "thunk_FUN", "thunk_sub")
+# Compiler-generated exception plumbing and jump stubs. Ghidra defines a
+# function for every SEH funclet, which is why the raw entry count is ~3x the
+# number of functions that actually exist to be recovered.
+FUNCLET_PREFIXES = ("Unwind", "Catch", "thunk_")
 
 
 def iter_src(exts=(".cpp", ".h")):
@@ -117,12 +121,15 @@ def scan_ghidra():
         if os.path.basename(f) != "address_map.json"
         and len(os.path.basename(f)) == 13  # 8 hex + ".json"
     ]
-    named = unnamed = 0
+    named = unnamed = funclets = 0
     entries = set()  # function entry addresses (ints), from filenames
+    real_entries = set()  # same, minus compiler-generated SEH plumbing
     for f in files:
         base = os.path.basename(f)
+        addr = None
         try:
-            entries.add(int(base[:8], 16))
+            addr = int(base[:8], 16)
+            entries.add(addr)
         except ValueError:
             pass
         try:
@@ -131,11 +138,19 @@ def scan_ghidra():
         except (OSError, ValueError):
             continue
         n = d.get("name") or d.get("function_name") or ""
+        # Unwind@/Catch@ are SEH funclets and thunk_ is a jump stub: compiler
+        # output, not code anyone recovers. They are ~19.6k of the ~29.7k
+        # entries, so counting them makes every ratio below meaningless.
+        if n.startswith(FUNCLET_PREFIXES):
+            funclets += 1
+            continue
+        if addr is not None:
+            real_entries.add(addr)
         if not n or n.startswith(PLACEHOLDER_PREFIXES):
             unnamed += 1
         else:
             named += 1
-    total = named + unnamed
+    total = named + unnamed + funclets
     src_linked = None
     amap = os.path.join(EXPORTS, "address_map.json")
     if os.path.isfile(amap):
@@ -146,10 +161,13 @@ def scan_ghidra():
             pass
     return {
         "total_funcs": total,
+        "funclets": funclets,
+        "real_funcs": named + unnamed,
         "named": named,
         "unnamed": unnamed,
         "src_linked_map": src_linked,
         "entries": entries,
+        "real_entries": real_entries,
     }
 
 
@@ -213,12 +231,25 @@ def collect():
     out = {"source": s, "ghidra": g, "new_discovered": nd}
     if g and g["total_funcs"]:
         out["recovery_pct"] = round(100 * s["recovered_funcs"] / g["total_funcs"], 1)
-        out["named_pct"] = round(100 * g["named"] / g["total_funcs"], 1)
+        out["named_pct"] = round(100 * g["named"] / g["real_funcs"], 1)
         out["bytes"] = byte_coverage(g["entries"], s["recovered_addr_ints"])
+        # The figure that answers "how much is left": markers matched against
+        # real function entries only. recovery_pct above divides by a
+        # denominator that is two thirds SEH funclets and is kept only so the
+        # historical number stays comparable.
+        real_rec = len(s["recovered_addr_ints"] & g["real_entries"])
+        out["real"] = {
+            "recovered": real_rec,
+            "total": g["real_funcs"],
+            "remaining": g["real_funcs"] - real_rec,
+            "pct": round(100 * real_rec / g["real_funcs"], 1) if g["real_funcs"] else 0.0,
+            "funclets_excluded": g["funclets"],
+        }
     # drop unserializable sets before any JSON dump
     s.pop("recovered_addr_ints", None)
     if g:
         g.pop("entries", None)
+        g.pop("real_entries", None)
     return out
 
 
@@ -235,9 +266,16 @@ def fmt_human(d):
         L.append(f"  .text code recovered       : {b['recovered_bytes']:>9,} / "
                  f"{b['text_bytes']:,} bytes  ({b['pct']}%)")
         L.append( "    ^ byte-weighted: big functions count more than stubs")
+    r = d.get("real")
+    if r:
+        L.append(f"  Real functions recovered   : {r['recovered']:>9,} / "
+                 f"{r['total']:,}  ({r['pct']}%)   {r['remaining']:,} left")
+        L.append(f"    ^ excludes {r['funclets_excluded']:,} Unwind@/Catch@ SEH "
+                 f"funclets and thunks (compiler output, never recovered)")
     if g:
-        L.append(f"  Functions recovered to C++ : {s['recovered_funcs']:>9,} / "
-                 f"{g['total_funcs']:,}  ({d['recovery_pct']}%)")
+        L.append(f"  [legacy] vs raw entry count: {s['recovered_funcs']:>9,} / "
+                 f"{g['total_funcs']:,}  ({d['recovery_pct']}%)  <- denominator is"
+                 f" 2/3 funclets")
     else:
         L.append(f"  Functions recovered to C++ : {s['recovered_funcs']:>9,}")
     L.append(f"  Source lines               : {s['src_lines']:>9,}  "
@@ -246,7 +284,7 @@ def fmt_human(d):
     if g:
         L.append("GHIDRA NAMING (metadata, not recovery)")
         L.append(f"  Named functions            : {g['named']:>7,} / "
-                 f"{g['total_funcs']:,}  ({d['named_pct']}%)")
+                 f"{g['real_funcs']:,}  ({d['named_pct']}%)")
         L.append(f"  Still FUN_/sub_ (anonymous): {g['unnamed']:>7,}")
         if g["src_linked_map"] is not None:
             L.append(f"  address_map.json entries   : {g['src_linked_map']:>7,}")
@@ -281,13 +319,24 @@ def fmt_markdown(d):
                  f"({b['recovered_bytes']:,} / {b['text_bytes']:,} bytes) | "
                  f"Byte-weighted — the real 'how much engine is rebuilt' figure. "
                  f"Big functions count more than stubs. |")
+    r = d.get("real")
+    if r:
+        L.append(f"| **Functions recovered** | **~{r['pct']}%** "
+                 f"({r['recovered']:,} / {r['total']:,}) | "
+                 f"By count, against the functions that actually exist to be "
+                 f"recovered. Excludes {r['funclets_excluded']:,} `Unwind@`/"
+                 f"`Catch@` SEH funclets and thunks — compiler-generated "
+                 f"exception plumbing Ghidra defines a function for. "
+                 f"**{r['remaining']:,} left.** |")
     if g:
-        L.append(f"| **Functions recovered to C++** | {d['recovery_pct']}% "
-                 f"({s['recovered_funcs']:,} / {g['total_funcs']:,}) | "
-                 f"By count — remaining functions are mostly small leaves/stubs |")
         L.append(f"| **Functions named in Ghidra** | {d['named_pct']}% "
-                 f"({g['named']:,} / {g['total_funcs']:,}) | "
-                 f"Metadata only — {g['unnamed']:,} still `FUN_`/`sub_` |")
+                 f"({g['named']:,} / {g['real_funcs']:,}) | "
+                 f"Metadata only — {g['unnamed']:,} still `FUN_`/`sub_`. "
+                 f"Naming ≠ recovery. |")
+        L.append(f"| *(legacy)* Recovered vs raw entries | {d['recovery_pct']}% "
+                 f"({s['recovered_funcs']:,} / {g['total_funcs']:,}) | "
+                 f"The number this table used to publish. Its denominator is "
+                 f"two thirds SEH funclets, so it understates progress by ~2.2x. |")
     L.append(f"| **Source code** | {s['src_lines']:,} lines | "
              f"{s['src_files']} `.cpp`/`.h` files |")
     L.append(f"| **TODO / FIXME** | {s['todo_fixme']:,} | "

@@ -39,14 +39,17 @@ All numbers below are measured directly from the repo. Regenerate them anytime:
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **`.text` code recovered** | **~78.4%** (3.51 MB / 4.48 MB) | **Byte-weighted** — share of the binary's executable code that has a faithful C++ body. The honest "how much engine is rebuilt" figure. |
-| **Functions recovered to C++** | ~37% (11,062 / 29,663) | By count. Much lower than the byte figure because the recovered functions are the big ones; what remains is mostly small leaves/stubs. |
-| **Functions named in Ghidra** | ~89% (26,541 / 29,663) | Metadata only — 3,122 still anonymous `FUN_`/`sub_`. Naming ≠ recovery. |
-| **Source code** | ~314,000 lines | 426 `.cpp`/`.h` files |
-| **TODO / FIXME** | 840 | across 118 files; 262 are `TODO: Incomplete` (unimplemented stubs) |
-| **Unnamed fields** | 663 unique | `field_XXX` members still awaiting names |
+| **`.text` code recovered** | **~78.9%** (3,534,206 / 4,479,215 bytes) | Byte-weighted — the real 'how much engine is rebuilt' figure. Big functions count more than stubs. |
+| **Functions recovered** | **~83.7%** (8,386 / 10,022) | By count, against the functions that actually exist to be recovered. Excludes 19,646 `Unwind@`/`Catch@` SEH funclets and thunks — compiler-generated exception plumbing Ghidra defines a function for. **1,636 left.** |
+| **Functions named in Ghidra** | 69.0% (6,914 / 10,022) | Metadata only — 3,108 still `FUN_`/`sub_`. Naming ≠ recovery. |
+| *(legacy)* Recovered vs raw entries | 37.5% (11,124 / 29,668) | The number this table used to publish. Its denominator is two thirds SEH funclets, so it understates progress by ~2.2x. |
+| **Source code** | 318,042 lines | 426 `.cpp`/`.h` files |
+| **TODO / FIXME** | 838 | 118 files; 260 are `TODO: Incomplete` stubs |
+| **Unnamed fields** | 659 unique | `field_XXX` members awaiting names |
 
-**Three numbers, three different things.** *Named in Ghidra* (~89%) is cheap metadata. *Functions recovered* (~37%) counts a 5-byte stub the same as a 2000-instruction monster, so it understates real progress. **The byte-weighted `.text` figure (~78%)** is the one that reflects how much of the actual engine has been rebuilt: recovery has prioritized the large, important functions first, so most of the code mass is done even though a third of the function *count* remains. (The function-size denominator is derived from Ghidra's entry addresses and validated against the PE — the sum matches `.text` VirtualSize to within 2 bytes.)
+**A correction, 2026-07-31.** This table used to report *~37% of functions recovered (11,062 / 29,663)*. That denominator was wrong. Ghidra defines a function for every SEH funclet, and **19,599 of those ~29.7k entries are `Unwind@...` blocks**, plus 33 `Catch@...` and a handful of thunks — compiler-generated exception plumbing that nobody reverse-engineers. Measured against the functions that actually exist to be recovered, the figure is **83.7%**, and the remaining backlog is **~1,636 functions rather than ~18,500**. The old number is kept in the table as a *(legacy)* row so the published history stays traceable. The same inflation hit the naming figure: ~89% was really 69%.
+
+**Two numbers, two different things.** *Named in Ghidra* (69%) is cheap metadata — it says a human or a script put a label on an address, not that any C++ exists. **The byte-weighted `.text` figure (~78.9%)** remains the one that reflects how much engine has been rebuilt, because it counts a 2000-instruction function for what it is and a 5-byte stub for what it is. It now sits close to the function count (83.7%), which is what you would expect once the funclets stop distorting the denominator. (The function-size denominator is derived from Ghidra's entry addresses and validated against the PE — the sum matches `.text` VirtualSize to within 2 bytes.)
 
 > `src/NewDiscovered.h` is a **stale manual scratch list** of uncategorized `FUN_` addresses. It is **not `#include`d anywhere** and covers only about a third of the functions still anonymous in Ghidra. Don't treat its header count as a real backlog figure — use `scripts/project_status.py`.
 
