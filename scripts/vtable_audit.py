@@ -36,10 +36,12 @@ import struct
 from collections import Counter, defaultdict
 
 import os
-EXE = os.environ.get("IWD2_EXE",
-    os.path.expanduser("~/Games/Heroic/Icewind Dale 2/IWD2.exe")
-    if os.name == "posix" else r"C:\GOG Games\Icewind Dale 2\IWD2.exe")
-SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Same resolution order as sym.py / ctor_vtable_check.py: the pristine copy
+# vendored at .bin/iwd2.exe is canonical, so an audit never depends on where a
+# game install happens to live.
+EXE = os.environ.get("IWD2_EXE") or os.path.join(REPO, ".bin", "iwd2.exe")
+SRC = os.path.join(REPO, "src")
 
 # ---- PE -------------------------------------------------------------------
 import pefile
@@ -268,8 +270,9 @@ def main():
     amap, allad = parse_addrs()
     print(f"parsed {len(classes)} classes, {len(amap)} method addrs, "
           f"{len(img.slot_index)} distinct code-pointer slots in .rdata/.data")
-    audit(img, classes, amap, allad, only=only, quiet=quiet)
+    # Exit non-zero on findings so this can be used as a gate (arc.py, hooks).
+    return 1 if audit(img, classes, amap, allad, only=only, quiet=quiet) else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
