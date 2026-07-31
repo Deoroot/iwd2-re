@@ -579,7 +579,11 @@ public:
     /* 02F9 */ BYTE field_2F9;
     /* 02FA */ BYTE m_fadeSpeed;
     /* 02FB */ unsigned char field_2FB;
-    /* 02FC */ unsigned char m_critSectService;
+    // CRE v2.2 "Visible" byte (file offset 0x0304).  Bit 0 is the force-visible
+    // flag: CGameEffectForceVisible::ApplyEffect sets it on an improved-invisible
+    // target, CGameEffectInvisible::ApplyEffect and Unmarshal clear it, and every
+    // visibility test treats a set bit as "seen despite STATE_INVISIBLE".
+    /* 02FC */ unsigned char m_visible;
     /* 02FD */ BYTE field_2FD[2];
     /* 02FF */ unsigned char field_2FF;
     /* 0300 */ BYTE field_300[124];

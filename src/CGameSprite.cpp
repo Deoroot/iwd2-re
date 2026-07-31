@@ -1153,7 +1153,7 @@ BOOL CGameSprite::IsOver(const CPoint& pt)
         && m_baseStats.m_bStealthMode == 0
         && (m_typeAI.GetEnemyAlly() <= CAIObjectType::EA_GOODCUTOFF
             || (m_derivedStats.m_generalState & STATE_INVISIBLE) == 0
-            || (m_baseStats.m_critSectService & 0x1) != 0)) {
+            || (m_baseStats.m_visible & 0x1) != 0)) {
         const CRect& rEllipse = m_animation.GetEllipseRect();
         CPoint ptRelative(pt.x - m_pos.x, pt.y - m_pos.y);
         return rEllipse.PtInRect(ptRelative);
@@ -3582,7 +3582,7 @@ void CGameSprite::CheckIfVisible()
                 if (!m_bVisibleMonster
                     && m_typeAI.GetEnemyAlly() >= CAIObjectType::EA_EVILCUTOFF
                     && Animate()
-                    && ((m_derivedStats.m_generalState & STATE_INVISIBLE) == 0 || (m_baseStats.m_critSectService & 0x1) != 0)
+                    && ((m_derivedStats.m_generalState & STATE_INVISIBLE) == 0 || (m_baseStats.m_visible & 0x1) != 0)
                     && !m_baseStats.m_bStealthMode
                     && (m_baseStats.m_flags & 0x8000) == 0) {
                     if (m_pArea->m_nVisibleMonster == 0) {
@@ -4946,7 +4946,7 @@ void CGameSprite::RenderMarkers(CVidMode* pVidMode, INT nSurface)
     if (m_pArea->m_visibility.IsTileExplored(m_pArea->m_visibility.PointToTile(pt))
         && (m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_CONTROLCUTOFF
             || (m_derivedStats.m_generalState & STATE_INVISIBLE) == 0
-            || (m_baseStats.m_critSectService & 0x1) != 0)
+            || (m_baseStats.m_visible & 0x1) != 0)
         && m_baseStats.m_bStealthMode != 1) {
         DWORD level = g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nGuiFeedbackLevel;
         if (g_pBaldurChitin->GetScreenWorld()->field_14A) {
@@ -8084,7 +8084,7 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
         }
     }
 
-    m_baseStats.m_critSectService &= ~0x1;
+    m_baseStats.m_visible &= ~0x1;
     m_dialog = offsets->m_dialog;
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
@@ -12863,14 +12863,14 @@ STRREF CGameSprite::GetNameRef()
 // The sprite is hidden iff the observer cannot see invisible
 // (`bSeesInvisible == FALSE`), the sprite carries the regular invisibility
 // state (`m_generalState & STATE_INVISIBLE`), and the sprite has not been
-// re-exposed: bit 0 of `m_baseStats.m_critSectService` is the force-visible
+// re-exposed: bit 0 of `m_baseStats.m_visible` is the force-visible
 // flag CGameEffectForceVisible::ApplyEffect sets on an improved-invisible
 // target and CGameEffectInvisible::ApplyEffect clears.
 BOOL CGameSprite::CheckInvisibility(BOOL bSeesInvisible)
 {
     if (bSeesInvisible == FALSE
         && (m_derivedStats.m_generalState & STATE_INVISIBLE) != 0
-        && (m_baseStats.m_critSectService & 0x1) == 0) {
+        && (m_baseStats.m_visible & 0x1) == 0) {
         return FALSE;
     }
     return TRUE;

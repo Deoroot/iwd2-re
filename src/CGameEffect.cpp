@@ -4135,7 +4135,7 @@ BOOL CGameEffectInvisible::ApplyEffect(CGameSprite* pSprite)
                 return TRUE;
             }
             // Clear the force-visible sanctuary bit CGameEffectForceVisible set.
-            pSprite->GetBaseStats()->m_critSectService &= ~0x1;
+            pSprite->GetBaseStats()->m_visible &= ~0x1;
             return TRUE;
         }
         pSprite->GetBaseStats()->m_generalState |= (STATE_INVISIBLE | STATE_IMPROVEDINVISIBILITY);
@@ -9843,7 +9843,7 @@ BOOL CGameEffectForceVisible::ApplyEffect(CGameSprite* pSprite)
 {
     if ((pSprite->GetBaseStats()->m_generalState & STATE_IMPROVEDINVISIBILITY) != 0
         || (pSprite->GetDerivedStats()->m_generalState & STATE_IMPROVEDINVISIBILITY) != 0) {
-        pSprite->GetBaseStats()->m_critSectService |= 0x1;
+        pSprite->GetBaseStats()->m_visible |= 0x1;
     } else {
         pSprite->GetBaseStats()->m_generalState &= ~STATE_INVISIBLE;
         pSprite->GetDerivedStats()->m_generalState &= ~STATE_INVISIBLE;
