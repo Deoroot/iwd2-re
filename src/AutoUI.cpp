@@ -21,9 +21,20 @@
 //                                to --hit. Put this before the first action.
 //   wait <screen> [ticks]        block until that screen is active
 //   dump                         whole UI tree of the active screen
+//   center                       scroll the view onto the party. A save stores
+//                                its own camera, so the party can start off
+//                                screen and every ground click then misses.
+//   ground                       visible area's render list, each object with
+//                                the screen point that clicks it. The world
+//                                twin of `dump`: it answers "what is out there
+//                                and where" so a scenario can click a door or a
+//                                creature without a human reading pixels.
 //   screen                       active screen identity only
 //   click <panel> <control>      resolve the control centre, then click it
-//   clickxy <x> <y>              click a raw screen point (ground, world)
+//   clickxy <x> <y>              move the cursor there, then click it (ground,
+//                                world). The move matters: world picking reads
+//                                m_ptMousePos, not the click point.
+//   hover <x> <y>                move the cursor without clicking
 //   key <vk>                     pActiveEngine->OnKeyDown
 //   goto <screen>                CBaldurEngine::OnLeftPanelButtonClick
 //   expect screen <screen>
@@ -41,6 +52,11 @@
 #include "BalDataTypes.h"
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
+#include "CGameArea.h"
+#include "CGameObject.h"
+#include "CGameObjectArray.h"
+#include "CInfGame.h"
+#include "CInfinity.h"
 #include "CUIControlBase.h"
 #include "CUIManager.h"
 #include "CUIPanel.h"
@@ -237,6 +253,165 @@ void DumpTree(CWarp* pEngine, int nStep)
     }
 }
 
+// The world twin of DumpTree. m_lVertSort is what the area actually renders,
+// so walking it lists exactly the objects a click could hit, and CInfinity
+// turns each world position into the screen point that hits it. Without this a
+// world-side scenario has to guess coordinates and silently misses.
+int CountVertSort(CGameArea* pArea)
+{
+    int nObjects = 0;
+    POSITION pos = pArea->m_lVertSort.GetHeadPosition();
+    while (pos != NULL) {
+        pArea->m_lVertSort.GetNext(pos);
+        nObjects++;
+    }
+    return nObjects;
+}
+
+void DumpGround(int nStep)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CGameArea* pArea = pGame != NULL ? pGame->GetVisibleArea() : NULL;
+    if (pArea == NULL) {
+        Emit("{\"step\":%d,\"op\":\"ground\",\"status\":\"error\","
+             "\"detail\":\"no visible area\"}", nStep);
+        return;
+    }
+
+    CInfinity* pInfinity = pArea->GetInfinity();
+
+    // Report the scroll origin and viewport with the list. GetScreenCoordinates
+    // collapses anything off-screen to (-1,-1), which cannot be told apart from
+    // a bad walk, so emit the unclipped point and let the reader clip.
+    char szArea[16];
+    memset(szArea, 0, sizeof(szArea));
+    pArea->m_resRef.CopyToString(szArea);
+
+    Emit("{\"step\":%d,\"op\":\"ground\",\"area\":\"%s\",\"objects\":%d,"
+         "\"scrollx\":%d,"
+         "\"scrolly\":%d,\"left\":%ld,\"top\":%ld,\"right\":%ld,\"bottom\":%ld}",
+        nStep, szArea, CountVertSort(pArea),
+        pInfinity->nNewX, pInfinity->nNewY,
+        pInfinity->rViewPort.left, pInfinity->rViewPort.top,
+        pInfinity->rViewPort.right, pInfinity->rViewPort.bottom);
+
+    // The party is the reference point: the camera follows it, so if the party
+    // does not land inside the viewport the list being walked is not the one
+    // the screen shows.
+    for (SHORT nSlot = 0; nSlot < pGame->GetNumCharacters(); nSlot++) {
+        LONG characterId = pGame->GetFixedOrderCharacterId(nSlot);
+        if (characterId == CGameObjectArray::INVALID_INDEX) {
+            continue;
+        }
+
+        CGameObject* pMember;
+        if (pGame->GetObjectArray()->GetShare(characterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pMember,
+                INFINITE)
+            != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        char szMemberArea[16];
+        memset(szMemberArea, 0, sizeof(szMemberArea));
+        if (pMember->m_pArea != NULL) {
+            pMember->m_pArea->m_resRef.CopyToString(szMemberArea);
+        }
+
+        Emit("{\"step\":%d,\"op\":\"party\",\"slot\":%d,\"id\":%ld,"
+             "\"area\":\"%s\",\"same\":%d,"
+             "\"wx\":%ld,\"wy\":%ld,\"x\":%ld,\"y\":%ld}",
+            nStep, nSlot, characterId,
+            szMemberArea, pMember->m_pArea == pArea ? 1 : 0,
+            pMember->m_pos.x, pMember->m_pos.y,
+            pMember->m_pos.x - pInfinity->nNewX + pInfinity->rViewPort.left,
+            pMember->m_pos.y - pInfinity->nNewY + pInfinity->rViewPort.top);
+
+        pGame->GetObjectArray()->ReleaseShare(characterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    POSITION pos = pArea->m_lVertSort.GetHeadPosition();
+    while (pos != NULL) {
+        LONG objectId = reinterpret_cast<LONG>(pArea->m_lVertSort.GetNext(pos));
+
+        CGameObject* pObject;
+        BYTE rc = pGame->GetObjectArray()->GetShare(objectId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+        if (rc != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        CPoint ptScreen;
+        ptScreen.x = pObject->m_pos.x - pInfinity->nNewX + pInfinity->rViewPort.left;
+        ptScreen.y = pObject->m_pos.y - pInfinity->nNewY + pInfinity->rViewPort.top;
+
+        Emit("{\"step\":%d,\"op\":\"object\",\"id\":%ld,\"type\":%d,"
+             "\"wx\":%ld,\"wy\":%ld,\"x\":%ld,\"y\":%ld,\"onscreen\":%d}",
+            nStep, objectId, pObject->GetObjectType(),
+            pObject->m_pos.x, pObject->m_pos.y,
+            ptScreen.x, ptScreen.y,
+            pInfinity->rViewPort.PtInRect(ptScreen) ? 1 : 0);
+
+        pGame->GetObjectArray()->ReleaseShare(objectId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+}
+
+// A save restores the camera it was written with, which need not be looking at
+// the party -- slot 3 loads with the view 1600 pixels below them. Nothing on
+// screen then corresponds to anything in the area, so centre first and let the
+// coordinates ground reports mean what they say.
+void CenterOnParty(int nStep)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CGameArea* pArea = pGame != NULL ? pGame->GetVisibleArea() : NULL;
+    if (pArea == NULL) {
+        Emit("{\"step\":%d,\"op\":\"center\",\"status\":\"error\","
+             "\"detail\":\"no visible area\"}", nStep);
+        return;
+    }
+
+    LONG characterId = pGame->GetNumCharacters() > 0
+        ? pGame->GetFixedOrderCharacterId(0)
+        : CGameObjectArray::INVALID_INDEX;
+    if (characterId == CGameObjectArray::INVALID_INDEX) {
+        Emit("{\"step\":%d,\"op\":\"center\",\"status\":\"error\","
+             "\"detail\":\"no party\"}", nStep);
+        return;
+    }
+
+    CGameObject* pMember;
+    if (pGame->GetObjectArray()->GetShare(characterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pMember,
+            INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        Emit("{\"step\":%d,\"op\":\"center\",\"status\":\"error\","
+             "\"detail\":\"party member locked\"}", nStep);
+        return;
+    }
+
+    CPoint ptMember = pMember->m_pos;
+    pGame->GetObjectArray()->ReleaseShare(characterId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    CInfinity* pInfinity = pArea->GetInfinity();
+    pInfinity->SetViewPosition(ptMember.x - pInfinity->rViewPort.Width() / 2,
+        ptMember.y - pInfinity->rViewPort.Height() / 2,
+        TRUE);
+
+    Emit("{\"step\":%d,\"op\":\"center\",\"wx\":%ld,\"wy\":%ld,"
+         "\"scrollx\":%d,\"scrolly\":%d,\"status\":\"ok\"}",
+        nStep, ptMember.x, ptMember.y, pInfinity->nNewX, pInfinity->nNewY);
+}
+
 void Fail(int nStep, const char* op, const char* detail)
 {
     Emit("{\"step\":%d,\"op\":\"%s\",\"status\":\"fail\",\"detail\":\"%s\"}",
@@ -362,6 +537,18 @@ void Tick(CWarp* pActiveEngine)
         return;
     }
 
+    if (strcmp(step.op, "center") == 0) {
+        CenterOnParty(nStep);
+        s_pc++;
+        return;
+    }
+
+    if (strcmp(step.op, "ground") == 0) {
+        DumpGround(nStep);
+        s_pc++;
+        return;
+    }
+
     if (strcmp(step.op, "screen") == 0) {
         Emit("{\"step\":%d,\"op\":\"screen\",\"screen\":\"%s\"}",
             nStep, ScreenName(pActiveEngine));
@@ -452,8 +639,23 @@ void Tick(CWarp* pActiveEngine)
         return;
     }
 
+    if (strcmp(step.op, "hover") == 0) {
+        CPoint pt(Num(step, 0, 0), Num(step, 1, 0));
+        pActiveEngine->OnMouseMove(pt);
+        Emit("{\"step\":%d,\"op\":\"hover\",\"x\":%ld,\"y\":%ld,\"status\":\"ok\"}",
+            nStep, pt.x, pt.y);
+        s_pc++;
+        return;
+    }
+
     if (strcmp(step.op, "clickxy") == 0) {
         s_clickPt = CPoint(Num(step, 0, 0), Num(step, 1, 0));
+        // The world does not pick from the point handed to OnLButtonDown: it
+        // picks from m_ptMousePos, which the tick fills from the real cursor
+        // (CGameArea.cpp:1466). A synthetic click with no move behind it hits
+        // whatever the cursor last hovered, so move first, exactly as a hand
+        // would. Menus are unaffected -- they hit-test the point they are given.
+        pActiveEngine->OnMouseMove(s_clickPt);
         pActiveEngine->OnLButtonDown(s_clickPt);
         Emit("{\"step\":%d,\"op\":\"clickxy\",\"x\":%ld,\"y\":%ld,\"status\":\"ok\"}",
             nStep, s_clickPt.x, s_clickPt.y);
