@@ -114,7 +114,15 @@ def parse_headers():
                     off = int(m.group(1), 16)
                 except ValueError:
                     continue
-                nm = NAME_RE.search(m.group(2))
+                # Strip the trailing // comment first. In a binary-mirror header
+                # /* NNNN */ also marks MEMBER offsets, and prose in a member's
+                # comment can contain a "word(" that NAME_RE happily reads as a
+                # method -- e.g. `/* 05E7 */ unsigned char m_animMode; // ...
+                # random-sequence opt-in (==1)` yielded a phantom slot 0x5e7,
+                # which pushed maxslot past the vtable and made the audit read
+                # 203 findings out of the NEXT class's vtable.
+                decl = m.group(2).split("//")[0]
+                nm = NAME_RE.search(decl)
                 if nm:
                     slots[off] = nm.group(1)
             if slots:
@@ -164,9 +172,18 @@ def find_vtable(img, cls, classes, amap):
     return best, best_n
 
 
-def vtable_len(img, base, hard_cap=0x400):
+def vtable_len(img, base, hard_cap=0x400, next_base=None):
+    """Slots from `base` until the table ends.
+
+    Walking while the dword looks like code is NOT enough on its own: vtables
+    are laid out back-to-back in .rdata, so the next table's first entry is a
+    code pointer too and the walk runs straight into it until the hard cap.
+    `next_base` (the nearest vtable that starts after this one) is the real
+    boundary; without it every class reports len 0x400.
+    """
     n = 0
-    while n < hard_cap and img.is_code(img.d32(base + n)):
+    limit = hard_cap if next_base is None else min(hard_cap, next_base - base)
+    while n < limit and img.is_code(img.d32(base + n)):
         n += 4
     return n
 
@@ -187,12 +204,28 @@ def own_slot_decl(classes, cls, off, stop_base):
 
 def audit(img, classes, amap, allad, only=None, quiet=False):
     findings_total = 0
+    # Pass 1: locate every class's vtable, so pass 2 knows where each one ENDS.
+    # A vtable's boundary is the next vtable in .rdata; without this every table
+    # walks into its neighbour (see vtable_len).
+    located = {}
+    for c in sorted(classes):
+        vb, nm = find_vtable(img, c, classes, amap)
+        if vb is not None:
+            located[c] = (vb, nm)
+    all_bases = sorted({vb for vb, _ in located.values()})
+
+    def next_base_after(vb):
+        for x in all_bases:
+            if x > vb:
+                return x
+        return None
+
     for cls in sorted(classes):
         if only and cls != only:
             continue
         info = classes[cls]
         base = info["base"]
-        vbase, nmatch = find_vtable(img, cls, classes, amap)
+        vbase, nmatch = located.get(cls, (None, 0))
         if vbase is None:
             if only:
                 print(f"[{cls}] could not locate vtable (no anchored slots)")
@@ -204,7 +237,7 @@ def audit(img, classes, amap, allad, only=None, quiet=False):
                 print(f"[{cls}] vtable match weak ({nmatch}/{own_anchored}) @ {vbase:#x}; skip")
             continue
 
-        vlen = vtable_len(img, vbase)
+        vlen = vtable_len(img, vbase, next_base=next_base_after(vbase))
         # Cap structural checks at the highest slot we DID declare: a MISSING below
         # that line is a genuine hole between recovered slots (today's bug). Slots
         # above it are trailing new-virtuals / MFC message thunks -> too noisy.
