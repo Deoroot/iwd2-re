@@ -16,11 +16,25 @@ dropped once the parent exits. Attach BY PID (from the running iwd2-re.exe), not
 spawning ptr(0x400000) hooks. Stays alive until the crash (or until killed).
 
   python scripts/frida_crash_guard.py <pid|name>     # default target: iwd2-re.exe
+  python scripts/frida_crash_guard.py <pid> --count CGameSprite::Render
+
+--count also answers the OTHER half of the question. "No fault for 90s" does not
+distinguish "the recovered code is correct" from "the recovered code never ran",
+and that gap is exactly what let both Fireball crashes ship past parity GREEN.
+Counting entries to the recovered symbol turns an idle smoke into a real gate,
+and it needs no source change -- we are already attached and already symbolizing.
 
 Exit / output contract (parsed by vm.sh smoke):
   "ARMED"                  -> handler installed, safe to drive the feature
   "########## EXCEPTION ..."-> a fault fired; the block that follows is the backtrace
   "########## DETACHED"    -> target went away (crash death or normal close)
+  "INSTRUMENTED <sym> <n>" -> --count resolved <sym> to n address(es)
+  "NOT_INSTRUMENTED <sym>" -> --count resolved <sym> to nothing (inlined? folded
+                              by /OPT:ICF? wrong name?) -- a caller MUST treat
+                              this as a failure, never as a silent pass
+  "HITS <sym> <n>"         -> entry count, re-emitted every 2s. Periodic, not
+                              on teardown, because vm.sh kills this process and
+                              a teardown handler would never run.
 """
 import frida, sys, os, time
 
@@ -71,14 +85,64 @@ Process.setExceptionHandler(function(d){
 });
 """.replace("%TAG%", CRASH_TAG)
 
+# Entry counters for --count. Kept separate from the crash JS above, which is
+# verbatim from the version proven to catch both Fireball faults.
+COUNT_JS = r"""
+var WANTED = %SYMS%;
+var counts = {};
+
+function resolve(name){
+  var hits = [];
+  try { hits = DebugSymbol.findFunctionsNamed(name); } catch(e){}
+  if (!hits.length) {
+    try { hits = DebugSymbol.findFunctionsMatching("*" + name); } catch(e){}
+  }
+  // Keep only addresses inside our own module: a same-named symbol pulled in
+  // from a CRT or system DLL would inflate the count into a false pass.
+  var self = Process.enumerateModules()[0];
+  var lo = self.base, hi = self.base.add(self.size);
+  return hits.filter(function(a){ return a.compare(lo) >= 0 && a.compare(hi) < 0; });
+}
+
+WANTED.forEach(function(name){
+  var addrs = resolve(name);
+  if (!addrs.length) {
+    send({tag:"NOSYM", name:name});
+    return;
+  }
+  counts[name] = 0;
+  addrs.forEach(function(a){
+    try {
+      Interceptor.attach(a, { onEnter: function(){ counts[name]++; } });
+    } catch(e){ }
+  });
+  send({tag:"SYM", name:name, n:addrs.length});
+});
+
+// Re-emit on a timer rather than at teardown: vm.sh kills this process, so an
+// onDetach/atexit report would never be written.
+setInterval(function(){
+  Object.keys(counts).forEach(function(k){
+    send({tag:"HITS", name:k, n:counts[k]});
+  });
+}, 2000);
+"""
+
 
 def on_message(msg, data):
     try:
         if msg.get("type") == "send" and isinstance(msg.get("payload"), dict):
             p = msg["payload"]
-            if p.get("tag") == "CRASH":
+            tag = p.get("tag")
+            if tag == "CRASH":
                 out(p["body"])
                 out("")
+            elif tag == "SYM":
+                out("INSTRUMENTED %s %d" % (p["name"], p["n"]))
+            elif tag == "NOSYM":
+                out("NOT_INSTRUMENTED %s" % p["name"])
+            elif tag == "HITS":
+                out("HITS %s %d" % (p["name"], p["n"]))
         else:
             out("[msg] " + repr(msg))
     except Exception as e:
@@ -86,7 +150,13 @@ def on_message(msg, data):
 
 
 def main():
-    target = sys.argv[1] if len(sys.argv) > 1 else "iwd2-re.exe"
+    argv = sys.argv[1:]
+    symbols = []
+    if "--count" in argv:
+        i = argv.index("--count")
+        symbols = [s for s in argv[i + 1].split(",") if s.strip()]
+        del argv[i:i + 2]
+    target = argv[0] if argv else "iwd2-re.exe"
     out("=== attaching to %s, arming exception handler ===" % target)
     try:
         session = frida.attach(int(target) if target.isdigit() else target)
@@ -98,6 +168,11 @@ def main():
     script = session.create_script(JS)
     script.on("message", on_message)
     script.load()
+    if symbols:
+        counter = session.create_script(
+            COUNT_JS.replace("%SYMS%", repr(symbols).replace("'", '"')))
+        counter.on("message", on_message)
+        counter.load()
     out("ARMED; drive the recovered path now (cast the spell). Waiting for a crash...")
     while True:
         time.sleep(0.5)

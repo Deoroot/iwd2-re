@@ -4,10 +4,18 @@
 #   scripts/vm.sh build [--run]        sync+build via remote_build.sh, print ONLY errors/warnings
 #                                      (full log -> tmp_vm_build.log). --run: kill ours + launch s1.
 #   scripts/vm.sh run [slot]           kill ours, launch game in session 1 (default save slot 3)
-#   scripts/vm.sh smoke [slot] [secs]  arc gate: run OUR build + load save (default slot 3) + arm the
+#   scripts/vm.sh smoke [slot] [secs] [--hit SYM [--hit-min N]] [--expect RE [--expect-min N]]
+#                                      arc gate: run OUR build + load save (default slot 3) + arm the
 #                                      crash guard; interactive HOLDS until ENTER (= RESULT: CLEAN) or a
 #                                      fault. Non-TTY (piped/backgrounded) auto-ends CLEAN after [secs]
 #                                      of no fault (default 90s) so it never hangs. Symbolized bt on crash.
+#                                      Exit 0 CLEAN / 1 CRASH / 2 the path never ran (see below).
+#                                      --hit SYM   counts entries to SYM via the guard's PDB symbols
+#                                                  (no source change); 0 hits -> RESULT: NOT-EXERCISED,
+#                                                  unresolvable -> RESULT: NOT-INSTRUMENTED. Both exit 2.
+#                                      --expect RE greps the debug log instead, for the flow where you
+#                                                  deliberately added Iwd2DebugLog in an uncommitted tree.
+#                                      Without either, a CLEAN only means "no fault while idle".
 #   scripts/vm.sh log <regex> [-n 50] [-f <vm-path>]
 #                                      Select-String server-side (UTF-16 safe, no iconv), last N
 #   scripts/vm.sh tail [N] [-f <vm-path>]   last N raw lines of the debug log
@@ -107,12 +115,23 @@ case "$cmd" in
     # Arc gate: exercise the recovered path on OUR build with the crash oracle armed.
     # Closes the gap that shipped the Fireball crashes (validated on the original only,
     # never run on our exe). Interactive: holds until you confirm the cast or it faults.
-    slot="${1:-3}"
+    # positionals first ([slot] [secs]), then flags in any order
+    slot=""; hold=""; hit=""; hit_min=1; expect=""; expect_min=1
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --hit)        hit="$2"; shift 2 ;;
+        --hit-min)    hit_min="$2"; shift 2 ;;
+        --expect)     expect="$2"; shift 2 ;;
+        --expect-min) expect_min="$2"; shift 2 ;;
+        --*) echo "smoke: unknown flag $1" >&2; exit 2 ;;
+        *) if [ -z "$slot" ]; then slot="$1"; elif [ -z "$hold" ]; then hold="$1"; fi; shift ;;
+      esac
+    done
+    slot="${slot:-3}"
     # Optional auto-hold (seconds): end with RESULT: CLEAN after N seconds of no
     # fault, for a non-interactive driver. Defaults to 90s whenever stdin is not a
     # TTY, so a backgrounded/piped smoke can never hang the way the old ENTER-only
     # loop did ([ -t 0 ] rejected piped ENTER -> spun on `while kill -0 gpid`).
-    hold="${2:-}"
     if [ ! -t 0 ] && [ -z "$hold" ]; then hold=90; fi
     sed -i "s/--slot [^ ]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
     scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
@@ -136,7 +155,9 @@ case "$cmd" in
     glog="$REPO/tmp_smoke_guard.log"; : > "$glog"
     # attach-by-pid as a host-side bg ssh child; its stdout streams back reliably
     # (unlike the vm.sh-frida VBS payload). </dev/null so it never steals our ENTER.
-    ssh "$VM" "python $VM_REPO/scripts/frida_crash_guard.py $pid" </dev/null >"$glog" 2>&1 &
+    countarg=""
+    [ -n "$hit" ] && countarg=" --count '$(ps_quote "$hit")'"
+    ssh "$VM" "python $VM_REPO/scripts/frida_crash_guard.py $pid$countarg" </dev/null >"$glog" 2>&1 &
     gpid=$!
     for i in $(seq 1 20); do grep -qE "ARMED|ATTACH_FAILED" "$glog" 2>/dev/null && break; sleep 1; done
     if grep -q ATTACH_FAILED "$glog" 2>/dev/null; then
@@ -144,6 +165,8 @@ case "$cmd" in
     fi
     echo
     echo "==> CRASH GUARD ARMED on pid $pid (slot $slot loaded)."
+    [ -n "$hit" ]    && echo "    Watching entries to '$hit' (need >= $hit_min)."
+    [ -n "$expect" ] && echo "    Watching the debug log for /$expect/ (need >= $expect_min)."
     echo "    Drive the recovered path in the VM window now (cast the spell / trigger the code)."
     if [ -n "$hold" ]; then
       echo "    Auto-hold: ${hold}s with no fault  ->  RESULT: CLEAN (non-interactive)."
@@ -183,7 +206,48 @@ case "$cmd" in
       echo "(full guard log: tmp_smoke_guard.log)"
       exit 1
     fi
-    echo "RESULT: CLEAN  (no fault while the path was driven; guard log: tmp_smoke_guard.log)"
+
+    # No fault is only half the answer: it does not distinguish "the recovered
+    # code is correct" from "the recovered code never ran". Exit 2 is that third
+    # state -- ran clean, proved nothing -- and callers must not read it as a pass.
+    if [ -n "$hit" ]; then
+      if grep -q "^NOT_INSTRUMENTED " "$glog" 2>/dev/null; then
+        echo "================= RESULT: NOT-INSTRUMENTED ================="
+        echo "symbol '$hit' resolved to no address in our build."
+        echo "inlined, folded by /OPT:ICF, or the wrong name -- this smoke proves nothing."
+        exit 2
+      fi
+      n=$(grep "^HITS $hit " "$glog" 2>/dev/null | tail -1 | awk '{print $NF}')
+      n="${n:-0}"
+      if [ "$n" -lt "$hit_min" ]; then
+        echo "=================== RESULT: NOT-EXERCISED =================="
+        echo "'$hit' was entered $n time(s) in ${hold:-the session}s, need >= $hit_min."
+        if [ "$n" = 0 ]; then
+          echo "the build did not crash -- but the recovered path never ran, so this proves nothing."
+        else
+          echo "the build did not crash, but the path ran fewer times than the gate requires."
+        fi
+        exit 2
+      fi
+      echo "RESULT: CLEAN  ($hit hit x$n; guard log: tmp_smoke_guard.log)"
+      exit 0
+    fi
+
+    if [ -n "$expect" ]; then
+      # clear_log ran before launch, so this count is this run's, not history.
+      hits=$(vm_ps "@(Select-String -Path '$(ps_quote "$DEFAULT_LOG")' -Pattern '$(ps_quote "$expect")').Count" 2>/dev/null | tr -d '\r' | tail -1)
+      hits="${hits:-0}"
+      if [ "$hits" -lt "$expect_min" ]; then
+        echo "=================== RESULT: NOT-EXERCISED =================="
+        echo "no /$expect/ in the debug log after ${hold:-the session}s (got $hits, need >= $expect_min)."
+        echo "the build did not crash -- but the recovered path never ran, so this proves nothing."
+        exit 2
+      fi
+      echo "RESULT: CLEAN  (marker /$expect/ x$hits; guard log: tmp_smoke_guard.log)"
+      exit 0
+    fi
+
+    echo "RESULT: CLEAN  (no fault only -- nothing proved the path ran; pass --hit to gate on that)"
     ;;
   log)
     pat="${1:?usage: vm.sh log <regex> [-n N] [-f vm-path]}"; shift

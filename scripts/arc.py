@@ -467,7 +467,8 @@ def parse_smoke(rc: int, out: str, err: str) -> Report:
     executed (NOT-EXERCISED / NOT-INSTRUMENTED). 2 is a warning, not a pass:
     an idle 90s proves nothing about recovered code."""
     rep = Report(tool="smoke", exit_code=rc)
-    m = re.search(r"^RESULT: (?P<v>[A-Z-]+)(?P<rest>.*)$", out, re.M)
+    # vm.sh banners the verdict inside a rule of '=' -- match anywhere on the line.
+    m = re.search(r"RESULT: (?P<v>[A-Z][A-Z-]+)", out)
     verdict = m["v"] if m else ("CLEAN" if rc == 0 else "UNKNOWN")
     rep.summary = verdict
     mh = re.search(r"\bhit x(\d+)", out)
