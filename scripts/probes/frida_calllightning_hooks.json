@@ -1,0 +1,22 @@
+{
+    "DecodeProjectile_0x51EAF0": {
+        "address": "0x51EAF0",
+        "args": ["USHORT projType", "CGameAIBase* caster", "BYTE delay"],
+        "onEnter": true
+    },
+    "DecodeSpellHitProjectile_0x560310": {
+        "address": "0x560310",
+        "args": ["int typeIndex", "CGameAIBase* caster", "BOOL bPositive"],
+        "onEnter": true
+    },
+    "CallLightning_0x5D1340": {
+        "address": "0x5D1340",
+        "args": ["INT x", "INT y"],
+        "onEnter": true
+    },
+    "FireSpell_0x4A3FF0": {
+        "address": "0x4A3FF0",
+        "args": ["CGameSprite* pSprite"],
+        "onEnter": true
+    }
+}

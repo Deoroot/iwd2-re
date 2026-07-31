@@ -23,7 +23,31 @@ conv: thiscall (this=ecx, stack args -> args[0..]) | cdecl | stdcall (args[0..])
 Addresses absolute (IWD2.exe, no ASLR). Hook function ENTRIES only.
 
 Complex probes (call-origin filters, list walks) still deserve a bespoke script --
-see frida_formation_trace.py. This covers the recurring "log args + a few fields" 80%.
+see frida_formation_trace.py, and put the result in scripts/probes/ (one-off
+investigations live there; scripts/ keeps only the reusable tooling).
+
+------------------------------------------------------------------------------
+The six gotchas of a `vm.sh frida` payload. frida_probe.py already handles all
+of them; a bespoke probe has to, and every one of these has cost a session at
+least once. The payload runs as a scheduled task launched by a fire-and-forget
+VBS, which is where most of this comes from.
+
+1. NO STDIN. `sys.stdin.read()` returns EOF immediately and the driver exits
+   before a single hook fires. Keep it alive with `while True: time.sleep(0.5)`.
+2. STDOUT REDIRECTION IS LOST once the VBS parent exits, so `> out.txt` silently
+   drops writes. Write to a DEDICATED file and read THAT, not vm_s1_out.txt.
+3. FLUSH AND FSYNC every line (`f.flush(); os.fsync(f.fileno())`). Buffered
+   output is gone if the game crashes -- which is usually the interesting case.
+4. A STUCK DRIVER BLOCKS THE NEXT `frida.attach` (silent no-fire, or a locked
+   logfile). `taskkill` is unreliable here: use `Get-Process python` /
+   `Stop-Process -Name python -Force` and confirm it is empty before re-shipping.
+5. SILENT NO-FIRE IS USUALLY NOT THE PATH. ImageBase is 0x400000 with no ASLR,
+   so `ptr(0xADDR)` absolute is correct -- dump 8 bytes at each hook and diff
+   against `sym.py bytes ADDR` before suspecting anything else.
+6. SESSION 0 NEVER RENDERS. GUI over ssh lands in session 0; anything needing
+   render, input or Frida must go through vm_s1.cmd (session 1). A smoke
+   timeout there means no desktop, not a crash.
+------------------------------------------------------------------------------
 """
 import argparse
 import json
