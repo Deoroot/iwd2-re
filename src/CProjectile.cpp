@@ -9045,12 +9045,12 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
     // Skip if the impact tile is off-screen or no detonation BAM was loaded. The
     // point is clamped to the area bounds before the visibility lookup.
     LONG nVisX = m_pos.x < 0 ? 0 : m_pos.x;
-    LONG nAreaW = *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(m_pArea) + 0x54C) /*#guess area width*/;
+    LONG nAreaW = m_pArea->GetInfinity()->nAreaX;
     if (nVisX > nAreaW - 1) {
         nVisX = nAreaW - 1;
     }
     LONG nVisY = m_pos.y < 0 ? 0 : m_pos.y;
-    LONG nAreaH = *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(m_pArea) + 0x550) /*#guess area height*/;
+    LONG nAreaH = m_pArea->GetInfinity()->nAreaY;
     if (nVisY > nAreaH - 1) {
         nVisY = nAreaH - 1;
     }
