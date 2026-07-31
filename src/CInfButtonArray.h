@@ -61,6 +61,8 @@ public:
 
     static void GetSelectedQuickWeaponData(CButtonData& cButtonData);
     static BYTE GetSelectedModalMode();
+    static void ReadyQuickSlotByMode(SHORT nButton, INT nMode);
+    static void CustomizeQuickSlot(const CButtonData* pButtonData, BYTE nButton, INT nMode);
     BYTE GetButtonId(INT buttonType);
     BOOL UseSongAction(const CButtonData* pButtonData, CGameSprite* pCaster);
     BOOL ResetState();

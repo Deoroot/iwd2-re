@@ -246,6 +246,55 @@ BYTE CInfButtonArray::GetButtonId(INT buttonType)
     return -1;
 }
 
+// Fire quick slot `nButton` of the party leader, picking the action from the
+// quick-slot family `nMode` (1 weapon, 2 spell, 3 item, 4 innate, 6 song).
+// Mode 5 -- and any other value -- takes the leader lock and releases it again
+// without doing anything.
+//
+// 0x588570
+void CInfButtonArray::ReadyQuickSlotByMode(SHORT nButton, INT nMode)
+{
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_group.m_memberList.GetCount() == 0) {
+        return;
+    }
+
+    LONG nLeader = pGame->m_group.GetGroupLeader();
+
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->m_cObjectArray.GetDeny(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    switch (nMode) {
+    case 1:
+        pSprite->SetSelectedWeaponButton(nButton);
+        break;
+    case 2:
+        pSprite->ReadySpell(nButton, 2, 0);
+        break;
+    case 3:
+        pSprite->ReadyItem(nButton, 0);
+        break;
+    case 4:
+        pSprite->ReadySpell(nButton, 4, 0);
+        break;
+    case 6:
+        pSprite->ReadySpell(nButton, 6, 0);
+        break;
+    }
+
+    pGame->m_cObjectArray.ReleaseDeny(nLeader, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+}
+
 // Toggle the group leader's bard song from a song CButtonData: locate the song,
 // and -- unless the leader is silenced -- either stop an active song (modal
 // state 1) or start one (set the last-song index, enter modal state 1, play the
@@ -309,6 +358,73 @@ BOOL CInfButtonArray::UseSongAction(const CButtonData* pButtonData, CGameSprite*
 
     pGame->m_cObjectArray.ReleaseDeny(nLeader, CGameObjectArray::THREAD_ASYNCH, INFINITE);
     return TRUE;
+}
+
+// Store `buttonData` into quick slot `nButton` of the first party member,
+// picking the destination array from `nMode` (1 weapon, 2 spell, 3 item,
+// 4 innate, 6 song).  Mode 5 -- and any other value -- takes the member lock
+// and releases it again without doing anything.
+//
+// Unlike ReadyQuickSlotByMode this resolves the member through GetGroupList()[0]
+// rather than GetGroupLeader().
+//
+// 0x588CB0
+void CInfButtonArray::CustomizeQuickSlot(const CButtonData* pButtonData, BYTE nButton, INT nMode)
+{
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_group.m_memberList.GetCount() == 0) {
+        return;
+    }
+
+    LONG* pGroupList = pGame->m_group.GetGroupList();
+    LONG nCharacterId = pGroupList[0];
+    delete pGroupList;
+
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->m_cObjectArray.GetDeny(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    switch (nMode) {
+    case 1:
+        pSprite->SetQuickWeapon(nButton, *pButtonData);
+
+        // The clamped store below is dead: the unconditional one that follows
+        // it writes the same field from the same source.  Both are in the
+        // binary (three inlined SetQuickWeapon(BYTE, BYTE) bodies, all from
+        // ObjCreature.h line 2031).
+        if (pButtonData->m_abilityId.m_itemNum >= CGameSpriteEquipment::SLOT_AMMO
+            && pButtonData->m_abilityId.m_itemNum <= CGameSpriteEquipment::SLOT_AMMO + 3) {
+            pSprite->SetQuickWeapon(nButton, static_cast<BYTE>(pButtonData->m_abilityId.m_itemNum));
+        } else {
+            pSprite->SetQuickWeapon(nButton, static_cast<BYTE>(0));
+        }
+
+        pSprite->SetQuickWeapon(nButton, static_cast<BYTE>(pButtonData->m_abilityId.m_itemNum));
+        break;
+    case 2:
+        pSprite->SetQuickSpell(nButton, *pButtonData);
+        break;
+    case 3:
+        pSprite->SetQuickItem(nButton, *pButtonData);
+        break;
+    case 4:
+        pSprite->SetQuickAbility(nButton, *pButtonData);
+        break;
+    case 6:
+        pSprite->SetQuickSong(nButton, *pButtonData);
+        break;
+    }
+
+    pGame->m_cObjectArray.ReleaseDeny(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
 
 // 0x588FF0
@@ -1593,13 +1709,19 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         INFINITE);
                 } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    // States 0x66 / 0x68 / 0x71 are "customise" variants â€” the
+                    // States 0x66 / 0x68 / 0x71 are "customise" variants -- the
                     // user picked a target to ASSIGN to a quick slot rather
-                    // than to fire.  Ghidra calls FUN_00588cb0 in those
-                    // states to copy buttonData into m_quickSpells/Items/Songs
-                    // and update m_customButtonTypes.  TODO: port the full
-                    // save+update path; for now record the resref so the
-                    // settings round-trip and skip the dispatch.
+                    // than to fire.  The binary dispatches these through
+                    // CustomizeQuickSlot (0x591654 mode 2, 0x5916B8 mode 3,
+                    // 0x591719 mode 6, 0x59252B mode 4), which is recovered but
+                    // NOT called from here: it takes its own Deny on
+                    // GetGroupList()[0], and the enclosing GetDeny below is a
+                    // port-ism -- OnLButtonPressed holds exactly one Deny in
+                    // the binary (0x590027), none of it around these calls.
+                    // Nesting the two would spin the retry loop forever.
+                    // TODO: drop the wrapper (each branch's helper locks for
+                    // itself) and then route these three states through
+                    // CustomizeQuickSlot.
                     BOOL bCustomize = (m_nState == 0x66 || m_nState == 0x68 || m_nState == 0x71);
                     if (bCustomize) {
                         INT nSlot = m_nCustomizeSlot;
@@ -2406,25 +2528,12 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x4C:
         case 0x4D:
         case 0x4E: {
-            // Quick spell cast.  Ghidra default case 0x46 (line 858) calls
-            // FUN_00588570(slot, 2) which itself invokes ReadySpell(slot, 2, 0)
-            // on the leader sprite, then LAB_00592e59: SetState(0) +
-            // SetSelectedButton(100).
-            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-            CGameSprite* pSprite = NULL;
+            // Quick spell cast (0x593559).
             pGame->SetState(0);
             SetSelectedButton(nButtonType);
 
-            BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                CGameObjectArray::THREAD_ASYNCH,
-                reinterpret_cast<CGameObject**>(&pSprite),
-                INFINITE);
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                pSprite->ReadySpell(static_cast<SHORT>(nButtonType - 0x46), 2, 0);
-                pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
-            }
+            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x46), 2);
+
             if (pGame->GetState() == 0) {
                 SetSelectedButton(100);
             }
@@ -2434,22 +2543,14 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x50:
         case 0x51:
         case 0x52: {
-            // Quick item use â€” FUN_00588570(slot, 3) â†’ ReadyItem.
-            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-            CGameSprite* pSprite = NULL;
+            // Quick item use.  The binary reaches ReadyQuickSlotByMode(slot, 3)
+            // from DispatchActionBarClick (0x594612), which is not recovered
+            // yet; this case stands in for it.
             pGame->SetState(0);
             SetSelectedButton(nButtonType);
 
-            BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                CGameObjectArray::THREAD_ASYNCH,
-                reinterpret_cast<CGameObject**>(&pSprite),
-                INFINITE);
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                pSprite->ReadyItem(static_cast<SHORT>(nButtonType - 0x50), 0);
-                pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
-            }
+            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x50), 3);
+
             if (pGame->GetState() == 0) {
                 SetSelectedButton(100);
             }
@@ -2471,22 +2572,12 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x60:
         case 0x61:
         case 0x62: {
-            // Quick ability use â€” FUN_00588570(slot, 4) â†’ ReadySpell type 4.
-            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-            CGameSprite* pSprite = NULL;
+            // Quick ability use (0x593902).
             pGame->SetState(0);
             SetSelectedButton(nButtonType);
 
-            BYTE rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                CGameObjectArray::THREAD_ASYNCH,
-                reinterpret_cast<CGameObject**>(&pSprite),
-                INFINITE);
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                pSprite->ReadySpell(static_cast<SHORT>(nButtonType - 0x5A), 4, 0);
-                pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
-            }
+            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x5A), 4);
+
             if (pGame->GetState() == 0) {
                 SetSelectedButton(100);
             }
