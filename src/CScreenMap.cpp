@@ -186,7 +186,7 @@ void CScreenMap::OnMouseMove(CPoint pt)
     m_cUIManager.OnMouseMove(pt);
 }
 
-// 0x686660
+// 0x699600
 SHORT CScreenMap::GetNumVirtualKeys()
 {
     return CSCREENMAP_VIRTUAL_KEYS;
@@ -198,7 +198,7 @@ CKeyInfo* CScreenMap::GetVirtualKeys()
     return m_pVirtualKeys;
 }
 
-// 0x668C30
+// 0x699620
 BYTE* CScreenMap::GetVirtualKeysFlags()
 {
     return m_pVirtualKeysFlags;

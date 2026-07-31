@@ -348,7 +348,7 @@ void CGameDoor::AIUpdate()
     }
 }
 
-// 0x47E040
+// 0x4876E0
 void CGameDoor::DebugDump(const CString& message, BOOLEAN bEchoToScreen)
 {
     CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;

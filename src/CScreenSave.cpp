@@ -459,7 +459,7 @@ void CScreenSave::OnKeyDown(SHORT nKeysFlags)
     }
 }
 
-// 0x63B9B0
+// 0x66A540
 void CScreenSave::TimerAsynchronousUpdate()
 {
     g_pBaldurChitin->m_pEngineWorld->AsynchronousUpdate(FALSE);

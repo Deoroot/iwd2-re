@@ -267,7 +267,7 @@ void CScreenSinglePlayer::OnRButtonUp(CPoint pt)
     m_cUIManager.OnRButtonUp(pt);
 }
 
-// 0x686660
+// 0x699600
 SHORT CScreenSinglePlayer::GetNumVirtualKeys()
 {
     return CSCREENSINGLEPLAYER_VIRTUAL_KEYS;
@@ -279,7 +279,7 @@ CKeyInfo* CScreenSinglePlayer::GetVirtualKeys()
     return m_pVirtualKeys;
 }
 
-// 0x668C30
+// 0x699620
 BYTE* CScreenSinglePlayer::GetVirtualKeysFlags()
 {
     return m_pVirtualKeysFlags;
