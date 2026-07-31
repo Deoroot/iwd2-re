@@ -26,6 +26,10 @@
 #include "CUtil.h"
 #include "IcewindMisc.h"
 
+// 0x84F06C. Data-segment gather radius the image initialises to 100 and never
+// writes; DecodeProjectile case 0x118 is its only reader in the whole binary.
+static SHORT g_nSpellHitDefaultRange = 100;
+
 static LONG GetProjectileSourceDiagonalOffset(const CRect& rEllipse)
 {
     LONG x = rEllipse.right;
@@ -1568,6 +1572,90 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = pSpellHit;
         break;
     }
+
+    // The bare spell-hit cases: the carrier alone, at most a strike filter. The
+    // spell's own effect list carries everything visible; nothing is stamped on
+    // the emission slots, so these detonate invisibly and strike. Last of the
+    // types that fell to the default plain CProjectile.
+
+    case 0xF4: {
+        // Find Traps (SPPR205): the only case in the family that opts into
+        // non-creature targets, which is how the sweep sees traps at all.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+        pSpellHit->m_bAffectNonCreatures = 1;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x118: {
+        // No .SPL in the shipped game selects projectile 0x118. Its radius is the
+        // only one the factory reads from a global rather than an immediate.
+        IcewindCProjectileSpellHit* pSpellHit =
+            new IcewindCProjectileSpellHit(g_nSpellHitDefaultRange);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x119:
+        // No .SPL selects it.
+        pProjectile = new IcewindCProjectileSpellHit(0xFA);
+        break;
+
+    case 0x120:
+        // SPIN975.
+        {
+            IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+            pSpellHit->SetStrikeTargetFilter(pCaster);
+            pProjectile = pSpellHit;
+        }
+        break;
+
+    case 0x127:
+        // Horror (SPWI025) -- the innate/item form of case 0xF1's spell, with no
+        // detonation visual of its own (0x5268F3 -> the filter-only tail 0x528872).
+        {
+            IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+            pSpellHit->SetStrikeTargetFilter(pCaster);
+            pProjectile = pSpellHit;
+        }
+        break;
+
+    case 0x140:
+        // Mournful Wail (SPIN134).
+        pProjectile = new IcewindCProjectileSpellHit(0xE1);
+        break;
+
+    case 0x141:
+        // Death Knell (SPIN135).
+        pProjectile = new IcewindCProjectileSpellHit(0xFA);
+        break;
+
+    case 0x142:
+        // No .SPL selects it.
+        pProjectile = new IcewindCProjectileSpellHit(0x96);
+        break;
+
+    case 0x143:
+        // Undying Lament (SPIN137).
+        pProjectile = new IcewindCProjectileSpellHit(0xC8);
+        break;
+
+    case 0x156:
+        // Great Roar (SPIN138): the widest gather in the whole family (nType 0x1F4),
+        // filtered to the roarer's enemies (0x527BCC -> 0x528872).
+        {
+            IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x1F4);
+            pSpellHit->SetStrikeTargetFilter(pCaster);
+            pProjectile = pSpellHit;
+        }
+        break;
+
+    case 0x180:
+    case 0x181:
+        // Lake of Fire (SPIN254) and Acid Bath (SPIN253) share one block
+        // (0x528CF7): the tightest gather in the family (nType 0x41).
+        pProjectile = new IcewindCProjectileSpellHit(0x41);
+        break;
 
     case 0x5F:
         // Stinking Cloud (SPWI213): the persistent-gas area spell-hit projectile.
