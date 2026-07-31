@@ -1786,13 +1786,13 @@ void CScreenInventory::SelectItemAbility(CGameSprite* pSprite)
         case 106:
         case 107:
         case 108: {
-            // Commit the chosen ability into the per-slot button array held in the
-            // bonus stats (CDerivedStats member unrecovered; offset taken from 0x6282CE).
-            CButtonData* pBonusButton =
-                reinterpret_cast<CButtonData*>(reinterpret_cast<BYTE*>(pSprite) + 0x2A18)
-                + (nInventoryId & 0xFF);
-            if (pBonusButton->m_abilityId.m_itemNum == (nInventoryId & 0xFF)) {
-                pBonusButton->m_abilityId.m_abilityNum = static_cast<SHORT>(nAbility);
+            // Commit the chosen ability into the quick-weapon slot. Buttons 101..108
+            // map to inventory ids 43..50, so the slot index is nInventoryId - 43;
+            // 0x6282E2 folds that bias into the array base (0x2A18 + 43 * 60 is
+            // exactly m_quickWeapons), which is why the offset looks unrelated.
+            CButtonData* pQuickWeapon = &pSprite->m_quickWeapons[(nInventoryId & 0xFF) - 43];
+            if (pQuickWeapon->m_abilityId.m_itemNum == (nInventoryId & 0xFF)) {
+                pQuickWeapon->m_abilityId.m_abilityNum = static_cast<SHORT>(nAbility);
             }
 
             if ((nButton - 101) / 2 == pSprite->m_nWeaponSet) {

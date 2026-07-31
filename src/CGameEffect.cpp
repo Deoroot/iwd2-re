@@ -1638,11 +1638,10 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
         return TRUE;
     }
 
-    // Friendly-fire gate (0x4A4387): with the party-conflict game flag set, only a
-    // self-targeted effect, opcode 0x68, or opcode 0x0D carrying a set field_18C may
-    // roll a save; everything else is blocked outright.  field_18C lives in the
-    // derived-effect slice, past CGameEffect's own layout.
-    if (*reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x43e6) == 1) {
+    // Cutscene gate (0x4A4387): while a cutscene is running, only a self-targeted
+    // effect, opcode 0x68, or a death effect (opcode 0x0D) with a non-default
+    // death type may roll a save; everything else is blocked outright.
+    if (pGame->m_gameSave.m_cutScene == 1) {
         if (pSprite->m_id == m_sourceID) {
             return TRUE;
         }
@@ -1652,7 +1651,7 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
         if (m_effectID != 0xd) {
             return FALSE;
         }
-        if (*reinterpret_cast<int*>(reinterpret_cast<BYTE*>(this) + 0x18c) == 0) {
+        if (static_cast<CGameEffectDeath*>(this)->m_deathType == 0) {
             return FALSE;
         }
     }
