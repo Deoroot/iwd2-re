@@ -147,7 +147,7 @@ Bundle = resolved decompile (our names, vtable-slot-annotated vcalls) + REQUIRED
 ```bash
 scripts/arc.py verify 0xADDR   # resolve → lint → binary oracles → parity → layout → build → smoke
 scripts/arc.py check           # host-only source lints (~1.5s); this is the pre-commit gate
-scripts/arc.py sweep [--deep]  # whole-codebase auditors  (--append-history → docs/health-history.jsonl)
+scripts/arc.py sweep [--deep]  # whole-codebase auditors (~9 min; parity_cache_sweep alone is ~8)
 scripts/arc.py status          # metrics + freshness nags
 scripts/arc.py explain <step>  # the tool prose arc deliberately did NOT print
 scripts/arc.py targets         # what to work on next

@@ -39,6 +39,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -513,14 +514,74 @@ class Step:
 
 
 class Runner:
-    def __init__(self, caps: Caps, baseline: Baseline, rundir: Path, verbose=False):
+    def __init__(self, caps: Caps, baseline: Baseline, rundir: Path, progress=False):
         self.caps = caps
         self.baseline = baseline
         self.rundir = rundir
-        self.verbose = verbose
+        # A sweep runs for minutes. Without this it prints nothing at all until
+        # the very end, which is indistinguishable from a hang -- and one step
+        # (parity_cache_sweep) really can run for 10+ minutes. Goes to stderr so
+        # it never pollutes --json or the --quiet hook path.
+        self.progress = progress
         self.ran_tools: set[str] = set()
+        self._done = 0
+        self._inflight: dict[str, float] = {}
+        self._lock = threading.Lock()
+        self._heartbeat_started = False
+
+    # Only slow or failing steps report on completion. A sub-5s step needs no
+    # reassurance, and ticking all of them would put a dozen lines of noise in
+    # front of a verdict whose whole point is being short.
+    TICK_AFTER_S = 5.0
+    # A step is "slow" once it has been in flight this long; the heartbeat then
+    # names it every HEARTBEAT_EVERY_S. Completion ticks alone are not enough:
+    # they fire only when a step ENDS, so parity_cache_sweep (488s measured on
+    # the full tree) still produced eight minutes of total silence.
+    HEARTBEAT_AFTER_S = 20.0
+    HEARTBEAT_EVERY_S = 30.0
+
+    def _start_heartbeat(self) -> None:
+        if self._heartbeat_started or not self.progress:
+            return
+        self._heartbeat_started = True
+
+        def beat():
+            while True:
+                time.sleep(self.HEARTBEAT_EVERY_S)
+                now = time.monotonic()
+                with self._lock:
+                    slow = [(lbl, now - t) for lbl, t in self._inflight.items()
+                            if now - t >= self.HEARTBEAT_AFTER_S]
+                if slow:
+                    parts = ", ".join(f"{l} {d:.0f}s" for l, d in sorted(slow))
+                    print(f"  ... still running: {parts}", file=sys.stderr, flush=True)
+
+        threading.Thread(target=beat, daemon=True).start()
+
+    def _tick(self, rep: Report) -> None:
+        if not self.progress:
+            return
+        self._done += 1
+        if rep.elapsed_s < self.TICK_AFTER_S and rep.status not in ("fail", "error"):
+            return
+        print(f"  [{self._done}] {rep.label or rep.tool}: {rep.status} "
+              f"({rep.elapsed_s:.0f}s) {rep.summary[:60]}",
+              file=sys.stderr, flush=True)
 
     def run(self, step: Step) -> Report:
+        self._start_heartbeat()
+        label = step.label or step.id
+        with self._lock:
+            self._inflight[label] = time.monotonic()
+        try:
+            rep = self._run(step)
+        finally:
+            with self._lock:
+                self._inflight.pop(label, None)
+        self._tick(rep)
+        return rep
+
+    def _run(self, step: Step) -> Report:
         if step.skip_reason:
             return Report(tool=step.id, status="skip", summary=step.skip_reason,
                           label=step.label)
@@ -885,7 +946,7 @@ def cmd_verify(args) -> int:
     caps = Caps(set(args.require or []))
     baseline = Baseline()
     rundir = new_rundir("verify")
-    runner = Runner(caps, baseline, rundir)
+    runner = Runner(caps, baseline, rundir, progress=not args.json)
     cls, sym = info["class"], info["symbol"]
     notes: list[str] = []
 
@@ -1038,7 +1099,7 @@ def cmd_sweep(args) -> int:
     caps = Caps(set(args.require or []))
     baseline = Baseline()
     rundir = new_rundir("sweep")
-    runner = Runner(caps, baseline, rundir)
+    runner = Runner(caps, baseline, rundir, progress=not args.json)
 
     reports = runner.run_parallel(lint_steps(None, "all"))
     heavy = [
