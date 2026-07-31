@@ -1775,7 +1775,7 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
     }
 
     // Shared modifiers applied to whichever save was rolled (0x4A498B).
-    if ((pSprite->m_baseStats.field_2FB & 1) != 0) {
+    if ((pSprite->m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
         nSaveTotal += 5;
     }
     if (pSprite->GetAIType().m_nEnemyAlly != CAIObjectType::EA_PC) {

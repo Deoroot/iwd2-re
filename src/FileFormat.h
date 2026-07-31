@@ -431,6 +431,15 @@ public:
     /* 0010 */ DWORD m_notUsed[9];
 };
 
+// CRE v2.2 "Specflag values" bits (CCreatureFileHeader::m_specFlags).  Only
+// these three are read by IWD2.exe, and two of them do NOT match the IESDP
+// table: the class jump table at 0x5E9494 indexes CLASS.IDS - 2, so 0x8 guards
+// class 7 (Paladin) and 0x4 class 8 (Ranger), where IESDP maps 0x4 to Paladin
+// and 0x8 to Monk.
+#define CRE_SPECFLAG_NIGHTMARE_BOOST 0x1
+#define CRE_SPECFLAG_NO_RANGER 0x4
+#define CRE_SPECFLAG_NO_PALADIN 0x8
+
 class CCreatureFileHeader {
 public:
     CCreatureFileHeader()
@@ -576,9 +585,15 @@ public:
     /* 02F0 */ BYTE field_2F0[7];
     /* 02F7 */ BOOLEAN field_2F7;
     /* 02F8 */ BOOLEAN m_bRemoveFromArea;
-    /* 02F9 */ BYTE field_2F9;
+    // CRE v2.2 "Minimum transparency" (file offset 0x0301).  STATE_FADE_IN /
+    // STATE_FADE_OUT walk it by m_fadeSpeed each AI update, and the render path
+    // uses it as the floor for the sprite's transparency.
+    /* 02F9 */ BYTE m_minTransparency;
     /* 02FA */ BYTE m_fadeSpeed;
-    /* 02FB */ unsigned char field_2FB;
+    // The nightmare bit is set by CGameSprite::Unmarshal after it applies the
+    // Heart of Fury stat bonus (and suppresses a second application); it then
+    // grants +5 to saving throws and +10 to concentration.
+    /* 02FB */ unsigned char m_specFlags;
     // CRE v2.2 "Visible" byte (file offset 0x0304).  Bit 0 is the force-visible
     // flag: CGameEffectForceVisible::ApplyEffect sets it on an improved-invisible
     // target, CGameEffectInvisible::ApplyEffect and Unmarshal clear it, and every

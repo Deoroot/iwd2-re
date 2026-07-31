@@ -1644,20 +1644,20 @@ void CGameSprite::AIUpdate()
 
     if (pGame->GetWorldTimer()->m_active) {
         if ((m_baseStats.m_generalState & STATE_FADE_OUT) != 0) {
-            if (static_cast<int>(m_baseStats.field_2F9 + m_baseStats.m_fadeSpeed) > 255) {
+            if (static_cast<int>(m_baseStats.m_minTransparency + m_baseStats.m_fadeSpeed) > 255) {
                 m_baseStats.m_generalState &= ~STATE_FADE_OUT;
                 m_derivedStats.m_generalState &= ~STATE_FADE_OUT;
-                m_baseStats.field_2F9 = -1;
+                m_baseStats.m_minTransparency = -1;
             } else {
-                m_baseStats.field_2F9 += m_baseStats.m_fadeSpeed;
+                m_baseStats.m_minTransparency += m_baseStats.m_fadeSpeed;
             }
         } else if ((m_baseStats.m_generalState & STATE_FADE_IN) != 0) {
-            if (static_cast<int>(m_baseStats.field_2F9 - m_baseStats.m_fadeSpeed) < 0) {
+            if (static_cast<int>(m_baseStats.m_minTransparency - m_baseStats.m_fadeSpeed) < 0) {
                 m_baseStats.m_generalState &= ~STATE_FADE_IN;
                 m_derivedStats.m_generalState &= ~STATE_FADE_IN;
-                m_baseStats.field_2F9 = -1;
+                m_baseStats.m_minTransparency = -1;
             } else {
-                m_baseStats.field_2F9 -= m_baseStats.m_fadeSpeed;
+                m_baseStats.m_minTransparency -= m_baseStats.m_fadeSpeed;
             }
         }
 
@@ -4511,8 +4511,8 @@ void CGameSprite::Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
                 }
             }
 
-            if (m_baseStats.field_2F9 > 0 && transparency < m_baseStats.field_2F9) {
-                transparency = m_baseStats.field_2F9;
+            if (m_baseStats.m_minTransparency > 0 && transparency < m_baseStats.m_minTransparency) {
+                transparency = m_baseStats.m_minTransparency;
             }
 
             if (m_derivedStats.m_nMirrorImages > 0) {
@@ -8040,7 +8040,7 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     m_bInUnmarshal = FALSE;
 
     if (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nNightmareMode == TRUE
-        && (m_baseStats.field_2FB & 0x1) == 0
+        && (m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) == 0
         && a4 == NULL) {
         BOOL bIncreaseStats = FALSE;
         if (m_type == 2) {
@@ -8080,7 +8080,7 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
             m_baseStats.m_CONBase += 10;
             m_baseStats.m_CHRBase += 10;
             m_baseStats.field_252 += 10;
-            m_baseStats.field_2FB |= 0x1;
+            m_baseStats.m_specFlags |= CRE_SPECFLAG_NIGHTMARE_BOOST;
         }
     }
 
@@ -13437,7 +13437,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
                 INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
                 INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
                 INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-                if ((m_baseStats.field_2FB & 1) != 0) {
+                if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                     skill += 10;
                 }
                 FeedBack(
@@ -13572,7 +13572,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
                 INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
                 INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
                 INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-                if ((m_baseStats.field_2FB & 1) != 0) {
+                if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                     skill += 10;
                 }
                 FeedBack(
@@ -13630,7 +13630,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
             INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
             INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
             INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-            if ((m_baseStats.field_2FB & 1) != 0) {
+            if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                 skill += 10;
             }
             FeedBack(
@@ -13659,7 +13659,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
         INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
         INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
         INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-        if ((m_baseStats.field_2FB & 1) != 0) {
+        if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
             skill += 10;
         }
         FeedBack(
@@ -14173,7 +14173,7 @@ SHORT CGameSprite::SpellPointSequence()
                     INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
                     INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
                     INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-                    if ((m_baseStats.field_2FB & 1) != 0) {
+                    if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                         skill += 10;
                     }
                     FeedBack(
@@ -14244,7 +14244,7 @@ SHORT CGameSprite::SpellPointSequence()
             INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
             INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
             INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-            if ((m_baseStats.field_2FB & 1) != 0) {
+            if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                 skill += 10;
             }
             FeedBack(
@@ -14273,7 +14273,7 @@ SHORT CGameSprite::SpellPointSequence()
         INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
         INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
         INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-        if ((m_baseStats.field_2FB & 1) != 0) {
+        if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
             skill += 10;
         }
         FeedBack(
