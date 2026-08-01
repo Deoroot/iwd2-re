@@ -10,6 +10,7 @@
 #include "CGameButtonList.h"
 #include "CGameContainer.h"
 #include "CGameDoor.h"
+#include "CGameOptions.h"
 #include "CGameTimer.h"
 #include "CGameTrigger.h"
 #include "DebugLog.h"
@@ -8862,9 +8863,112 @@ CGameButtonList* CGameSprite::GetInnateSpellsButtonList()
 // 0x716E80
 CGameButtonList* CGameSprite::GetAllItemUsages(BOOL bStopAtFirst)
 {
-    // TODO: Incomplete.  Same shape as GetItemUsages (0x717850) but looped
-    // over every slot instead of one; not yet recovered.
-    return new CGameButtonList();
+    const CRuleTables& cRule = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+    CGameButtonList* buttons = new CGameButtonList();
+
+    for (INT slotNum = 0; slotNum < 51; slotNum++) {
+        if (slotNum >= 0x12 && slotNum <= 0x2A) {
+            continue;
+        }
+
+        if (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_bQuickItemMapping
+            && slotNum >= 0x0F && slotNum <= 0x11) {
+            continue;
+        }
+
+        CItem* pItem = m_equipment.m_items[slotNum];
+        if (pItem == NULL) {
+            continue;
+        }
+
+        if (slotNum == 43
+            || slotNum == 45
+            || slotNum == 47
+            || slotNum == 49) {
+            if ((pItem->GetFlagsFile() & 0x2) != 0) {
+                if (m_equipment.m_items[slotNum + 1] != NULL) {
+                    continue;
+                }
+            }
+        }
+
+        if (!pItem->Demand()) {
+            continue;
+        }
+
+        for (INT nAbility = 0; nAbility < pItem->GetAbilityCount(); nAbility++) {
+            const ITEM_ABILITY* curAbility = pItem->GetAbility(nAbility);
+
+            if (pItem->GetItemType() == 11) {
+                // A scroll is only usable from the bar when its first effect
+                // is something other than learning the spell.
+                CGameEffect* pEffect = pItem->GetAbilityEffect(nAbility, 0, NULL);
+                if (pEffect != NULL) {
+                    if (pEffect->m_effectID == CGAMEEFFECT_LEARNSPELL) {
+                        // FIXME: Leaks pEffect.
+                        continue;
+                    }
+
+                    delete pEffect;
+                }
+            }
+
+            if (curAbility == NULL || curAbility->quickSlotType != 3) {
+                continue;
+            }
+
+            if ((curAbility->type & 0x100) != 0 && (pItem->m_flags & 0x1) == 0) {
+                continue;
+            }
+
+            if ((curAbility->type & 0x200) != 0 && (pItem->m_flags & 0x1) != 0) {
+                continue;
+            }
+
+            if ((curAbility->type & 0xFF) == 4) {
+                continue;
+            }
+
+            if ((curAbility->type & 0xFF) == 2 && !CheckLauncherType(curAbility, NULL)) {
+                continue;
+            }
+
+            CButtonData* pButtonData = new CButtonData();
+            pButtonData->m_icon = CString(curAbility->quickSlotIcon);
+            pButtonData->m_name = pItem->GetGenericName();
+            pButtonData->m_abilityId.m_itemNum = static_cast<SHORT>(slotNum);
+            pButtonData->m_abilityId.m_itemType = 2;
+            pButtonData->m_abilityId.m_abilityNum = static_cast<SHORT>(nAbility);
+            pButtonData->m_abilityId.m_targetType = curAbility->actionType;
+            pButtonData->m_abilityId.m_strDescription = cRule.GetItemAbilityDescription(pItem->GetResRef(), nAbility);
+            if (pButtonData->m_abilityId.m_strDescription == -1) {
+                pButtonData->m_abilityId.m_strDescription = pItem->GetGenericName();
+            }
+
+            pButtonData->m_count = 0;
+            if (pItem->GetMaxStackable() > 1 || pItem->GetMaxUsageCount(nAbility) != 0) {
+                pButtonData->m_count = pItem->GetUsageCount(nAbility);
+            }
+
+            SHORT launcherSlot;
+            CItem* pLauncher = GetLauncher(curAbility, launcherSlot);
+            if (pLauncher != NULL) {
+                pButtonData->m_launcherIcon = pLauncher->GetItemIcon();
+                pButtonData->m_launcherName = pLauncher->GetGenericName();
+            }
+
+            buttons->AddTail(pButtonData);
+
+            if (bStopAtFirst) {
+                pItem->Release();
+                return buttons;
+            }
+        }
+
+        pItem->Release();
+    }
+
+    return buttons;
 }
 
 // Build the cast-spell picker list across every memorised level of class
