@@ -1752,6 +1752,168 @@ void CInfButtonArray::SetSelectedButton(INT nSelectedButton)
     m_nSelectedButton = nSelectedButton;
 }
 
+// Handle the seven action-bar button types that need the party leader's sprite:
+// Cast Spell, Skills, Special Abilities, Use Item and the three quick-item
+// slots.  Reached from OnLButtonPressed and from the hotkey path at 0x594170.
+//
+// 0x594280
+void CInfButtonArray::DispatchActionBarClick(INT nButtonType, CGameSprite* pSprite)
+{
+    UTIL_ASSERT(pSprite != NULL);
+
+    switch (nButtonType) {
+    case 3: {
+        // Cast Spell.  Count the spellcasting classes that still have a
+        // memorised level, plus the domain pool.  More than one caster source
+        // opens the class picker (0x76); exactly one goes straight to that
+        // class's spellbook (0x67); none does nothing at all.
+        g_pBaldurChitin->GetObjectGame()->m_nState = 0;
+        UpdateButtons();
+
+        BYTE nClass = 0;
+        UINT nCount = 0;
+
+        for (UINT nClassIndex = 0; nClassIndex < CSPELLLIST_NUM_CLASSES; nClassIndex++) {
+            if (nCount > 1) {
+                break;
+            }
+
+            UINT nLevel = 0;
+            BOOL bHasSpells = FALSE;
+            while (nLevel < pSprite->m_spells.m_spellsByClass[nClassIndex].m_nHighestLevel) {
+                if (pSprite->m_spells.Get(nClassIndex)->GetSpellsAtLevel(nLevel)->m_nSharedCurrent != 0) {
+                    bHasSpells = TRUE;
+                    break;
+                }
+
+                nLevel++;
+            }
+
+            if (bHasSpells) {
+                nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nClassIndex);
+                nCount++;
+            }
+        }
+
+        if (pSprite->m_domainSpells.m_nHighestLevel != 0) {
+            for (UINT nLevel = 0; nLevel < pSprite->m_domainSpells.m_nHighestLevel; nLevel++) {
+                if (pSprite->m_domainSpells.GetSpellsAtLevel(nLevel)->m_nSharedCurrent != 0) {
+                    if (nCount == 0) {
+                        // A cleric whose only memorised spells are domain
+                        // spells still goes straight to the spellbook, with
+                        // the specialization steering it to the domain list.
+                        nClass = CAIOBJECTTYPE_C_CLERIC;
+                        m_nCurrentSelectedSpellLevel = pSprite->m_baseStats.m_specialization;
+                    }
+
+                    nCount++;
+                    break;
+                }
+
+                m_nCurrentSelectedSpellLevel = 0;
+            }
+        }
+
+        if (nCount > 1) {
+            SetState(0x76, 1);
+            return;
+        }
+
+        if (nCount == 1) {
+            m_nCurrentSelectedSpellClass = nClass;
+            SetState(0x67, 1);
+            return;
+        }
+
+        break;
+    }
+    case 5:
+        // Skills.  While a modal skill is running the button just cancels it;
+        // otherwise it opens the skills submenu.
+        if (pSprite->m_nModalState != 0) {
+            if (pSprite->m_nModalState == 3) {
+                pSprite->SetModalState(0, 0);
+
+                // 0x85BD1C
+                pSprite->m_nStealthGreyOut = 90;
+            } else {
+                pSprite->SetModalState(0, 0);
+            }
+
+            m_nSelectedButton = 100;
+            UpdateButtons();
+            return;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->m_nState = 0;
+        UpdateButtons();
+        SetState(0x73, 1);
+        return;
+    case 10:
+        // Special Abilities.
+        g_pBaldurChitin->GetObjectGame()->m_nState = 0;
+        UpdateButtons();
+        SetState(0x6A, 1);
+        return;
+    case 0xE:
+        // Use Item.
+        g_pBaldurChitin->GetObjectGame()->m_nState = 0;
+        m_nSelectedButton = 0xE;
+        pSprite->SetModalState(0, 0);
+        UpdateButtons();
+        SetState(0x69, 1);
+        return;
+    case 0x50:
+    case 0x51:
+    case 0x52: {
+        // Quick item.  An item with two or more usable abilities opens the
+        // ability picker; a single-ability item is readied straight away.
+        CGameButtonList* pUsages = pSprite->GetItemUsages(
+            static_cast<SHORT>(nButtonType - 0x41), 3, -1);
+
+        if (pUsages != NULL && pUsages->GetCount() > 1) {
+            m_nSelectedButton = nButtonType;
+            m_nCustomizeSlot = nButtonType - 0x50;
+            SetState(0x68, 1);
+        } else {
+            INT nPreviousButton = m_nSelectedButton;
+            g_pBaldurChitin->GetObjectGame()->m_nState = 0;
+
+            if (nPreviousButton == nButtonType) {
+                m_nSelectedButton = 100;
+                UpdateButtons();
+            } else {
+                m_nSelectedButton = nButtonType;
+                pSprite->SetModalState(0, 0);
+                ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x50), 3);
+
+                if (g_pBaldurChitin->GetObjectGame()->m_nState == 0) {
+                    m_nSelectedButton = 100;
+                }
+            }
+
+            // No UpdateButtons() on this arm.  The ready path sets
+            // m_nSelectedButton but never re-syncs, so the slot's m_bSelected
+            // stays clear and a quick item shows no red selection square
+            // (Frida on the original 2026-06-20: m_nSelectedButton=0x50 yet the
+            // button's m_bSelected=0).  The eventual cast-completion
+            // UpdateState resets the selection.
+        }
+
+        if (pUsages != NULL) {
+            while (pUsages->GetCount() != 0) {
+                delete pUsages->RemoveHead();
+            }
+
+            pUsages->RemoveAll();
+            delete pUsages;
+        }
+
+        break;
+    }
+    }
+}
+
 // 0x58FF20
 void CInfButtonArray::OnLButtonPressed(int buttonID)
 {
@@ -2264,14 +2426,15 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     default:
         switch (nButtonType) {
         case 3:
-            // Cast Spell.  Per Ghidra FUN_00594280 case 3: count classes that
-            // have memorised spells, then add domain pool to the count when
-            // m_domainSpells.m_nHighestLevel != 0.  Counts > 1 â†’ class picker
-            // (0x76).  Count == 1 â†’ direct spellbook (0x67) with the only
-            // class.  Count == 0 â†’ nothing happens.  This matches the
-            // original sorcerer single-class fast-path AND keeps the
-            // Cleric/Domain picker visible whenever the cleric has memorised
-            // at least one domain spell.
+        case 5:
+        case 10:
+        case 0xE:
+        case 0x50:
+        case 0x51:
+        case 0x52:
+            // The seven types DispatchActionBarClick owns.  They are grouped
+            // here rather than left scattered across the switch because they
+            // all need the same thing: the party leader's sprite.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
@@ -2279,42 +2442,11 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     CGameObjectArray::THREAD_ASYNCH,
                     reinterpret_cast<CGameObject**>(&pSprite),
                     INFINITE);
-                INT nCasterCount = 0;
-                BYTE nOnlyClass = 0;
-                BOOL bDomainContributed = FALSE;
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    static const BYTE classes[] = { 2, 3, 4, 7, 8, 10, 11 };
-                    for (size_t i = 0; i < sizeof(classes) / sizeof(classes[0]); i++) {
-                        CGameSpriteGroupedSpellList* grouped = pSprite->GetSpells(classes[i]);
-                        if (grouped != NULL && grouped->m_nHighestLevel != 0) {
-                            nCasterCount++;
-                            nOnlyClass = classes[i];
-                        }
-                    }
-                    if (pSprite->m_domainSpells.m_nHighestLevel != 0) {
-                        if (nCasterCount == 0) {
-                            // Cleric with domain pool only: fall through to
-                            // the single-class fast-path with class 3 +
-                            // non-zero level so RebuildPickerList picks the
-                            // domain branch.
-                            nOnlyClass = 3;
-                            bDomainContributed = TRUE;
-                        }
-                        nCasterCount++;
-                    }
+                    DispatchActionBarClick(nButtonType, pSprite);
                     pGame->GetObjectArray()->ReleaseShare(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
-                }
-                pGame->SetState(0);
-                SetSelectedButton(100);
-                UpdateButtons();
-                if (nCasterCount == 1) {
-                    m_nCurrentSelectedSpellClass = nOnlyClass;
-                    m_nCurrentSelectedSpellLevel = bDomainContributed ? 1 : 0;
-                    SetState(0x67, 1);
-                } else if (nCasterCount >= 2) {
-                    SetState(0x76, 1);
                 }
             }
             return;
@@ -2590,54 +2722,6 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 UpdateButtons();
             }
             return;
-        case 5:
-            // Skills button.  Per Ghidra FUN_00594280 case 5: if the sprite
-            // is already in any modal state, clear it and reset the selected
-            // button; otherwise open the skills submenu (state 0x73).  The
-            // submenu surfaces Stealth / Search / Thieving / Wilderness Lore /
-            // Animal Empathy based on class.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                BYTE modal = 0;
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    modal = pSprite->GetModalState();
-                    if (modal != 0) {
-                        pSprite->SetModalState(0, 0);
-                    }
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-                if (modal != 0) {
-                    SetSelectedButton(100);
-                    UpdateButtons();
-                } else {
-                    UpdateButtons();
-                    SetState(0x73, 1);
-                }
-            }
-            return;
-        case 10:
-            // Special Abilities. Ghidra FUN_00594280(10): SetState 0x6A (innate
-            // picker).  We route to 0x6A directly; picker state shows
-            // placeholder formation buttons until FUN_00587c20 is ported.
-            pGame->SetState(0);
-            SetSelectedButton(100);
-            UpdateButtons();
-            SetState(0x6A, 1);
-            return;
-        case 0xE:
-            // Use Item. Ghidra FUN_00594280(0xE): SetState 0x69.
-            pGame->SetState(0);
-            SetSelectedButton(0xE);
-            UpdateButtons();
-            SetState(0x69, 1);
-            return;
         case 0x6E:
         case 0x6F:
         case 0x70:
@@ -2726,29 +2810,6 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 SetSelectedButton(100);
             }
             UpdateButtons();
-            return;
-        }
-        case 0x50:
-        case 0x51:
-        case 0x52: {
-            // Quick item use.  The binary reaches ReadyQuickSlotByMode(slot, 3)
-            // from DispatchActionBarClick (0x594612), which is not recovered
-            // yet; this case stands in for it.
-            pGame->SetState(0);
-            SetSelectedButton(nButtonType);
-
-            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x50), 3);
-
-            if (pGame->GetState() == 0) {
-                SetSelectedButton(100);
-            }
-            // No UpdateButtons() here. The binary quick-item ready path
-            // (DispatchActionBarClick 0x594280 case 0x50) sets m_nSelectedButton
-            // but never re-syncs, so the slot's m_bSelected stays clear -- a quick
-            // item shows NO red selection square (Frida on the original 2026-06-20:
-            // m_nSelectedButton=0x50 yet the button's m_bSelected=0). The eventual
-            // cast-completion UpdateState resets selection. Calling UpdateButtons
-            // here lit a red square that then persisted.
             return;
         }
         case 0x5A:

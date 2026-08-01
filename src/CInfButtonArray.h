@@ -84,6 +84,7 @@ public:
     void UpdateButtons();
     BOOL RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
     BOOL RenderButtonOverlay(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
+    void DispatchActionBarClick(INT nButtonType, CGameSprite* pSprite);
     void SetCustomButtonTypes(const INT* pButtonList);
     void SetQuickWeaponSlot(BYTE nSlot);
     void OnLButtonPressed(int buttonID);
