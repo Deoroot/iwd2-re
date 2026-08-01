@@ -1,28 +1,91 @@
-# Find which backpack slot holds the Bag of Holding: right-click each slot in
-# the top row and dump. A slot with an item opens the item requester, which
-# shows up as a newly visible popup panel in the dump.
+# Walk the backpack: right-click a slot to load the item requester, then press
+# its Use button (control 9). For a container that is `Open Container`, which
+# routes through CScreenInventory::OnUseButtonClick case 3 into
+# CScreenWorld::StartStore. The `screen` probe after each attempt records where
+# we ended up, so the container's slot is the one followed by screen=store.
 wait world 3000
 waitgo 6000
 sleep 30
 goto inventory
 sleep 120
+expect screen inventory
 rclick 2 30
-sleep 60
-dump
-key 27
 sleep 40
+click 5 9
+sleep 120
+screen
 rclick 2 32
-sleep 60
-dump
-key 27
 sleep 40
+click 5 9
+sleep 120
+screen
 rclick 2 34
-sleep 60
-dump
-key 27
 sleep 40
+click 5 9
+sleep 120
+screen
 rclick 2 36
-sleep 60
-dump
-key 27
 sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 38
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 40
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 42
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 44
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 31
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 33
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 35
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 37
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 39
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 41
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 43
+sleep 40
+click 5 9
+sleep 120
+screen
+rclick 2 45
+sleep 40
+click 5 9
+sleep 120
+screen
