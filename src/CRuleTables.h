@@ -435,6 +435,7 @@ public:
     INT GetLoadingHint(INT nHintNumber) const;
     INT GetNumLoadingHints() const;
     const C2DArray* GetClassAbilityTable(BYTE nClass, DWORD nSpecialist) const;
+    void GetRandomItem(CString& sResRef) const;
     STRREF GetSpeechStringRef(CString& sSoundSet, INT nSpeech) const;
     BOOLEAN IsHatedRace(const CAIObjectType& typeAI, const CCreatureFileHeader& BStats) const;
     BOOLEAN IsHatedRace(BYTE& nRace, const CCreatureFileHeader& BStats) const;

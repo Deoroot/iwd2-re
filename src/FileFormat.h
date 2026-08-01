@@ -843,7 +843,8 @@ public:
     /* 0088 */ DWORD m_rouletWinAmount;
     /* 008C */ DWORD m_crapsWinAmount;
     /* 0090 */ DWORD m_wheelWinAmount;
-    /* 0094 */ DWORD field_94;
+    /* 0094 */ WORD m_nCapacity;
+    /* 0096 */ WORD field_96;
     /* 0098 */ int field_98[20];
 };
 

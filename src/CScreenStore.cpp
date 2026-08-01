@@ -2154,8 +2154,8 @@ BOOL CScreenStore::IsSellItemButtonClickable()
         return FALSE;
     }
 
-    if (m_pStore->m_header.field_94 != 0
-        && nItems + m_pStore->GetNumItems() > m_pStore->m_header.field_94) {
+    if (m_pStore->m_header.m_nCapacity != 0
+        && nItems + m_pStore->GetNumItems() > m_pStore->m_header.m_nCapacity) {
         return FALSE;
     }
 

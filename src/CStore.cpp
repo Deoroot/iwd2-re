@@ -192,7 +192,89 @@ void CStore::SetResRef(const CResRef& resRef)
 // 0x54B9A0
 void CStore::Marshal(const CString& sDirName)
 {
-    // TODO: Incomplete.
+    CStoreFile storeData;
+
+    RemoveEmptyItems();
+
+    DWORD nData = sizeof(m_pVersion)
+        + sizeof(m_header)
+        + m_lInventory.GetCount() * sizeof(CStoreFileItem)
+        + m_nBuyTypes * sizeof(DWORD)
+        + m_nDrinks * sizeof(CStoreFileDrinks)
+        + m_nSpells * sizeof(CStoreFileSpell);
+
+    BYTE* pData = new BYTE[nData];
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+    // __LINE__: 339
+    UTIL_ASSERT(pData != NULL);
+
+    memset(pData, 0, nData);
+
+    DWORD cnt = 0;
+
+    memcpy(pData, "STORV9.0", sizeof(m_pVersion));
+    cnt += sizeof(m_pVersion);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+    // __LINE__: 346
+    UTIL_ASSERT(cnt <= nData);
+
+    memcpy(pData + cnt, &m_header, sizeof(m_header));
+    cnt += sizeof(m_header);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+    // __LINE__: 350
+    UTIL_ASSERT(cnt <= nData);
+
+    CStoreFileHeader* pHeader = reinterpret_cast<CStoreFileHeader*>(pData + sizeof(m_pVersion));
+
+    pHeader->m_nInventoryOffset = cnt;
+    pHeader->m_nInventoryCount = m_lInventory.GetCount();
+
+    POSITION pos = m_lInventory.GetHeadPosition();
+    for (INT nIndex = 0; pos != NULL && nIndex < m_lInventory.GetCount(); nIndex++) {
+        CStoreFileItem* pStoreItem = m_lInventory.GetNext(pos);
+        memcpy(pData + cnt, pStoreItem, sizeof(CStoreFileItem));
+        cnt += sizeof(CStoreFileItem);
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+        // __LINE__: 359
+        UTIL_ASSERT(cnt <= nData);
+    }
+
+    pHeader->m_nbuyTypesOffset = cnt;
+    pHeader->m_nBuyTypesCount = m_nBuyTypes;
+    memcpy(pData + cnt, m_pBuyTypes, sizeof(DWORD) * m_nBuyTypes);
+    cnt += sizeof(DWORD) * m_nBuyTypes;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+    // __LINE__: 366
+    UTIL_ASSERT(cnt <= nData);
+
+    pHeader->m_drinkOffset = cnt;
+    pHeader->m_drinkCount = m_nDrinks;
+    memcpy(pData + cnt, m_pDrinks, sizeof(CStoreFileDrinks) * m_nDrinks);
+    cnt += sizeof(CStoreFileDrinks) * m_nDrinks;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+    // __LINE__: 372
+    UTIL_ASSERT(cnt <= nData);
+
+    pHeader->m_spellOffset = cnt;
+    pHeader->m_spellCount = m_nSpells;
+    memcpy(pData + cnt, m_pSpells, sizeof(CStoreFileSpell) * m_nSpells);
+    cnt += sizeof(CStoreFileSpell) * m_nSpells;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+    // __LINE__: 378
+    UTIL_ASSERT(cnt == nData);
+
+    storeData.SetResRef(m_resRef, TRUE, TRUE);
+
+    storeData.pRes->Write(sDirName, pData, nData);
+
+    delete pData;
 }
 
 // 0x54BDC0
@@ -411,39 +493,335 @@ INT CStore::GetItemIndex(const CResRef& itemId)
 }
 
 // 0x54C1D0
-void sub_54C1D0()
+INT CStore::RemoveItemExt(CResRef resRef, DWORD dwFlags, INT nIndex, INT nAmount, BOOLEAN* pbRemoved)
 {
-    // TODO: Incomplete.
+    if (resRef == "") {
+        return 0;
+    }
+
+    if (m_header.m_nStoreType == CSTOREFILEHEADER_STORETYPE_BAG) {
+        return RemoveItemExtBag(resRef, dwFlags, nIndex, nAmount, pbRemoved);
+    }
+
+    return RemoveItemExtStore(resRef, dwFlags, nIndex, nAmount, pbRemoved);
 }
 
 // 0x54C230
-void sub_54C230()
+INT CStore::RemoveItemExtStore(CResRef resRef, DWORD dwFlags, INT nIndex, INT nAmount, BOOLEAN* pbRemoved)
 {
-    // TODO: Incomplete.
+    if (pbRemoved != NULL) {
+        *pbRemoved = FALSE;
+    }
+
+    INT nItem = 0;
+    POSITION pos = m_lInventory.GetHeadPosition();
+    while (pos != NULL) {
+        if (nIndex == -1 || nIndex == nItem) {
+            CStoreFileItem* pStoreItem = m_lInventory.GetAt(pos);
+
+            pStoreItem->m_dynamicFlags |= 0x1;
+
+            if (CResRef(pStoreItem->m_itemId) == resRef
+                && ((pStoreItem->m_dynamicFlags ^ dwFlags) & 0x1) == 0) {
+                if ((pStoreItem->m_nStoreFlags & 0x1) != 0) {
+                    // Infinite supply, nothing to take away.
+                    return 1;
+                }
+
+                CItem cItem(resRef, 0, 0, 0, 0, 0);
+
+                if (pStoreItem->m_nInStock != 0) {
+                    if (nAmount < static_cast<INT>(pStoreItem->m_usageCount[0])
+                        && cItem.GetMaxStackable() > 1) {
+                        pStoreItem->m_usageCount[0] -= static_cast<WORD>(nAmount);
+                    } else if (cItem.GetMaxStackable() < 2
+                        || cItem.GetItemType() == 9
+                        || cItem.GetItemType() == 71
+                        || cItem.GetItemType() == 11
+                        || cItem.GetItemType() == 13
+                        || cItem.GetItemType() == 34
+                        || cItem.GetItemType() == 0) {
+                        pStoreItem->m_nInStock -= nAmount;
+                    } else {
+                        if (cItem.GetMaxStackable() > 1) {
+                            nAmount /= pStoreItem->m_usageCount[0];
+                        }
+
+                        if (nAmount != 0) {
+                            pStoreItem->m_nInStock -= nAmount;
+                        } else {
+                            pStoreItem->m_nInStock -= 1;
+                        }
+                    }
+
+                    // NOTE: Both halves of the condition are tested in the binary.
+                    if (static_cast<INT>(pStoreItem->m_nInStock) >= 0 && pStoreItem->m_nInStock == 0) {
+                        if (pbRemoved != NULL) {
+                            *pbRemoved = TRUE;
+                        }
+
+                        delete pStoreItem;
+                        m_lInventory.RemoveAt(pos);
+                    }
+
+                    return 1;
+                }
+            }
+        }
+
+        m_lInventory.GetNext(pos);
+        nItem++;
+    }
+
+    return 0;
 }
 
 // 0x54C460
-void sub_54C460()
+INT CStore::RemoveItemExtBag(CResRef resRef, DWORD dwFlags, INT nIndex, INT nAmount, BOOLEAN* pbRemoved)
 {
-    // TODO: Incomplete.
+    if (pbRemoved != NULL) {
+        *pbRemoved = FALSE;
+    }
+
+    INT nItem = 0;
+    POSITION pos = m_lInventory.GetHeadPosition();
+    while (pos != NULL) {
+        if (nIndex == -1 || nIndex == nItem) {
+            CStoreFileItem* pStoreItem = m_lInventory.GetAt(pos);
+
+            if (CResRef(pStoreItem->m_itemId) == resRef
+                && ((pStoreItem->m_dynamicFlags ^ dwFlags) & 0x1) == 0) {
+                CItem cItem(resRef, 0, 0, 0, 0, 0);
+
+                if (cItem.GetMaxStackable() < 2) {
+                    if (pbRemoved != NULL) {
+                        *pbRemoved = TRUE;
+                    }
+
+                    delete pStoreItem;
+                    m_lInventory.RemoveAt(pos);
+                } else {
+                    pStoreItem->m_usageCount[0] -= static_cast<WORD>(nAmount);
+                    if (pStoreItem->m_usageCount[0] == 0) {
+                        if (pbRemoved != NULL) {
+                            *pbRemoved = TRUE;
+                        }
+
+                        delete pStoreItem;
+                        m_lInventory.RemoveAt(pos);
+                    }
+                }
+
+                return 1;
+            }
+        }
+
+        m_lInventory.GetNext(pos);
+        nItem++;
+    }
+
+    return 0;
 }
 
 // 0x54C5B0
-void sub_54C5B0()
+INT CStore::AddItemExt(CItem& cItem, DWORD storeFlags)
 {
-    // TODO: Incomplete.
+    if (cItem.GetResRef() == "") {
+        return -1;
+    }
+
+    // NOTE: `storeFlags` is never read, the new entry always gets store flags 0.
+    if (m_header.m_nStoreType == CSTOREFILEHEADER_STORETYPE_BAG) {
+        return AddItemExtBag(cItem);
+    }
+
+    return AddItemExtStore(cItem);
 }
 
 // 0x54C5F0
-void sub_54C5F0()
+INT CStore::AddItemExtBag(CItem& cItem)
 {
-    // TODO: Incomplete.
+    // NOTE: Unused.
+    CResRef resRef;
+
+    INT nCount;
+    if (cItem.GetMaxStackable() < 2) {
+        nCount = 0;
+    } else {
+        nCount = cItem.GetUsageCount(0);
+    }
+
+    INT nItem = 0;
+    POSITION pos = m_lInventory.GetHeadPosition();
+    while (pos != NULL) {
+        CStoreFileItem* pStoreItem = m_lInventory.GetAt(pos);
+
+        if (CResRef(pStoreItem->m_itemId) == cItem.GetResRef()
+            && pStoreItem->m_dynamicFlags == cItem.m_flags
+            && nCount != 0) {
+            pStoreItem->m_usageCount[0] += static_cast<WORD>(nCount);
+
+            if (pStoreItem->m_usageCount[0] <= cItem.GetMaxStackable()) {
+                return nItem;
+            }
+
+            // The entry is full, carry the overflow over to the next one.
+            nCount = pStoreItem->m_usageCount[0] - cItem.GetMaxStackable();
+            pStoreItem->m_usageCount[0] = cItem.GetMaxStackable();
+        }
+
+        m_lInventory.GetNext(pos);
+        nItem++;
+    }
+
+    if (nItem >= static_cast<INT>(m_header.m_nCapacity)) {
+        return -1;
+    }
+
+    CStoreFileItem* pNewItem = new CStoreFileItem;
+
+    cItem.GetResRef().GetResRef(pNewItem->m_itemId);
+    pNewItem->m_wear = cItem.m_wear;
+    pNewItem->m_dynamicFlags = cItem.m_flags;
+    pNewItem->m_nInStock = 1;
+    pNewItem->m_nStoreFlags = 0;
+
+    for (INT nAbility = 0; nAbility < 3; nAbility++) {
+        if (nCount > 0 && nAbility == 0) {
+            pNewItem->m_usageCount[0] = static_cast<WORD>(nCount);
+        } else {
+            pNewItem->m_usageCount[nAbility] = cItem.GetUsageCount(nAbility);
+        }
+    }
+
+    m_lInventory.AddTail(pNewItem);
+
+    return m_lInventory.GetCount() - 1;
 }
 
 // 0x54C770
-void sub_54C770()
+INT CStore::AddItemExtStore(CItem& cItem)
 {
-    // TODO: Incomplete.
+    // NOTE: Unused.
+    CResRef resRef;
+
+    // The entry the overflow of a full stack was carried over from.
+    CStoreFileItem* pOverflowItem = NULL;
+
+    INT nCount;
+    if (cItem.GetMaxStackable() < 2) {
+        nCount = 0;
+    } else {
+        nCount = cItem.GetUsageCount(0);
+    }
+
+    INT nItem = 0;
+    POSITION pos = m_lInventory.GetHeadPosition();
+    while (pos != NULL) {
+        CStoreFileItem* pStoreItem = m_lInventory.GetAt(pos);
+
+        if (CResRef(pStoreItem->m_itemId) == cItem.GetResRef()) {
+            if ((pStoreItem->m_nStoreFlags & 0x1) != 0) {
+                // Infinite supply, nothing to add.
+                return nItem;
+            }
+
+            if (nCount == 0) {
+                pStoreItem->m_nInStock += 1;
+                return nItem;
+            }
+
+            if (cItem.GetItemType() == 9
+                || cItem.GetItemType() == 71
+                || cItem.GetItemType() == 11
+                || cItem.GetItemType() == 13
+                || cItem.GetItemType() == 34
+                || cItem.GetItemType() == 0) {
+                pStoreItem->m_nInStock += cItem.GetUsageCount(0);
+                return nItem;
+            }
+
+            if (pStoreItem->m_nInStock < 2
+                || cItem.GetMaxStackable() <= pStoreItem->m_usageCount[0]) {
+                pStoreItem->m_usageCount[0] += static_cast<WORD>(nCount);
+
+                if (cItem.GetMaxStackable() < pStoreItem->m_usageCount[0]) {
+                    if (pOverflowItem == NULL) {
+                        nCount = pStoreItem->m_usageCount[0] - cItem.GetMaxStackable();
+                        pStoreItem->m_usageCount[0] = cItem.GetMaxStackable();
+
+                        if (nCount == cItem.GetMaxStackable()) {
+                            pStoreItem->m_nInStock += 1;
+                            return nItem;
+                        }
+
+                        pOverflowItem = pStoreItem;
+
+                        if (nCount == 0) {
+                            return nItem;
+                        }
+
+                        m_lInventory.GetNext(pos);
+                        nItem++;
+                        continue;
+                    }
+
+                    pStoreItem->m_usageCount[0] -= cItem.GetMaxStackable();
+                    pOverflowItem->m_nInStock += 1;
+                }
+
+                return nItem;
+            }
+        }
+
+        m_lInventory.GetNext(pos);
+        nItem++;
+    }
+
+    CStoreFileItem* pNewItem = new CStoreFileItem;
+
+    cItem.GetResRef().GetResRef(pNewItem->m_itemId);
+    pNewItem->m_wear = cItem.m_wear;
+    pNewItem->m_dynamicFlags = cItem.m_flags;
+    pNewItem->m_nStoreFlags = 0;
+
+    INT nRestoreUsage = -1;
+    INT nAbility = 1;
+
+    if (cItem.GetMaxStackable() < 2
+        || (cItem.GetItemType() != 9
+            && cItem.GetItemType() != 71
+            && cItem.GetItemType() != 11
+            && cItem.GetItemType() != 13
+            && cItem.GetItemType() != 34
+            && cItem.GetItemType() != 0)) {
+        if (cItem.GetMaxStackable() < 2) {
+            pNewItem->m_usageCount[0] = cItem.GetMaxUsageCount(0);
+        } else {
+            pNewItem->m_usageCount[0] = cItem.GetUsageCount(0);
+        }
+        pNewItem->m_nInStock = 1;
+    } else {
+        nRestoreUsage = cItem.GetUsageCount(0);
+        pNewItem->m_usageCount[0] = 1;
+        pNewItem->m_nInStock = cItem.GetUsageCount(0);
+    }
+
+    for (; nAbility < 3; nAbility++) {
+        if (cItem.GetMaxStackable() < 2) {
+            pNewItem->m_usageCount[nAbility] = cItem.GetMaxUsageCount(nAbility);
+        } else {
+            pNewItem->m_usageCount[nAbility] = cItem.GetUsageCount(nAbility);
+        }
+    }
+
+    m_lInventory.AddTail(pNewItem);
+
+    if (nRestoreUsage != -1) {
+        cItem.SetUsageCount(0, static_cast<WORD>(nRestoreUsage));
+    }
+
+    return nItem;
 }
 
 // 0x54CA80
@@ -461,28 +839,6 @@ BOOL CStore::IsValidSellType(CItem* pItem)
     }
 
     return FALSE;
-}
-
-// 0x54CAF0
-void sub_54CAF0()
-{
-    // TODO: Incomplete.
-}
-
-// 0x54C1D0
-INT CStore::RemoveItemExt(CResRef resRef, int a2, int a3, int a4, BOOLEAN* a5)
-{
-    // TODO: Incomplete.
-
-    return 0;
-}
-
-// 0x54C5B0
-INT CStore::AddItemExt(CItem& cItem, DWORD storeFlags)
-{
-    // TODO: Incomplete.
-
-    return -1;
 }
 
 // 0x54CAF0
@@ -542,33 +898,113 @@ BOOL CStore::GetDrink(INT nIndex, STRREF& strName, DWORD& dwCost, DWORD& dwRumor
 }
 
 // 0x54CCB0
-void sub_54CCB0()
+void CStore::InvalidateStore(const CResRef& resRef)
 {
-    // TODO: Incomplete.
+    CStoreFile storeData;
+
+    storeData.SetResRef(resRef, TRUE, TRUE);
+
+    BYTE* pData = reinterpret_cast<BYTE*>(storeData.GetData());
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+    // __LINE__: 1565
+    UTIL_ASSERT(pData != NULL);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CStore.cpp
+    // __LINE__: 1566
+    UTIL_ASSERT(storeData.GetDataSize() >= 2 * sizeof(DWORD));
+
+    if (memcmp(pData, "STORV9.0", 8) != 0) {
+        storeData.Release();
+        return;
+    }
+
+    if ((storeData.pRes->GetID() & 0xFFF00000) >= 0xFC000000) {
+        CString sStoreDir;
+        CString sTempDir;
+
+        g_pChitin->cDimm.GetElementInDirectoryList(~storeData.pRes->GetID() >> 20, sStoreDir);
+        g_pChitin->lAliases.ResolveFileName(g_pBaldurChitin->GetObjectGame()->m_sTempDir, sTempDir);
+
+        if (sStoreDir == sTempDir) {
+            // Break the signature of the temporary copy so that the next load
+            // falls back to the store shipped with the game.
+            pData[3] = 'O';
+            storeData.pRes->Write(g_pBaldurChitin->GetObjectGame()->m_sTempDir, pData, 8);
+        }
+    }
+
+    storeData.Release();
 }
 
 // 0x54CF80
-void sub_54CF80()
+void CStore::RemoveEmptyItems()
 {
-    // TODO: Incomplete.
+    if (m_lInventory.GetCount() == 0) {
+        return;
+    }
+
+    POSITION pos = m_lInventory.GetHeadPosition();
+    for (INT nIndex = 0; nIndex < m_lInventory.GetCount(); nIndex++) {
+        CStoreFileItem* pStoreItem = m_lInventory.GetAt(pos);
+        POSITION posItem = pos;
+        m_lInventory.GetNext(pos);
+
+        if (pStoreItem != NULL && pStoreItem->m_nInStock == 0) {
+            delete pStoreItem;
+            m_lInventory.RemoveAt(posItem);
+        }
+    }
 }
 
 // 0x54CFE0
-void sub_54CFE0()
+BOOL CStore::GetItemExt(INT nIndex, CItem& cItem)
 {
-    // TODO: Incomplete.
+    CString sResRef(reinterpret_cast<const char*>(cItem.GetResRef().GetResRef()));
+
+    g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetRandomItem(sResRef);
+
+    if (sResRef == "") {
+        return FALSE;
+    }
+
+    cItem.SetResRef(CResRef(sResRef), TRUE);
+
+    if (cItem.GetResRef() == "") {
+        // NOTE: The message is built and dropped.
+        CString sMessage;
+        sMessage.Format(_T("Random Treasure Item not found - %s"), sResRef);
+        return FALSE;
+    }
+
+    return GetItemStats(nIndex, cItem);
 }
 
 // 0x54D130
-void sub_54D130()
+BOOL CStore::GetItemStats(INT nIndex, CItem& cItem)
 {
-    // TODO: Incomplete.
-}
+    POSITION pos = m_lInventory.FindIndex(nIndex);
+    if (pos == NULL) {
+        return FALSE;
+    }
 
-// 0x54CCB0
-void CStore::InvalidateStore(const CResRef& resRef)
-{
-    // TODO: Incomplete.
+    CStoreFileItem* pStoreItem = m_lInventory.GetAt(pos);
+    cItem.m_wear = pStoreItem->m_wear;
+    cItem.m_flags = pStoreItem->m_dynamicFlags;
+
+    if (cItem.GetLoreValue() == 0 || (pStoreItem->m_nStoreFlags & 0x1) != 0) {
+        cItem.m_flags |= 0x1;
+    }
+
+    if ((pStoreItem->m_nStoreFlags & 0x1) == 0 && cItem.GetLoreValue() != 0) {
+        cItem.m_flags |= 0x8;
+    }
+
+    for (INT nAbility = 0; nAbility < 3; nAbility++) {
+        cItem.SetUsageCount(nAbility, pStoreItem->m_usageCount[nAbility]);
+    }
+
+    return TRUE;
 }
 
 // -----------------------------------------------------------------------------

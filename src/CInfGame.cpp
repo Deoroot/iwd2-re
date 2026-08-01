@@ -7168,7 +7168,7 @@ WORD CInfGame::SwapItemBag(const CResRef& bagResRef, CItem* pItem, STRREF& error
 
     // Store type 4 is a bag/container.
     if (store.GetType() == 4 && store.IsValidSellType(pItem)) {
-        WORD nCapacity = static_cast<WORD>(store.m_header.field_94);
+        WORD nCapacity = store.m_header.m_nCapacity;
 
         if (nCapacity == 0 || nCapacity == store.GetNumItems()) {
             errorCode = 0x6139;
