@@ -512,8 +512,49 @@ BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
         pGame->SelectToolbar();
         return TRUE;
     }
+    case VK_RETURN:
     case VK_ESCAPE:
-        if (m_nPopupState == -1) {
+        if (m_nPopupState != -1) {
+            // A popup is up, and both keys answer it the same way.  The state
+            // that means "my own dialogue popup" is 7 on a local game and 0x15
+            // once a real multiplayer session is up.
+            INT nOwnDialog = 7;
+            if (g_pChitin->cNetwork.m_bConnectionEstablished
+                && g_pChitin->cNetwork.m_nServiceProvider != CNetwork::SERV_PROV_NULL) {
+                nOwnDialog = 0x15;
+            }
+
+            if (m_nPopupState == nOwnDialog) {
+                m_bDialogButtonClicked = 1;
+                if (m_dialogContinueFlag == 0) {
+                    m_internalLoadedDialog.m_responseMarker = m_dialogReplyIndex;
+                }
+            } else if (m_nPopupState == 6) {
+                StopCommand();
+                m_nPopupState = -1;
+            } else if (m_nPopupState == 8) {
+                StopContainer();
+                m_nPopupState = -1;
+            } else if (m_nPopupState == 0
+                || m_nPopupState == 0x11
+                || m_nPopupState == 0x13
+                || m_nPopupState == 0x15
+                || m_nPopupState == 0x16) {
+                // Nothing to answer in these.
+            } else {
+                // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+                // __LINE__: 5469
+                UTIL_ASSERT(FALSE);
+            }
+
+            return TRUE;
+        }
+
+        if (nKey == VK_RETURN) {
+            return TRUE;
+        }
+
+        {
             // Escape backs out of whatever is innermost: an action waiting for
             // a target, then the action bar's own submenu stack, and with
             // neither of those pending it opens the options screen.
@@ -531,8 +572,6 @@ BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
             }
         }
 
-        // TODO: Incomplete.  With a popup up (m_nPopupState != -1) escape
-        // answers it instead, through a dispatch that is not recovered.
         return TRUE;
     case VK_PRIOR:
     case VK_NEXT: {
@@ -552,12 +591,7 @@ BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
 
         return TRUE;
     }
-    case VK_RETURN:
-        // TODO: Incomplete.  Return answers the popup and dialogue stack
-        // through the same unrecovered dispatch escape uses.  It is still
-        // consumed here, because reaching the keymap with it would fire a
-        // binding the original never sees.
-        return TRUE;
+
     default:
         return FALSE;
     }
