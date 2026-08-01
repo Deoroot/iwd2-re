@@ -104,7 +104,7 @@ public:
     /* 17C2 */ CVidCell field_17C2;
     /* 189C */ CVidCell field_189C;
     /* 1976 */ INT m_nCustomizeSlot;
-    /* 197A */ INT m_nPickerPage;
+    /* 197A */ INT m_nListStartIndex;
     /* 197E */ INT m_nSelectedButton;
     /* 1982 */ int m_nState;
     /* 1986 */ BYTE field_1986[0x2C];

@@ -294,7 +294,7 @@ void DumpButtonArray(int nStep)
     Emit("{\"step\":%d,\"op\":\"bar\",\"state\":%d,\"selected\":%d,"
          "\"customizeSlot\":%d,\"pickerPage\":%d}",
         nStep, pBar->m_nState, pBar->m_nSelectedButton,
-        pBar->m_nCustomizeSlot, pBar->m_nPickerPage);
+        pBar->m_nCustomizeSlot, pBar->m_nListStartIndex);
 
     for (int i = 0; i < 12; i++) {
         Emit("{\"step\":%d,\"op\":\"barslot\",\"slot\":%d,\"control\":%d,"

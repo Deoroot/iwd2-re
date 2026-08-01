@@ -79,7 +79,7 @@ CInfButtonArray::CInfButtonArray()
     m_nCurrentSelectedSpellLevel = 0;
     m_currentAbilityResRef = "";
     m_nQuickWeaponSlot = 0;
-    m_nPickerPage = 0;
+    m_nListStartIndex = 0;
 }
 
 // NOTE: Convenience.
@@ -591,7 +591,7 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
         // When N <= 12 the slots use the submenu types 0x15..0x20 (entry =
         // buttonType - 0x15).  When N > 12 the layout switches to paging
         // buttons: slot 0 = 0x21 (page-up arrow), slots 1..10 = 0x15..0x1E
-        // (entries), slot 11 = 0x22 (page-down).  m_nPickerPage holds the
+        // (entries), slot 11 = 0x22 (page-down).  m_nListStartIndex holds the
         // current page offset (in units of 10 entries).
         BYTE nNoClass = CAIOBJECTTYPE_C_NONE;
 
@@ -633,7 +633,7 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
         if (g_pButtonArrayPickerList != NULL
             && g_pButtonArrayPickerList->GetCount() > 12) {
             // Paging layout - slot 0 = page up, slots 1-10 = entries
-            // (filled by UpdateButtons via m_nPickerPage), slot 11 = page
+            // (filled by UpdateButtons via m_nListStartIndex), slot 11 = page
             // down.  Type 0x21 / 0x22 already in UpdateButtons.
             m_buttonTypes[0] = 0x21;
             for (INT nButton = 1; nButton < 11; nButton++) {
@@ -647,7 +647,7 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
         }
 
         if (m_nState != nState) {
-            m_nPickerPage = 0;
+            m_nListStartIndex = 0;
         }
 
         m_nState = nState;
@@ -1109,13 +1109,13 @@ void CInfButtonArray::UpdateButtons()
             } else if (g_pButtonArrayPickerList != NULL) {
                 // Picker list entry â€” pull icon + tooltip from the
                 // CGameButtonList built in RebuildPickerList.  Two layouts:
-                //   The binary starts from FindIndex(m_nPickerPage) and fills
-                //   the slots in order, so m_nPickerPage is an entry index and
+                //   The binary starts from FindIndex(m_nListStartIndex) and fills
+                //   the slots in order, so m_nListStartIndex is an entry index and
                 //   the slot's own offset is buttonType - 0x15.  With more
                 //   than 12 entries slots 0 + 11 hold the 0x21/0x22 arrows and
                 //   fall through to their own UpdateButtons cases.
                 INT nListCount = static_cast<INT>(g_pButtonArrayPickerList->GetCount());
-                INT nEntry = m_nPickerPage + (m_buttonTypes[nButton] - 0x15);
+                INT nEntry = m_nListStartIndex + (m_buttonTypes[nButton] - 0x15);
                 POSITION pos = (nEntry >= 0 && nEntry < nListCount)
                     ? g_pButtonArrayPickerList->FindIndex(nEntry)
                     : NULL;
@@ -1971,7 +1971,7 @@ INT CInfButtonArray::GetNextPickerPage(CGameButtonList* pButtonList)
     INT nSeen = 0;
     INT nPageLevel = 0;
 
-    POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nPickerPage);
+    POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
     while (pos != NULL) {
         CButtonData* pButtonData = g_pButtonArrayPickerList->GetNext(pos);
         if (pButtonData == NULL) {
@@ -1981,7 +1981,7 @@ INT CInfButtonArray::GetNextPickerPage(CGameButtonList* pButtonList)
         if (nSeen == 0) {
             nPageLevel = pButtonData->m_abilityId.m_bCanUse;
         } else if (pButtonData->m_abilityId.m_bCanUse != nPageLevel) {
-            return m_nPickerPage + nSeen;
+            return m_nListStartIndex + nSeen;
         }
 
         nSeen++;
@@ -2005,7 +2005,7 @@ INT CInfButtonArray::GetPreviousPickerPage(CGameButtonList* pButtonList)
     INT nPageLevel = 0;
     INT nPreviousLevel = -1;
 
-    POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nPickerPage);
+    POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
     while (pos != NULL) {
         CButtonData* pButtonData = g_pButtonArrayPickerList->GetPrev(pos);
         if (pButtonData == NULL) {
@@ -2018,7 +2018,7 @@ INT CInfButtonArray::GetPreviousPickerPage(CGameButtonList* pButtonList)
             && pButtonData->m_abilityId.m_bCanUse != nPageLevel) {
             nPreviousLevel = pButtonData->m_abilityId.m_bCanUse;
         } else if (pButtonData->m_abilityId.m_bCanUse != nPreviousLevel) {
-            INT nPage = m_nPickerPage - nSeen + 1;
+            INT nPage = m_nListStartIndex - nSeen + 1;
             return nPage < 0 ? 0 : nPage;
         }
 
@@ -2086,28 +2086,28 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     case 0x71:
     case 0x7A:
     case 0x7B:
-        // Page-up / page-down clicks - move m_nPickerPage and re-render without
-        // changing the state.  m_nPickerPage is an entry index, not a page
+        // Page-up / page-down clicks - move m_nListStartIndex and re-render without
+        // changing the state.  m_nListStartIndex is an entry index, not a page
         // number, so a page step is ten entries.  Holding shift in a spellbook
         // picker steps by a whole memorised level instead.
         if (nButtonType == 0x21) {
-            if (m_nPickerPage <= 0) {
+            if (m_nListStartIndex <= 0) {
                 return;
             }
 
             if ((m_nState == 0x67 || m_nState == 0x66)
                 && g_pBaldurChitin->pActiveEngine->GetShiftKey() == 1) {
-                m_nPickerPage = GetPreviousPickerPage(g_pButtonArrayPickerList);
+                m_nListStartIndex = GetPreviousPickerPage(g_pButtonArrayPickerList);
                 UpdateButtons();
                 return;
             }
 
-            INT nPage = m_nPickerPage - 10;
+            INT nPage = m_nListStartIndex - 10;
             if (nPage < 0) {
                 nPage = 0;
             }
 
-            m_nPickerPage = nPage;
+            m_nListStartIndex = nPage;
             UpdateButtons();
             return;
         }
@@ -2117,21 +2117,21 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
 
             INT nLastPage = static_cast<INT>(g_pButtonArrayPickerList->GetCount()) - 10;
-            if (m_nPickerPage >= nLastPage) {
+            if (m_nListStartIndex >= nLastPage) {
                 return;
             }
 
             if ((m_nState == 0x67 || m_nState == 0x66)
                 && g_pBaldurChitin->pActiveEngine->GetShiftKey() == 1) {
-                m_nPickerPage = GetNextPickerPage(g_pButtonArrayPickerList);
+                m_nListStartIndex = GetNextPickerPage(g_pButtonArrayPickerList);
                 UpdateButtons();
                 return;
             }
 
-            if (nLastPage >= m_nPickerPage + 10) {
-                m_nPickerPage = m_nPickerPage + 10;
+            if (nLastPage >= m_nListStartIndex + 10) {
+                m_nListStartIndex = m_nListStartIndex + 10;
             } else {
-                m_nPickerPage = nLastPage;
+                m_nListStartIndex = nLastPage;
             }
 
             UpdateButtons();
@@ -2163,7 +2163,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             // page: the walk counts BUTTON slots, so it starts at 1 whenever
             // the list is long enough for slot 0 to be the page-up arrow.
             INT nIndex = (g_pButtonArrayPickerList->GetCount() > 12) ? 1 : 0;
-            POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nPickerPage);
+            POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
             CButtonData* pEntry = NULL;
             while (pos != NULL) {
                 CButtonData* pCandidate = g_pButtonArrayPickerList->GetNext(pos);

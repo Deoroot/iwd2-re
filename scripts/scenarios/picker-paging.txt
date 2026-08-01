@@ -2,8 +2,8 @@
 #
 # Reaching a picker with more than 12 entries puts the bar in the paging
 # layout -- 21 15 16 ... 1E 22 -- where slot 0 is page-up and slot 11 is
-# page-down.  Clicking those moves m_nPickerPage by ten entries, and
-# UpdateButtons re-reads the list from FindIndex(m_nPickerPage).
+# page-down.  Clicking those moves m_nListStartIndex by ten entries, and
+# UpdateButtons re-reads the list from FindIndex(m_nListStartIndex).
 #
 # Route to the picker (measured with `bar`, see quick-slot-picker.txt):
 #   portrait 4 is a caster; control 11 is quick spell 0x48
