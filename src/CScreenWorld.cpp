@@ -347,7 +347,10 @@ void CScreenWorld::OnKeyDown(SHORT a2)
         if (!m_bInControlOfDialog || !m_internalLoadedDialog.m_waitingForResponse) {
             if (nKey == VK_TAB) {
                 m_cUIManager.ForceToolTip();
+                continue;
             }
+
+            HandleKeymapAction(nKey);
             continue;
         }
 
@@ -396,6 +399,75 @@ void CScreenWorld::OnKeyDown(SHORT a2)
                 break;
             }
         }
+    }
+}
+
+// Dispatch one Keymap.ini binding.  A key that OnKeyDown's own switch does not
+// consume is looked up in the keymap: the first action whose key matches and
+// whose CTRL requirement matches the current modifier wins.
+//
+// NOTE: Convenience -- the binary inlines this at the tail of OnKeyDown
+// (0x687f3b), and handles far more actions than the action-bar ones below.
+void CScreenWorld::HandleKeymapAction(BYTE nKey)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    for (SHORT nAction = 0; nAction < CINFGAME_KEYMAP_SIZE; nAction++) {
+        if (pGame->GetKeymap(nAction) != nKey) {
+            continue;
+        }
+
+        if (pGame->GetKeymapFlag(nAction) != m_bCtrlKeyDown) {
+            continue;
+        }
+
+        // TODO: Incomplete.  Only the action-bar bindings are recovered; the
+        // binary dispatches 0x35 actions here (0x68bd68).
+        INT nButtonType = -1;
+        BOOL bQuickItem = FALSE;
+        switch (nAction) {
+        case 11:
+            nButtonType = 3;
+            break;
+        case 12:
+            nButtonType = 0x0E;
+            break;
+        case 13:
+            nButtonType = 5;
+            break;
+        case 19:
+            nButtonType = 0x0A;
+            break;
+        case 0x2D:
+        case 0x2E:
+        case 0x2F:
+            nButtonType = nAction + 0x23;
+            bQuickItem = TRUE;
+            break;
+        default:
+            break;
+        }
+
+        if (nButtonType != -1) {
+            // The bar has to be on screen; a button it currently shows is
+            // clicked where it sits, and only a hidden one goes through
+            // CheckActivation.
+            CUIPanel* pPanel = m_cUIManager.GetPanel(1);
+            if (pPanel != NULL && pPanel->m_bActive) {
+                BYTE nButton = pGame->GetButtonArray()->GetButtonId(nButtonType);
+                if (nButton != 0xFF) {
+                    if (bQuickItem && m_bShiftKeyDown) {
+                        pGame->GetButtonArray()->OnRButtonPressed(nButton);
+                    } else {
+                        pGame->GetButtonArray()->OnLButtonPressed(nButton);
+                    }
+                } else {
+                    pGame->GetButtonArray()->CheckActivation(nButtonType);
+                }
+            }
+        }
+
+        return;
     }
 }
 
