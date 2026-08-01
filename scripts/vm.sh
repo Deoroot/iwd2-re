@@ -126,7 +126,15 @@ case "$cmd" in
         --expect-min) expect_min="$2"; shift 2 ;;
         --ui)         ui="$2"; shift 2 ;;
         --*) echo "smoke: unknown flag $1" >&2; exit 2 ;;
-        *) if [ -z "$slot" ]; then slot="$1"; elif [ -z "$hold" ]; then hold="$1"; fi; shift ;;
+        # With --save there is no slot to give, so the positionals are [secs]
+        # only -- otherwise `smoke --save X 300` silently reads 300 as the slot
+        # and falls back to the default hold.
+        *) if [ -n "$save" ]; then
+             if [ -z "$hold" ]; then hold="$1"; fi
+           elif [ -z "$slot" ]; then slot="$1"
+           elif [ -z "$hold" ]; then hold="$1"
+           fi
+           shift ;;
       esac
     done
     slot="${slot:-3}"
