@@ -42,7 +42,7 @@
 //                                world). The move matters: world picking reads
 //                                m_ptMousePos, not the click point.
 //   hover <x> <y>                move the cursor without clicking
-//   key <vk>                     pActiveEngine->OnKeyDown
+//   key <vk>                     stage the VK and run one OnKeyDown tick
 //   goto <screen>                CBaldurEngine::OnLeftPanelButtonClick
 //   expect screen <screen>
 //   expect controls <panel> <min>
@@ -64,6 +64,7 @@
 #include "CGameObjectArray.h"
 #include "CInfGame.h"
 #include "CInfinity.h"
+#include "CScreenWorld.h"
 #include "CUIControlBase.h"
 #include "CUIManager.h"
 #include "CUIPanel.h"
@@ -678,7 +679,19 @@ void Tick(CWarp* pActiveEngine)
     }
 
     if (strcmp(step.op, "key") == 0) {
-        pActiveEngine->OnKeyDown(static_cast<SHORT>(Num(step, 0, 0)));
+        // OnKeyDown takes the NUMBER of keys pressed this tick and reads the
+        // virtual keys themselves out of the engine's own buffer, so a key has
+        // to be staged there first.  On the world screen that buffer is
+        // CScreenWorld::m_pVirtualKeysFlags; elsewhere the count is all we can
+        // pass.
+        SHORT nKey = static_cast<SHORT>(Num(step, 0, 0));
+        if (pActiveEngine == g_pBaldurChitin->m_pEngineWorld) {
+            g_pBaldurChitin->m_pEngineWorld->m_pVirtualKeysFlags[0] = static_cast<BYTE>(nKey);
+            g_pBaldurChitin->m_pEngineWorld->OnKeyDown(1);
+        } else {
+            pActiveEngine->OnKeyDown(nKey);
+        }
+
         Emit("{\"step\":%d,\"op\":\"key\",\"vk\":%d,\"status\":\"ok\"}",
             nStep, Num(step, 0, 0));
         s_pc++;

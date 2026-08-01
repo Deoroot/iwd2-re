@@ -423,6 +423,9 @@ void CScreenWorld::HandleKeymapAction(BYTE nKey)
 
         // TODO: Incomplete.  Only the action-bar bindings are recovered; the
         // binary dispatches 0x35 actions here (0x68bd68).
+        // The action names come from the engine's own Keymap.ini key table:
+        // 11 "Cast Spell", 12 "Use Item", 13 "Dialog", 19 "Special Abilities",
+        // 0x2D..0x2F "Quick Item Slot1".."Slot3".
         INT nButtonType = -1;
         BOOL bQuickItem = FALSE;
         switch (nAction) {
