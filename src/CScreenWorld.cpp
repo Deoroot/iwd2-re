@@ -445,22 +445,9 @@ BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
             g_pBaldurChitin->pActiveEngine->pVidMode->PrintScreen();
         }
         return TRUE;
-    case VK_TAB:
-        // TODO: Incomplete.  0x687a2e also drives the multiplayer chat and the
-        // hidden-interface toggle before it gets here.
-        m_cUIManager.ForceToolTip();
-        return TRUE;
-    case VK_RETURN:
-    case VK_ESCAPE:
     case VK_SPACE:
-    case VK_PRIOR:
-    case VK_NEXT:
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
+        TogglePauseGame(1, 1, 0);
+        return TRUE;
     case VK_F1:
     case VK_F2:
     case VK_F3:
@@ -472,9 +459,36 @@ BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
     case VK_F9:
     case VK_F10:
     case VK_F11:
-    case VK_F12:
-        // TODO: Incomplete.  The engine owns these -- chat, pause, party
-        // selection and the screen shortcuts -- but the handlers are not
+    case VK_F12: {
+        // The function keys are the action bar's twelve slots, and shift makes
+        // the press a right-click -- the same split the mouse has.
+        CUIPanel* pPanel = m_cUIManager.GetPanel(1);
+        if (pPanel != NULL && pPanel->m_bActive) {
+            if (m_bShiftKeyDown) {
+                pGame->GetButtonArray()->OnRButtonPressed(nKey - VK_F1);
+            } else {
+                pGame->GetButtonArray()->OnLButtonPressed(nKey - VK_F1);
+            }
+        }
+        return TRUE;
+    }
+    case VK_TAB:
+        // TODO: Incomplete.  0x687a2e also drives the multiplayer chat and the
+        // hidden-interface toggle before it gets here.
+        m_cUIManager.ForceToolTip();
+        return TRUE;
+    case VK_RETURN:
+    case VK_ESCAPE:
+    case VK_PRIOR:
+    case VK_NEXT:
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+        // TODO: Incomplete.  The engine owns these -- chat, dialogue
+        // dismissal and party selection -- but the handlers are not
         // recovered.  They are still consumed here, because reaching the
         // keymap with them would fire a binding the original never sees.
         return TRUE;
