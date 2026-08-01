@@ -1109,18 +1109,13 @@ void CInfButtonArray::UpdateButtons()
             } else if (g_pButtonArrayPickerList != NULL) {
                 // Picker list entry â€” pull icon + tooltip from the
                 // CGameButtonList built in RebuildPickerList.  Two layouts:
-                //   * â‰¤ 12 entries: nEntry = buttonType - 0x15 (slot maps
-                //     directly to list index).
-                //   * > 12 entries (paging): nEntry = page * 10 + (buttonType
-                //     - 0x15); slots 0 + 11 hold the 0x21/0x22 arrows and
-                //     fall through to their own UpdateButtons cases.
+                //   The binary starts from FindIndex(m_nPickerPage) and fills
+                //   the slots in order, so m_nPickerPage is an entry index and
+                //   the slot's own offset is buttonType - 0x15.  With more
+                //   than 12 entries slots 0 + 11 hold the 0x21/0x22 arrows and
+                //   fall through to their own UpdateButtons cases.
                 INT nListCount = static_cast<INT>(g_pButtonArrayPickerList->GetCount());
-                INT nEntry;
-                if (nListCount > 12) {
-                    nEntry = m_nPickerPage * 10 + (m_buttonTypes[nButton] - 0x15);
-                } else {
-                    nEntry = m_buttonTypes[nButton] - 0x15;
-                }
+                INT nEntry = m_nPickerPage + (m_buttonTypes[nButton] - 0x15);
                 POSITION pos = (nEntry >= 0 && nEntry < nListCount)
                     ? g_pButtonArrayPickerList->FindIndex(nEntry)
                     : NULL;
@@ -1914,6 +1909,77 @@ void CInfButtonArray::DispatchActionBarClick(INT nButtonType, CGameSprite* pSpri
     }
 }
 
+// Page the spellbook picker down by a whole memorised level instead of by ten
+// entries: walk forward from the current page and stop on the first entry
+// whose level differs from the page's own.  For spell entries m_bCanUse
+// carries the level.  The list is passed in only to be checked; the walk
+// itself runs on g_pButtonArrayPickerList.
+//
+// 0x595FB0
+INT CInfButtonArray::GetNextPickerPage(CGameButtonList* pButtonList)
+{
+    UTIL_ASSERT(pButtonList != NULL);
+
+    INT nSeen = 0;
+    INT nPageLevel = 0;
+
+    POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nPickerPage);
+    while (pos != NULL) {
+        CButtonData* pButtonData = g_pButtonArrayPickerList->GetNext(pos);
+        if (pButtonData == NULL) {
+            continue;
+        }
+
+        if (nSeen == 0) {
+            nPageLevel = pButtonData->m_abilityId.m_bCanUse;
+        } else if (pButtonData->m_abilityId.m_bCanUse != nPageLevel) {
+            return m_nPickerPage + nSeen;
+        }
+
+        nSeen++;
+    }
+
+    return 0;
+}
+
+// Page the spellbook picker up by a whole memorised level instead of by ten
+// entries: walk backwards from the current page until the entry level changes
+// twice, and land on the first entry of that previous level.  For spell
+// entries m_bCanUse carries the level.  The list is passed in only to be
+// checked; the walk itself runs on g_pButtonArrayPickerList.
+//
+// 0x596040
+INT CInfButtonArray::GetPreviousPickerPage(CGameButtonList* pButtonList)
+{
+    UTIL_ASSERT(pButtonList != NULL);
+
+    INT nSeen = 0;
+    INT nPageLevel = 0;
+    INT nPreviousLevel = -1;
+
+    POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nPickerPage);
+    while (pos != NULL) {
+        CButtonData* pButtonData = g_pButtonArrayPickerList->GetPrev(pos);
+        if (pButtonData == NULL) {
+            continue;
+        }
+
+        if (nSeen == 0) {
+            nPageLevel = pButtonData->m_abilityId.m_bCanUse;
+        } else if (nPreviousLevel == -1
+            && pButtonData->m_abilityId.m_bCanUse != nPageLevel) {
+            nPreviousLevel = pButtonData->m_abilityId.m_bCanUse;
+        } else if (pButtonData->m_abilityId.m_bCanUse != nPreviousLevel) {
+            INT nPage = m_nPickerPage - nSeen + 1;
+            return nPage < 0 ? 0 : nPage;
+        }
+
+        nSeen++;
+    }
+
+    return 0;
+}
+
 // 0x58FF20
 void CInfButtonArray::OnLButtonPressed(int buttonID)
 {
@@ -1972,24 +2038,55 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     case 0x71:
     case 0x7A:
     case 0x7B:
-        // Page-up / page-down clicks â€” adjust m_nPickerPage and re-render
-        // without changing the state.  Ghidra OnLButton state 0x66/0x67
-        // case 0x21 / 0x22 do the same bounds-checked increment.
+        // Page-up / page-down clicks - move m_nPickerPage and re-render without
+        // changing the state.  m_nPickerPage is an entry index, not a page
+        // number, so a page step is ten entries.  Holding shift in a spellbook
+        // picker steps by a whole memorised level instead.
         if (nButtonType == 0x21) {
-            if (m_nPickerPage > 0) {
-                m_nPickerPage--;
-                UpdateButtons();
+            if (m_nPickerPage <= 0) {
+                return;
             }
+
+            if ((m_nState == 0x67 || m_nState == 0x66)
+                && g_pBaldurChitin->pActiveEngine->GetShiftKey() == 1) {
+                m_nPickerPage = GetPreviousPickerPage(g_pButtonArrayPickerList);
+                UpdateButtons();
+                return;
+            }
+
+            INT nPage = m_nPickerPage - 10;
+            if (nPage < 0) {
+                nPage = 0;
+            }
+
+            m_nPickerPage = nPage;
+            UpdateButtons();
             return;
         }
         if (nButtonType == 0x22) {
-            INT nMax = (g_pButtonArrayPickerList != NULL)
-                ? (static_cast<INT>(g_pButtonArrayPickerList->GetCount()) - 10) / 10 + 1
-                : 0;
-            if (m_nPickerPage + 1 <= nMax) {
-                m_nPickerPage++;
-                UpdateButtons();
+            if (g_pButtonArrayPickerList == NULL) {
+                return;
             }
+
+            INT nLastPage = static_cast<INT>(g_pButtonArrayPickerList->GetCount()) - 10;
+            if (m_nPickerPage >= nLastPage) {
+                return;
+            }
+
+            if ((m_nState == 0x67 || m_nState == 0x66)
+                && g_pBaldurChitin->pActiveEngine->GetShiftKey() == 1) {
+                m_nPickerPage = GetNextPickerPage(g_pButtonArrayPickerList);
+                UpdateButtons();
+                return;
+            }
+
+            if (nLastPage >= m_nPickerPage + 10) {
+                m_nPickerPage = m_nPickerPage + 10;
+            } else {
+                m_nPickerPage = nLastPage;
+            }
+
+            UpdateButtons();
             return;
         }
         // Picker click.  Ghidra OnLButtonPressed 0x5913b3..0x5917df.  The click

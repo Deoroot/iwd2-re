@@ -85,6 +85,8 @@ public:
     BOOL RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
     BOOL RenderButtonOverlay(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
     void DispatchActionBarClick(INT nButtonType, CGameSprite* pSprite);
+    INT GetNextPickerPage(CGameButtonList* pButtonList);
+    INT GetPreviousPickerPage(CGameButtonList* pButtonList);
     void SetCustomButtonTypes(const INT* pButtonList);
     void SetQuickWeaponSlot(BYTE nSlot);
     void OnLButtonPressed(int buttonID);
