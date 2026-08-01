@@ -1,0 +1,29 @@
+# Prove a modal feat toggles from the innate picker.
+#
+# Arterial Strike, Hamstring and Rapid Shot have no picker of their own: the
+# innate arm of OnLButtonPressed flips the feat rank with
+# CGameSprite::SetFeatRank and posts a CMessageAddEffect for the matching
+# ICEWIND_CGAMEEFFECT_FEAT* effect, then pops back to the world bar.
+#
+# Route (slot N of the action bar is control (N + 6) on panel 1):
+#   portrait 1 is a melee character; its world bar ends with Special
+#   Abilities 0x0A in slot 11, control 17
+#   -> its innate picker (0x6A) has two live cells, slot 1 and slot 2
+#   -> slot 1 is Power Attack, which opens 0x7B (see feat-points-picker.txt)
+#   -> slot 2 is a toggle, control 8
+#
+# Gate this with --hit CGameSprite::SetFeatRank: that call only happens on the
+# toggle path, and the bar returning to 0x72 shows the click was consumed.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 1
+sleep 30
+click 1 17
+sleep 30
+bar
+click 1 8
+sleep 30
+bar
