@@ -1747,6 +1747,54 @@ void CInfButtonArray::SetSelectedButton(INT nSelectedButton)
     m_nSelectedButton = nSelectedButton;
 }
 
+// Keyboard route into the action bar: CScreenWorld::OnKeyDown maps a shortcut
+// key to a button type and calls this.  It only acts while the bar is in its
+// normal state, and only for the seven types DispatchActionBarClick owns.  The
+// return value tells the caller whether the bar took the key.
+//
+// 0x594170
+BOOL CInfButtonArray::CheckActivation(LONG nButtonType)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    if (m_nState != 0x72) {
+        return FALSE;
+    }
+
+    LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+    CGameSprite* pSprite;
+
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetDeny(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    switch (nButtonType) {
+    case 3:
+    case 5:
+    case 10:
+    case 0xE:
+    case 0x50:
+    case 0x51:
+    case 0x52:
+        DispatchActionBarClick(nButtonType, pSprite);
+        break;
+    }
+
+    pGame->GetObjectArray()->ReleaseDeny(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return TRUE;
+}
+
 // Handle the seven action-bar button types that need the party leader's sprite:
 // Cast Spell, Skills, Special Abilities, Use Item and the three quick-item
 // slots.  Reached from OnLButtonPressed and from the hotkey path at 0x594170.

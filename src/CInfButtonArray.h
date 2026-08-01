@@ -84,6 +84,7 @@ public:
     void UpdateButtons();
     BOOL RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
     BOOL RenderButtonOverlay(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
+    BOOL CheckActivation(LONG nButtonType);
     void DispatchActionBarClick(INT nButtonType, CGameSprite* pSprite);
     INT GetNextPickerPage(CGameButtonList* pButtonList);
     INT GetPreviousPickerPage(CGameButtonList* pButtonList);
