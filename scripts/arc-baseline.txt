@@ -10,4 +10,3 @@
 # if the lint is wrong about this specific site, record why here.
 
 src/CSpawn.cpp:949: lint_stuck_loop_index   # bit-shift loop; the binary genuinely has no advance in the body
-src/CRuleTables.cpp:3324: re_lint   # deliberate stub for CRuleTables::GetRandomItem (0x5463E0); CStore::GetItemExt needs the symbol, the 2DA random-treasure resolver itself is a separate recovery
