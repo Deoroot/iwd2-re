@@ -11,6 +11,7 @@
 #include "CGameSpriteEquipment.h"
 #include "CIcon.h"
 #include "CInfGame.h"
+#include "IcewindCGameEffects.h"
 #include "CMessage.h"
 #include "CSound.h"
 #include "CItem.h"
@@ -2248,6 +2249,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
 
             BOOL bFeatPointPicker = FALSE;
+            BOOL bModalFeatToggled = FALSE;
             if (pEntry != NULL) {
                 // NOTE: unrecovered -- in state 0x67 the binary first demands
                 // the CSpell, builds a specialization mask and gates the whole
@@ -2298,11 +2300,55 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                                 && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE))) {
                             m_currentAbilityResRef = pEntry->m_abilityId.m_res;
                             bFeatPointPicker = TRUE;
-                        }
+                        } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN277) {
+                            // The other three modal feats have no picker: the
+                            // click flips the feat rank and posts the matching
+                            // effect at the sprite's own position.
+                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE,
+                                pSprite->GetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE) > 0 ? 0 : 1);
 
-                        // NOTE: unrecovered -- SPIN277 / SPIN278 / SPIN279
-                        // toggle their feat rank and post a CMessageAddEffect
-                        // for effect 0x1C7 (0x5925cc..0x5927da).
+                            ITEM_EFFECT effect;
+                            CGameEffect::ClearItemEffect(&effect,
+                                ICEWIND_CGAMEEFFECT_FEATARTERIALSTRIKE);
+                            effect.durationType = 1;
+
+                            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                                pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                            CMessage* pMsg = new CMessageAddEffect(pEffect,
+                                pSprite->GetId(), pSprite->GetId());
+                            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                            bModalFeatToggled = TRUE;
+                        } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN278) {
+                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_HAMSTRING,
+                                pSprite->GetFeatRank(CGAMESPRITE_FEAT_HAMSTRING) > 0 ? 0 : 1);
+
+                            ITEM_EFFECT effect;
+                            CGameEffect::ClearItemEffect(&effect,
+                                ICEWIND_CGAMEEFFECT_FEATHAMSTRING);
+                            effect.durationType = 1;
+
+                            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                                pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                            CMessage* pMsg = new CMessageAddEffect(pEffect,
+                                pSprite->GetId(), pSprite->GetId());
+                            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                            bModalFeatToggled = TRUE;
+                        } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN279) {
+                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT,
+                                pSprite->GetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT) > 0 ? 0 : 1);
+
+                            ITEM_EFFECT effect;
+                            CGameEffect::ClearItemEffect(&effect,
+                                ICEWIND_CGAMEEFFECT_FEATRAPIDSHOT);
+                            effect.durationType = 1;
+
+                            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                                pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                            CMessage* pMsg = new CMessageAddEffect(pEffect,
+                                pSprite->GetId(), pSprite->GetId());
+                            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                            bModalFeatToggled = TRUE;
+                        }
                     }
 
                     // A greyed-out cell can still be bound to a quick slot, but
@@ -2311,7 +2357,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     // flag that only the unrecovered tails read (0x59182f for
                     // this arm, 0x5924f0 for the innate one).
                     BOOL bInnateArm = (m_nState == 0x6A || m_nState == 0x6B);
-                    if (!bFeatPointPicker
+                    if (!bFeatPointPicker && !bModalFeatToggled
                         && (bInnateArm || !m_buttonArray[buttonID].m_bGreyOut)) {
                         switch (m_nState) {
                         case 0x66:
