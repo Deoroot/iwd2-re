@@ -512,14 +512,51 @@ BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
         pGame->SelectToolbar();
         return TRUE;
     }
-    case VK_RETURN:
     case VK_ESCAPE:
+        if (m_nPopupState == -1) {
+            // Escape backs out of whatever is innermost: an action waiting for
+            // a target, then the action bar's own submenu stack, and with
+            // neither of those pending it opens the options screen.
+            if (pGame->m_nState != 0) {
+                pGame->m_nState = 0;
+                pGame->GetButtonArray()->m_nSelectedButton = 100;
+                pGame->GetButtonArray()->UpdateState();
+                pGame->m_tempCursor = 4;
+            } else if (!pGame->GetButtonArray()->m_stateStack.empty()) {
+                pGame->GetButtonArray()->m_nSelectedButton = 100;
+                pGame->GetButtonArray()->ResetState();
+            } else {
+                static_cast<CBaldurEngine*>(g_pBaldurChitin->pActiveEngine)
+                    ->OnLeftPanelButtonClick(9);
+            }
+        }
+
+        // TODO: Incomplete.  With a popup up (m_nPopupState != -1) escape
+        // answers it instead, through a dispatch that is not recovered.
+        return TRUE;
     case VK_PRIOR:
-    case VK_NEXT:
-        // TODO: Incomplete.  The engine owns these -- chat, the popup and
-        // dialogue stack, and the message-log scroll -- but the handlers are
-        // not recovered.  They are still consumed here, because reaching the
-        // keymap with them would fire a binding the original never sees.
+    case VK_NEXT: {
+        // Scroll the message log by releasing the mouse on its arrow, which is
+        // control 0 of the panel that owns that direction.
+        if (m_cUIManager.m_bHidden) {
+            return TRUE;
+        }
+
+        CUIPanel* pPanel = m_cUIManager.GetPanel(nKey == VK_PRIOR ? 0x15 : 0x13);
+        if (pPanel != NULL && pPanel->m_bActive) {
+            CUIControlBase* pControl = pPanel->GetControl(0);
+            if (pControl != NULL && pControl->m_bActive) {
+                pControl->OnLButtonUp(pControl->m_ptOrigin);
+            }
+        }
+
+        return TRUE;
+    }
+    case VK_RETURN:
+        // TODO: Incomplete.  Return answers the popup and dialogue stack
+        // through the same unrecovered dispatch escape uses.  It is still
+        // consumed here, because reaching the keymap with it would fire a
+        // binding the original never sees.
         return TRUE;
     default:
         return FALSE;
