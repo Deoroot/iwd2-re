@@ -63,8 +63,6 @@ CInfButtonArray::CInfButtonArray()
     field_16E0 = -1;
     field_16E4 = 0;
     m_nState = STATE_NONE;
-    memset(field_1986, 0, sizeof(field_1986));
-    m_nStateStackDepth = 0;
 
     // 0x19B6..0x19D6, copied from selected sprite by SelectToolbar.
     m_customButtonTypes[0] = 5;
@@ -547,18 +545,43 @@ void CInfButtonArray::CustomizeQuickSlot(const CButtonData* pButtonData, BYTE nB
 // 0x588FF0
 BOOL CInfButtonArray::ResetState()
 {
-    // Pops the action-bar state stack and re-applies the previous state via
-    // SetState; when the stack is empty it leaves the current bar untouched.
-    // This port never pushes onto the stack (picker back-navigation calls
-    // SetState(0x72, 0) directly), so m_nStateStackDepth is always 0 and the
-    // pop path (FUN_00589ff0) is unreachable here.  It must NOT force
-    // SetState(STATE_NONE): that blanked the bar when WorldEngineActivated ran
-    // ResetState after the bar had already been built on load / new game.
-    if (m_nStateStackDepth != 0) {
-        // State-stack pop not implemented — the stack is never pushed.
+    // Pops one level off the action-bar state stack and re-applies it.  With
+    // an empty stack it leaves the current bar untouched: it must NOT force
+    // SetState(STATE_NONE), which blanked the bar when WorldEngineActivated
+    // ran ResetState after the bar had already been built on load / new game.
+    if (!m_stateStack.empty()) {
+        INT nState = m_stateStack.front();
+        m_stateStack.pop_front();
+        SetState(nState, 0);
     }
 
     return TRUE;
+}
+
+// Walk the action-bar state stack back.  a3 == 1 unwinds the whole sequence in
+// one go, landing on the bar it started from; anything else steps back a single
+// level.  Both re-apply the state they land on, and neither pushes.
+//
+// 0x589FF0
+void CInfButtonArray::PopState(int a2, char a3)
+{
+    if (m_stateStack.empty()) {
+        return;
+    }
+
+    if (a3 == 1) {
+        // The binary spells this out as an erase of the whole deque, choosing
+        // whichever end is cheaper to rotate; the state it lands on is the one
+        // at the bottom.
+        INT nState = m_stateStack.back();
+        m_stateStack.clear();
+        SetState(nState, 0);
+        return;
+    }
+
+    INT nState = m_stateStack.front();
+    m_stateStack.pop_front();
+    SetState(nState, a2);
 }
 
 // 0x589100
@@ -575,6 +598,12 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
     // The picker list is torn down on every transition; the picker branch
     // below rebuilds it when the new state is itself a picker.
     ClearPickerList();
+
+    // a2 asks for the state being replaced to be remembered, so that a submenu
+    // or picker can walk back to it.
+    if (a2 == 1 && nState != m_nState && m_nState != 0) {
+        m_stateStack.push_front(m_nState);
+    }
 
     switch (nState) {
     case 0x65:
@@ -2393,9 +2422,19 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 SetState(0x7B, 1);
                 return;
             }
+
+            if (pEntry != NULL) {
+                // Something was picked, so the whole sequence is done: walk
+                // straight back to the bar it started from.
+                PopState(0, 1);
+                return;
+            }
         }
+
+        // An empty or unknown cell only steps back one level.
+        PopState(0, 0);
         SetSelectedButton(100);
-        SetState(0x72, 0);
+        UpdateButtons();
         return;
     case 0x6E:
         switch (nButtonType) {
@@ -2510,10 +2549,8 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         INFINITE);
                 }
             }
-            // Return to single-PC action bar (state 0x72) so the new icon
-            // shows and the menu closes.  Ghidra uses a saved-state stack
-            // (FUN_00589ff0 + m_nStateStackDepth) that pops the prior state; we
-            // hardcode 0x72 because customize entry comes from 0x72.
+            // Close the menu so the new icon shows.  NOTE: unrecovered -- the
+            // binary walks the state stack back here rather than naming 0x72.
             SetState(0x72, 0);
         }
         return;
