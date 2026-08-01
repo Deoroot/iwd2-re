@@ -2247,6 +2247,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 nIndex++;
             }
 
+            BOOL bFeatPointPicker = FALSE;
             if (pEntry != NULL) {
                 // NOTE: unrecovered -- in state 0x67 the binary first demands
                 // the CSpell, builds a specialization mask and gates the whole
@@ -2283,11 +2284,25 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x6E);
                     } else if (m_nState == 0x6B) {
                         // The innate picker is its own arm in the binary
-                        // (0x5924c9), with the same shape; only its tail
-                        // differs, and that tail is not recovered either.
+                        // (0x5924c9), with the same shape.
                         CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 4);
                         m_customButtonTypes[nSlot] = nSlot + 0x5A;
                         pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x5A);
+                    } else if (m_nState == 0x6A) {
+                        // Power Attack and Expertise do not fire from here:
+                        // they open their point picker instead, with the
+                        // chosen ability stashed for BuildFeatPointsPickerList.
+                        if ((pEntry->m_abilityId.m_res == CGameSprite::SPIN275
+                                && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK))
+                            || (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
+                                && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE))) {
+                            m_currentAbilityResRef = pEntry->m_abilityId.m_res;
+                            bFeatPointPicker = TRUE;
+                        }
+
+                        // NOTE: unrecovered -- SPIN277 / SPIN278 / SPIN279
+                        // toggle their feat rank and post a CMessageAddEffect
+                        // for effect 0x1C7 (0x5925cc..0x5927da).
                     }
 
                     // A greyed-out cell can still be bound to a quick slot, but
@@ -2296,7 +2311,8 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     // flag that only the unrecovered tails read (0x59182f for
                     // this arm, 0x5924f0 for the innate one).
                     BOOL bInnateArm = (m_nState == 0x6A || m_nState == 0x6B);
-                    if (bInnateArm || !m_buttonArray[buttonID].m_bGreyOut) {
+                    if (!bFeatPointPicker
+                        && (bInnateArm || !m_buttonArray[buttonID].m_bGreyOut)) {
                         switch (m_nState) {
                         case 0x66:
                         case 0x67:
@@ -2325,7 +2341,11 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
                 }
-                m_currentAbilityResRef = pEntry->m_abilityId.m_res;
+            }
+
+            if (bFeatPointPicker) {
+                SetState(0x7B, 1);
+                return;
             }
         }
         SetSelectedButton(100);
