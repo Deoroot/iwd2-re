@@ -8680,18 +8680,177 @@ CGameButtonList* CGameSprite::GetSongsButtonList()
     return buttons;
 }
 
-// Build the innate-ability picker list from m_innateSpells (0x4A84), one
-// CButtonData per ability of every innate the sprite still has uses of.
-// Feeds SetState(0x6A/0x6B) through CInfButtonArray::BuildPickerList kind 4.
+// Build the special-abilities picker list: the innate spells first, then the
+// shapeshift forms.  Feeds SetState(0x6A/0x6B) through
+// CInfButtonArray::BuildPickerList kind 4.
 //
 // 0x715BD0
 CGameButtonList* CGameSprite::GetInnateSpellsButtonList()
 {
-    // TODO: Incomplete.  The binary walks m_innateSpells, CSpell::Demand()s
-    // each entry, filters on CGameSprite::HasFeat and the caster level, and
-    // adds one button per CSpell ability.  Until that is recovered the innate
-    // picker stays empty rather than showing invented entries.
-    return new CGameButtonList();
+    CGameButtonList* pButtons = new CGameButtonList();
+    SPELL_ABILITY* pBestAbility = NULL;
+
+    for (UINT nIndex = 0; nIndex < m_innateSpells.m_List.size(); nIndex++) {
+        CGameSpriteSpellListEntry* pEntry = m_innateSpells.Get(nIndex);
+
+        if ((pEntry->m_nShared & 1) != 0
+            || pEntry->m_nMax == 0
+            || pEntry->m_nCurrent == 0) {
+            continue;
+        }
+
+        UINT nSpellId = pEntry->m_nID;
+        const CResRef& spellResRef = g_pBaldurChitin->GetObjectGame()->m_innateSpells.Get(nSpellId);
+
+        CSpell cSpell;
+        cSpell.SetResRef(spellResRef, TRUE, TRUE);
+        if (cSpell.Demand() != NULL) {
+            // Bardsong is driven by the song bar, never by this picker.
+            if (cSpell.pRes != NULL && spellResRef != SPIN285) {
+                SHORT nCasterLevel = GetCasterLevel(&cSpell, 0, 0);
+                if (nCasterLevel < 1) {
+                    nCasterLevel = 1;
+                }
+
+                for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+                    if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+                        break;
+                    }
+
+                    // FIXME: Calls `GetAbility` one more time.
+                    pBestAbility = cSpell.GetAbility(nAbility);
+                }
+
+                if (pBestAbility != NULL && pBestAbility->quickSlotType == 4) {
+                    CButtonData* pButton = new CButtonData();
+
+                    pButton->m_icon = CString(pBestAbility->quickSlotIcon);
+                    pButton->m_name = cSpell.GetGenericName();
+                    pButton->m_abilityId.m_itemType = 1;
+                    pButton->m_abilityId.m_res = spellResRef;
+                    pButton->m_abilityId.m_targetType = pBestAbility->actionType;
+                    pButton->m_abilityId.m_strDescription = cSpell.GetGenericName();
+
+                    CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+                    pButton->m_bDisabled = static_cast<BOOLEAN>(stats.m_disabledSpellTypes[2]);
+
+                    pButton->m_count = static_cast<SHORT>(pEntry->m_nCurrent);
+                    if (pButton->m_count < 1) {
+                        pButton->m_bDisabled = TRUE;
+                    }
+
+                    // The five feat-driven modal abilities take their count
+                    // from the feat rank instead of the innate use count, and
+                    // grey out entirely when the feat is missing.
+                    if (pButton->m_abilityId.m_res == SPIN275) {
+                        pButton->m_count = HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)
+                            ? static_cast<SHORT>(m_nFeatRanks[1])
+                            : static_cast<SHORT>(0);
+                        if (!HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    } else if (pButton->m_abilityId.m_res == SPIN276) {
+                        pButton->m_count = HasFeat(CGAMESPRITE_FEAT_EXPERTISE)
+                            ? static_cast<SHORT>(m_nFeatRanks[0])
+                            : static_cast<SHORT>(0);
+                        if (!HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    } else if (pButton->m_abilityId.m_res == SPIN277) {
+                        pButton->m_bDisplayCount = FALSE;
+                        pButton->m_count = 0;
+                        if (!HasFeat(CGAMESPRITE_FEAT_ARTERIAL_STRIKE)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    } else if (pButton->m_abilityId.m_res == SPIN278) {
+                        pButton->m_bDisplayCount = FALSE;
+                        pButton->m_count = 0;
+                        if (!HasFeat(CGAMESPRITE_FEAT_HAMSTRING)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    } else if (pButton->m_abilityId.m_res == SPIN279) {
+                        pButton->m_bDisplayCount = FALSE;
+                        pButton->m_count = 0;
+                        if (!HasFeat(CGAMESPRITE_FEAT_RAPID_SHOT)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    }
+
+                    pButtons->AddTail(pButton);
+                }
+            }
+
+            cSpell.Release();
+        }
+    }
+
+    for (UINT nIndex = 0; nIndex < m_shapeshifts.m_List.size(); nIndex++) {
+        CGameSpriteSpellListEntry* pEntry = m_shapeshifts.Get(nIndex);
+
+        if ((pEntry->m_nShared & 1) != 0
+            || pEntry->m_nMax == 0
+            || pEntry->m_nCurrent == 0) {
+            continue;
+        }
+
+        UINT nSpellId = pEntry->m_nID;
+        const CResRef& spellResRef = g_pBaldurChitin->GetObjectGame()->m_shapeshifts.Get(nSpellId);
+
+        CSpell cSpell;
+        cSpell.SetResRef(spellResRef, TRUE, TRUE);
+        if (cSpell.Demand() != NULL) {
+            if (cSpell.pRes != NULL) {
+                SHORT nCasterLevel = GetCasterLevel(&cSpell, 0, 0);
+                if (nCasterLevel < 1) {
+                    nCasterLevel = 1;
+                }
+
+                for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+                    if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+                        break;
+                    }
+
+                    // FIXME: Calls `GetAbility` one more time.
+                    pBestAbility = cSpell.GetAbility(nAbility);
+                }
+
+                if (pBestAbility != NULL && pBestAbility->quickSlotType == 4) {
+                    CButtonData* pButton = new CButtonData();
+
+                    pButton->m_icon = CString(pBestAbility->quickSlotIcon);
+                    pButton->m_name = cSpell.GetGenericName();
+                    pButton->m_abilityId.m_itemType = 1;
+                    pButton->m_abilityId.m_res = spellResRef;
+                    pButton->m_abilityId.m_targetType = pBestAbility->actionType;
+                    pButton->m_abilityId.m_strDescription = cSpell.GetGenericName();
+
+                    CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+                    pButton->m_bDisabled = static_cast<BOOLEAN>(stats.m_disabledSpellTypes[2]);
+
+                    // Every shapeshift but SPIN122 draws on the shared pool of
+                    // shapes rather than on its own use count.
+                    SHORT nCount;
+                    if (spellResRef == SPIN122) {
+                        nCount = static_cast<SHORT>(pEntry->m_nCurrent);
+                    } else {
+                        nCount = static_cast<SHORT>(m_shapeshifts.m_nSharedTotal);
+                    }
+
+                    pButton->m_count = nCount;
+                    pButton->m_bDisplayCount = TRUE;
+                    if (nCount < 1) {
+                        pButton->m_bDisabled = TRUE;
+                    }
+
+                    pButtons->AddTail(pButton);
+                }
+            }
+
+            cSpell.Release();
+        }
+    }
+
+    return pButtons;
 }
 
 // Build the "every usable item in the inventory" list: walks all equipment
