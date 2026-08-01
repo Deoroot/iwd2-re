@@ -651,6 +651,7 @@ public:
     SHORT MoveToObject(CGameObject* pTarget);
     SHORT UseContainer();
     SHORT Dialogue(CGameSprite* pTarget);
+    SHORT StartStore(CGameSprite* pTarget);
     SHORT PlayerDialog(CGameSprite* pTarget);
     SHORT OneSwing();
     SHORT Recoil();
