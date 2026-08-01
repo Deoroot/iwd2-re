@@ -1820,7 +1820,170 @@ void CScreenStore::GetGroupItem(INT nIndex, CScreenStoreItem& cItem)
 // 0x676780
 void CScreenStore::UpdateGroupItems()
 {
-    // TODO: Incomplete.
+    CTypedPtrList<CPtrList, CScreenStoreItem*> lSelectedItems;
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 3644
+    UTIL_ASSERT(pGame != NULL);
+
+    // TODO: `See CScreenStore::GetGroupItem`.
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 3646
+    // UTIL_ASSERT(pSave != NULL);
+
+    CGameSprite* pSprite;
+    LONG nCharacterId;
+
+    if (m_pBag == NULL) {
+        // NOTE: Uninline.
+        nCharacterId = pGame->GetCharacterId(m_nSelectedCharacter);
+
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+            // __LINE__: 3657
+            UTIL_ASSERT(FALSE);
+            return;
+        }
+    } else {
+        m_pBag->CompressItems();
+    }
+
+    POSITION pos = m_lGroupItems.GetHeadPosition();
+    while (pos != NULL) {
+        CScreenStoreItem* pOldItem = m_lGroupItems.GetNext(pos);
+        if (!pOldItem->m_bSelected) {
+            delete pOldItem;
+        } else {
+            lSelectedItems.AddTail(pOldItem);
+        }
+    }
+    m_lGroupItems.RemoveAll();
+
+    if (m_pBag == NULL) {
+        unsigned char nSavedMarkDown = field_5D9;
+        field_5D9 = pSprite->HasFeat(CGAMESPRITE_FEAT_MERCANTILE_BACKGROUND) ? 5 : 0;
+
+        for (INT nIndex = 0; nIndex < CScreenInventory::PERSONAL_INVENTORY_SIZE; nIndex++) {
+            CItem* pItem = pSprite->GetEquipment()->m_items[18 + nIndex];
+            if (pItem == NULL) {
+                continue;
+            }
+
+            // A bag cannot be put inside another bag.
+            if (m_pStore->GetType() == CSTOREFILEHEADER_STORETYPE_BAG
+                && pItem->GetItemType() == 0x3A) {
+                continue;
+            }
+
+            CScreenStoreItem* pGroupItem = new CScreenStoreItem;
+
+            pGroupItem->m_bSelected = FALSE;
+            pGroupItem->m_pItem = pItem;
+            pGroupItem->m_nSlot = nIndex;
+            pGroupItem->m_nSingleValue = m_pStore->GetItemSellValue(*pItem, field_5D9);
+            pGroupItem->m_nValue = pGroupItem->m_nSingleValue;
+
+            if (pItem->GetItemType() == 0x3A) {
+                pGroupItem->m_bEnabled = TRUE;
+            } else if (m_pStore->GetType() == CSTOREFILEHEADER_STORETYPE_BAG) {
+                pGroupItem->m_bEnabled = m_pStore->IsValidSellType(pItem);
+            } else {
+                pGroupItem->m_bEnabled = m_pStore->IsValidSellType(pItem)
+                    && pGroupItem->m_nValue != 0;
+            }
+
+            if (pItem->GetMaxStackable() < 2) {
+                pGroupItem->m_nMaxCount = 1;
+            } else {
+                pGroupItem->m_nMaxCount = pItem->GetUsageCount(0);
+            }
+
+            CScreenStoreItem* pSelectedItem = NULL;
+            POSITION posSelected = lSelectedItems.GetHeadPosition();
+            while (posSelected != NULL) {
+                CScreenStoreItem* pCandidate = lSelectedItems.GetNext(posSelected);
+                if (pCandidate->m_pItem == pItem) {
+                    pSelectedItem = pCandidate;
+                }
+            }
+
+            if (pSelectedItem != NULL) {
+                pGroupItem->m_bSelected = TRUE;
+                pGroupItem->m_nCount = min(pSelectedItem->m_nCount, pGroupItem->m_nMaxCount);
+            }
+
+            m_lGroupItems.AddTail(pGroupItem);
+        }
+
+        field_5D9 = nSavedMarkDown;
+
+        pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    } else {
+        for (INT nIndex = 0; nIndex < m_pBag->m_lInventory.GetCount(); nIndex++) {
+            CItem* pItem = new CItem;
+
+            if (!m_pBag->GetItem(nIndex, *pItem)) {
+                delete pItem;
+                continue;
+            }
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+            // __LINE__: 3767
+            UTIL_ASSERT(pItem->GetItemType() != 0x3A);
+
+            CScreenStoreItem* pGroupItem = new CScreenStoreItem;
+
+            pGroupItem->m_nSlot = nIndex;
+            pGroupItem->m_bSelected = FALSE;
+            pGroupItem->m_pItem = pItem;
+            pGroupItem->m_nValue = m_pStore->GetItemSellValue(*pItem, field_5D9);
+            pGroupItem->m_nStoreCount = m_pBag->GetItemNumInStock(nIndex);
+            pGroupItem->m_bEnabled = m_pStore->IsValidSellType(pItem)
+                && pGroupItem->m_nValue != 0;
+            pGroupItem->m_nSingleValue = pGroupItem->m_nValue;
+
+            if (pItem->GetMaxStackable() < 2) {
+                pGroupItem->m_nMaxCount = 1;
+            } else {
+                pGroupItem->m_nMaxCount = pItem->GetUsageCount(0);
+            }
+
+            CScreenStoreItem* pSelectedItem = NULL;
+            POSITION posSelected = lSelectedItems.GetHeadPosition();
+            while (posSelected != NULL) {
+                CScreenStoreItem* pCandidate = lSelectedItems.GetNext(posSelected);
+                if (pCandidate->m_pItem == pItem) {
+                    pSelectedItem = pCandidate;
+                }
+            }
+
+            if (pSelectedItem != NULL) {
+                pGroupItem->m_bSelected = TRUE;
+                pGroupItem->m_nCount = min(pSelectedItem->m_nCount, pGroupItem->m_nMaxCount);
+            }
+
+            m_lGroupItems.AddTail(pGroupItem);
+        }
+    }
+
+    POSITION posSelected = lSelectedItems.GetHeadPosition();
+    while (posSelected != NULL) {
+        delete lSelectedItems.GetNext(posSelected);
+    }
+    lSelectedItems.RemoveAll();
 }
 
 // 0x676D10
