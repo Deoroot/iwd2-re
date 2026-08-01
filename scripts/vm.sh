@@ -160,7 +160,8 @@ case "$cmd" in
     ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
     clear_log   # fresh capture each launch (exe is down -> log unlocked)
     ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
-    echo "==> launching our build (${save:+save $save}${save:-slot $slot}), waiting for load..."
+    if [ -n "$save" ]; then what="save $save"; else what="slot $slot"; fi
+    echo "==> launching our build ($what), waiting for load..."
     out=""
     for i in $(seq 1 30); do
       out=$(ssh "$VM" 'cmd /c "type C:\iwd2-re\vm_s1_out.txt 2>nul"' 2>/dev/null || true)
