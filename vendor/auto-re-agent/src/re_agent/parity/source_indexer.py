@@ -8,6 +8,7 @@ from pathlib import Path
 
 from re_agent.config.schema import ProjectProfile
 from re_agent.core.models import SourceMatch
+from re_agent.utils.address import normalize_address
 from re_agent.utils.text import (
     count_calls,
     count_control_flow,
@@ -16,6 +17,23 @@ from re_agent.utils.text import (
 )
 
 FUNC_TOKEN_RE = re.compile(r"([A-Za-z_~][A-Za-z0-9_]*)::([A-Za-z_~][A-Za-z0-9_]*)\s*\(")
+
+# A hand-recovered function carries the binary address it reproduces in a
+# comment on the line above its definition:
+#
+#     // 0x588CB0
+#     void CInfButtonArray::CustomizeQuickSlot(const CButtonData* p, ...)
+#
+# That marker is the only naming authority that cannot drift: the disassembler's
+# own name for an address is a guess, and it goes stale the moment a function is
+# recognised as belonging to a different class.  Indexing it lets parity resolve
+# a hook to its body by ADDRESS, so a rename or a re-classification in source no
+# longer reads as "source function body not found".
+ADDR_MARKER_RE = re.compile(
+    r"//\s*0x([0-9A-Fa-f]{5,8})\s*\n"
+    r"(?:\s*//[^\n]*\n)*"
+    r"[^\n{};]*?\b([A-Za-z_~][A-Za-z0-9_]*)::([A-Za-z_~][A-Za-z0-9_]*)\s*\("
+)
 
 
 class SourceIndexer:
@@ -26,6 +44,8 @@ class SourceIndexer:
     2. Project-specific ``hook_patterns`` from the profile, which can
        register additional (function_name, address) associations found
        via hook-install macros like ``RH_ScopedInstall(Func, 0xAddr)``.
+    3. ``// 0xADDR`` markers above a definition, so a body stays findable by
+       address when the disassembler's name for it is stale or wrong.
     """
 
     def __init__(self, source_root: Path, profile: ProjectProfile | None = None) -> None:
@@ -68,6 +88,11 @@ class SourceIndexer:
             txt = self._read_text(path)
             for m in FUNC_TOKEN_RE.finditer(txt):
                 self.token_index[(m.group(1), m.group(2))].append((path, m.start()))
+            # `// 0xADDR` markers above a definition: address -> (class, fn).
+            for am in ADDR_MARKER_RE.finditer(txt):
+                self.hook_address_index.setdefault(
+                    normalize_address(am.group(1)), (am.group(2), am.group(3))
+                )
             # Scan hook-install macros to map addresses to function names.
             # Pattern capture groups: group(1) = func_name, group(2) = address.
             if self._hook_patterns:
@@ -83,7 +108,7 @@ class SourceIndexer:
                             fn = hm.group(1).strip()
                             addr = hm.group(2).strip().lower()
                             if fn and addr:
-                                self.hook_address_index[addr] = (file_class, fn)
+                                self.hook_address_index[normalize_address(addr)] = (file_class, fn)
 
     @staticmethod
     def _find_matching_brace(text: str, open_brace_idx: int) -> int | None:
@@ -386,8 +411,7 @@ class SourceIndexer:
         resolve *address* → *(class_name, fn_name)* and then delegates to
         :meth:`find`.  Returns ``None`` if the address is not in the index.
         """
-        addr_key = address.strip().lower()
-        entry = self.hook_address_index.get(addr_key)
+        entry = self.hook_address_index.get(normalize_address(address))
         if entry is None:
             return None
         cls, fn = entry

@@ -29,8 +29,15 @@
 //                                twin of `dump`: it answers "what is out there
 //                                and where" so a scenario can click a door or a
 //                                creature without a human reading pixels.
+//   bar                          action-bar state + the twelve slots' button
+//                                types. `dump` cannot see these: every cell is
+//                                the same always-active control whatever the
+//                                bar shows.
 //   screen                       active screen identity only
 //   click <panel> <control>      resolve the control centre, then click it
+//   rclick <panel> <control>     same, with the right button. The action bar's
+//                                customise menu and every quick-slot picker are
+//                                reachable only this way.
 //   clickxy <x> <y>              move the cursor there, then click it (ground,
 //                                world). The move matters: world picking reads
 //                                m_ptMousePos, not the click point.
@@ -94,6 +101,7 @@ int s_pc = 0;
 int s_waited = 0;
 int s_failed = 0;
 int s_clickPhase = 0;
+bool s_clickRight = false;
 CPoint s_clickPt(0, 0);
 FILE* s_out = NULL;
 
@@ -266,6 +274,34 @@ int CountVertSort(CGameArea* pArea)
         nObjects++;
     }
     return nObjects;
+}
+
+// The action bar's contents are not visible in `dump`: its twelve cells are the
+// same twelve always-active CUIControlButtons whatever the bar shows.  What a
+// cell IS lives in CInfButtonArray::m_buttonTypes, driven by m_nState.  So this
+// is the diagnostic for "which menu am I in and what is in each slot" -- the
+// only way to write a scenario that clicks a submenu entry by role.
+void DumpButtonArray(int nStep)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame == NULL) {
+        Emit("{\"step\":%d,\"op\":\"bar\",\"status\":\"error\",\"detail\":\"no game\"}",
+            nStep);
+        return;
+    }
+
+    CInfButtonArray* pBar = &pGame->m_cButtonArray;
+    Emit("{\"step\":%d,\"op\":\"bar\",\"state\":%d,\"selected\":%d,"
+         "\"customizeSlot\":%d,\"pickerPage\":%d}",
+        nStep, pBar->m_nState, pBar->m_nSelectedButton,
+        pBar->m_nCustomizeSlot, pBar->m_nPickerPage);
+
+    for (int i = 0; i < 12; i++) {
+        Emit("{\"step\":%d,\"op\":\"barslot\",\"slot\":%d,\"control\":%d,"
+             "\"type\":%d,\"greyout\":%d}",
+            nStep, i, i + 6, pBar->m_buttonTypes[i],
+            pBar->m_buttonArray[i].m_bGreyOut != 0 ? 1 : 0);
+    }
 }
 
 void DumpGround(int nStep)
@@ -515,7 +551,11 @@ void Tick(CWarp* pActiveEngine)
     // edge detection would deliver it.
     if (s_clickPhase != 0) {
         if (s_clickPhase == 1) {
-            pActiveEngine->OnLButtonUp(s_clickPt);
+            if (s_clickRight) {
+                pActiveEngine->OnRButtonUp(s_clickPt);
+            } else {
+                pActiveEngine->OnLButtonUp(s_clickPt);
+            }
             s_clickPhase = 2;
             return;
         }
@@ -545,6 +585,12 @@ void Tick(CWarp* pActiveEngine)
 
     if (strcmp(step.op, "ground") == 0) {
         DumpGround(nStep);
+        s_pc++;
+        return;
+    }
+
+    if (strcmp(step.op, "bar") == 0) {
+        DumpButtonArray(nStep);
         s_pc++;
         return;
     }
@@ -655,6 +701,7 @@ void Tick(CWarp* pActiveEngine)
         // (CGameArea.cpp:1466). A synthetic click with no move behind it hits
         // whatever the cursor last hovered, so move first, exactly as a hand
         // would. Menus are unaffected -- they hit-test the point they are given.
+        s_clickRight = false;
         pActiveEngine->OnMouseMove(s_clickPt);
         pActiveEngine->OnLButtonDown(s_clickPt);
         Emit("{\"step\":%d,\"op\":\"clickxy\",\"x\":%ld,\"y\":%ld,\"status\":\"ok\"}",
@@ -663,16 +710,17 @@ void Tick(CWarp* pActiveEngine)
         return;
     }
 
-    if (strcmp(step.op, "click") == 0) {
+    if (strcmp(step.op, "click") == 0 || strcmp(step.op, "rclick") == 0) {
+        const bool bRight = step.op[0] == 'r';
         CUIPanel* pPanel = FindPanel(pActiveEngine, static_cast<DWORD>(Num(step, 0, 0)));
         if (pPanel == NULL) {
-            Fail(nStep, "click", "panel not found");
+            Fail(nStep, step.op, "panel not found");
             return;
         }
 
         CUIControlBase* pControl = pPanel->GetControl(static_cast<DWORD>(Num(step, 1, 0)));
         if (pControl == NULL) {
-            Fail(nStep, "click", "control not found");
+            Fail(nStep, step.op, "control not found");
             return;
         }
 
@@ -683,10 +731,15 @@ void Tick(CWarp* pActiveEngine)
             pPanel->m_ptOrigin.x + pControl->m_ptOrigin.x + pControl->m_size.cx / 2,
             pPanel->m_ptOrigin.y + pControl->m_ptOrigin.y + pControl->m_size.cy / 2);
 
-        pActiveEngine->OnLButtonDown(s_clickPt);
-        Emit("{\"step\":%d,\"op\":\"click\",\"panel\":%d,\"control\":%d,"
+        s_clickRight = bRight;
+        if (bRight) {
+            pActiveEngine->OnRButtonDown(s_clickPt);
+        } else {
+            pActiveEngine->OnLButtonDown(s_clickPt);
+        }
+        Emit("{\"step\":%d,\"op\":\"%s\",\"panel\":%d,\"control\":%d,"
              "\"x\":%ld,\"y\":%ld,\"active\":%d,\"status\":\"ok\"}",
-            nStep, Num(step, 0, 0), Num(step, 1, 0),
+            nStep, step.op, Num(step, 0, 0), Num(step, 1, 0),
             s_clickPt.x, s_clickPt.y, pControl->m_bActive != 0 ? 1 : 0);
         s_clickPhase = 1;
         return;
