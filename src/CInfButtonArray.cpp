@@ -5,6 +5,7 @@
 #include "CGameButtonList.h"
 #include "CGameEffect.h"
 #include "CGameObjectArray.h"
+#include "CGameOptions.h"
 #include "CGameSave.h"
 #include "CGameSprite.h"
 #include "CGameSpriteEquipment.h"
@@ -18,6 +19,7 @@
 #include "CUIControlButton.h"
 #include "CUIManager.h"
 #include "CUIPanel.h"
+#include "CUtil.h"
 
 // 0x851700
 const BYTE CInfButtonArray::STATE_NONE = 0;
@@ -90,90 +92,100 @@ void CInfButtonArray::ClearPickerList()
         delete g_pButtonArrayPickerList;
         g_pButtonArrayPickerList = NULL;
     }
-    m_nPickerPage = 0;
 }
 
-// Builds the picker list for the current state.  Called from SetState when
-// entering 0x66/0x67/0x68/0x69/0x6A/0x6B/0x70/0x71/0x7A.  Mirrors the
-// per-type dispatch in Ghidra FUN_00587c20.  Currently implements type 2
-// (spellbook) only; the other branches still return an empty list.
-// NOTE: Convenience.
-void CInfButtonArray::RebuildPickerList()
+// Build one of the six picker lists for the party's first member.  SetState
+// (0x589110) calls this on every picker state and stores the result in
+// g_pButtonArrayPickerList; the caller owns the returned list.
+//
+// nSlot is already biased by the caller for kind 1 (quick-weapon button index
+// + SLOT_WEAPON); kind 3 applies its own SLOT_MISC bias here.  a5 selects
+// between the per-slot list and the whole-inventory list, and its polarity is
+// deliberately opposite in the two item-backed kinds -- that is what the
+// binary does.
+//
+// 0x587C20
+CGameButtonList* CInfButtonArray::BuildPickerList(INT nSlot, INT nListType, const BYTE& nClass,
+    DWORD nSpecialization, BOOL a5)
 {
-    ClearPickerList();
+    CGameButtonList* pButtons = NULL;
 
-    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-    if (pGame->GetGroup()->GetCount() == 0) {
-        return;
+    if (nListType != CINFBUTTONARRAY_PICKER_SPELL
+        && nListType != CINFBUTTONARRAY_PICKER_QUICK_WEAPON
+        && nListType != CINFBUTTONARRAY_PICKER_QUICK_ITEM
+        && nListType != CINFBUTTONARRAY_PICKER_INNATE
+        && nListType != CINFBUTTONARRAY_PICKER_INTERNAL
+        && nListType != CINFBUTTONARRAY_PICKER_SONG) {
+        return NULL;
     }
 
-    LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-    CGameSprite* pSprite = NULL;
+    if (g_pBaldurChitin->GetObjectGame()->GetGroup()->GetCount() == 0) {
+        return NULL;
+    }
+
+    LONG* pGroupList = g_pBaldurChitin->GetObjectGame()->GetGroup()->GetGroupList();
+    LONG nCharacterId = pGroupList[0];
+    delete pGroupList;
+
+    CGameSprite* pSprite;
+
     BYTE rc;
     do {
-        rc = pGame->GetObjectArray()->GetShare(nLeader,
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
             CGameObjectArray::THREAD_ASYNCH,
             reinterpret_cast<CGameObject**>(&pSprite),
             INFINITE);
     } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
-    if (rc != CGameObjectArray::SUCCESS || pSprite == NULL) {
-        return;
+    if (rc != CGameObjectArray::SUCCESS) {
+        return NULL;
     }
 
-    switch (m_nState) {
-    case 0x65:
-        // Weapon-equip picker.  Ghidra SetState 0x65 passes
-        // (m_nCurrentSelectedSpellLevel + 0x2B) as slot index to FUN_00587c20
-        // case 1 â†’ GetItemUsages(slot, 1, -1).  Slot 0x2B = 43 is
-        // SLOT_WEAPON; the offset converts the quick-weapon button index
-        // (0..7) into the actual inventory slot (43..50).
-        g_pButtonArrayPickerList = pSprite->GetItemUsages(
-            static_cast<SHORT>(m_nCurrentSelectedSpellLevel + CGameSpriteEquipment::SLOT_WEAPON),
-            1,
-            -1);
-        break;
-    case 0x66:
-    case 0x67:
-        // Spellbook.  Matches Ghidra FUN_00587c20 case 2 dispatch:
-        //   cleric with a domain specialization -> domain spells (0x7155C0)
-        //   otherwise -> regular class spells (0x714F70)
-        if (m_nCurrentSelectedSpellClass == CAIOBJECTTYPE_C_CLERIC
-            && m_nCurrentSelectedSpellLevel != 0) {
-            g_pButtonArrayPickerList = pSprite->GetDomainSpellsButtonList(
-                m_nCurrentSelectedSpellClass,
-                static_cast<DWORD>(m_nCurrentSelectedSpellLevel));
+    switch (nListType) {
+    case CINFBUTTONARRAY_PICKER_QUICK_WEAPON:
+        if (a5) {
+            pButtons = pSprite->GetItemUsages(static_cast<SHORT>(nSlot),
+                static_cast<WORD>(nListType),
+                -1);
         } else {
-            g_pButtonArrayPickerList = pSprite->GetSpellsButtonList(m_nCurrentSelectedSpellClass);
+            // NOTE: The binary calls 0x717250 here, a byte-identical copy of
+            // GetAllItemUsages (0x716E80) the linker did not fold.
+            pButtons = pSprite->GetAllItemUsages(FALSE);
         }
         break;
-    case 0x68:
-    case 0x69:
-        // Item-ability picker.  Ghidra FUN_00587c20 case 3 with non-zero
-        // alt-flag â†’ GetItemUsages(slot + 0xF, 3, -1).  Slot 0xF = 15 is
-        // SLOT_MISC; the offset converts the quick-item button index
-        // (0..2) into the inventory slot (15..17).
-        g_pButtonArrayPickerList = pSprite->GetItemUsages(
-            static_cast<SHORT>(m_nCurrentSelectedSpellLevel + CGameSpriteEquipment::SLOT_MISC),
-            3,
-            -1);
+    case CINFBUTTONARRAY_PICKER_SPELL:
+        if (nClass == CAIOBJECTTYPE_C_CLERIC && nSpecialization != 0) {
+            pButtons = pSprite->GetDomainSpellsButtonList(nClass, nSpecialization);
+        } else {
+            pButtons = pSprite->GetSpellsButtonList(nClass);
+        }
         break;
-    case 0x70:
-    case 0x71:
-    case 0x7A:
-        g_pButtonArrayPickerList = pSprite->GetSongsButtonList();
+    case CINFBUTTONARRAY_PICKER_QUICK_ITEM:
+        if (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_bQuickItemMapping && !a5) {
+            pButtons = pSprite->GetItemUsages(
+                static_cast<SHORT>(nSlot + CGameSpriteEquipment::SLOT_MISC),
+                static_cast<WORD>(nListType),
+                -1);
+        } else {
+            pButtons = pSprite->GetAllItemUsages(FALSE);
+        }
         break;
-    case 0x6A:
-    case 0x6B:
-        g_pButtonArrayPickerList = pSprite->GetInternalButtonList();
+    case CINFBUTTONARRAY_PICKER_INNATE:
+        pButtons = pSprite->GetInnateSpellsButtonList();
         break;
-    default:
+    case CINFBUTTONARRAY_PICKER_INTERNAL:
+        pButtons = pSprite->GetInternalButtonList();
+        break;
+    case CINFBUTTONARRAY_PICKER_SONG:
+        pButtons = pSprite->GetSongsButtonList();
         break;
     }
 
-    pGame->GetObjectArray()->ReleaseShare(nLeader,
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
         CGameObjectArray::THREAD_ASYNCH,
         INFINITE);
+
+    return pButtons;
 }
 
 // 0x588240
@@ -559,15 +571,9 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
 {
     // TODO: Incomplete.
 
-    // Clear any picker list when transitioning out of a picker state.  The
-    // picker-case branch below will rebuild it if the new state is itself
-    // a picker.
-    BOOL bIsPickerState = nState == 0x65 || nState == 0x66 || nState == 0x67
-        || nState == 0x68 || nState == 0x69 || nState == 0x6A || nState == 0x6B
-        || nState == 0x70 || nState == 0x71 || nState == 0x7A || nState == 0x7B;
-    if (!bIsPickerState) {
-        ClearPickerList();
-    }
+    // The picker list is torn down on every transition; the picker branch
+    // below rebuilds it when the new state is itself a picker.
+    ClearPickerList();
 
     switch (nState) {
     case 0x65:
@@ -579,24 +585,54 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
     case 0x6B:
     case 0x70:
     case 0x71:
-    case 0x7A:
-    case 0x7B: {
-        // Picker states (weapon / spell / item / ability / song).  Per Ghidra
-        // SetState (0x589110) + FUN_00587c20: build the dynamic list of
-        // available entries.  When N â‰¤ 12 the slots use formation-submenu
-        // types 0x15..0x20 (entry = buttonType - 0x15).  When N > 12 the
-        // layout switches to paging buttons: slot 0 = 0x21 (page-up arrow),
-        // slots 1..10 = 0x15..0x1E (entries), slot 11 = 0x22 (page-down).
-        // m_nPickerPage holds the current page offset (in units of 10
-        // entries).
-        m_nState = nState;
-        RebuildPickerList();
-        m_nPickerPage = 0;
-        INT nEntries = (g_pButtonArrayPickerList != NULL)
-            ? static_cast<INT>(g_pButtonArrayPickerList->GetCount())
-            : 0;
-        if (nEntries > 12) {
-            // Paging layout â€” slot 0 = page up, slots 1-10 = entries
+    case 0x7A: {
+        // Picker states (weapon / spell / item / innate / song).  Each state
+        // selects one BuildPickerList kind; the layout that follows is shared.
+        // When N <= 12 the slots use the submenu types 0x15..0x20 (entry =
+        // buttonType - 0x15).  When N > 12 the layout switches to paging
+        // buttons: slot 0 = 0x21 (page-up arrow), slots 1..10 = 0x15..0x1E
+        // (entries), slot 11 = 0x22 (page-down).  m_nPickerPage holds the
+        // current page offset (in units of 10 entries).
+        BYTE nNoClass = CAIOBJECTTYPE_C_NONE;
+
+        switch (nState) {
+        case 0x65:
+            g_pButtonArrayPickerList = BuildPickerList(
+                m_nCustomizeSlot + CGameSpriteEquipment::SLOT_WEAPON,
+                CINFBUTTONARRAY_PICKER_QUICK_WEAPON, nNoClass, 0, TRUE);
+            break;
+        case 0x66:
+        case 0x67:
+            UTIL_ASSERT(m_nCurrentSelectedSpellClass != CAIOBJECTTYPE_C_NONE);
+
+            g_pButtonArrayPickerList = BuildPickerList(m_nCustomizeSlot,
+                CINFBUTTONARRAY_PICKER_SPELL, m_nCurrentSelectedSpellClass,
+                m_nCurrentSelectedSpellLevel, FALSE);
+            break;
+        case 0x68:
+        case 0x69:
+            g_pButtonArrayPickerList = BuildPickerList(m_nCustomizeSlot,
+                CINFBUTTONARRAY_PICKER_QUICK_ITEM, nNoClass, 0, nState == 0x69);
+            break;
+        case 0x6A:
+        case 0x6B:
+            g_pButtonArrayPickerList = BuildPickerList(m_nCustomizeSlot,
+                CINFBUTTONARRAY_PICKER_INNATE, nNoClass, 0, FALSE);
+            break;
+        case 0x70:
+            g_pButtonArrayPickerList = BuildPickerList(m_nCustomizeSlot,
+                CINFBUTTONARRAY_PICKER_INTERNAL, nNoClass, 0, FALSE);
+            break;
+        case 0x71:
+        case 0x7A:
+            g_pButtonArrayPickerList = BuildPickerList(m_nCustomizeSlot,
+                CINFBUTTONARRAY_PICKER_SONG, nNoClass, 0, FALSE);
+            break;
+        }
+
+        if (g_pButtonArrayPickerList != NULL
+            && g_pButtonArrayPickerList->GetCount() > 12) {
+            // Paging layout - slot 0 = page up, slots 1-10 = entries
             // (filled by UpdateButtons via m_nPickerPage), slot 11 = page
             // down.  Type 0x21 / 0x22 already in UpdateButtons.
             m_buttonTypes[0] = 0x21;
@@ -606,16 +642,24 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
             m_buttonTypes[11] = 0x22;
         } else {
             for (INT nButton = 0; nButton < 12; nButton++) {
-                if (nButton < nEntries) {
-                    m_buttonTypes[nButton] = 0x15 + nButton;
-                } else {
-                    m_buttonTypes[nButton] = 100;
-                }
+                m_buttonTypes[nButton] = 0x15 + nButton;
             }
         }
+
+        if (m_nState != nState) {
+            m_nPickerPage = 0;
+        }
+
+        m_nState = nState;
         UpdateButtons();
         return TRUE;
     }
+    case 0x7B:
+        // TODO: Incomplete.  0x587DF0 builds this list from
+        // m_currentAbilityResRef; not yet recovered.
+        m_nState = nState;
+        UpdateButtons();
+        return TRUE;
     case 0x73:
     case 0x74:
         // Skills submenu (Stealth / Search / Thieving / Wilderness Lore / Animal Empathy).

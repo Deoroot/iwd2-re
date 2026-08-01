@@ -31,6 +31,16 @@ class CGameSprite;
 // FUN_00589ff0; we hardcode SetState(0x72, 0) since customize entry only
 // comes from 0x72).
 
+// Picker-list kinds accepted by CInfButtonArray::BuildPickerList.  SetState
+// (0x589110) picks one per picker state; the value doubles as the buttonType
+// handed to CGameSprite::GetItemUsages for the two item-backed kinds.
+#define CINFBUTTONARRAY_PICKER_QUICK_WEAPON 1
+#define CINFBUTTONARRAY_PICKER_SPELL 2
+#define CINFBUTTONARRAY_PICKER_QUICK_ITEM 3
+#define CINFBUTTONARRAY_PICKER_INNATE 4
+#define CINFBUTTONARRAY_PICKER_INTERNAL 5
+#define CINFBUTTONARRAY_PICKER_SONG 6
+
 #pragma pack(push, 2)
 
 class CInfButtonSettings {
@@ -102,7 +112,8 @@ public:
     /* 19E8 */ BYTE m_nQuickWeaponSlot;
 
     void ClearPickerList();
-    void RebuildPickerList();
+    static CGameButtonList* BuildPickerList(INT nSlot, INT nListType, const BYTE& nClass,
+        DWORD nSpecialization, BOOL a5);
 };
 
 #pragma pack(pop)

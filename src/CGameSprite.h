@@ -556,6 +556,8 @@ public:
     void InitQuickSpellData(CResRef resRef, BYTE type, CButtonData& cButtonData, BYTE nClass, BYTE a5, BYTE a6);
     void InitQuickItemData(SHORT itemNum, SHORT abilityNum, int a3, CButtonData& cButtonData);
     CGameButtonList* GetSongsButtonList();
+    CGameButtonList* GetInnateSpellsButtonList();
+    CGameButtonList* GetAllItemUsages(BOOL bStopAtFirst);
     BOOLEAN CanCast(BYTE nClass, DWORD nSpecialization, CSpell* pSpell);
     CGameButtonList* GetInternalButtonList();
     CGameButtonList* GetItemUsages(SHORT slotNum, WORD buttonType, SHORT abilityNum);

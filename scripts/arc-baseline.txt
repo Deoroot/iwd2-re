@@ -10,3 +10,5 @@
 # if the lint is wrong about this specific site, record why here.
 
 src/CSpawn.cpp:949: lint_stuck_loop_index   # bit-shift loop; the binary genuinely has no advance in the body
+src/CGameSprite.cpp:8690: re_lint   # GetInnateSpellsButtonList 0x715BD0 declared+wired so BuildPickerList reproduces the binary call set; the 357-line body is a separate recovery target
+src/CInfButtonArray.cpp:658: re_lint   # SetState 0x7B builds its list via 0x587DF0, not BuildPickerList; that builder is unrecovered

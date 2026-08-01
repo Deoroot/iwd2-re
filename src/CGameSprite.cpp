@@ -8680,6 +8680,34 @@ CGameButtonList* CGameSprite::GetSongsButtonList()
     return buttons;
 }
 
+// Build the innate-ability picker list from m_innateSpells (0x4A84), one
+// CButtonData per ability of every innate the sprite still has uses of.
+// Feeds SetState(0x6A/0x6B) through CInfButtonArray::BuildPickerList kind 4.
+//
+// 0x715BD0
+CGameButtonList* CGameSprite::GetInnateSpellsButtonList()
+{
+    // TODO: Incomplete.  The binary walks m_innateSpells, CSpell::Demand()s
+    // each entry, filters on CGameSprite::HasFeat and the caster level, and
+    // adds one button per CSpell ability.  Until that is recovered the innate
+    // picker stays empty rather than showing invented entries.
+    return new CGameButtonList();
+}
+
+// Build the "every usable item in the inventory" list: walks all equipment
+// slots, skipping 0x12..0x2A always and the three quick-item slots 0x0F..0x11
+// when CGameOptions::m_bQuickItemMapping is set.  bStopAtFirst makes it return
+// after the first usable ability, which is how UpdateButtons asks "is anything
+// usable at all".
+//
+// 0x716E80
+CGameButtonList* CGameSprite::GetAllItemUsages(BOOL bStopAtFirst)
+{
+    // TODO: Incomplete.  Same shape as GetItemUsages (0x717850) but looped
+    // over every slot instead of one; not yet recovered.
+    return new CGameButtonList();
+}
+
 // Build the cast-spell picker list across every memorised level of class
 // nClass.  Used when SetState(0x67) is entered for a regular class spellbook.
 //
