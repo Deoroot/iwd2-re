@@ -17,7 +17,9 @@
 #include "CScreenLoad.h"
 #include "CScreenMap.h"
 #include "CScreenMultiPlayer.h"
+#include "CScreenStore.h"
 #include "CScreenWorldMap.h"
+#include "CStore.h"
 #include "CUIControlFactory.h"
 #include "CUIControlLabel.h"
 #include "CUIControlTextDisplay.h"
@@ -26,6 +28,9 @@
 #include "CUtil.h"
 // 0x85A1EC
 const LONG CScreenWorld::BORED_TIME = 3000;
+
+// 0x8F85B8
+BOOL CScreenWorld::bMultiplayerStore;
 
 // 0x8F85BC
 int CScreenWorld::dword_8F85BC;
@@ -2757,7 +2762,197 @@ void CScreenWorld::StopCommand()
 // 0x6913C0
 void CScreenWorld::StartStore(const CAIObjectType& cAIProprietor, const CAIObjectType& cAICustomer, CResRef cResStore, BOOLEAN bInitiate)
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    LONG nCustomerId = cAICustomer.m_nInstance;
+
+    bMultiplayerStore = g_pChitin->cNetwork.m_nServiceProvider != CNetwork::SERV_PROV_NULL;
+
+    if (g_pChitin->cNetwork.m_bConnectionEstablished == 1) {
+        if (!g_pChitin->cNetwork.m_bIsHost) {
+            if (!g_pBaldurChitin->GetBaldurMessage()->DemandResourceFromServer(cResStore.GetResRefStr(),
+                    1014,
+                    TRUE,
+                    TRUE,
+                    TRUE)) {
+                g_pChitin->cNetwork.CloseSession(TRUE);
+                return;
+            }
+        } else {
+            pGame->DemandServerStore(cResStore, TRUE);
+        }
+    }
+
+
+    CStore* pStore = new CStore(cResStore);
+
+    // A bag is always driven locally, never handed to the session host.
+    if (pStore->m_header.m_nStoreType == CSTOREFILEHEADER_STORETYPE_BAG) {
+        bMultiplayerStore = FALSE;
+    }
+
+    if (!g_pChitin->cNetwork.m_bIsHost) {
+        CMessageStoreRelease* pMessage = new CMessageStoreRelease(pStore->m_resRef,
+            CGameObjectArray::INVALID_INDEX,
+            CGameObjectArray::INVALID_INDEX);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+    } else {
+        pGame->ReleaseServerStore(pStore->m_resRef);
+    }
+
+    delete pStore;
+
+    BOOLEAN bInControl;
+
+    if (g_pChitin->cNetwork.m_bConnectionEstablished == 1) {
+        CGameObject* pCustomer;
+
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nCustomerId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pCustomer,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            bInControl = pCustomer->m_remotePlayerID == g_pChitin->cNetwork.m_idLocalPlayer;
+
+            if (bInitiate == 1) {
+                INT nPlayer = g_pChitin->cNetwork.FindPlayerLocationByID(pCustomer->m_remotePlayerID, FALSE);
+
+                if (bMultiplayerStore) {
+                    if (!pGame->m_multiplayerSettings.GetPermission(nPlayer, CGamePermission::PURCHASING)) {
+                        g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(-1,
+                            0x2A5F,
+                            0xFF,
+                            0xFF,
+                            -1,
+                            CGameObjectArray::INVALID_INDEX,
+                            CGameObjectArray::INVALID_INDEX);
+
+                        if (g_pChitin->cNetwork.m_bIsHost) {
+                            pGame->m_multiplayerSettings.m_bHostPermittedStore = FALSE;
+                            pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+                        }
+
+                        pGame->GetObjectArray()->ReleaseShare(nCustomerId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            INFINITE);
+                        return;
+                    }
+
+                    STRREF strError;
+                    if (bMultiplayerStore
+                        && pGame->m_multiplayerSettings.m_bRestrictStoreOption == 1
+                        && !pGame->CanEnterStore(strError)) {
+                        g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(-1,
+                            strError,
+                            0xFF,
+                            0xFF,
+                            -1,
+                            CGameObjectArray::INVALID_INDEX,
+                            CGameObjectArray::INVALID_INDEX);
+
+                        if (g_pChitin->cNetwork.m_bIsHost) {
+                            pGame->m_multiplayerSettings.m_bHostPermittedStore = FALSE;
+                            pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+                        }
+
+                        pGame->GetObjectArray()->ReleaseShare(nCustomerId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            INFINITE);
+                        return;
+                    }
+                }
+            }
+
+            if (g_pChitin->cNetwork.m_bIsHost
+                && ((bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)
+                    || bInControl)) {
+                pGame->m_multiplayerSettings.m_bHostPermittedStore = TRUE;
+                pGame->m_multiplayerSettings.m_idHostPermittedStore = pCustomer->m_remotePlayerID;
+            }
+
+            pGame->GetObjectArray()->ReleaseShare(nCustomerId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        } else {
+            bInControl = FALSE;
+
+            if (bInitiate == 1) {
+                g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(-1,
+                    0x2A5F,
+                    0xFF,
+                    0xFF,
+                    -1,
+                    CGameObjectArray::INVALID_INDEX,
+                    CGameObjectArray::INVALID_INDEX);
+
+                if (g_pChitin->cNetwork.m_bIsHost) {
+                    pGame->m_multiplayerSettings.m_bHostPermittedStore = FALSE;
+                    pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+                }
+
+                return;
+            }
+
+            if (g_pChitin->cNetwork.m_bIsHost
+                && bMultiplayerStore
+                && pGame->m_multiplayerSettings.m_bRestrictStoreOption) {
+                pGame->m_multiplayerSettings.m_bHostPermittedStore = TRUE;
+                pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+            }
+        }
+    } else {
+        bInControl = TRUE;
+    }
+
+    if (bInitiate == 1
+        && ((bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)
+            || !bInControl)) {
+        CMessageEnterStoreMode* pMessage = new CMessageEnterStoreMode(cAIProprietor,
+            cAICustomer,
+            cResStore,
+            nCustomerId,
+            nCustomerId);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+    }
+
+
+    if ((bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)
+        || bInControl) {
+        m_bInControlOfStore = bInControl;
+
+        if (!g_pChitin->cNetwork.m_bConnectionEstablished
+            || (bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)) {
+            pGame->GetWorldTimer()->StopTime();
+            m_bPaused = TRUE;
+        }
+
+        CScreenStore* pScreenStore = g_pBaldurChitin->m_pEngineStore;
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+        // __LINE__: 5914
+        UTIL_ASSERT(pScreenStore != NULL);
+
+        BOOLEAN bConnected = g_pChitin->cNetwork.m_bConnectionEstablished;
+
+        pScreenStore->StartStore(cAIProprietor, cAICustomer, cResStore);
+
+        if (bConnected == g_pChitin->cNetwork.m_bConnectionEstablished) {
+            DWORD dwPanelId = pScreenStore->GetDefaultMainPanel();
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+            // __LINE__: 5933
+            UTIL_ASSERT(dwPanelId != MAXDWORD);
+
+            pScreenStore->SwitchMainPanel(dwPanelId);
+
+
+            g_pChitin->pActiveEngine->SelectEngine(pScreenStore);
+        }
+    }
 }
 
 // 0x691B50

@@ -45,8 +45,9 @@ BOOL CResCHR::Parse(void* pData)
         return FALSE;
     }
 
-    EXPORT_CHARACTER_HEADER* header = reinterpret_cast<EXPORT_CHARACTER_HEADER*>(pData);
-    if (header->nFileType != 'CHR ') {
+    // 0x20524843 in the binary: the bytes as they sit in the file. A
+    // multi-character literal packs them the other way round.
+    if (memcmp(pData, "CHR ", 4) != 0) {
         // NOTE: Looks like deviation from similar `Parse` methods.
         return FALSE;
     }

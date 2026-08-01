@@ -122,10 +122,8 @@ BOOL CGameRemoteObjectArray::Add(PLAYER_ID remotePlayerID, LONG remoteObjectID, 
 
     if (m_pArray[arrayIndex] != NULL) {
         node->pNext = m_pArray[arrayIndex];
-        m_pArray[arrayIndex] = node;
-    } else {
-        m_pArray[arrayIndex] = NULL;
     }
+    m_pArray[arrayIndex] = node;
 
     if (bSetInGame == TRUE) {
         CGameObject* pObject;

@@ -18881,6 +18881,7 @@ movementCheck:
 // 0x728F80 (partial)
 SHORT CGameSprite::ExecuteAction()
 {
+
     // ActionOverride (id 1) is a queue marker -- dequeue and dispatch the real
     // action this tick, same as the base dispatcher.
     if (m_curAction.m_actionID == 1) {

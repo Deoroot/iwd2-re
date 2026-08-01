@@ -121,8 +121,11 @@ BOOL CResCellHeader::Parse(void* pData)
         return m_bParsed;
     }
 
+    // 0x20484142 / 0x20203156 in the binary: the bytes as they sit in the file.
+    // A multi-character literal packs them the other way round.
     BAMHEADER* pBamHeader = reinterpret_cast<BAMHEADER*>(pData);
-    if (pBamHeader->nFileType != 'BAH ' || pBamHeader->nFileVersion != 'V1  ') {
+    if (memcmp(pData, "BAH ", 4) != 0
+        || memcmp(reinterpret_cast<BYTE*>(pData) + 4, "V1  ", 4) != 0) {
         return FALSE;
     }
 

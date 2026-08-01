@@ -34,8 +34,12 @@ BOOL CResStore::Parse(void* pData)
         return FALSE;
     }
 
-    DWORD* header = reinterpret_cast<DWORD*>(pData);
-    if ((header[0] != 'STOR' && header[0] != 'STOO') || header[1] != 'V9.0') {
+    // The binary compares the two header dwords against 0x524F5453 / 0x4F4F5453
+    // and 0x302E3956, i.e. the bytes as they sit in the file. A multi-character
+    // literal packs them the other way round, so it never matches.
+    BYTE* header = reinterpret_cast<BYTE*>(pData);
+    if ((memcmp(header, "STOR", 4) != 0 && memcmp(header, "STOO", 4) != 0)
+        || memcmp(header + 4, "V9.0", 4) != 0) {
         return FALSE;
     }
 
