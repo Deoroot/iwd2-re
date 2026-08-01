@@ -1,0 +1,32 @@
+# Exercise the spellbook picker's page arrows.
+#
+# Reaching a picker with more than 12 entries puts the bar in the paging
+# layout -- 21 15 16 ... 1E 22 -- where slot 0 is page-up and slot 11 is
+# page-down.  Clicking those moves m_nPickerPage by ten entries, and
+# UpdateButtons re-reads the list from FindIndex(m_nPickerPage).
+#
+# Route to the picker (measured with `bar`, see quick-slot-picker.txt):
+#   portrait 4 is a caster; control 11 is quick spell 0x48
+#   -> rclick opens the customise menu 0x75, whose "Cast Spell" 0x24 is control 7
+#   -> rclick that opens the spellbook picker 0x66, which pages.
+#
+# Slot N of the action bar is control (N + 6) on panel 1, so page-up is
+# control 6 and page-down is control 17.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 4
+sleep 30
+rclick 1 11
+sleep 30
+rclick 1 7
+sleep 30
+bar
+click 1 17
+sleep 30
+bar
+click 1 6
+sleep 30
+bar
