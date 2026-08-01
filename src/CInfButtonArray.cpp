@@ -585,14 +585,16 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
     case 0x6B:
     case 0x70:
     case 0x71:
-    case 0x7A: {
-        // Picker states (weapon / spell / item / innate / song).  Each state
-        // selects one BuildPickerList kind; the layout that follows is shared.
+    case 0x7A:
+    case 0x7B: {
+        // Picker states (weapon / spell / item / innate / song / feat points).
+        // Each state selects one builder; the layout that follows is shared.
         // When N <= 12 the slots use the submenu types 0x15..0x20 (entry =
         // buttonType - 0x15).  When N > 12 the layout switches to paging
         // buttons: slot 0 = 0x21 (page-up arrow), slots 1..10 = 0x15..0x1E
         // (entries), slot 11 = 0x22 (page-down).  m_nListStartIndex holds the
-        // current page offset (in units of 10 entries).
+        // index of the first displayed entry.  0x7B never reaches the paging
+        // layout: its list is at most MAX_FEAT_POINTS + 1 entries long.
         BYTE nNoClass = CAIOBJECTTYPE_C_NONE;
 
         switch (nState) {
@@ -628,6 +630,9 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
             g_pButtonArrayPickerList = BuildPickerList(m_nCustomizeSlot,
                 CINFBUTTONARRAY_PICKER_SONG, nNoClass, 0, FALSE);
             break;
+        case 0x7B:
+            g_pButtonArrayPickerList = BuildFeatPointsPickerList(m_currentAbilityResRef);
+            break;
         }
 
         if (g_pButtonArrayPickerList != NULL
@@ -654,12 +659,6 @@ BOOL CInfButtonArray::SetState(INT nState, int a2)
         UpdateButtons();
         return TRUE;
     }
-    case 0x7B:
-        // TODO: Incomplete.  0x587DF0 builds this list from
-        // m_currentAbilityResRef; not yet recovered.
-        m_nState = nState;
-        UpdateButtons();
-        return TRUE;
     case 0x73:
     case 0x74:
         // Skills submenu (Stealth / Search / Thieving / Wilderness Lore / Animal Empathy).
@@ -1745,6 +1744,80 @@ void CInfButtonArray::SetQuickWeaponSlot(BYTE nSlot)
 void CInfButtonArray::SetSelectedButton(INT nSelectedButton)
 {
     m_nSelectedButton = nSelectedButton;
+}
+
+// Cap on how many attack-bonus points a modal feat may take.
+//
+// 0x85BCB4
+static const INT MAX_FEAT_POINTS = 5;
+
+// The state 0x7B picker: how many attack-bonus points to sink into Power
+// Attack or Expertise.  Each feat offers "Off" plus one entry per point, up to
+// the sprite's base attack bonus and never more than MAX_FEAT_POINTS.  Any
+// other ability leaves the list empty.
+//
+// 0x587DF0
+CGameButtonList* CInfButtonArray::BuildFeatPointsPickerList(const CResRef& resRef)
+{
+    CGameButtonList* pButtons = NULL;
+
+    if (g_pBaldurChitin->GetObjectGame()->GetGroup()->GetCount() == 0) {
+        return NULL;
+    }
+
+    LONG* pGroupList = g_pBaldurChitin->GetObjectGame()->GetGroup()->GetGroupList();
+    LONG nCharacterId = pGroupList[0];
+    delete pGroupList;
+
+    CGameSprite* pSprite;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return NULL;
+    }
+
+    // Only nBaseAttackBonus is used here; the other two outputs are scratch,
+    // which is why the two calls pass them in opposite order.
+    INT nBaseAttackBonus;
+    INT nAttackCount;
+    INT nAttackDivisor;
+    BOOL bHasFeat = FALSE;
+
+    if (resRef == CGameSprite::SPIN275) {
+        if (pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+            g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetBaseCombatValues(pSprite,
+                nBaseAttackBonus, nAttackCount, nAttackDivisor, FALSE);
+            bHasFeat = TRUE;
+        }
+    } else if (resRef == CGameSprite::SPIN276) {
+        if (pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
+            g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetBaseCombatValues(pSprite,
+                nBaseAttackBonus, nAttackDivisor, nAttackCount, FALSE);
+            bHasFeat = TRUE;
+        }
+    }
+
+    if (bHasFeat) {
+        INT nPoints = nBaseAttackBonus;
+        if (nPoints > MAX_FEAT_POINTS) {
+            nPoints = MAX_FEAT_POINTS;
+        }
+
+        pButtons = pSprite->GetFeatPointsButtonList(resRef, nPoints + 1);
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return pButtons;
 }
 
 // Keyboard route into the action bar: CScreenWorld::OnKeyDown maps a shortcut

@@ -8854,6 +8854,78 @@ CGameButtonList* CGameSprite::GetInnateSpellsButtonList()
     return pButtons;
 }
 
+// Build the entry list for the Power Attack / Expertise point picker: one
+// button per allowed setting, "Off" first and then one per point.  All of them
+// carry the same spell; only the count and the tooltip string differ.
+//
+// 0x717FC0
+CGameButtonList* CGameSprite::GetFeatPointsButtonList(const CResRef& resRef, UINT nCount)
+{
+    CGameButtonList* pButtons = new CGameButtonList();
+    SPELL_ABILITY* pBestAbility = NULL;
+
+    CSpell cSpell;
+    cSpell.SetResRef(resRef, TRUE, TRUE);
+    if (!cSpell.Demand()) {
+        // FIXME: Leaks pButtons.
+        return NULL;
+    }
+
+    if (cSpell.pRes == NULL) {
+        cSpell.Release();
+
+        // FIXME: Leaks pButtons.
+        return NULL;
+    }
+
+    SHORT nCasterLevel = GetCasterLevel(&cSpell, 0, 0);
+    if (nCasterLevel < 1) {
+        nCasterLevel = 1;
+    }
+
+    for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+        if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+            break;
+        }
+
+        // FIXME: Calls `GetAbility` one more time.
+        pBestAbility = cSpell.GetAbility(nAbility);
+    }
+
+    if (pBestAbility == NULL || pBestAbility->quickSlotType != 4) {
+        cSpell.Release();
+
+        // FIXME: Leaks pButtons.
+        return NULL;
+    }
+
+    for (UINT nPoints = 0; nPoints < nCount; nPoints++) {
+        CButtonData* pButtonData = new CButtonData();
+
+        pButtonData->m_icon = CString(pBestAbility->quickSlotIcon);
+        pButtonData->m_name = cSpell.GetGenericName();
+        pButtonData->m_abilityId.m_itemType = 1;
+        pButtonData->m_abilityId.m_res = resRef;
+        pButtonData->m_abilityId.m_targetType = pBestAbility->actionType;
+        pButtonData->m_abilityId.m_strDescription = cSpell.GetGenericName();
+
+        CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+        pButtonData->m_bDisabled = static_cast<BOOLEAN>(stats.m_disabledSpellTypes[2]);
+
+        // Strrefs 39831.. are "Off", "1", "2", ...
+        pButtonData->m_abilityId.m_strTooltipDesc = 39831 + nPoints;
+        if (nPoints != 0) {
+            pButtonData->m_count = static_cast<SHORT>(nPoints);
+        }
+
+        pButtons->AddTail(pButtonData);
+    }
+
+    cSpell.Release();
+
+    return pButtons;
+}
+
 // Build the "every usable item in the inventory" list: walks all equipment
 // slots, skipping 0x12..0x2A always and the three quick-item slots 0x0F..0x11
 // when CGameOptions::m_bQuickItemMapping is set.  bStopAtFirst makes it return

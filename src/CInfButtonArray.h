@@ -118,6 +118,7 @@ public:
     void ClearPickerList();
     static CGameButtonList* BuildPickerList(INT nSlot, INT nListType, const BYTE& nClass,
         DWORD nSpecialization, BOOL a5);
+    CGameButtonList* BuildFeatPointsPickerList(const CResRef& resRef);
 };
 
 #pragma pack(pop)

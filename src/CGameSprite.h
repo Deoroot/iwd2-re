@@ -557,6 +557,7 @@ public:
     void InitQuickItemData(SHORT itemNum, SHORT abilityNum, int a3, CButtonData& cButtonData);
     CGameButtonList* GetSongsButtonList();
     CGameButtonList* GetInnateSpellsButtonList();
+    CGameButtonList* GetFeatPointsButtonList(const CResRef& resRef, UINT nCount);
     CGameButtonList* GetAllItemUsages(BOOL bStopAtFirst);
     BOOLEAN CanCast(BYTE nClass, DWORD nSpecialization, CSpell* pSpell);
     CGameButtonList* GetInternalButtonList();
