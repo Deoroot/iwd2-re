@@ -1,0 +1,36 @@
+# Prove CGameSprite::GetAllItemUsages runs from the Use Item picker.
+#
+# State 0x69 is the only picker that reaches the whole-inventory list:
+# BuildPickerList kind 3 takes its a5 from (nState == 0x69), and a non-zero a5
+# skips the per-slot GetItemUsages in favour of GetAllItemUsages regardless of
+# CGameOptions::m_bQuickItemMapping.
+#
+# Nothing on the default world bar has button type 0x0E, so the route is to
+# customise a slot into one:
+#   1. right-click a bar slot in state 0x72 -> customise menu 0x75, with the
+#      slot stashed in m_nCustomizeSlot
+#   2. left-click the menu's "Quick Item" entry (type 0x25) -> the slot's
+#      custom type becomes 0x0E and the bar pops back to 0x72
+#   3. left-click the customised slot -> DispatchActionBarClick case 0xE ->
+#      SetState(0x69) -> BuildPickerList kind 3 -> GetAllItemUsages
+#
+# Slot N of the action bar is control (N + 6) on panel 1.  Measured with `bar`
+# (see quick-slot-picker.txt): portrait 4's customise menu is 23 24 25 26 27,
+# so "Quick Item" 0x25 is slot 2, control 8.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 4
+sleep 30
+bar
+rclick 1 11
+sleep 30
+bar
+click 1 8
+sleep 30
+bar
+click 1 11
+sleep 30
+bar
