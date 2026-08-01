@@ -477,19 +477,48 @@ BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
         // hidden-interface toggle before it gets here.
         m_cUIManager.ForceToolTip();
         return TRUE;
-    case VK_RETURN:
-    case VK_ESCAPE:
-    case VK_PRIOR:
-    case VK_NEXT:
     case '1':
     case '2':
     case '3':
     case '4':
     case '5':
-    case '6':
-        // TODO: Incomplete.  The engine owns these -- chat, dialogue
-        // dismissal and party selection -- but the handlers are not
-        // recovered.  They are still consumed here, because reaching the
+    case '6': {
+        // Select that party member.  Pressing the digit of the one member
+        // already selected on its own opens their record instead, the same as
+        // double-clicking the portrait.  Ctrl or shift adds to the selection
+        // rather than replacing it.
+        SHORT nPortrait = static_cast<SHORT>(nKey - '1');
+        LONG nCharacterId = nPortrait < pGame->m_nCharacters
+            ? pGame->m_characterPortraits[nPortrait]
+            : CGameObjectArray::INVALID_INDEX;
+
+        if (pGame->m_nState != 0) {
+            // TODO: Incomplete.  While an action is waiting for a target
+            // (0x687d7d) the digit aims it at that member instead.
+            return TRUE;
+        }
+
+        if (pGame->GetGroup()->GetCount() == 1
+            && pGame->GetGroup()->GetGroupLeader() == nCharacterId) {
+            pGame->OnPortraitLDblClick(nKey - '1');
+            return TRUE;
+        }
+
+        if (!m_bCtrlKeyDown && !m_bShiftKeyDown) {
+            pGame->UnselectAll();
+        }
+
+        pGame->SelectCharacter(nCharacterId, 1);
+        pGame->SelectToolbar();
+        return TRUE;
+    }
+    case VK_RETURN:
+    case VK_ESCAPE:
+    case VK_PRIOR:
+    case VK_NEXT:
+        // TODO: Incomplete.  The engine owns these -- chat, the popup and
+        // dialogue stack, and the message-log scroll -- but the handlers are
+        // not recovered.  They are still consumed here, because reaching the
         // keymap with them would fire a binding the original never sees.
         return TRUE;
     default:
