@@ -345,8 +345,7 @@ void CScreenWorld::OnKeyDown(SHORT a2)
         }
 
         if (!m_bInControlOfDialog || !m_internalLoadedDialog.m_waitingForResponse) {
-            if (nKey == VK_TAB) {
-                m_cUIManager.ForceToolTip();
+            if (HandleWorldKey(nKey)) {
                 continue;
             }
 
@@ -399,6 +398,88 @@ void CScreenWorld::OnKeyDown(SHORT a2)
                 break;
             }
         }
+    }
+}
+
+// The fixed part of the world keyboard: keys the engine handles itself,
+// whatever Keymap.ini says.  Returns whether the key was consumed -- only a key
+// that falls through here reaches the bindings.
+//
+// NOTE: Convenience -- the binary inlines this inside OnKeyDown as a switch on
+// (key - 9) whose default is the keymap walk.
+BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    switch (nKey) {
+    case VK_LEFT:
+    case VK_NUMPAD4:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 7;
+        return TRUE;
+    case VK_UP:
+    case VK_NUMPAD8:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 1;
+        return TRUE;
+    case VK_RIGHT:
+    case VK_NUMPAD6:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 3;
+        return TRUE;
+    case VK_DOWN:
+    case VK_NUMPAD2:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 5;
+        return TRUE;
+    case VK_NUMPAD9:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 2;
+        return TRUE;
+    case VK_NUMPAD3:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 4;
+        return TRUE;
+    case VK_NUMPAD1:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 6;
+        return TRUE;
+    case VK_NUMPAD7:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 8;
+        return TRUE;
+    case VK_SNAPSHOT:
+        if (g_pBaldurChitin->pActiveEngine != NULL) {
+            g_pBaldurChitin->pActiveEngine->pVidMode->PrintScreen();
+        }
+        return TRUE;
+    case VK_TAB:
+        // TODO: Incomplete.  0x687a2e also drives the multiplayer chat and the
+        // hidden-interface toggle before it gets here.
+        m_cUIManager.ForceToolTip();
+        return TRUE;
+    case VK_RETURN:
+    case VK_ESCAPE:
+    case VK_SPACE:
+    case VK_PRIOR:
+    case VK_NEXT:
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case VK_F1:
+    case VK_F2:
+    case VK_F3:
+    case VK_F4:
+    case VK_F5:
+    case VK_F6:
+    case VK_F7:
+    case VK_F8:
+    case VK_F9:
+    case VK_F10:
+    case VK_F11:
+    case VK_F12:
+        // TODO: Incomplete.  The engine owns these -- chat, pause, party
+        // selection and the screen shortcuts -- but the handlers are not
+        // recovered.  They are still consumed here, because reaching the
+        // keymap with them would fire a binding the original never sees.
+        return TRUE;
+    default:
+        return FALSE;
     }
 }
 

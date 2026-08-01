@@ -1,0 +1,29 @@
+# Prove the arrow keys scroll the view (RIGHT: the save starts at scrollx 0,
+# so LEFT would have nothing to prove -- the view is already at the west edge).
+#
+# The engine owns the arrow and numpad keys whatever Keymap.ini says: each one
+# latches a compass direction in CGameArea::m_nKeyScrollState, which the next
+# render consumes and clears (CGameArea.cpp:4545). So one key press is one
+# scroll step, and several in a row move the view visibly.
+#
+# `center` first so the party is on screen to begin with. The scrollx in the
+# two `ground` dumps is what shows the view moved: 0 -> 102 over five presses.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+center
+sleep 20
+ground
+key 39
+sleep 10
+key 39
+sleep 10
+key 39
+sleep 10
+key 39
+sleep 10
+key 39
+sleep 20
+ground
