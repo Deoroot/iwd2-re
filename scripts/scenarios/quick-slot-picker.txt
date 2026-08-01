@@ -1,0 +1,42 @@
+# Prove CustomizeQuickSlot runs from a picker click.
+#
+# Binding a quick slot is a three-click flow and the first two clicks are RIGHT
+# clicks, which is why this needs AutoUI's `rclick`:
+#   1. right-click a quick-spell cell  -> OnRButtonPressed state 0x72 stashes
+#      m_nCustomizeSlot and enters the customise menu (state 0x75)
+#   2. right-click the menu's "Cast Spell" entry (button type 0x24)
+#      -> state 0x66, the spellbook picker
+#   3. left-click a picker cell -> CustomizeQuickSlot(entry, slot, 2)
+#
+# Slot N of the action bar is control (N + 6) on panel 1.  Measured with `bar`:
+#   portrait 4 is a caster -- world bar (state 0x72) is
+#     07 3C 3D 05 03 48 49 4A 50 51 52 0A
+#   so control 11 is quick spell 0x48, i.e. spell slot 2.
+#   Its customise menu (state 0x75, caster) is 23 24 25 26 27 ...
+#   so "Cast Spell" 0x24 is slot 1, control 7.
+#   Its spellbook picker (state 0x66) has more than 12 entries, so it takes the
+#   paging layout -- 21 15 16 ... 1E 22 -- where slot 0 is the page-up arrow and
+#   the first real entry is slot 1, control 7.
+# `bar` is the diagnostic that pins those down; `dump` cannot see button types
+# -- every bar cell is the same always-active control whatever the bar shows.
+#
+# The innate picker (state 0x6B) would be the shorter route, but its list is
+# built from CGameSprite::m_internalButtonList, which nothing populates yet, so
+# it opens empty.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 4
+sleep 30
+bar
+rclick 1 11
+sleep 30
+bar
+rclick 1 7
+sleep 30
+bar
+click 1 7
+sleep 30
+bar

@@ -246,6 +246,40 @@ BYTE CInfButtonArray::GetButtonId(INT buttonType)
     return -1;
 }
 
+// Dispatch a picked item ability onto the party leader.  `bUseNow` inverts into
+// CGameSprite::ReadyOffInternalList's `firstCall`: a "use now" click readies the
+// ability for an immediate target pick, a customise click only records it.
+//
+// 0x5884B0
+BOOLEAN CInfButtonArray::UseItemAction(const CButtonData* pButtonData, BOOL bUseNow)
+{
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_group.m_memberList.GetCount() == 0) {
+        return FALSE;
+    }
+
+    LONG nLeader = pGame->m_group.GetGroupLeader();
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->m_cObjectArray.GetDeny(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    pSprite->ReadyOffInternalList(*pButtonData, !bUseNow);
+    pGame->m_cObjectArray.ReleaseDeny(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return TRUE;
+}
+
 // Fire quick slot `nButton` of the party leader, picking the action from the
 // quick-slot family `nMode` (1 weapon, 2 spell, 3 item, 4 innate, 6 song).
 // Mode 5 -- and any other value -- takes the leader lock and releases it again
@@ -295,14 +329,84 @@ void CInfButtonArray::ReadyQuickSlotByMode(SHORT nButton, INT nMode)
     pGame->m_cObjectArray.ReleaseDeny(nLeader, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
 
+// Dispatch a picked spell onto the party leader.  Same shape as UseItemAction,
+// through CGameSprite::UseButtonAction.
+//
+// 0x5886A0
+BOOLEAN CInfButtonArray::UseSpellAction(const CButtonData* pButtonData, BOOL bUseNow)
+{
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_group.m_memberList.GetCount() == 0) {
+        return FALSE;
+    }
+
+    LONG nLeader = pGame->m_group.GetGroupLeader();
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->m_cObjectArray.GetDeny(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    pSprite->UseButtonAction(*pButtonData, !bUseNow);
+    pGame->m_cObjectArray.ReleaseDeny(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return TRUE;
+}
+
+// Dispatch a picked innate ability onto the party leader.  Same shape as
+// UseItemAction, through CGameSprite::UseButtonItem.
+//
+// 0x588760
+BOOLEAN CInfButtonArray::UseInnateAction(const CButtonData* pButtonData, BOOL bUseNow)
+{
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_group.m_memberList.GetCount() == 0) {
+        return FALSE;
+    }
+
+    LONG nLeader = pGame->m_group.GetGroupLeader();
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->m_cObjectArray.GetDeny(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    pSprite->UseButtonItem(*pButtonData, !bUseNow);
+    pGame->m_cObjectArray.ReleaseDeny(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return TRUE;
+}
+
 // Toggle the group leader's bard song from a song CButtonData: locate the song,
 // and -- unless the leader is silenced -- either stop an active song (modal
 // state 1) or start one (set the last-song index, enter modal state 1, play the
 // ACT_01 cue and queue a SmallWait so the singer pauses).  A silenced leader
 // just gets the "cannot sing" feedback and the bar resets.
 //
+// `bUseNow` is the same picker flag the three static Use*Action helpers take: a
+// customise click (state 0x71) passes 0 and only takes and drops the lock, a
+// play click (state 0x7A) passes 1 and reaches the toggle.
+//
 // 0x588820
-BOOL CInfButtonArray::UseSongAction(const CButtonData* pButtonData, CGameSprite* pCaster)
+BOOL CInfButtonArray::UseSongAction(const CButtonData* pButtonData, BOOL bUseNow)
 {
     CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
     if (pGame->m_group.m_memberList.GetCount() == 0) {
@@ -324,7 +428,7 @@ BOOL CInfButtonArray::UseSongAction(const CButtonData* pButtonData, CGameSprite*
     }
 
     UINT nSongID = 0;
-    if (pGame->m_songs.Find(pButtonData->m_abilityId.m_res, nSongID) && pCaster != NULL) {
+    if (pGame->m_songs.Find(pButtonData->m_abilityId.m_res, nSongID) && bUseNow) {
         if ((pSprite->m_derivedStats.m_generalState & STATE_SILENCED) == 0
             && (pSprite->m_baseStats.m_generalState & STATE_SILENCED) == 0) {
             if (pSprite->m_nModalState == 1) {
@@ -1682,23 +1786,48 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         }
-        // Picker click â€” dispatch the selected entry via the appropriate
-        // CGameSprite method.  Matches Ghidra OnLButtonPressed state
-        // 0x66/0x67/0x68/0x69/0x70/0x71/0x7A switch:
-        //   0x66 / 0x67           â†’ FUN_005886a0 â†’ UseButtonAction
-        //   0x68 / 0x69           â†’ FUN_005884b0 â†’ ReadyOffInternalList
-        //   0x70 / 0x71 / 0x7A    â†’ FUN_00588820 (song play, AI action)
-        //   0x6A / 0x6B (default) -> UseInnateAction
+        // Picker click.  Ghidra OnLButtonPressed 0x5913b3..0x5917df.  The click
+        // is split in two: states 0x66 / 0x68 / 0x71 ASSIGN the picked entry to
+        // the quick slot stashed in m_nCustomizeSlot, and then -- unless the
+        // clicked cell is greyed out -- every state falls through to the same
+        // "use it" dispatch.  A customise click therefore both binds the slot
+        // and fires, which is why bUseNow below is false for exactly those
+        // three states: the four Use*Action helpers turn it into
+        // CGameSprite's `firstCall`, so a customise click readies rather than
+        // executes.
+        //
+        //   0x66 / 0x67 / 0x6A / 0x6B -> UseSpellAction  (0x5886A0)
+        //   0x68 / 0x69               -> UseItemAction   (0x5884B0)
+        //   0x71 / 0x7A               -> UseSongAction   (0x588820)
+        //   0x70                      -> UseInnateAction (0x588760, the default)
+        //
+        // The innate states 0x6A / 0x6B are a second, near-identical arm in the
+        // binary (0x5924c9): same walk, same customise-then-fire shape, but its
+        // own bUseNow (0x59242b) and no greyout gate on the fire.
         if (nButtonType >= 0x15 && nButtonType <= 0x20 && g_pButtonArrayPickerList != NULL) {
-            INT nListCount = static_cast<INT>(g_pButtonArrayPickerList->GetCount());
-            INT nEntry = (nListCount > 12)
-                ? (m_nPickerPage * 10 + (nButtonType - 0x15))
-                : (nButtonType - 0x15);
-            POSITION pos = (nEntry >= 0 && nEntry < nListCount)
-                ? g_pButtonArrayPickerList->FindIndex(nEntry)
-                : NULL;
-            CButtonData* pEntry = (pos != NULL) ? g_pButtonArrayPickerList->GetAt(pos) : NULL;
-            if (pEntry != NULL && !pEntry->m_bDisabled) {
+            BOOL bUseNow = (m_nState == 0x67 || m_nState == 0x69 || m_nState == 0x6A
+                || m_nState == 0x70 || m_nState == 0x7A);
+
+            // Resolve the clicked cell by walking the list from the current
+            // page: the walk counts BUTTON slots, so it starts at 1 whenever
+            // the list is long enough for slot 0 to be the page-up arrow.
+            INT nIndex = (g_pButtonArrayPickerList->GetCount() > 12) ? 1 : 0;
+            POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nPickerPage);
+            CButtonData* pEntry = NULL;
+            while (pos != NULL) {
+                CButtonData* pCandidate = g_pButtonArrayPickerList->GetNext(pos);
+                if (nIndex == buttonID && pCandidate != NULL) {
+                    pEntry = pCandidate;
+                    break;
+                }
+                nIndex++;
+            }
+
+            if (pEntry != NULL) {
+                // NOTE: unrecovered -- in state 0x67 the binary first demands
+                // the CSpell, builds a specialization mask and gates the whole
+                // dispatch on CGameSprite::CanCast, feeding back "cannot cast"
+                // instead (0x591502..0x5915d5).
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
                 BYTE rc;
@@ -1709,50 +1838,65 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         INFINITE);
                 } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    // States 0x66 / 0x68 / 0x71 are "customise" variants -- the
-                    // user picked a target to ASSIGN to a quick slot rather
-                    // than to fire.  The binary dispatches these through
-                    // CustomizeQuickSlot (0x591654 mode 2, 0x5916B8 mode 3,
-                    // 0x591719 mode 6, 0x59252B mode 4), which is recovered but
-                    // NOT called from here: it takes its own Deny on
-                    // GetGroupList()[0], and the enclosing GetDeny below is a
-                    // port-ism -- OnLButtonPressed holds exactly one Deny in
-                    // the binary (0x590027), none of it around these calls.
-                    // Nesting the two would spin the retry loop forever.
-                    // TODO: drop the wrapper (each branch's helper locks for
-                    // itself) and then route these three states through
-                    // CustomizeQuickSlot.
-                    BOOL bCustomize = (m_nState == 0x66 || m_nState == 0x68 || m_nState == 0x71);
-                    if (bCustomize) {
-                        INT nSlot = m_nCustomizeSlot;
-                        if (nSlot >= 0 && nSlot < 9) {
-                            switch (m_nState) {
-                            case 0x66:
-                                pSprite->SetQuickSpell(static_cast<BYTE>(nSlot), *pEntry);
-                                m_customButtonTypes[nSlot] = nSlot + 0x46;
-                                break;
-                            case 0x68:
-                                pSprite->SetQuickItem(static_cast<BYTE>(nSlot), *pEntry);
-                                m_customButtonTypes[nSlot] = nSlot + 0x50;
-                                break;
-                            case 0x71:
-                                pSprite->SetQuickSong(static_cast<BYTE>(nSlot), *pEntry);
-                                m_customButtonTypes[nSlot] = nSlot + 0x6E;
-                                break;
-                            }
-                        }
-                    } else if (m_nState == 0x68 || m_nState == 0x69) {
-                        pSprite->ReadyOffInternalList(*pEntry, 0);
-                    } else if (m_nState == 0x67) {
-                        pSprite->UseSpellAction(pEntry, TRUE);
-                    } else if (m_nState == 0x6A || m_nState == 0x6B) {
-                        pSprite->UseInnateAction(pEntry, m_nState == 0x6A);
-                    } else {
-                        // Songs (0x70/0x7A): toggle the bard song via the
-                        // dedicated handler rather than the generic spell
-                        // dispatcher (which asserts on the song's caster type).
-                        UseSongAction(pEntry, pSprite);
+                    // The slot binding goes through CustomizeQuickSlot, which
+                    // takes its own Deny on GetGroupList()[0].  Nesting is what
+                    // the binary does -- it holds one leader Deny across the
+                    // whole of OnLButtonPressed (0x590027) -- and it is safe
+                    // because GetDeny only refuses a lock held by ANOTHER
+                    // thread; a re-entrant take just bumps m_denyCounts.
+                    INT nSlot = m_nCustomizeSlot;
+                    if (m_nState == 0x66) {
+                        CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 2);
+                        m_customButtonTypes[nSlot] = nSlot + 0x46;
+                        pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x46);
+                    } else if (m_nState == 0x68) {
+                        CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 3);
+                        m_customButtonTypes[nSlot] = nSlot + 0x50;
+                        pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x50);
+                    } else if (m_nState == 0x71) {
+                        CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 6);
+                        m_customButtonTypes[nSlot] = nSlot + 0x6E;
+                        pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x6E);
+                    } else if (m_nState == 0x6B) {
+                        // The innate picker is its own arm in the binary
+                        // (0x5924c9), with the same shape; only its tail
+                        // differs, and that tail is not recovered either.
+                        CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 4);
+                        m_customButtonTypes[nSlot] = nSlot + 0x5A;
+                        pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x5A);
                     }
+
+                    // A greyed-out cell can still be bound to a quick slot, but
+                    // it never fires -- except in the innate arm, which has no
+                    // such gate.  The binary keeps each helper's return in a
+                    // flag that only the unrecovered tails read (0x59182f for
+                    // this arm, 0x5924f0 for the innate one).
+                    BOOL bInnateArm = (m_nState == 0x6A || m_nState == 0x6B);
+                    if (bInnateArm || !m_buttonArray[buttonID].m_bGreyOut) {
+                        switch (m_nState) {
+                        case 0x66:
+                        case 0x67:
+                        case 0x6A:
+                        case 0x6B:
+                            // NOTE: unrecovered -- state 0x6A first matches the
+                            // entry's resref against two fixed ones and gates
+                            // on CGameSprite::HasFeat(0x2F) (0x59256c).
+                            UseSpellAction(pEntry, bUseNow);
+                            break;
+                        case 0x68:
+                        case 0x69:
+                            UseItemAction(pEntry, bUseNow);
+                            break;
+                        case 0x71:
+                        case 0x7A:
+                            UseSongAction(pEntry, bUseNow);
+                            break;
+                        default:
+                            UseInnateAction(pEntry, bUseNow);
+                            break;
+                        }
+                    }
+
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);

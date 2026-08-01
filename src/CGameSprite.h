@@ -570,8 +570,6 @@ public:
     void ReadyOffInternalList(CButtonData buttonData, BOOLEAN firstCall);
     void UseButtonAction(CButtonData buttonData, BOOLEAN firstCall);
     void UseButtonItem(CButtonData buttonData, BOOLEAN firstCall);
-    BOOLEAN UseSpellAction(const CButtonData* pButtonData, BOOLEAN bUseNow);
-    BOOLEAN UseInnateAction(const CButtonData* pButtonData, BOOLEAN bUseNow);
     void CheckToolTipItem(BYTE buttonNum);
     CItem* GetQuickItem(BYTE buttonNum);
     void UnequipAll(BOOL a1);

@@ -63,8 +63,11 @@ public:
     static BYTE GetSelectedModalMode();
     static void ReadyQuickSlotByMode(SHORT nButton, INT nMode);
     static void CustomizeQuickSlot(const CButtonData* pButtonData, BYTE nButton, INT nMode);
+    static BOOLEAN UseItemAction(const CButtonData* pButtonData, BOOL bUseNow);
+    static BOOLEAN UseSpellAction(const CButtonData* pButtonData, BOOL bUseNow);
+    static BOOLEAN UseInnateAction(const CButtonData* pButtonData, BOOL bUseNow);
     BYTE GetButtonId(INT buttonType);
-    BOOL UseSongAction(const CButtonData* pButtonData, CGameSprite* pCaster);
+    BOOL UseSongAction(const CButtonData* pButtonData, BOOL bUseNow);
     BOOL ResetState();
     void UpdateState();
     BOOL SetState(INT nState, int a2);

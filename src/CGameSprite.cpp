@@ -10024,66 +10024,6 @@ void CGameSprite::UseButtonAction(CButtonData buttonData, BOOLEAN firstCall)
     }
 }
 
-// 0x5886A0
-BOOLEAN CGameSprite::UseSpellAction(const CButtonData* pButtonData, BOOLEAN bUseNow)
-{
-    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
-    if (pGame->m_group.m_memberList.GetCount() == 0) {
-        return FALSE;
-    }
-
-    LONG nLeader = pGame->m_group.GetGroupLeader();
-    CGameSprite* pSprite;
-    BYTE rc;
-    do {
-        rc = pGame->m_cObjectArray.GetDeny(nLeader,
-            CGameObjectArray::THREAD_ASYNCH,
-            reinterpret_cast<CGameObject**>(&pSprite),
-            INFINITE);
-    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-
-    if (rc != CGameObjectArray::SUCCESS) {
-        return FALSE;
-    }
-
-    pSprite->UseButtonAction(*pButtonData, !bUseNow);
-    pGame->m_cObjectArray.ReleaseDeny(nLeader,
-        CGameObjectArray::THREAD_ASYNCH,
-        INFINITE);
-
-    return TRUE;
-}
-
-// 0x588760
-BOOLEAN CGameSprite::UseInnateAction(const CButtonData* pButtonData, BOOLEAN bUseNow)
-{
-    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
-    if (pGame->m_group.m_memberList.GetCount() == 0) {
-        return FALSE;
-    }
-
-    LONG nLeader = pGame->m_group.GetGroupLeader();
-    CGameSprite* pSprite;
-    BYTE rc;
-    do {
-        rc = pGame->m_cObjectArray.GetDeny(nLeader,
-            CGameObjectArray::THREAD_ASYNCH,
-            reinterpret_cast<CGameObject**>(&pSprite),
-            INFINITE);
-    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-
-    if (rc != CGameObjectArray::SUCCESS) {
-        return FALSE;
-    }
-
-    pSprite->UseButtonItem(*pButtonData, !bUseNow);
-    pGame->m_cObjectArray.ReleaseDeny(nLeader,
-        CGameObjectArray::THREAD_ASYNCH,
-        INFINITE);
-
-    return TRUE;
-}
-
 // FIXME: `buttonData` should be reference.
 //
 // 0x71A550
