@@ -1543,7 +1543,156 @@ void CScreenStore::UpdateBuySellPanel()
 // 0x675380
 void CScreenStore::UpdateIdentifyPanel()
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2688
+    UTIL_ASSERT(pGame != NULL);
+
+    CGameSave* pSave = pGame->GetGameSave();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2690
+    UTIL_ASSERT(pSave != NULL);
+
+    BOOL bCharacterViewable = IsCharacterViewable(static_cast<SHORT>(m_nSelectedCharacter));
+
+    m_pCurrentScrollBar = static_cast<CUIControlScrollBar*>(m_pMainPanel->GetControl(7));
+
+    LONG nCharacterId = CGameObjectArray::INVALID_INDEX;
+    if (m_nSelectedCharacter < pGame->m_nCharacters) {
+        nCharacterId = pGame->m_characterPortraits[m_nSelectedCharacter];
+    }
+
+    CString sCharacterName;
+
+    CGameObject* pObject;
+
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+
+        if (pSprite->m_baseStats.m_name == -1) {
+            sCharacterName = pSprite->GetName();
+        } else {
+            sCharacterName = FetchString(pSprite->m_baseStats.m_name);
+        }
+
+        pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    } else {
+        sCharacterName = "";
+    }
+
+    DWORD nPartyGold = g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_nPartyGold;
+
+    UpdateLabel(m_pMainPanel,
+        0x10000005,
+        "%s",
+        (LPCTSTR)sCharacterName);
+
+    UpdateLabel(m_pMainPanel,
+        0x10000000,
+        "%s",
+        (LPCTSTR)FetchString(m_pStore->m_header.m_strName));
+
+    UpdateLabel(m_pMainPanel,
+        0x10000001,
+        "%d",
+        nPartyGold);
+
+    for (DWORD nLabel = 0x1000000D; nLabel < 0x10000013; nLabel++) {
+        CScreenStoreItem cItem;
+        GetIdentifyItem(m_nTopIdentifyItem + nLabel - 0x1000000D, cItem);
+
+        CUIControlButtonStoreGroupItem* pGroupItem = static_cast<CUIControlButtonStoreGroupItem*>(m_pMainPanel->GetControl(nLabel - 0x10000005));
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+        // __LINE__: 2737
+        UTIL_ASSERT(pGroupItem != NULL);
+
+        if (bCharacterViewable) {
+            if (cItem.m_pItem == NULL) {
+                pGroupItem->m_item.SetResRef(CResRef(""), TRUE);
+                pGroupItem->InvalidateRect();
+            } else if (!(pGroupItem->m_item == *(cItem.m_pItem))) {
+                pGroupItem->m_item.SetResRef(cItem.m_pItem->GetResRef(), TRUE);
+                pGroupItem->m_item.m_useCount1 = cItem.m_pItem->m_useCount1;
+                pGroupItem->m_item.m_useCount2 = cItem.m_pItem->m_useCount2;
+                pGroupItem->m_item.m_useCount3 = cItem.m_pItem->m_useCount3;
+                pGroupItem->m_item.m_wear = cItem.m_pItem->m_wear;
+                pGroupItem->m_item.m_flags = cItem.m_pItem->m_flags;
+                pGroupItem->InvalidateRect();
+            }
+
+            pGroupItem->SetSelected(cItem.m_bSelected);
+            pGroupItem->SetEnabled(cItem.m_bEnabled);
+
+            if (cItem.m_pItem != NULL) {
+                CString sToken;
+
+                sToken.Format(_T("%s"), (LPCTSTR)FetchString(cItem.m_pItem->GetGenericName()));
+                g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_ITEMNAME, sToken);
+
+                sToken.Format(_T("%d"), cItem.m_nValue);
+                g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_ITEMCOST, sToken);
+
+                UpdateLabel(m_pMainPanel,
+                    nLabel,
+                    "%s",
+                    (LPCTSTR)FetchString(10162));
+                continue;
+            }
+        } else {
+            pGroupItem->m_item.SetResRef(CResRef(""), TRUE);
+            pGroupItem->InvalidateRect();
+            pGroupItem->SetSelected(FALSE);
+            pGroupItem->SetEnabled(FALSE);
+        }
+
+        UpdateLabel(m_pMainPanel, nLabel, "");
+    }
+
+    CUIControlScrollBarStoreIdentify* pGroupBar = static_cast<CUIControlScrollBarStoreIdentify*>(m_pMainPanel->GetControl(7));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2773
+    UTIL_ASSERT(pGroupBar != NULL);
+
+    // NOTE: Uninline.
+    pGroupBar->UpdateScrollBar();
+
+    UpdateLabel(m_pMainPanel,
+        0x10000003,
+        "%d",
+        m_dwIdentifyCost);
+
+    CUIControlButton* pIdentify = static_cast<CUIControlButton*>(m_pMainPanel->GetControl(5));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2782
+    UTIL_ASSERT(pIdentify != NULL);
+
+    BOOL bIdentifyEnabled = FALSE;
+
+    POSITION pos = m_lIdentifyItems.GetHeadPosition();
+    while (pos != NULL) {
+        CScreenStoreItem* pIdentifyItem = m_lIdentifyItems.GetNext(pos);
+        if (pIdentifyItem->m_pItem != NULL) {
+            bIdentifyEnabled = bCharacterViewable != FALSE;
+            break;
+        }
+    }
+
+    pIdentify->SetEnabled(bIdentifyEnabled);
 }
 
 // 0x675940
