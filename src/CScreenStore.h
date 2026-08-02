@@ -158,6 +158,7 @@ public:
     BOOL CheckSpellUsable(INT nPortraitNum, const CResRef& cResSpell);
     BOOL IsBuyItemButtonClickable();
     void OnBuyItemButtonClick();
+    void BuyPersonalItems();
     BOOL IsSellItemButtonClickable();
     void OnSellItemButtonClick();
     void SellPersonalItems();
