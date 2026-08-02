@@ -1537,7 +1537,407 @@ void CScreenStore::UpdateMainPanel()
 // 0x6740F0
 void CScreenStore::UpdateBuySellPanel()
 {
-    // TODO: Incomplete.
+    STR_RES strRes;
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2316
+    UTIL_ASSERT(pGame != NULL);
+
+    CGameSave* pSave = pGame->GetGameSave();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2318
+    UTIL_ASSERT(pSave != NULL);
+
+    BOOL bCharacterViewable = IsCharacterViewable(static_cast<SHORT>(m_nSelectedCharacter));
+
+    if (field_14DA == NULL) {
+        field_14DA = static_cast<CUIControlScrollBar*>(m_pMainPanel->GetControl(11));
+    }
+
+    m_pCurrentScrollBar = field_14DA;
+
+    CString sTitle;
+    INT nWeight = 0;
+    INT nMaxWeight = 0;
+    INT nUsedSlots = 0;
+    INT nTotalSlots = 0;
+
+    if (m_pBag == NULL) {
+        LONG nCharacterId = CGameObjectArray::INVALID_INDEX;
+        if (m_nSelectedCharacter < pGame->m_nCharacters) {
+            nCharacterId = pGame->m_characterPortraits[m_nSelectedCharacter];
+        }
+
+        CGameObject* pObject;
+
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+
+            if (pSprite->m_baseStats.m_name == -1) {
+                sTitle = pSprite->GetName();
+            } else {
+                sTitle = FetchString(pSprite->m_baseStats.m_name);
+            }
+
+            nWeight = static_cast<INT>(pSprite->GetCarriedWeight());
+
+            SHORT nWeightAllowance = static_cast<SHORT>(atol(pGame->m_ruleTables.m_tStrengthMod.GetAt(CPoint(3, pSprite->m_derivedStats.m_nSTR))));
+
+            nMaxWeight = static_cast<INT>(
+                static_cast<float>(pGame->m_ruleTables.GetEncumbranceMod(pSprite)) / 100.0f
+                * static_cast<float>(nWeightAllowance));
+
+            pSprite->GetNumInventoryPersonalSlots(nUsedSlots, nTotalSlots);
+
+            pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        } else {
+            sTitle = "";
+        }
+    } else {
+        sTitle = FetchString(m_pBag->m_header.m_strName);
+
+        nUsedSlots = m_pBag->GetNumItems();
+        nTotalSlots = m_pBag->m_header.m_nCapacity;
+        if (nTotalSlots == 0) {
+            nTotalSlots = 0x7FFFFFFF;
+        }
+    }
+
+    CUIControlEncumbrance* pEncumbrance = static_cast<CUIControlEncumbrance*>(m_pMainPanel->GetControl(44));
+
+    if (bCharacterViewable) {
+        pEncumbrance->SetEncumbrance(nWeight, nMaxWeight);
+        pEncumbrance->SetVolume(nUsedSlots, nTotalSlots);
+    } else {
+        pEncumbrance->SetEncumbrance(0, 0);
+        pEncumbrance->SetVolume(0, 0);
+    }
+
+    DWORD nPartyGold = g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_nPartyGold;
+
+    BOOL bShowGold = TRUE;
+
+    if (m_pStore->m_header.m_nStoreType == 4) {
+        UpdateLabel(m_pMainPanel,
+            0x0FFFFFFF,
+            "%s",
+            (LPCTSTR)FetchString(26291));
+
+        UpdateLabel(m_pMainPanel,
+            0x1000002D,
+            "%s",
+            (LPCTSTR)FetchString(m_pStore->m_header.m_strName));
+
+        if (m_pStore->m_header.m_nBuyMarkUp == 0 && m_pStore->m_header.m_nSellMarkDown == 0) {
+            UpdateLabel(m_pMainPanel, 0x1000002A, "");
+            bShowGold = FALSE;
+        }
+    } else {
+        UpdateLabel(m_pMainPanel,
+            0x0FFFFFFF,
+            "%s",
+            (LPCTSTR)FetchString(13978));
+
+        UpdateLabel(m_pMainPanel,
+            0x1000002D,
+            "%s",
+            (LPCTSTR)FetchString(13701));
+    }
+
+    if (bShowGold) {
+        UpdateLabel(m_pMainPanel,
+            0x1000002A,
+            "%d",
+            nPartyGold);
+    }
+
+    UpdateLabel(m_pMainPanel,
+        0x1000002E,
+        "%s",
+        (LPCTSTR)sTitle);
+
+    UpdateLabel(m_pMainPanel,
+        0x10000003,
+        "%s",
+        (LPCTSTR)FetchString(m_pStore->m_header.m_strName));
+
+    BOOL bBuyAllowed = bCharacterViewable && (m_pStore->m_header.m_nStoreFlags & 0x1) != 0;
+    BOOL bSellAllowed = bCharacterViewable && (m_pStore->m_header.m_nStoreFlags & 0x2) != 0;
+
+    for (DWORD nLabel = 0x10000012; nLabel < 0x10000018; nLabel++) {
+        CScreenStoreItem cItem;
+        GetStoreItem(m_nTopStoreItem + nLabel - 0x10000012, cItem);
+
+        CUIControlButtonStoreStoreItem* pStoreItem = static_cast<CUIControlButtonStoreStoreItem*>(m_pMainPanel->GetControl(nLabel - 0x1000000D));
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+        // __LINE__: 2436
+        UTIL_ASSERT(pStoreItem != NULL);
+
+        if (cItem.m_pItem == NULL) {
+            pStoreItem->m_item.SetResRef(CResRef(""), TRUE);
+            pStoreItem->InvalidateRect();
+        } else if (!(pStoreItem->m_item == *(cItem.m_pItem))) {
+            pStoreItem->m_item.SetResRef(cItem.m_pItem->GetResRef(), TRUE);
+            pStoreItem->m_item.m_useCount1 = cItem.m_pItem->m_useCount1;
+            pStoreItem->m_item.m_useCount2 = cItem.m_pItem->m_useCount2;
+            pStoreItem->m_item.m_useCount3 = cItem.m_pItem->m_useCount3;
+            pStoreItem->m_item.m_wear = cItem.m_pItem->m_wear;
+            pStoreItem->m_item.m_flags = cItem.m_pItem->m_flags;
+            pStoreItem->InvalidateRect();
+        }
+
+        pStoreItem->SetSelected(cItem.m_bSelected);
+        pStoreItem->SetEnabled(bBuyAllowed && cItem.m_bEnabled);
+
+        STRREF strError;
+        pStoreItem->SetValid(pGame->CanCharacterUseItem(static_cast<SHORT>(m_nSelectedCharacter),
+            cItem.m_pItem,
+            strError,
+            TRUE));
+
+        if (cItem.m_pItem == NULL) {
+            UpdateLabel(m_pMainPanel, nLabel, "");
+            continue;
+        }
+
+        CString sText;
+
+        sText.Format(_T("%s"), (LPCTSTR)FetchString(cItem.m_pItem->GetGenericName()));
+        g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_ITEMNAME, sText);
+
+        if (m_pStore->m_header.m_nStoreType == 4) {
+            sText = FetchString(24890);
+        } else {
+            sText.Format(_T("%d"), cItem.m_nValue);
+            g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_ITEMCOST, sText);
+
+            sText = FetchString(10162);
+        }
+
+        if (cItem.m_nStoreCount != 0xFFFF) {
+            sText.Format(_T("%s (%d)"), CString(sText), cItem.m_nStoreCount);
+        }
+
+        UpdateLabel(m_pMainPanel,
+            nLabel,
+            "%s",
+            (LPCTSTR)sText);
+
+        if (pStoreItem->m_bEnabled) {
+            HighlightLabel(m_pMainPanel, nLabel, FALSE, COLOR_LABEL_HIGHLIGHT_BONUS);
+        } else {
+            HighlightLabel(m_pMainPanel, nLabel, TRUE, COLOR_LABEL_DISABLE);
+        }
+    }
+
+    CUIControlScrollBarStoreStore* pStoreBar = static_cast<CUIControlScrollBarStoreStore*>(m_pMainPanel->GetControl(11));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2503
+    UTIL_ASSERT(pStoreBar != NULL);
+
+    // NOTE: Uninline.
+    pStoreBar->UpdateScrollBar();
+
+    CUIControlButton* pBuy = static_cast<CUIControlButton*>(m_pMainPanel->GetControl(2));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2508
+    UTIL_ASSERT(pBuy != NULL);
+
+    pBuy->SetEnabled(IsBuyItemButtonClickable() && bBuyAllowed);
+
+    if (m_pStore->m_header.m_nStoreType == 4) {
+        g_pBaldurChitin->GetTlkTable().Fetch(26287, strRes);
+        pBuy->SetText(strRes.szText);
+
+        if (m_pStore->m_header.m_nBuyMarkUp == 0 && m_pStore->m_header.m_nSellMarkDown == 0) {
+            UpdateLabel(m_pMainPanel, 0x1000002F, "");
+            UpdateLabel(m_pMainPanel, 0x1000002B, "");
+        } else {
+            UpdateLabel(m_pMainPanel,
+                0x1000002F,
+                "%s",
+                (LPCTSTR)FetchString(13705));
+
+            UpdateLabel(m_pMainPanel,
+                0x1000002B,
+                "%d",
+                m_nStoreCost);
+        }
+    } else {
+        g_pBaldurChitin->GetTlkTable().Fetch(13703, strRes);
+        pBuy->SetText(strRes.szText);
+
+        UpdateLabel(m_pMainPanel,
+            0x1000002F,
+            "%s",
+            (LPCTSTR)FetchString(13705));
+
+        UpdateLabel(m_pMainPanel,
+            0x1000002B,
+            "%d",
+            m_nStoreCost);
+    }
+
+    for (DWORD nLabel = 0x1000001E; nLabel < 0x10000024; nLabel++) {
+        CScreenStoreItem cItem;
+        GetGroupItem(m_nTopGroupItem + nLabel - 0x1000001E, cItem);
+
+        CUIControlButtonStoreGroupItem* pGroupItem = static_cast<CUIControlButtonStoreGroupItem*>(m_pMainPanel->GetControl(nLabel - 0x10000011));
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+        // __LINE__: 2545
+        UTIL_ASSERT(pGroupItem != NULL);
+
+        if (!bCharacterViewable) {
+            pGroupItem->m_item.SetResRef(CResRef(""), TRUE);
+            pGroupItem->InvalidateRect();
+            pGroupItem->SetSelected(FALSE);
+            pGroupItem->SetEnabled(FALSE);
+            UpdateLabel(m_pMainPanel, nLabel, "");
+            continue;
+        }
+
+        if (cItem.m_pItem == NULL) {
+            pGroupItem->m_item.SetResRef(CResRef(""), TRUE);
+            pGroupItem->InvalidateRect();
+        } else if (pGroupItem->m_item.m_useCount1 != cItem.m_pItem->m_useCount1
+            || pGroupItem->m_item.m_useCount2 != cItem.m_pItem->m_useCount2
+            || pGroupItem->m_item.m_useCount3 != cItem.m_pItem->m_useCount3
+            || pGroupItem->m_item.m_wear != cItem.m_pItem->m_wear
+            || pGroupItem->m_item.m_flags != cItem.m_pItem->m_flags
+            || pGroupItem->m_item.GetResRef() != cItem.m_pItem->GetResRef()) {
+            pGroupItem->m_item.SetResRef(cItem.m_pItem->GetResRef(), TRUE);
+            pGroupItem->m_item.m_useCount1 = cItem.m_pItem->m_useCount1;
+            pGroupItem->m_item.m_useCount2 = cItem.m_pItem->m_useCount2;
+            pGroupItem->m_item.m_useCount3 = cItem.m_pItem->m_useCount3;
+            pGroupItem->m_item.m_wear = cItem.m_pItem->m_wear;
+            pGroupItem->m_item.m_flags = cItem.m_pItem->m_flags;
+            pGroupItem->InvalidateRect();
+        }
+
+        pGroupItem->SetSelected(cItem.m_bSelected);
+
+        if (cItem.m_pItem != NULL && cItem.m_pItem->GetItemType() == 58) {
+            pGroupItem->SetEnabled(cItem.m_bEnabled != FALSE);
+        } else {
+            pGroupItem->SetEnabled(bSellAllowed && cItem.m_bEnabled);
+        }
+
+        STRREF strError;
+        pGroupItem->SetValid(pGame->CanCharacterUseItem(static_cast<SHORT>(m_nSelectedCharacter),
+            cItem.m_pItem,
+            strError,
+            TRUE));
+
+        if (cItem.m_pItem == NULL) {
+            UpdateLabel(m_pMainPanel, nLabel, "");
+            continue;
+        }
+
+        CString sText;
+
+        sText.Format(_T("%s"), (LPCTSTR)FetchString(cItem.m_pItem->GetGenericName()));
+        g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_ITEMNAME, sText);
+
+        if (m_pStore->m_header.m_nStoreType == 4) {
+            sText = FetchString(24890);
+        } else {
+            sText.Format(_T("%d"), cItem.m_nValue);
+            g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_ITEMCOST, sText);
+
+            sText = FetchString(10162);
+        }
+
+        if (m_pBag != NULL && cItem.m_nStoreCount != 0xFFFF) {
+            sText.Format(_T("%s (%d)"), CString(sText), cItem.m_nStoreCount);
+        }
+
+        UpdateLabel(m_pMainPanel,
+            nLabel,
+            "%s",
+            (LPCTSTR)sText);
+
+        if (pGroupItem->m_bEnabled) {
+            HighlightLabel(m_pMainPanel, nLabel, FALSE, COLOR_LABEL_HIGHLIGHT_BONUS);
+        } else {
+            HighlightLabel(m_pMainPanel, nLabel, TRUE, COLOR_LABEL_DISABLE);
+        }
+    }
+
+    CUIControlScrollBarStoreGroup* pGroupBar = static_cast<CUIControlScrollBarStoreGroup*>(m_pMainPanel->GetControl(12));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2613
+    UTIL_ASSERT(pGroupBar != NULL);
+
+    // NOTE: Uninline.
+    pGroupBar->UpdateScrollBar();
+
+    CUIControlButton* pSell = static_cast<CUIControlButton*>(m_pMainPanel->GetControl(3));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2618
+    UTIL_ASSERT(pSell != NULL);
+
+    pSell->SetEnabled(IsSellItemButtonClickable() && bSellAllowed);
+
+    if (m_pStore->m_header.m_nStoreType == 4) {
+        g_pBaldurChitin->GetTlkTable().Fetch(26288, strRes);
+        pSell->SetText(strRes.szText);
+
+        if (m_pStore->m_header.m_nBuyMarkUp == 0 && m_pStore->m_header.m_nSellMarkDown == 0) {
+            UpdateLabel(m_pMainPanel, 0x10000030, "");
+            UpdateLabel(m_pMainPanel, 0x1000002C, "");
+        } else {
+            UpdateLabel(m_pMainPanel,
+                0x10000030,
+                "%s",
+                (LPCTSTR)FetchString(13706));
+
+            UpdateLabel(m_pMainPanel,
+                0x1000002C,
+                "%d",
+                m_nGroupCost);
+        }
+    } else {
+        g_pBaldurChitin->GetTlkTable().Fetch(13704, strRes);
+        pSell->SetText(strRes.szText);
+
+        UpdateLabel(m_pMainPanel,
+            0x10000030,
+            "%s",
+            (LPCTSTR)FetchString(13706));
+
+        UpdateLabel(m_pMainPanel,
+            0x1000002C,
+            "%d",
+            m_nGroupCost);
+    }
+
+    CUIControlBase* pBagIcon = m_pMainPanel->GetControl(50);
+    pBagIcon->SetActive(m_pBag != NULL);
+
+    pBagIcon = m_pMainPanel->GetControl(50);
+    pBagIcon->SetInactiveRender(m_pBag != NULL);
+
+    pBagIcon = m_pMainPanel->GetControl(50);
+    pBagIcon->InvalidateRect();
 }
 
 // 0x675380
