@@ -532,6 +532,8 @@ void CScreenStore::EngineGameInit()
 // 0x671FA0
 void CScreenStore::EngineGameUninit()
 {
+    m_pMainPanel = NULL;
+
     // NOTE: Uninline.
     m_cUIManager.fUninit();
 }

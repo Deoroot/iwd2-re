@@ -7,6 +7,9 @@
   sym.py disasm 0xADDR [count=24]      capstone x86-32, call/jmp targets named
   sym.py findptr 0xVALUE               scan all sections for LE dword (vtable slot discovery)
   sym.py callsites 0xTARGET            scan .text for E8 rel32 calls to target (factory case wiring)
+  sym.py scan HEXBYTES [--limit N] [--fn RE]  .text byte pattern -> containing fns; a field
+                                       displacement is little-endian ('scan 38560000' = [reg+0x5638]).
+                                       Caps at 96 hits: --limit 0 for all, --fn to filter by function.
   sym.py vtable 0xADDR [slots=16]      dump vtable slots resolved to names
   sym.py addr2fn 0xADDR                containing function (address_map bisect) + src file:line
   sym.py crash  dump.dmp [N] [--loose]  minidump: exception + symbolicated stack scan (--loose for our-build dumps)
@@ -22,6 +25,7 @@ Names: .ghidra-exports/address_map.json + src_index.json (file:line join).
 import bisect
 import json
 import os
+import re
 import string
 import struct
 import sys
@@ -241,10 +245,15 @@ def cmd_findptr(value):
         sys.exit(1)
 
 
-def cmd_scan(hexbytes, sect=b".text"):
+def cmd_scan(hexbytes, sect=b".text", limit=96, fnpat=None):
     """List code addresses containing a raw byte pattern (e.g. a field disp:
-    'scan 38560000' finds [reg+0x5638] accesses), mapped to containing fns."""
+    'scan 38560000' finds [reg+0x5638] accesses), mapped to containing fns.
+
+    limit=0 lifts the cap. fnpat keeps only hits whose containing function
+    matches the regex -- use it instead of a shell grep, so the cap counts
+    what you asked for rather than truncating before the interesting range."""
     pat = bytes.fromhex(hexbytes)
+    rx = re.compile(fnpat) if fnpat else None
     hits = 0
     for sec in pe().sections:
         if not sec.Name.startswith(sect):
@@ -255,11 +264,12 @@ def cmd_scan(hexbytes, sect=b".text"):
         while off != -1:
             va = base + off
             nm = addr2name(va) or "?"
-            print(f"0x{va:08x}  {nm}")
-            hits += 1
-            if hits > 96:
-                print("... (>96 hits, stopping)")
-                return
+            if rx is None or rx.search(nm):
+                print(f"0x{va:08x}  {nm}")
+                hits += 1
+                if limit and hits > limit:
+                    print(f"... (>{limit} hits, stopping -- raise with --limit N, 0 = all)")
+                    return
             off = data.find(pat, off + 1)
     if not hits:
         print("no hit")
@@ -377,7 +387,19 @@ def main():
         elif cmd == "callsites":
             cmd_callsites(parse_addr(rest[0]))
         elif cmd == "scan":
-            cmd_scan(rest[0])
+            limit = 96
+            fnpat = None
+            args = list(rest[1:])
+            while args:
+                if args[0] == "--limit":
+                    limit = int(args[1])
+                    args = args[2:]
+                elif args[0] == "--fn":
+                    fnpat = args[1]
+                    args = args[2:]
+                else:
+                    sys.exit(f"scan: unknown argument {args[0]}")
+            cmd_scan(rest[0], limit=limit, fnpat=fnpat)
         elif cmd == "vtable":
             cmd_vtable(parse_addr(rest[0]), int(rest[1]) if len(rest) > 1 else 16)
         elif cmd == "addr2fn":
