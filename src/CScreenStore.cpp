@@ -4809,7 +4809,176 @@ void CScreenStore::OnIdentifyItemButtonClick()
 // 0x67B8A0
 void CScreenStore::OnBuySpellButtonClick()
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 6999
+    UTIL_ASSERT(pGame != NULL);
+
+    DWORD nPartyGold = pGame->GetGameSave()->m_nPartyGold;
+
+    CTypedPtrList<CPtrList, CAIAction*> lActions;
+    CString sSpell;
+
+    CSingleLock renderLock(&(GetManager()->m_critSect), FALSE);
+    renderLock.Lock(INFINITE);
+
+    POSITION pos = m_lSpellItems.GetHeadPosition();
+    while (pos != NULL) {
+        CScreenStoreItem* pStoreItem = m_lSpellItems.GetAt(pos);
+        if (pStoreItem->m_bSelected) {
+            break;
+        }
+
+        m_lSpellItems.GetNext(pos);
+    }
+
+    if (pos != NULL) {
+        if (IsCharacterInRange(static_cast<SHORT>(m_nSelectedCharacter))
+            || (m_pMainPanel->m_nID == 5
+                && !IsCharacterAlive(static_cast<SHORT>(m_nSelectedCharacter)))) {
+            if (m_dwSpellCost <= nPartyGold) {
+                LONG nProprietorId = m_cAIProprietor.GetInstance();
+
+                CGameObject* pProprietor;
+
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetDeny(nProprietorId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        &pProprietor,
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+                if (rc == CGameObjectArray::SUCCESS) {
+                    // NOTE: Uninline.
+                    LONG nCharacterId = pGame->GetCharacterId(static_cast<SHORT>(m_nSelectedCharacter));
+
+                    CGameSprite* pSprite;
+
+                    do {
+                        rc = pGame->GetObjectArray()->GetDeny(nCharacterId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            reinterpret_cast<CGameObject**>(&pSprite),
+                            INFINITE);
+                    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+                    if (rc != CGameObjectArray::SUCCESS) {
+                        renderLock.Unlock();
+                        pGame->GetObjectArray()->ReleaseDeny(nProprietorId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            INFINITE);
+                        return;
+                    }
+
+                    pos = m_lSpellItems.GetHeadPosition();
+                    while (pos != NULL) {
+                        CScreenStoreItem* pStoreItem = m_lSpellItems.GetAt(pos);
+                        if (pStoreItem->m_bSelected
+                            && static_cast<LONG>(nPartyGold) >= pStoreItem->m_nValue) {
+                            nPartyGold -= pStoreItem->m_nValue;
+                            pStoreItem->m_bSelected = FALSE;
+                            pStoreItem->m_cResSpell.CopyToString(sSpell);
+
+                            CAIAction* pAction = new CAIAction();
+                            pAction->m_actionID = CAIAction::APPLYSPELL;
+                            pAction->m_acteeID.Set(pSprite->GetAIType());
+                            pAction->SetString1(sSpell);
+                            pAction->m_specificID3 = pSprite->GetDerivedStats()->GetClassMaskLevel(0xFFF);
+                            pAction->m_internalFlags |= 0x20000000;
+                            lActions.AddTail(pAction);
+
+                            CSound cSound;
+                            if (_stricmp(sSpell, "SPPR103") == 0) {
+                                cSound.SetResRef(CResRef("EFF_P26"), TRUE, TRUE);
+                            } else if (_stricmp(sSpell, "SPPR303") == 0) {
+                                cSound.SetResRef(CResRef("EFF_M10"), TRUE, TRUE);
+                            } else if (_stricmp(sSpell, "SPPR307") == 0) {
+                                cSound.SetResRef(CResRef("EFF_M10"), TRUE, TRUE);
+                            } else if (_stricmp(sSpell, "SPPR401") == 0) {
+                                cSound.SetResRef(CResRef("EFF_P26"), TRUE, TRUE);
+                            } else if (_stricmp(sSpell, "SPPR212") == 0) {
+                                cSound.SetResRef(CResRef("EFF_P17"), TRUE, TRUE);
+                            } else if (_stricmp(sSpell, "SPPR504") == 0) {
+                                cSound.SetResRef(CResRef("EFF_P18"), TRUE, TRUE);
+                            }
+
+                            PlayGUISound(cSound.GetResRef());
+                        }
+
+                        m_lSpellItems.GetNext(pos);
+                    }
+
+                    POSITION posAction = lActions.GetHeadPosition();
+                    while (posAction != NULL) {
+                        CAIAction* pAction = lActions.GetNext(posAction);
+
+                        CMessage* message = new CMessageAddAction(*pAction,
+                            nProprietorId,
+                            nCharacterId);
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+                        delete pAction;
+                    }
+
+                    lActions.RemoveAll();
+
+                    pSprite->field_562C = 1;
+                    pSprite->ProcessEffectList();
+
+                    // NOTE: Uninline.
+                    BOOLEAN bInControl = pSprite->InControl();
+
+                    pGame->GetObjectArray()->ReleaseDeny(nCharacterId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                    pGame->GetObjectArray()->ReleaseDeny(nProprietorId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+
+                    pGame->AddPartyGold(nPartyGold - pGame->GetGameSave()->m_nPartyGold);
+
+                    if (!bInControl
+                        && (_stricmp(sSpell, "SPPR504") == 0
+                            || _stricmp(sSpell, "SPPR712") == 0)) {
+                        for (INT nPortraitNum = 0; nPortraitNum < 6; nPortraitNum++) {
+                            if (IsCharacterInRange(static_cast<SHORT>(nPortraitNum))
+                                && IsCharacterAlive(static_cast<SHORT>(nPortraitNum)) == 1) {
+                                DWORD nOldPortraitNum = m_nSelectedCharacter;
+
+                                OnPortraitLClick(nPortraitNum);
+                                CheckEnablePortaits(1);
+
+                                CUIPanel* pPanel = m_cUIManager.GetPanel(1);
+                                CUIControlBase* pControl = pPanel->GetControl(nOldPortraitNum);
+                                pControl->SetActive(FALSE);
+                                pControl->SetInactiveRender(FALSE);
+                                pPanel->InvalidateRect(0);
+                                break;
+                            }
+                        }
+                    }
+
+                    UpdateSpellItems();
+
+                    // NOTE: Uninline.
+                    SetTopSpellItem(0);
+
+                    // NOTE: Uninline.
+                    UpdateSpellCost();
+
+                    UpdateMainPanel();
+                }
+            } else {
+                m_nErrorState = 2;
+                m_strErrorText = 11048;
+                m_strErrorButtonText[0] = 11973;
+                SummonPopup(10);
+            }
+        }
+    }
+
+    renderLock.Unlock();
 }
 
 // 0x67C570
