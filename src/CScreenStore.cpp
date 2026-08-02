@@ -2752,6 +2752,95 @@ void CScreenStore::UpdateSpellCost()
     }
 }
 
+// 0x677E60
+BOOL CScreenStore::IsBuyItemButtonClickable()
+{
+    DWORD nItems = 0;
+
+    if ((m_pStore->m_header.m_nStoreFlags & 0x1) == 0) {
+        return FALSE;
+    }
+
+    if (m_pBag != NULL && (m_pBag->m_header.m_nStoreFlags & 0x2) == 0) {
+        return FALSE;
+    }
+
+    POSITION pos = m_lStoreItems.GetHeadPosition();
+    if (pos == NULL) {
+        return FALSE;
+    }
+
+    while (pos != NULL) {
+        CScreenStoreItem* pStoreItem = m_lStoreItems.GetAt(pos);
+        if (pStoreItem->m_bSelected) {
+            if (pStoreItem->m_pItem->GetMaxStackable() > 1) {
+                nItems += (pStoreItem->m_pItem->GetMaxStackable() + pStoreItem->m_nCount - 1) / pStoreItem->m_pItem->GetMaxStackable();
+            } else {
+                nItems += pStoreItem->m_nCount;
+            }
+        }
+
+        m_lStoreItems.GetNext(pos);
+    }
+
+    if (nItems == 0) {
+        return FALSE;
+    }
+
+    if (m_pBag != NULL
+        && m_pBag->m_header.m_nCapacity != 0
+        && m_pBag->GetNumItems() + nItems > m_pBag->m_header.m_nCapacity) {
+        return FALSE;
+    }
+
+    if (m_pBag != NULL) {
+        return TRUE;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 5020
+    UTIL_ASSERT(pGame != NULL);
+
+    CGameSave* pSave = pGame->GetGameSave();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 5022
+    UTIL_ASSERT(pSave != NULL);
+
+    LONG nCharacterId = CGameObjectArray::INVALID_INDEX;
+    if (m_nSelectedCharacter < g_pBaldurChitin->GetObjectGame()->m_nCharacters) {
+        nCharacterId = g_pBaldurChitin->GetObjectGame()->m_characterPortraits[m_nSelectedCharacter];
+    }
+
+    CGameObject* pObject;
+
+    // NOTE: Unlike every other GetShare loop in this screen, the original only
+    // spins on DENIED, and it never calls ReleaseShare on the way out.
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+        // __LINE__: 5031
+        UTIL_ASSERT(FALSE);
+    }
+
+    CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+
+    if (pSprite->m_equipment.GetUsedSlotsCount() + nItems > CScreenInventory::PERSONAL_INVENTORY_SIZE) {
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 // 0x678050
 void CScreenStore::OnBuyItemButtonClick()
 {

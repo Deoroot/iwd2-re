@@ -155,6 +155,7 @@ public:
     void UpdateIdentifyCost();
     void UpdateStoreCost();
     void UpdateSpellCost();
+    BOOL IsBuyItemButtonClickable();
     void OnBuyItemButtonClick();
     BOOL IsSellItemButtonClickable();
     void OnSellItemButtonClick();
