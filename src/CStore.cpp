@@ -74,6 +74,8 @@ void CStore::SetResRef(const CResRef& resRef)
         delete m_pSpells;
     }
 
+    m_resRef = resRef;
+
     storeData.SetResRef(resRef, TRUE, TRUE);
 
     BYTE* pData = reinterpret_cast<BYTE*>(storeData.GetData());
