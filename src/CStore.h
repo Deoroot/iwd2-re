@@ -53,7 +53,7 @@ public:
     /* 011C */ CStoreFileSpell* m_pSpells;
     /* 0120 */ DWORD m_nSpells;
     /* 0124 */ BYTE m_pVersion[8];
-    /* 0128 */ BOOL m_bLocalCopy;
+    /* 012C */ BOOL m_bLocalCopy;
 };
 
 class CStoreFile : public CResHelper<CResStore, 1014> {
