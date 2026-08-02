@@ -99,7 +99,23 @@ BOOL CGameRemoteObjectArray::Add(PLAYER_ID remotePlayerID, LONG remoteObjectID, 
     LONG tempObjectID;
 
     // NOTE: Uninline.
-    if (Find(remotePlayerID, remoteObjectID, tempObjectID)) {
+    //
+    // The original transposes the two key arguments at this call site. The
+    // inlined lookup at 0x59AFB5 buckets on `remotePlayerID` and matches
+    // entry->remotePlayerID against `remoteObjectID` (and entry->remoteObjectID
+    // against `remotePlayerID`), where the untransposed CGameRemoteObjectArray::Find
+    // at 0x59B300 buckets on `remoteObjectID`. The compiler even recomputes the
+    // bucket index instead of reusing the one held in EBX since 0x59AF0F, which
+    // it could not do if the two indices were the same value.
+    //
+    // The duplicate check is therefore dead for real player IDs (0 and 1 both
+    // bucket to 0, and no entry has remotePlayerID == a full object ID), so Add
+    // always inserts. That is what lets CGameRemoteObjectArray::ChangeControl
+    // re-claim an object already registered under the new player ID: without the
+    // transposition Add refuses, m_remotePlayerID stays 0, and every
+    // CScreenWorld::StartStore-style InControl() check fails after a load.
+    // Reproduced verbatim - the behaviour of the shipped game depends on it.
+    if (Find(static_cast<DWORD>(remoteObjectID), static_cast<LONG>(remotePlayerID), tempObjectID)) {
         // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
         // __LINE__: 1313
         UTIL_ASSERT(localObjectID == tempObjectID);
