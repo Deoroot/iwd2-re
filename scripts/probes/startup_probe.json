@@ -212,6 +212,109 @@
       ],
       "ret": "ptr",
       "max": 400
+    },
+    {
+      "addr": "0x4D41D0",
+      "name": "CUIManager::OnLButtonDown",
+      "args": [
+        "ptr"
+      ],
+      "max": 10
+    },
+    {
+      "addr": "0x4D2D80",
+      "name": "CUIPanel::OnLButtonDown",
+      "args": [
+        "ptr"
+      ],
+      "ret": "u32",
+      "max": 30,
+      "this_dump": [
+        {
+          "off": "0x20",
+          "type": "u32",
+          "label": "panelId"
+        },
+        {
+          "off": "0xF4",
+          "type": "u32",
+          "label": "panelActive"
+        }
+      ]
+    },
+    {
+      "addr": "0x4D4D70",
+      "name": "CUIControlButton::OnLButtonDown",
+      "ret": "u32",
+      "max": 10,
+      "this_dump": [
+        {
+          "off": "0x0A",
+          "type": "u32",
+          "label": "ctrlId"
+        }
+      ]
+    },
+    {
+      "addr": "0x4D42B0",
+      "name": "CUIManager::OnLButtonUp",
+      "args": [
+        "ptr"
+      ],
+      "max": 10
+    },
+    {
+      "addr": "0x4D4E10",
+      "name": "CUIControlButton::OnLButtonUp",
+      "max": 10,
+      "this_dump": [
+        {
+          "off": "0x0A",
+          "type": "u32",
+          "label": "ctrlId"
+        }
+      ]
+    },
+    {
+      "addr": "0x603170",
+      "name": "CUIControlButtonConnectionLoadGame::OnLButtonClick",
+      "max": 5,
+      "bt": true
+    },
+    {
+      "addr": "0x5FB2B0",
+      "name": "CScreenConnection::OnLButtonDown",
+      "args": [
+        "s32",
+        "s32"
+      ],
+      "max": 10,
+      "this_dump": [
+        {
+          "off": "0x4B2",
+          "type": "u32",
+          "label": "allowInput"
+        },
+        {
+          "off": "0x49A",
+          "type": "u8",
+          "label": "emWaiting"
+        }
+      ]
+    },
+    {
+      "addr": "0x5FB330",
+      "name": "CScreenConnection::OnMouseMove",
+      "args": [
+        "s32",
+        "s32"
+      ],
+      "max": 5
+    },
+    {
+      "addr": "0x648ED0",
+      "name": "CScreenMultiPlayer::EngineActivated",
+      "max": 5
     }
   ]
 }

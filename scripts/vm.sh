@@ -41,10 +41,9 @@
 #                                      Exit 0 CLEAN / 1 CRASH / 2 NOT-LOADED|NOT-EXERCISED|NO-VERDICT.
 #                                      Trace -> tmp_orig_trace.jsonl; crash frames symbolized via
 #                                      sym.py (the original has no PDB). Table schema: frida_hooks.py.
-#                                      NOTE: --load-slot does not land yet (the Load click blocks on
-#                                      the UI lock -- see frida_orig.py's KNOWN LIMITATION); it reports
-#                                      NOT-LOADED rather than a false pass. --load-slot -1 traces the
-#                                      startup/menu path and works today.
+#                                      Gets into a save by itself: skips the movies, dismisses the
+#                                      network popup, calibrates the cursor, clicks Load Game then
+#                                      Done on arbitration. --load-slot -1 stops at the menu.
 set -euo pipefail
 
 VM="win11vm"

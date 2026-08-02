@@ -17,32 +17,23 @@ WHY IT SPAWNS RATHER THAN ATTACHES: the interesting questions are usually about
 startup and load order (when does m_idLocalPlayer become 1?), and attaching to a
 game that already reached the main menu has missed all of it.
 
-HOW IT DRIVES THE MENU: by CALLING the engine, not by sending keystrokes.  Our
-build's auto-load is two engine calls (CScreenConnection.cpp:816-827 ->
-OnLoadGameButtonClick(FALSE), CScreenLoad.cpp:219-248 -> LoadGame(nSlot)); the
-original has those same two functions, so we hook the enclosing update, then
-call them through a NativeFunction.  Zero struct offsets, no window focus, no
-timing races -- and it replaces the 172KB of synthetic Escape/Space keys in
-frida_intro_trace.py.  Input-driving order per CLAUDE.md: engine call first.
+HOW IT GETS INTO A SAVE, unattended, with nobody at the keyboard:
+
+  skip the intro movies -> wait for input to go live -> dismiss the network popup
+  -> calibrate the cursor map -> click Load Game -> LoadGame(slot)
+  -> click Done on Character Arbitration -> world engine activated
+
+Every click is a REAL click: the cursor is moved onto the control and the left
+button is pressed, then the engine's own poll (CChitin::AsynchronousUpdate:1537)
+dispatches OnLButtonDown/Up exactly as it would for a hand.  That indirection is
+not decoration -- calling the handlers directly deadlocks, see the comment on the
+input block in DRIVER_JS.  Each step below it is there because a measured run
+failed without it; the reasons are in the comments, and none of them are guessable
+from the decompile.
 
 --load-slot is a VISIBLE ROW of the load screen, the same number our build's
 --slot takes (CScreenLoad.cpp:240-246), so the two sides stay comparable.
-
-KNOWN LIMITATION -- the load driver does not land yet.  Everything up to the
-main menu works: the movies are skipped, the service-provider enumeration
-finishes, popup 19 is dismissed, m_bAllowInput reads 1 and m_nProtocol reads 0.
-The Load click itself then blocks on the UI manager's critical section
-(CScreenConnection.cpp:1142-1143): GetPanel(6) at :1145 never runs and a thread
-parks in NtWaitForAlertByThreadId while every engine thread idles.  Issuing it
-from onEnter, from onLeave, and from the engine's own mid-body call site (after
-CUIManager::TimerAsynchronousUpdate) all block identically, so the section is
-held by another thread rather than by our own call path.  Until that is
-understood, --load-slot ends in RESULT: NOT-LOADED and exit 2 -- it reports the
-failure instead of passing a run that proved nothing.  Traces that do not need a
-save (startup, menu, network setup) work today: pass --load-slot -1.
-NEXT LEAD: dispatch the click through the engine's own input path
-(OnLButtonDown/Up at the control's centre, the way src/AutoUI.cpp does it in our
-build) instead of calling the handler directly.
+--load-slot -1 leaves the game at the menu, for startup/menu/network traces.
 
 NOT for our build: its addresses are a different image entirely, and the debug
 build's +0xA base shift breaks Frida member reads (53fe6dccc766).  Instrument
@@ -89,12 +80,28 @@ CONN_READY      = 0x601CB0   # CScreenConnection::AutoSelectServiceProvider
 CONN_DISMISS    = 0x5FC850   # CScreenConnection::DismissPopup
 UIMGR_UPDATE    = 0x4D3F00   # CUIManager::TimerAsynchronousUpdate
 UIMGR_OFF       = 0x0030     # CBaldurEngine::m_cUIManager
+UIMGR_GETPANEL  = 0x4D4000   # CUIManager::GetPanel(DWORD nID)
+PANEL_GETCONTROL = 0x4D2CA0  # CUIPanel::GetControl(DWORD nID)
+CONN_LBTNDOWN   = 0x5FB2B0   # CScreenConnection::OnLButtonDown(CPoint)
+CONN_LBTNUP     = 0x5FB2F0   # CScreenConnection::OnLButtonUp(CPoint)
+CONN_MOUSEMOVE  = 0x5FB330   # CScreenConnection::OnMouseMove(CPoint)
+CHITIN_PTPOINTER = 0x1906    # CChitin::m_ptPointer
+CHITIN_LBUTTON   = 0x0004    # CChitin::m_mouseLButton (the VK the engine polls)
+
+# Load Game on GUICONN is panel 0 / control 7 (CUIControlFactory.cpp:316).
+LOAD_PANEL, LOAD_CONTROL = 0, 7
+# Binary-mirror layouts, pack(2): CUIPanel::m_ptOrigin +0x24, CUIControlBase
+# m_ptOrigin +0x0E / m_size +0x16 / m_bActive +0x1E.
+PANEL_ORIGIN, CTRL_ORIGIN, CTRL_SIZE, CTRL_ACTIVE = 0x24, 0x0E, 0x16, 0x1E
 CONN_PROTOCOL   = 0x0466     # CScreenConnection::m_nProtocol      (0 = single player)
 CONN_ALLOWINPUT = 0x04B2     # CScreenConnection::m_bAllowInput
+CONN_EMWAITING  = 0x049A     # CScreenConnection::m_bEMWaiting -- gates OnLButtonDown
 LOAD_BUTTON     = 0x5FCA00   # CScreenConnection::OnLoadGameButtonClick(BOOL bQuick)
 LOAD_ACTIVATED  = 0x63B410   # CScreenLoad::EngineActivated
 LOAD_GAME       = 0x63BE80   # CScreenLoad::LoadGame(INT nSlot)
 WORLD_ACTIVATED = 0x6869C0   # CScreenWorld::EngineActivated -- the "loaded" signal
+MP_ACTIVATED    = 0x648ED0   # CScreenMultiPlayer::EngineActivated (Character Arbitration)
+MP_PANEL, MP_DONE = 0, 28    # GUIMP Done button (CUIControlFactory.cpp:583)
 PLAY_MOVIE_INT  = 0x43F230   # CBaldurProjector::PlayMovieInternal(const CResRef&, BOOL)
 
 # The intro movies are not cosmetic here, they are a hard block: the connection
@@ -119,23 +126,145 @@ const LOAD_SLOT = %(slot)d;
 const SETTLE = %(settle)d;
 const FALLBACK_TICKS = %(fallback)d;
 let ticks = 0, settled = 0, inputReady = false, dismissed = false;
-let clicked = false, loading = false, connThis = null;
+let loading = false, connThis = null, mpThis = null;
 
-const OnLoadGameButtonClick = new NativeFunction(ptr(%(load_button)#x), 'void',
-                                                ['pointer', 'int'], 'thiscall');
 const LoadGame = new NativeFunction(ptr(%(load_game)#x), 'void',
                                     ['pointer', 'int'], 'thiscall');
 const DismissPopup = new NativeFunction(ptr(%(conn_dismiss)#x), 'void',
                                         ['pointer'], 'thiscall');
+const GetPanel = new NativeFunction(ptr(%(getpanel)#x), 'pointer',
+                                    ['pointer', 'uint32'], 'thiscall');
+const GetControl = new NativeFunction(ptr(%(getcontrol)#x), 'pointer',
+                                      ['pointer', 'uint32'], 'thiscall');
+
+// The engine dispatches its own clicks: CChitin::AsynchronousUpdate:1537-1577
+// polls GetAsyncKeyState(m_mouseLButton) and calls pActiveEngine->OnLButtonDown/Up
+// with m_ptPointer -- but only `if (m_ptPointer.x != -1)`, and m_ptPointer comes
+// from the real cursor (:1439/:1488), which reads (-1,-1) whenever the pointer is
+// off the window. Unattended, the engine therefore never dispatches anything.
+// Calling the handlers ourselves does not work either: OnLoadGameButtonClick opens
+// by taking the UI manager's critical section (CScreenConnection.cpp:1142-1143)
+// and never returns from it, from any of the three hook positions tried. So we
+// move the real cursor onto the control and let the engine's own poll see the
+// press -- same code path a hand takes, right thread, right lock state. This is
+// the "polite physical hijack" tier, which CLAUDE.md allows for unattended runs.
+// Real OS input rather than an Interceptor on GetAsyncKeyState: the engine polls
+// that API from several threads every tick, and interposing on it for the whole
+// run is a lot of hot-path overhead for the same effect.
+// (Module.getExportByName's two-argument form is gone in Frida 17 -- go through
+// the module object.)
+const user32 = Process.getModuleByName('user32.dll');
+const SetCursorPos = new NativeFunction(user32.getExportByName('SetCursorPos'),
+                                        'int', ['int', 'int'], 'stdcall');
+const mouse_event = new NativeFunction(user32.getExportByName('mouse_event'), 'void',
+                                       ['uint32', 'uint32', 'uint32', 'uint32', 'pointer'],
+                                       'stdcall');
+const MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
+
+function readPointer() {
+  const c = ptr(0x8CF6D8).readPointer().add(%(ptpointer)#x);
+  return [c.readS32(), c.add(4).readS32()];
+}
+
+// SetCursorPos speaks desktop pixels; the engine works in 800x600 game space and
+// rescales what it reads (CChitin.cpp:1453-1474). The factor depends on the
+// desktop mode, so measure it rather than assume: two probe positions give the
+// linear map per axis, which inverts to the desktop point that puts m_ptPointer
+// exactly on a control. Aiming blind lands elsewhere -- the first run put
+// (645,295) at game (402,205) and the click hit no control at all.
+let calibrated = false, calStep = 0, g1x = 0, g1y = 0;
+let mapAx = 1, mapBx = 0, mapAy = 1, mapBy = 0;
+
+function calibrate() {
+  if (calStep === 0) { SetCursorPos(200, 200); calStep = 1; return false; }
+  const g = readPointer();
+  if (calStep === 1) { g1x = g[0]; g1y = g[1]; SetCursorPos(600, 400); calStep = 2; return false; }
+  const ax = (g[0] - g1x) / 400.0, ay = (g[1] - g1y) / 200.0;
+  if (ax === 0 || ay === 0) { send({ tag: 'drive', step: 'clickFailed', why: 'cursor map is degenerate' }); return null; }
+  mapAx = ax; mapBx = g1x - ax * 200;
+  mapAy = ay; mapBy = g1y - ay * 200;
+  calibrated = true;
+  send({ tag: 'drive', step: 'calibrated', ax: mapAx, bx: mapBx, ay: mapAy, by: mapBy });
+  return false;
+}
+function aimAt(x, y, dx, dy) {
+  SetCursorPos(Math.round((x - mapBx) / mapAx) + (dx | 0),
+               Math.round((y - mapBy) / mapAy) + (dy | 0));
+}
+
+// One click job at a time: {thiz, panel, ctrl, label}. The manager update of the
+// owning screen runs it, so a job posted for a screen that is not up yet simply
+// waits until that screen starts ticking.
+let job = null;
+
+function runJob() {
+  if (job.state === 'resolve') {
+    // The control origin is panel-relative, so the panel origin is added back --
+    // same arithmetic as src/AutoUI.cpp:743-745.
+    const panel = GetPanel(job.thiz.add(%(uimgr_off)#x), job.panel);
+    if (panel.isNull()) { finishJob('no panel'); return; }
+    const ctrl = GetControl(panel, job.ctrl);
+    if (ctrl.isNull()) { finishJob('no control'); return; }
+    // A control the engine has disabled swallows the click silently; wait for it
+    // rather than clicking into the void (the arbitration Done button only wakes
+    // up once the server has finished loading).
+    if (ctrl.add(%(ctrl_active)#x).readU8() === 0) {
+      if (++job.waited > 600) { finishJob('control never became active'); }
+      return;
+    }
+    job.x = panel.add(%(panel_origin)#x).readS32()
+          + ctrl.add(%(ctrl_origin)#x).readS32()
+          + (ctrl.add(%(ctrl_size)#x).readS32() >> 1);
+    job.y = panel.add(%(panel_origin)#x + 4).readS32()
+          + ctrl.add(%(ctrl_origin)#x + 4).readS32()
+          + (ctrl.add(%(ctrl_size)#x + 4).readS32() >> 1);
+    aimAt(job.x, job.y, 0, 0);
+    job.state = 'aim';
+    send({ tag: 'drive', step: 'aim', target: job.label, x: job.x, y: job.y });
+    return;
+  }
+
+  if (job.state === 'aim') {
+    const at = readPointer();
+    if (Math.abs(at[0] - job.x) > 2 || Math.abs(at[1] - job.y) > 2) {
+      // Linear map, so one correction is normally enough; retry a few times to
+      // absorb rounding and a cursor the desktop clamped.
+      if (++job.aimTries > 4) { finishJob('cursor never reached the control'); return; }
+      aimAt(job.x, job.y, job.x - at[0], job.y - at[1]);
+      return;
+    }
+    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, NULL);
+    job.state = 'press'; job.pressTicks = 0;
+    send({ tag: 'drive', step: 'press', target: job.label, x: job.x, y: job.y, ptPointer: at });
+    return;
+  }
+
+  // Hold a few ticks before releasing: the engine samples the button state once
+  // per tick, so a one-tick press can fall between two polls.
+  if (job.state === 'press') {
+    if (++job.pressTicks < 4) return;
+    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, NULL);
+    send({ tag: 'drive', step: 'release', target: job.label });
+    finishJob(null);
+  }
+}
+
+function finishJob(why) {
+  if (why) send({ tag: 'drive', step: 'clickFailed', target: job.label, why: why });
+  job = null;
+}
+function postJob(thiz, panel, ctrl, label) {
+  job = { thiz: thiz, panel: panel, ctrl: ctrl, label: label,
+          state: 'resolve', waited: 0, aimTries: 0, pressTicks: 0, x: 0, y: 0 };
+}
 
 // The connection screen comes up with popup 19 ("Finding the network devices on
 // this host...") and m_bAllowInput FALSE, and stays that way until the service
-// provider enumeration counts down (CScreenConnection.cpp:701-746).  Clicking
-// before that FREEZES the game -- measured: the engine tick stopped dead on the
-// click, twice, identically.  AutoSelectServiceProvider is called on the very
-// line that sets m_bAllowInput = TRUE, so it is the "input is live" event.
-// (DismissPopup is NOT: the original skips it when byte_8F376C is set, and it
-// never fired in any measured run.)
+// provider enumeration counts down (CScreenConnection.cpp:701-746). Clicking
+// before that FREEZES the game -- measured, twice, identically.
+// AutoSelectServiceProvider is called on the very line that sets
+// m_bAllowInput = TRUE, so it is the "input is live" event. (DismissPopup is NOT:
+// the original skips it when byte_8F376C is set, and it never fired in any run.)
 Interceptor.attach(ptr(%(conn_ready)#x), {
   onEnter() { if (!inputReady) { inputReady = true; send({ tag: 'drive', step: 'inputReady', ticks: ticks }); } }
 });
@@ -144,47 +273,56 @@ Interceptor.attach(ptr(%(conn_update)#x), {
   onEnter() { connThis = this.context.ecx; ticks++; }
 });
 
-// WHERE the click is issued matters as much as when. OnLoadGameButtonClick opens
-// by taking the UI manager's critical section (CScreenConnection.cpp:1142-1143);
-// issued from either boundary of TimerAsynchronousUpdate that acquire never
-// returns -- measured from both onEnter and onLeave: the click record is the last
-// line of the trace, GetPanel(6) at :1145 never runs, and a thread sits in
-// NtWaitForAlertByThreadId while every engine thread idles.
-// The engine's own call site is mid-body (:816), right after
-// m_cUIManager.TimerAsynchronousUpdate() at :813 -- a position no hook on the
-// enclosing function's boundaries can reach. So we hook that inner call instead
-// and drive from ITS onLeave, which lands exactly where the engine would have
-// called, in the lock state it expects. m_cUIManager is CBaldurEngine+0x30, which
-// is how we tell the connection screen's manager from every other screen's.
+Interceptor.attach(ptr(%(mp_activated)#x), {
+  onEnter() {
+    mpThis = this.context.ecx;
+    if (LOAD_SLOT < 0) return;
+    // Loading through the connection screen is the multiplayer HOST path: it ends
+    // in SetArbitrationLockStatus (CScreenConnection.cpp:1285-1287), so the game
+    // parks on Character Arbitration until Done is pressed. Done is panel 0 /
+    // control 28 on GUIMP (CUIControlFactory.cpp:583).
+    send({ tag: 'drive', step: 'arbitration' });
+    postJob(mpThis, %(mp_panel)d, %(mp_done)d, 'Done');
+  }
+});
+
+// WHERE the click is driven from matters: the engine's own auto-load call site is
+// mid-body (CScreenConnection.cpp:816), right after m_cUIManager.TimerAsynchronousUpdate()
+// at :813 -- a position no hook on the enclosing function's boundaries can reach.
+// Hooking that inner call puts us exactly there. m_cUIManager is CBaldurEngine+0x30,
+// which is how we tell one screen's manager from another's.
 Interceptor.attach(ptr(%(uimgr_update)#x), {
   onEnter() { this.mgr = this.context.ecx; },
   onLeave() {
-    if (clicked || LOAD_SLOT < 0 || connThis === null) return;
+    if (LOAD_SLOT < 0) return;
+    if (!calibrated) {
+      // Calibration only needs a screen that is ticking; the connection screen is
+      // the first one up.
+      if (connThis === null || !this.mgr.equals(connThis.add(%(uimgr_off)#x))) return;
+      if (calibrate() === null) { job = null; }
+      return;
+    }
+    if (job !== null) {
+      if (!this.mgr.equals(job.thiz.add(%(uimgr_off)#x))) return;
+      runJob();
+      return;
+    }
+    if (dismissed || connThis === null) return;
     if (!this.mgr.equals(connThis.add(%(uimgr_off)#x))) return;
     // FALLBACK_TICKS keeps a config that never reaches AutoSelectServiceProvider
     // from hanging here forever; it is a backstop, not the normal path.
     if (!inputReady && ticks < FALLBACK_TICKS) return;
-
-    // Popup 19 has to go before the click. The engine dismisses it itself only
-    // when byte_8F376C is clear, and that flag is set the moment the intro
-    // movies are QUEUED (CScreenConnection.cpp:688) -- not when they finish. So
-    // skipping the movies leaves the flag set and the engine skips its own
-    // DismissPopup (:704), leaving the popup owning the screen while the Load
-    // handler reaches for panel 6. Calling it is the branch the no-movie path
-    // would have taken.
-    if (!dismissed) {
-      dismissed = true;
-      send({ tag: 'drive', step: 'DismissPopup', ticks: ticks });
-      DismissPopup(connThis);
-      return;
-    }
     if (++settled < SETTLE) return;
-    clicked = true;
-    send({ tag: 'drive', step: 'OnLoadGameButtonClick', ticks: ticks,
-           allowInput: guard(() => connThis.add(%(allow_input)#x).readU32()),
-           protocol: guard(() => connThis.add(%(protocol)#x).readS32()),
-           pGame: guard(() => ptr(0x8CF6DC).readPointer().add(0x1C54).readPointer().toString()) });
-    OnLoadGameButtonClick(connThis, 0);
+    // Popup 19 has to go before the click. The engine dismisses it itself only
+    // when byte_8F376C is clear, and that flag is set the moment the intro movies
+    // are QUEUED (CScreenConnection.cpp:688), not when they finish -- so skipping
+    // the movies leaves the engine's own DismissPopup (:704) unreached and the
+    // popup owning the screen. Calling it is the branch the no-movie path takes.
+    dismissed = true;
+    send({ tag: 'drive', step: 'DismissPopup', ticks: ticks });
+    DismissPopup(connThis);
+    // Load Game is panel 0 / control 7 on GUICONN (CUIControlFactory.cpp:316).
+    postJob(connThis, %(load_panel)d, %(load_control)d, 'LoadGame');
   }
 });
 
@@ -299,7 +437,15 @@ def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True) -> st
         "conn_update": CONN_UPDATE, "conn_ready": CONN_READY,
         "conn_dismiss": CONN_DISMISS,
         "uimgr_update": UIMGR_UPDATE, "uimgr_off": UIMGR_OFF,
+        "getpanel": UIMGR_GETPANEL, "getcontrol": PANEL_GETCONTROL,
+        "mousemove": CONN_MOUSEMOVE, "lbtndown": CONN_LBTNDOWN, "lbtnup": CONN_LBTNUP,
+        "load_panel": LOAD_PANEL, "load_control": LOAD_CONTROL,
+        "mp_activated": MP_ACTIVATED, "mp_panel": MP_PANEL, "mp_done": MP_DONE,
+        "panel_origin": PANEL_ORIGIN, "ctrl_origin": CTRL_ORIGIN,
+        "ctrl_size": CTRL_SIZE, "ctrl_active": CTRL_ACTIVE,
         "allow_input": CONN_ALLOWINPUT, "protocol": CONN_PROTOCOL,
+        "em_waiting": CONN_EMWAITING,
+        "ptpointer": CHITIN_PTPOINTER, "lbutton_off": CHITIN_LBUTTON,
         "load_button": LOAD_BUTTON,
         "load_activated": LOAD_ACTIVATED, "load_game": LOAD_GAME,
         "world_activated": WORLD_ACTIVATED,

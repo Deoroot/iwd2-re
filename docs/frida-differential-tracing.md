@@ -171,8 +171,18 @@ the same discipline as smoke's `--hit`, so a green run cannot be a false green.
 - **It spawns rather than attaches**, because the questions worth asking are
   usually about startup and load order, and a game already at the main menu has
   missed all of it.
-- **It drives by CALLING the engine**, not by sending keystrokes — CLAUDE.md's
-  input-driving order. Two things measured the hard way while building it:
+- **Every click is a real click.** The cursor is moved onto the control and the
+  left button pressed, then the engine's own poll (`CChitin::AsynchronousUpdate:1537`)
+  dispatches `OnLButtonDown/Up`. Calling the handlers directly does not work:
+  `OnLoadGameButtonClick` opens by taking the UI manager's critical section
+  (`CScreenConnection.cpp:1142-1143`) and never returns from it — from `onEnter`, from
+  `onLeave`, and from the engine's own mid-body call site alike. The engine polls
+  `m_ptPointer`, which comes from the real cursor and reads `(-1,-1)` when the pointer
+  is off the window, so unattended it never dispatches anything on its own.
+  `SetCursorPos` speaks desktop pixels while the engine works in 800×600 game space,
+  so the driver measures the linear map with two probe points instead of assuming it —
+  aiming blind put `(645,295)` at game `(402,205)` and hit no control.
+- **Getting into a save takes four steps, none of them guessable statically:**
   - The intro movies are a hard block, not decoration. The connection screen runs
     one update, then `PlayMovieInternal` does `SelectEngine(projector)` and the menu
     stops (1 update in 32714 engine ticks). The driver no-ops that one chokepoint.
@@ -180,10 +190,20 @@ the same discipline as smoke's `--hit`, so a green run cannot be a false green.
     movies are *queued* (`CScreenConnection.cpp:688`), not when they finish — so the
     engine skips its own `DismissPopup` (`:704`) and popup 19 ("Finding the network
     devices...") stays on the stack forever. The driver calls `DismissPopup` itself.
+  - Input only goes live when `AutoSelectServiceProvider` runs, which is the line that
+    sets `m_bAllowInput = TRUE` (`:741-743`). Clicking before that freezes the game.
+  - Loading through the connection screen is the multiplayer HOST path — it ends in
+    `SetArbitrationLockStatus` (`:1285-1287`) — so the game parks on Character
+    Arbitration until Done (GUIMP panel 0 / control 28) is pressed.
 - **Our side of a differential stays `Iwd2DebugLog`.** This tool is original-only
   on purpose: our build is a different image, and the debug build's +0xA base shift
   breaks Frida member reads (`53fe6dccc766`).
 
-Open: `--load-slot` reaches the menu with input live but the Load click blocks on
-the UI manager's critical section; see the KNOWN LIMITATION block in
-`scripts/frida_orig.py`. `--load-slot -1` (startup / menu / network traces) works.
+First result off it: the store-ownership question (memlite `5c1c8585edfa`) had been
+stuck on a hypothesis that `m_idLocalPlayer` was still 0 during load in the original.
+It is not — it reads 1 at all 177 `CGameObjectArray::Add` calls, exactly as ours does.
+The real divergence is one level down: the original's `ChangeControlOnLoadGame` claims
+each object with `ChangeControl(old=(0,id), new=(1,id), bLocalControl=0)`, which returns
+1 and makes **zero** calls to `CGameRemoteObjectArray::Add`. Ours routes that same claim
+through `Add`, which refuses because the entry already exists. Two days of static
+argument, one unattended run.
