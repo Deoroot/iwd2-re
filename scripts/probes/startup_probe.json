@@ -1,0 +1,217 @@
+{
+  "_why": "How far does the original get when spawned unattended, and where does the load driver's click die? One hook per screen entry point, so the tag alone says where it stalled -- no pointer-to-screen mapping needed. CChitin::AsynchronousUpdate proves the engine tick runs at all (its HITS count is the tick total; `max` only caps logging). The CNetwork/popup hooks cover every branch of CScreenConnection::OnLoadGameButtonClick (CScreenConnection.cpp:1212-1296): connection init -> HostNewSession -> CreatePlayer -> StartLoad, with SummonPopup as the failure exit.",
+  "log": "tmp_startup_probe.log",
+  "hooks": [
+    {
+      "addr": "0x78F0E0",
+      "name": "CChitin::AsynchronousUpdate",
+      "max": 3
+    },
+    {
+      "addr": "0x647160",
+      "name": "CScreenMovies::EngineActivated",
+      "max": 5
+    },
+    {
+      "addr": "0x5FA9B0",
+      "name": "CScreenConnection::EngineActivated",
+      "max": 5
+    },
+    {
+      "addr": "0x5FB3E0",
+      "name": "CScreenConnection::TimerAsynchronousUpdate",
+      "max": 3
+    },
+    {
+      "addr": "0x63B410",
+      "name": "CScreenLoad::EngineActivated",
+      "max": 5
+    },
+    {
+      "addr": "0x6869C0",
+      "name": "CScreenWorld::EngineActivated",
+      "max": 5
+    },
+    {
+      "addr": "0x660850",
+      "name": "CScreenSinglePlayer::EngineActivated",
+      "max": 5
+    },
+    {
+      "addr": "0x7A5600",
+      "name": "CNetwork::InitializeConnectionToServiceProvider",
+      "args": [
+        "u8"
+      ],
+      "ret": "u8",
+      "max": 10
+    },
+    {
+      "addr": "0x7A6270",
+      "name": "CNetwork::HostNewSession",
+      "ret": "u8",
+      "max": 10
+    },
+    {
+      "addr": "0x7A6960",
+      "name": "CNetwork::CreatePlayer",
+      "args": [
+        "ptr"
+      ],
+      "ret": "u8",
+      "max": 10,
+      "globals": [
+        {
+          "chain": [
+            "0x8CF6D8",
+            "0x104C"
+          ],
+          "type": "u32",
+          "label": "idLocalPlayer"
+        }
+      ]
+    },
+    {
+      "addr": "0x5FC6F0",
+      "name": "CScreenConnection::SummonPopup",
+      "args": [
+        "u32"
+      ],
+      "max": 10,
+      "bt": true
+    },
+    {
+      "addr": "0x63C6A0",
+      "name": "CScreenLoad::StartLoad",
+      "args": [
+        "s32"
+      ],
+      "max": 5
+    },
+    {
+      "addr": "0x427990",
+      "name": "CBaldurEngine::SelectEngine",
+      "args": [
+        "ptr"
+      ],
+      "max": 30,
+      "globals": [
+        {
+          "chain": [
+            "0x8CF6DC",
+            "0x1C84"
+          ],
+          "type": "ptr",
+          "label": "pStart"
+        },
+        {
+          "chain": [
+            "0x8CF6DC",
+            "0x1C98"
+          ],
+          "type": "ptr",
+          "label": "pConnection"
+        },
+        {
+          "chain": [
+            "0x8CF6DC",
+            "0x1C94"
+          ],
+          "type": "ptr",
+          "label": "pSinglePlayer"
+        },
+        {
+          "chain": [
+            "0x8CF6DC",
+            "0x1CA4"
+          ],
+          "type": "ptr",
+          "label": "pMovies"
+        },
+        {
+          "chain": [
+            "0x8CF6DC",
+            "0x1C70"
+          ],
+          "type": "ptr",
+          "label": "pLoad"
+        },
+        {
+          "chain": [
+            "0x8CF6DC",
+            "0x1C88"
+          ],
+          "type": "ptr",
+          "label": "pWorld"
+        }
+      ]
+    },
+    {
+      "addr": "0x5FBEF0",
+      "name": "CScreenConnection::TimerSynchronousUpdate",
+      "max": 3
+    },
+    {
+      "addr": "0x7A5340",
+      "name": "CNetwork::EnumerateServiceProviders",
+      "ret": "u8",
+      "max": 5,
+      "bt": true
+    },
+    {
+      "addr": "0x601CB0",
+      "name": "CScreenConnection::AutoSelectServiceProvider",
+      "max": 5
+    },
+    {
+      "addr": "0x5FC850",
+      "name": "CScreenConnection::DismissPopup",
+      "max": 10
+    },
+    {
+      "addr": "0x7A5520",
+      "name": "CNetwork::GetServiceProviderType",
+      "args": [
+        "s32",
+        "ptr"
+      ],
+      "ret": "u8",
+      "max": 10
+    },
+    {
+      "addr": "0x7A6800",
+      "name": "CNetwork::SetMaxPlayers",
+      "args": [
+        "s32"
+      ],
+      "max": 5
+    },
+    {
+      "addr": "0x795630",
+      "name": "CVideo::SetExclusiveMode",
+      "args": [
+        "u8"
+      ],
+      "max": 5,
+      "bt": true
+    },
+    {
+      "addr": "0x4D4000",
+      "name": "CUIManager::GetPanel",
+      "args": [
+        "u32"
+      ],
+      "ret": "ptr",
+      "max": 400
+    },
+    {
+      "addr": "0x4D2CA0",
+      "name": "CUIPanel::GetControl",
+      "args": [
+        "u32"
+      ],
+      "ret": "ptr",
+      "max": 400
+    }
+  ]
+}

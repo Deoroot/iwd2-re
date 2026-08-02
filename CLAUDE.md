@@ -27,6 +27,7 @@ Paths: `/home/wills/iwd2-re/...` = host; `C:\iwd2-re\...`, `C:\GOG Games\...` = 
 | GemRB lookup / cross-repo | same graph tools + `repo_root="/home/wills/iwd2-re/refs/gemrb"`; `cross_repo_search_tool` |
 | Anything VM (build/run/logs/processes/files/frida) | `scripts/vm.sh` (below) |
 | Simple Frida probe (log args + fields at fn entries) | `scripts/frida_probe.py --hooks h.json` then `--summary` (its docstring lists the 6 VBS/stdin/fsync payload gotchas — read it before writing a bespoke probe) |
+| **Runtime question on the ORIGINAL the static read can't answer** | `scripts/vm.sh trace --hooks <table.json> [--load-slot -1] [--hit NAME]` — smoke's counterpart for `IWD2.exe`: spawns it in session 1, runs the hook table, WAITS, verdict + exit code (0 CLEAN / 1 CRASH / 2 proved-nothing). Same table schema as `frida_probe.py` (`scripts/frida_hooks.py`) plus `globals` deref chains. See `frida_orig.py` for what `--load-slot` still can't do |
 | Mechanical batch analysis (parity triage, `#guess` sweep) | `scripts/ds_batch.py parity_triage\|rename_sweep\|free` (DeepSeek via OpenCode Go, key in `.env`) |
 | Token-cost check of recent sessions | `python3 scripts/token_audit.py` |
 
