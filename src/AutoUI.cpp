@@ -681,15 +681,15 @@ void Tick(CWarp* pActiveEngine)
     if (strcmp(step.op, "key") == 0) {
         // OnKeyDown takes the NUMBER of keys pressed this tick and reads the
         // virtual keys themselves out of the engine's own buffer, so a key has
-        // to be staged there first.  On the world screen that buffer is
-        // CScreenWorld::m_pVirtualKeysFlags; elsewhere the count is all we can
-        // pass.
+        // to be staged there first.  Every engine exposes that buffer through
+        // GetVirtualKeysFlags, so this works on any screen -- passing the key
+        // code as the count instead makes the engine read a buffer nobody
+        // filled, which is why ESCAPE used to do nothing outside the world.
         SHORT nKey = static_cast<SHORT>(Num(step, 0, 0));
-        if (pActiveEngine == g_pBaldurChitin->m_pEngineWorld) {
-            g_pBaldurChitin->m_pEngineWorld->m_pVirtualKeysFlags[0] = static_cast<BYTE>(nKey);
-            g_pBaldurChitin->m_pEngineWorld->OnKeyDown(1);
-        } else {
-            pActiveEngine->OnKeyDown(nKey);
+        BYTE* pKeyFlags = pActiveEngine->GetVirtualKeysFlags();
+        if (pKeyFlags != NULL) {
+            pKeyFlags[0] = static_cast<BYTE>(nKey);
+            pActiveEngine->OnKeyDown(1);
         }
 
         Emit("{\"step\":%d,\"op\":\"key\",\"vk\":%d,\"status\":\"ok\"}",

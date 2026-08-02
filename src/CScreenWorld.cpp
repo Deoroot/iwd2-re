@@ -2958,7 +2958,35 @@ void CScreenWorld::StartStore(const CAIObjectType& cAIProprietor, const CAIObjec
 // 0x691B50
 void CScreenWorld::StopStore()
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    if (m_bInControlOfStore == 1
+        && bMultiplayerStore
+        && pGame->m_multiplayerSettings.m_bRestrictStoreOption) {
+        CMessageExitStoreMode* pMessage = new CMessageExitStoreMode(CGameObjectArray::INVALID_INDEX,
+            CGameObjectArray::INVALID_INDEX);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+    }
+
+    if (g_pChitin->cNetwork.m_bIsHost == 1) {
+        pGame->m_multiplayerSettings.m_bHostPermittedStore = FALSE;
+        pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+    } else if (g_pChitin->cNetwork.m_nServiceProvider != CNetwork::SERV_PROV_NULL) {
+        // HACK: the client-side release of the permission the host granted is
+        // not issued -- the binary calls an unrecovered CBaldurMessage method
+        // at 0x436C00 (`this` is GetBaldurMessage(); it posts specific message
+        // type 89 / subtype 121, no payload, to the host player) and naming it
+        // would be a guess -- replaces 0x436C00. Needs an active network
+        // session to be reachable at all.
+    }
+
+    if (!g_pChitin->cNetwork.m_bConnectionEstablished
+        || (bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)) {
+        pGame->GetWorldTimer()->StartTime();
+        m_bPaused = FALSE;
+    }
+
+    g_pBaldurChitin->m_pEngineStore->StopStore();
 }
 
 // 0x691C70

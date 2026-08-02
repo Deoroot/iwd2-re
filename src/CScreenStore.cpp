@@ -559,7 +559,7 @@ void CScreenStore::OnKeyDown(SHORT nKeysFlags)
                             SelectEngine(g_pBaldurChitin->m_pEngineWorld);
                         }
 
-                        StopStore();
+                        g_pBaldurChitin->m_pEngineWorld->StopStore();
                     }
                 } else {
                     OnDoneButtonClick();
@@ -569,7 +569,7 @@ void CScreenStore::OnKeyDown(SHORT nKeysFlags)
                 if (GetTopPopup() == NULL) {
                     if (g_pBaldurChitin->m_pEngineWorld->m_bInControlOfStore) {
                         SelectEngine(g_pBaldurChitin->m_pEngineWorld);
-                        StopStore();
+                        g_pBaldurChitin->m_pEngineWorld->StopStore();
                     }
                 } else {
                     OnCancelButtonClick();
@@ -5529,7 +5529,7 @@ void CUIControlButtonStoreStoreItem::OnLButtonClick(CPoint pt)
     CScreenStoreItem cItem;
     INT nIndex;
 
-    switch (m_nID) {
+    switch (m_pPanel->m_nID) {
     case 2:
         nIndex = pStore->m_nTopStoreItem + m_nID - 5;
         pStore->GetStoreItem(nIndex, cItem);
@@ -5559,7 +5559,7 @@ void CUIControlButtonStoreStoreItem::OnLButtonDoubleClick(CPoint pt)
     CScreenStoreItem cItem;
     INT nIndex;
 
-    switch (m_nID) {
+    switch (m_pPanel->m_nID) {
     case 2:
         nIndex = pStore->m_nTopStoreItem + m_nID - 5;
         pStore->GetStoreItem(nIndex, cItem);
@@ -5613,7 +5613,7 @@ void CUIControlButtonStoreStoreItem::OnRButtonClick(CPoint pt)
     INT nIndex;
     POSITION pos;
 
-    switch (m_nID) {
+    switch (m_pPanel->m_nID) {
     case 2:
         nIndex = pStore->m_nTopStoreItem + m_nID - 5;
         pos = pStore->m_lStoreItems.FindIndex(nIndex);
@@ -5798,7 +5798,7 @@ void CUIControlButtonStoreGroupItem::OnLButtonClick(CPoint pt)
     CScreenStoreItem cItem;
     INT nIndex;
 
-    switch (m_nID) {
+    switch (m_pPanel->m_nID) {
     case 2:
         nIndex = pStore->m_nTopGroupItem + m_nID - 13;
         pStore->GetGroupItem(nIndex, cItem);
@@ -5864,7 +5864,7 @@ void CUIControlButtonStoreGroupItem::OnLButtonDoubleClick(CPoint pt)
     CScreenStoreItem cItem;
     INT nIndex;
 
-    switch (m_nID) {
+    switch (m_pPanel->m_nID) {
     case 2:
         nIndex = pStore->m_nTopGroupItem + m_nID - 13;
         pStore->GetGroupItem(nIndex, cItem);
@@ -5918,7 +5918,7 @@ void CUIControlButtonStoreGroupItem::OnRButtonClick(CPoint pt)
     POSITION pos;
     CScreenStoreItem* pItem;
 
-    switch (m_nID) {
+    switch (m_pPanel->m_nID) {
     case 2:
         nIndex = pStore->m_nTopGroupItem + m_nID - 13;
         pos = pStore->m_lGroupItems.FindIndex(nIndex);
