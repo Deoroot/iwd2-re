@@ -5959,8 +5959,8 @@ void CScreenStore::FocusChatEditBox()
 // 0x67E420
 void CScreenStore::GetChatEditBoxStatus(CString& sChatText, BOOL& bInputCapture)
 {
-    if (m_pButtonBar->m_nID == 3) {
-        CUIControlEdit* pEdit = static_cast<CUIControlEdit*>(m_pMainPanel->GetControl(8));
+    if (m_pButtonBar->m_nID == 15) {
+        CUIControlEdit* pEdit = static_cast<CUIControlEdit*>(m_pButtonBar->GetControl(8));
 
         // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
         // __LINE__: 9095
@@ -5978,7 +5978,7 @@ void CScreenStore::GetChatEditBoxStatus(CString& sChatText, BOOL& bInputCapture)
 void CScreenStore::SetChatEditBoxStatus(const CString& sChatText, BOOL bInputCapture)
 {
     if (m_pButtonBar->m_nID == 15) {
-        CUIControlEdit* pEdit = static_cast<CUIControlEdit*>(m_pMainPanel->GetControl(8));
+        CUIControlEdit* pEdit = static_cast<CUIControlEdit*>(m_pButtonBar->GetControl(8));
 
         // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
         // __LINE__: 9133
