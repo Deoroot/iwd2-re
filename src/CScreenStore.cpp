@@ -1,6 +1,7 @@
 #include "CScreenStore.h"
 
 #include "CBaldurChitin.h"
+#include "CGameEffect.h"
 #include "CGameSprite.h"
 #include "CIcon.h"
 #include "CInfCursor.h"
@@ -2098,7 +2099,118 @@ void CScreenStore::UpdateIdentifyPanel()
 // 0x675940
 void CScreenStore::UpdateBuySpellPanel()
 {
-    // TODO: Incomplete.
+    m_pCurrentScrollBar = static_cast<CUIControlScrollBar*>(m_pMainPanel->GetControl(7));
+
+    DWORD nPartyGold = g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_nPartyGold;
+
+    UpdateLabel(m_pMainPanel,
+        0x10000000,
+        "%s",
+        (LPCTSTR)FetchString(m_pStore->m_header.m_strName));
+
+    UpdateLabel(m_pMainPanel,
+        0x10000001,
+        "%d",
+        nPartyGold);
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2823
+    UTIL_ASSERT(pGame != NULL);
+
+    CGameSave* pSave = pGame->GetGameSave();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2825
+    UTIL_ASSERT(pSave != NULL);
+
+    for (DWORD nLabel = 0x1000000D; nLabel < 0x10000013; nLabel++) {
+        CScreenStoreItem cItem;
+        GetSpellItem(m_nTopSpellItem + nLabel - 0x1000000D, cItem);
+
+        CUIControlButtonStoreStoreSpell* pSpellItem = static_cast<CUIControlButtonStoreStoreSpell*>(m_pMainPanel->GetControl(nLabel - 0x10000005));
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+        // __LINE__: 2836
+        UTIL_ASSERT(pSpellItem != NULL);
+
+        if (pSpellItem->m_resRef != cItem.m_cResSpell) {
+            pSpellItem->m_resRef = cItem.m_cResSpell;
+            pSpellItem->InvalidateRect();
+        }
+
+        pSpellItem->SetSelected(cItem.m_bSelected);
+        pSpellItem->SetEnabled(cItem.m_bEnabled);
+
+        if (cItem.m_cResSpell == "") {
+            UpdateLabel(m_pMainPanel, nLabel, "");
+            continue;
+        }
+
+        CSpell cSpell(cItem.m_cResSpell);
+        cSpell.Demand();
+
+        BOOL bUsable = CheckSpellUsable(m_nSelectedCharacter, cItem.m_cResSpell);
+        pSpellItem->SetValid(bUsable);
+
+        CString sText;
+
+        sText.Format(_T("%s"), (LPCTSTR)FetchString(cSpell.GetGenericName()));
+        g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_ITEMNAME, sText);
+
+        sText.Format(_T("%d"), cItem.m_nValue);
+        g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_ITEMCOST, sText);
+
+        UpdateLabel(m_pMainPanel,
+            nLabel,
+            "%s",
+            (LPCTSTR)FetchString(10162));
+
+        pSpellItem->SetEnabled(bUsable);
+
+        cSpell.Release();
+    }
+
+    CUIControlScrollBarStoreSpell* pSpellBar = static_cast<CUIControlScrollBarStoreSpell*>(m_pMainPanel->GetControl(7));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2885
+    UTIL_ASSERT(pSpellBar != NULL);
+
+    // NOTE: Uninline.
+    pSpellBar->UpdateScrollBar();
+
+    UpdateLabel(m_pMainPanel,
+        0x10000003,
+        "%d",
+        m_dwSpellCost);
+
+    CUIControlButton* pBuy = static_cast<CUIControlButton*>(m_pMainPanel->GetControl(5));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 2894
+    UTIL_ASSERT(pBuy != NULL);
+
+    BOOL bBuyEnabled = FALSE;
+
+    POSITION pos = m_lSpellItems.GetHeadPosition();
+    while (pos != NULL) {
+        CScreenStoreItem* pSpellStoreItem = m_lSpellItems.GetNext(pos);
+        if (pSpellStoreItem->m_bSelected) {
+            // The buy-spell panel is the one temple service a dead character
+            // can still be the target of, so it accepts an out-of-range pick
+            // when the character is not alive.
+            if (IsCharacterInRange(static_cast<SHORT>(m_nSelectedCharacter))
+                || (m_pMainPanel->m_nID == 5
+                    && !IsCharacterAlive(static_cast<SHORT>(m_nSelectedCharacter)))) {
+                bBuyEnabled = TRUE;
+            }
+            break;
+        }
+    }
+
+    pBuy->SetEnabled(bBuyEnabled);
 }
 
 // 0x675E80
@@ -4919,6 +5031,111 @@ void CScreenStore::SetChatEditBoxStatus(const CString& sChatText, BOOL bInputCap
             m_cUIManager.SetCapture(pEdit, CUIManager::KEYBOARD);
         }
     }
+}
+
+// 0x67E560
+BOOL CScreenStore::CheckSpellUsable(INT nPortraitNum, const CResRef& cResSpell)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenStore.cpp
+    // __LINE__: 9165
+    UTIL_ASSERT(pGame != NULL);
+
+    BOOL bUsable = FALSE;
+
+    LONG nCharacterId = CGameObjectArray::INVALID_INDEX;
+    if (static_cast<SHORT>(nPortraitNum) < pGame->m_nCharacters) {
+        nCharacterId = pGame->m_characterPortraits[static_cast<SHORT>(nPortraitNum)];
+    }
+
+    CGameObject* pObject;
+
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return FALSE;
+    }
+
+    CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+
+    // The temple services are hard-coded by resref: each one is offered only
+    // while the selected character is in the state it cures.
+    if (cResSpell == CResRef("SPPR101")           // Bless
+        || cResSpell == CResRef("SPPR103")) {     // Cure Light Wounds
+        bUsable = (pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0;
+    } else if (cResSpell == CResRef("SPPR303")) { // Dispel Magic
+        if ((pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+            POSITION pos = pSprite->m_timedEffectList.GetHeadPosition();
+            while (pos != NULL) {
+                CGameEffect* pEffect = pSprite->m_timedEffectList.GetNext(pos);
+                if ((pEffect->m_effectAmount2 & 0x1) != 0) {
+                    bUsable = TRUE;
+                    break;
+                }
+            }
+
+            if (!bUsable) {
+                pos = pSprite->m_equipedEffectList.GetHeadPosition();
+                while (pos != NULL) {
+                    CGameEffect* pEffect = pSprite->m_equipedEffectList.GetNext(pos);
+                    if ((pEffect->m_effectAmount2 & 0x1) != 0) {
+                        bUsable = TRUE;
+                        break;
+                    }
+                }
+            }
+        }
+    } else if (cResSpell == CResRef("SPPR307")) { // Remove Curse
+        if ((pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+            for (INT nSlot = 0; nSlot < CGameSpriteEquipment::NUM_SLOT; nSlot++) {
+                if (pSprite->m_equipment.m_items[nSlot] != NULL
+                    && (pSprite->m_equipment.m_items[nSlot]->GetFlagsFile() & 0x10) != 0) {
+                    bUsable = TRUE;
+                    break;
+                }
+            }
+        }
+    } else if (cResSpell == CResRef("SPPR308")) { // Remove Paralysis
+        bUsable = (pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0
+            && (pSprite->m_derivedStats.m_generalState & STATE_STUNNED) != 0;
+    } else if (cResSpell == CResRef("SPPR214")            // Cure Moderate Wounds
+        || cResSpell == CResRef("SPPR401")                // Cure Serious Wounds
+        || cResSpell == CResRef("SPWI407")) {             // Summon Monster IV
+        bUsable = (pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0;
+    } else if (cResSpell == CResRef("SPPR314")) { // Remove Disease
+        bUsable = (pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0
+            && (pSprite->m_derivedStats.m_generalState & STATE_DISEASED) != 0;
+    } else if (cResSpell == CResRef("SPPR404")) { // Neutralize Poison
+        bUsable = (pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0
+            && (pSprite->m_derivedStats.m_generalState & STATE_POISONED) != 0;
+    } else if (cResSpell == CResRef("SPPR212")) { // Delay Poison
+        bUsable = (pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0
+            && (pSprite->m_derivedStats.m_generalState & STATE_POISONED) != 0;
+    } else if (cResSpell == CResRef("SPPR504")) { // Raise Dead
+        bUsable = pSprite->m_derivedStats.m_generalState & STATE_DEAD;
+
+        // Elves cannot be raised, only resurrected.
+        if (pSprite->m_liveTypeAI.m_nRace == 2) {
+            bUsable = FALSE;
+        }
+    } else if (cResSpell == CResRef("SPPR712")) { // Resurrection
+        bUsable = pSprite->m_derivedStats.m_generalState & STATE_DEAD;
+    } else {
+        bUsable = (pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0;
+    }
+
+    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return bUsable;
 }
 
 // 0x67E870
