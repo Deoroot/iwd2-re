@@ -159,6 +159,9 @@ public:
     BOOL IsBuyItemButtonClickable();
     void OnBuyItemButtonClick();
     void BuyPersonalItems();
+    void BuyBagItems();
+    void BuyPersonalItemsExt();
+    void BuyBagItemsExt();
     BOOL IsSellItemButtonClickable();
     void OnSellItemButtonClick();
     void SellPersonalItems();
