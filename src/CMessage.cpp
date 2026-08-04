@@ -5431,27 +5431,156 @@ static BOOL Iwd2MessageRunRecovered(BYTE subType)
 // 0x4F7620
 SHORT CMessageHandler::Broadcast(CMessage* message, BOOLEAN bSendMessageToSelf, BOOLEAN bIgnoreObjectControl)
 {
-    if (message == NULL) {
-        return -1;
+    LONG targetId = message->m_targetId;
+
+    CGameObject* pObject;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        pObject = NULL;
     }
 
-    if (bSendMessageToSelf) {
+    // Object-control gate: send over the wire only for an object this station
+    // owns, unless the caller waives the check.  Both arms of the binary's
+    // branch run the same queue/delete tail, so it is hoisted below.
+    if (bIgnoreObjectControl == TRUE
+        || (pObject != NULL
+            && (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                || g_pChitin->cNetwork.m_idLocalPlayer == pObject->m_remotePlayerID))) {
+        if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+            && g_pChitin->cNetwork.GetSessionOpen() == TRUE
+            && (bIgnoreObjectControl == TRUE
+                || (pObject != NULL
+                    && g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+                    && pObject->m_bLocalControl == 0))) {
+            BYTE* pData = STATICBUFFER;
+            DWORD dwSize = 0;
+            message->MarshalMessage(&pData, &dwSize);
+
+            if (dwSize != 0) {
+                CString sPlayerName;
+                g_pChitin->cNetwork.SendSpecificMessage(sPlayerName,
+                    CNetwork::SEND_GUARANTEED | CNetwork::SEND_ALL_PLAYERS,
+                    message->GetMsgType(),
+                    message->GetMsgSubType(),
+                    pData,
+                    dwSize);
+            }
+        }
+    }
+
+    if (bSendMessageToSelf == TRUE) {
         m_messageList.AddTail(message);
     } else {
         delete message;
     }
-    return 1;
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    return 0;
 }
 
 // 0x4F7830
 SHORT CMessageHandler::Send(CMessage* message)
 {
-    if (message == NULL) {
-        return -1;
+    // NOTE: The binary reloads message->m_targetId for the ReleaseShare calls
+    // below, which reads freed memory on the path that deletes the message
+    // first.  The value cannot change, so it is captured once here instead.
+    LONG targetId = message->m_targetId;
+
+    if (targetId != -1) {
+        CGameObject* pObject;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(targetId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            BOOLEAN bDeleteMessage = FALSE;
+
+            if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                || g_pChitin->cNetwork.m_idLocalPlayer == pObject->m_remotePlayerID) {
+                // The target is ours: run the message locally.
+                m_messageList.AddTail(message);
+            } else {
+                CString sPlayerName;
+                BYTE* pData = STATICBUFFER;
+                DWORD dwSize = 0;
+
+                bDeleteMessage = TRUE;
+                message->MarshalMessage(&pData, &dwSize);
+
+                if (dwSize != 0) {
+                    PLAYER_ID idOwner = pObject->m_remotePlayerID;
+                    INT nPlayer = g_pChitin->cNetwork.FindPlayerLocationByID(idOwner, FALSE);
+
+                    if (nPlayer == -1) {
+                        // The owner is not a connected player.  An area id means
+                        // the object belongs to an area nobody is holding, so the
+                        // message is dropped; otherwise it is relayed to the host.
+                        if (g_pBaldurChitin->GetObjectGame()->FindAreaID(idOwner) == TRUE) {
+                            delete message;
+                        } else {
+                            PLAYER_ID idHost = g_pChitin->cNetwork.m_nHostPlayer == -1
+                                ? 0
+                                : g_pChitin->cNetwork.m_pPlayerID[g_pChitin->cNetwork.m_nHostPlayer];
+                            nPlayer = g_pChitin->cNetwork.FindPlayerLocationByID(idHost, FALSE);
+                        }
+
+                        if (nPlayer == -1) {
+                            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(targetId,
+                                CGameObjectArray::THREAD_ASYNCH,
+                                INFINITE);
+                            return -1;
+                        }
+                    }
+
+                    g_pChitin->cNetwork.GetPlayerName(nPlayer, sPlayerName);
+
+                    BYTE nSubType = message->GetMsgSubType();
+                    BYTE nType = message->GetMsgType();
+
+                    if (g_pChitin->cNetwork.SendSpecificMessage(sPlayerName,
+                            CNetwork::SEND_GUARANTEED,
+                            nType,
+                            nSubType,
+                            pData,
+                            dwSize)
+                            == FALSE
+                        && g_pChitin->cNetwork.m_idLocalPlayer == idOwner) {
+                        m_messageList.AddTail(message);
+                        bDeleteMessage = FALSE;
+                    }
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(targetId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bDeleteMessage) {
+                delete message;
+            }
+
+            return 0;
+        }
     }
 
-    m_messageList.AddTail(message);
-    return 1;
+    delete message;
+    return -1;
 }
 
 // -----------------------------------------------------------------------------
