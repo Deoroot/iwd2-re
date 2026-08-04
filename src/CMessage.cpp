@@ -5448,12 +5448,7 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
 
     // ASSERT -- reaches a faithful UTIL_ASSERT that ends in abort()
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_VISUAL_EFFECT
-
-    // CRASHES -- measured, not predicted.  Releasing FLOAT_TEXT kills the
-    // process on slot 3 during area load (self-closing, no exception the
-    // crash guard can catch).  Run() is 29 lines against the binary's 53 at
-    // 0x513680, so the CGameText it builds and registers is incomplete.
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FLOAT_TEXT;
+;
 }
 
 // 0x4F7620
