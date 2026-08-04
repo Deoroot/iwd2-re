@@ -5224,7 +5224,7 @@ CMessageHandler::~CMessageHandler()
     // TODO: Incomplete.
 }
 
-static BOOL Iwd2MessageRunRecovered(BYTE subType);
+static BOOL Iwd2MessageRunHeldBack(BYTE subType);
 
 // 0x4EE020
 void CMessageHandler::AsynchronousUpdate()
@@ -5232,7 +5232,7 @@ void CMessageHandler::AsynchronousUpdate()
     while (!m_messageList.IsEmpty()) {
         CMessage* pMsg = m_messageList.RemoveHead();
         if (pMsg != NULL) {
-            if (Iwd2MessageRunRecovered(pMsg->GetMsgSubType())) {
+            if (!Iwd2MessageRunHeldBack(pMsg->GetMsgSubType())) {
                 pMsg->Run();
             }
             delete pMsg;
@@ -5396,36 +5396,60 @@ SHORT CMessageHandler::AddMessage(CMessage* message, BOOL bForcePassThrough, SHO
     }
 }
 
-// Subtypes whose Run() is safely recovered.  Anything not in this list is
-// silently dropped (the unrecovered stubs would crash or no-op).  Extend as
-// each CMessage subclass gets its Run() filled in.
-static BOOL Iwd2MessageRunRecovered(BYTE subType)
+// The binary's drain (0x4EE083-0x4EE0AB) calls Run() unconditionally -- it
+// dereferences the message at 0x4EE093 before any test, and evaluates no
+// predicate between RemoveHead and Run.  This list is ours, not the engine's:
+// it withholds the subtypes whose Run() we have not yet cleared to execute,
+// and it shrinks to nothing as they are cleared, at which point both it and
+// its call site go away.
+//
+// A subtype that is absent from this list runs, which is the binary's
+// behaviour.  Every subtype the message system can deliver has been audited
+// against the binary, so absence here is a decision, not an oversight.
+static BOOL Iwd2MessageRunHeldBack(BYTE subType)
 {
-    return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_ACTION
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_ADD_ITEM
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CLEAR_DIALOG_ACTIONS
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CUT_SCENE_MODE_STATUS
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXT
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXTREF
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXTREF_SEND
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIRECTION
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DROP_PATH
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ENTER_DIALOG
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PARTY_GOLD
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_REPLIES
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_NUM_TIMES_TALKED_TO
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_IN_CUT_SCENE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FIRE_PROJECTILE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_105;
+    // SAFE -- faithful body, recovered callees -- released in the next step
+    return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_92
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CLEAR_ACTIONS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_COLOR_CHANGE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_COLOR_UPDATE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_STATUS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DOOR_STATUS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FADE_COLOR
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FLOAT_TEXT
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PROJECTILE_TRAILING_VFX
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_ACTIVE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_AREA_EXPLORED
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_COMMAND_PAUSE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DRAW_POLY
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_FORCE_ACTION_PICK
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_LAST_OBJECT
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_START_FOLLOW
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_START_SCROLL
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_STOP_ACTIONS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_STOP_FOLLOW
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TOGGLE_INTERFACE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_UNLOCK
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_UPDATE_REACTION
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_VERBAL_CONSTANT
+
+    // DIVERGENT -- body knowingly differs from the binary; fix before releasing
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ANIMATION_CHANGE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_COLOR_RESET
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_ITEMS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SCREENSHAKE
+
+    // CALLS-STUB -- Run() is faithful, its payload callee is still unimplemented
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_101
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_MOVE_GLOBAL
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PLAY_SOUND
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_TRIGGER
+
+    // NULLDEREF -- writes through offsets that land on another object in our layout
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TRIGGER_STATUS
+
+    // ASSERT -- reaches a faithful UTIL_ASSERT that ends in abort()
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_VISUAL_EFFECT;
 }
 
 // 0x4F7620
