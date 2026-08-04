@@ -5408,15 +5408,14 @@ SHORT CMessageHandler::AddMessage(CMessage* message, BOOL bForcePassThrough, SHO
 // against the binary, so absence here is a decision, not an oversight.
 static BOOL Iwd2MessageRunHeldBack(BYTE subType)
 {
-    // SAFE -- faithful body, recovered callees -- released in the next step
+    // SAFE -- faithful body, recovered callees, but never observed reaching
+    // the drain on any save we can drive; released once one does.
     return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_92
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CLEAR_ACTIONS
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_COLOR_CHANGE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_COLOR_UPDATE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_STATUS
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DOOR_STATUS
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FADE_COLOR
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FLOAT_TEXT
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PROJECTILE_TRAILING_VFX
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_ACTIVE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_AREA_EXPLORED
@@ -5430,7 +5429,6 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_STOP_FOLLOW
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TOGGLE_INTERFACE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_UNLOCK
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_UPDATE_REACTION
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_VERBAL_CONSTANT
 
     // DIVERGENT -- body knowingly differs from the binary; fix before releasing
@@ -5449,7 +5447,13 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TRIGGER_STATUS
 
     // ASSERT -- reaches a faithful UTIL_ASSERT that ends in abort()
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_VISUAL_EFFECT;
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_VISUAL_EFFECT
+
+    // CRASHES -- measured, not predicted.  Releasing FLOAT_TEXT kills the
+    // process on slot 3 during area load (self-closing, no exception the
+    // crash guard can catch).  Run() is 29 lines against the binary's 53 at
+    // 0x513680, so the CGameText it builds and registers is incomplete.
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FLOAT_TEXT;
 }
 
 // 0x4F7620
