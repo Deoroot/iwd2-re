@@ -21,6 +21,7 @@ public:
     /* 000C */ virtual void AIUpdate();
     /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 0048 */ virtual void RemoveFromArea();
+    /* 004C */ void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;
     /* 0050 */ virtual BOOLEAN DoAIUpdate(BOOLEAN active, LONG counter);
 
     void SetText(const CPoint& pt, BYTE nDuration, BYTE nBeginFade, const CString& sText);
