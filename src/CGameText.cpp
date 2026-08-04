@@ -58,7 +58,7 @@ void CGameText::SetText(const CPoint& pt, BYTE nDuration, BYTE nBeginFade, const
         m_nMaxLines = static_cast<BYTE>((size.cy - 2 * PADDING.cy) / m_textFont.GetFontHeight(TRUE));
 
         if (m_szLine != NULL) {
-            delete m_szLine;
+            delete[] m_szLine;
         }
 
         m_szLine = new CString[m_nMaxLines];
@@ -151,7 +151,7 @@ BOOLEAN CGameText::CanSaveGame(STRREF& strError)
 CGameText::~CGameText()
 {
     if (m_szLine != NULL) {
-        delete m_szLine;
+        delete[] m_szLine;
     }
 
     if (field_1C != 0) {
