@@ -5442,7 +5442,15 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PLAY_SOUND
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_TRIGGER
 
-    // NULLDEREF -- writes through offsets that land on another object in our layout
+    // NULLDEREF -- Run() casts the target to CGameTrigger with no type check
+    // and writes m_dwFlags / m_trapActivated / m_trapDetected at +0x5D6,
+    // +0x612 and +0x614, which is faithful.  The problem is the caller set:
+    // CGameContainer::AddEffect posts one targeting the container itself (the
+    // binary installs the same vtable at 0x848C3C and stores the container id
+    // in both the source and target slots), and CGameContainer puts
+    // m_pileVidCell[3] at +0x5D4, so the write lands on a live CVidCell that
+    // is rendered every frame.  A scan for the +0x5D6 displacement finds only
+    // CGameTrigger methods, so the container has nothing meaningful there.
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TRIGGER_STATUS
 
     // ASSERT -- reaches a faithful UTIL_ASSERT that ends in abort()
