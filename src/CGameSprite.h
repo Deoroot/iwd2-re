@@ -605,7 +605,7 @@ public:
     BOOL HaveUnexportableItems();
     void SetMonkAbilities();
     LONG GetLevel();
-    void SetHideState(BOOLEAN a1, BOOLEAN a2);
+    void SetHideState(BOOLEAN bInvisible, BOOLEAN bLeaveStore);
     INT GetAC();
     INT GetAttacksPerRound();
     void sub_72DE60();

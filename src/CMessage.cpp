@@ -5438,7 +5438,6 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SCREENSHAKE
 
     // CALLS-STUB -- Run() is faithful, its payload callee is still unimplemented
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_101
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_MOVE_GLOBAL
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PLAY_SOUND
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_TRIGGER
