@@ -5793,7 +5793,10 @@ void CMessageAnimationChange::Run()
         if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
             pSprite->UnequipAll(TRUE);
             if (pSprite->GetArea() != NULL) {
-                if (pSprite->GetVertListType() != CGameObject::LIST_FLIGHT) {
+                // The guard reads the animation's intrinsic list type
+                // (CGameAnimationType vtable +0x3C), not the object's current
+                // m_listType.
+                if (pSprite->GetAnimation()->GetListType() != CGameObject::LIST_FLIGHT) {
                     pSprite->GetArea()->m_search.RemoveObject(CPoint(pSprite->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
                                                                   pSprite->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY),
                         pSprite->GetAIType().m_nEnemyAlly,
@@ -5806,7 +5809,10 @@ void CMessageAnimationChange::Run()
                 pSprite->GetBaseStats()->m_colors,
                 pSprite->GetDirection());
             if (pSprite->GetArea() != NULL) {
-                if (pSprite->GetVertListType() != CGameObject::LIST_FLIGHT) {
+                // 0x4F964B / 0x4F9748: the guard reads the animation's intrinsic
+                // list type (CGameAnimationType vtable +0x3C), not the object's
+                // current m_listType.
+                if (pSprite->GetAnimation()->GetListType() != CGameObject::LIST_FLIGHT) {
                     pSprite->GetArea()->m_search.AddObject(CPoint(pSprite->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
                                                                pSprite->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY),
                         pSprite->GetAIType().m_nEnemyAlly,
@@ -6741,6 +6747,11 @@ void CMessageColorReset::Run()
                 pSprite->GetAnimation()->SetColorRange(index, colors[index]);
             }
 
+            // The binary's loop bound is 8, not 7: it runs an eighth range
+            // whose value is the byte after m_colors[6], i.e. m_effectVersion.
+            // NOTE: Uninline.
+            pSprite->GetAnimation()->SetColorRange(7, pSprite->GetBaseStats()->m_effectVersion);
+
             // NOTE: Uninline.
             pSprite->GetAnimation()->ClearColorEffectsAll();
         }
@@ -6891,7 +6902,7 @@ void CMessageContainerItems::Run()
 
     if (rc == CGameObjectArray::SUCCESS) {
         SHORT maxcnt = max(m_nItems, pContainer->m_lstItems.GetCount());
-        for (SHORT cnt = 0; cnt < m_nItems; cnt++) {
+        for (SHORT cnt = 0; cnt < maxcnt; cnt++) {
             CItem* oldItem = pContainer->GetItem(cnt);
             if (cnt < m_nItems) {
                 pContainer->SetItem(cnt, m_pItems[cnt]);
@@ -9701,8 +9712,11 @@ BOOL CMessageScreenShake::UnmarshalMessage(BYTE* pData, DWORD dwSize)
 void CMessageScreenShake::Run()
 {
     if (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_bAllScreenShake) {
+        // The binary jumps to the exit when a shake is already running: an
+        // override always shakes, otherwise one in progress is left alone
+        // rather than restarted.
         if (m_bOverride
-            || g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->GetInfinity()->m_bScreenShake) {
+            || !g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->GetInfinity()->m_bScreenShake) {
             g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->GetInfinity()->SetScreenShake(TRUE,
                 m_duration,
                 CPoint(m_magnitudeX, m_magnitudeY));
