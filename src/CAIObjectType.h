@@ -221,6 +221,10 @@
 #define CAIOBJECTTYPE_C_ROGUE 9
 #define CAIOBJECTTYPE_C_SORCERER 10
 #define CAIOBJECTTYPE_C_WIZARD 11
+// Engine-inherited classes IWD2 keeps but omits from CLASS.IDS; both are read
+// by CGameSprite::ApplyTriggers to pick a reputation penalty.
+#define CAIOBJECTTYPE_C_INNOCENT 155
+#define CAIOBJECTTYPE_C_FLAMINGFIST 156
 
 #define CAIOBJECTTYPE_SEX_MALE 1
 #define CAIOBJECTTYPE_SEX_FEMALE 2
@@ -377,6 +381,8 @@ public:
     static const BYTE C_ROGUE;
     static const BYTE C_SORCERER;
     static const BYTE C_WIZARD;
+    static const BYTE C_INNOCENT;
+    static const BYTE C_FLAMINGFIST;
 
     static const BYTE SEX_MALE;
     static const BYTE SEX_FEMALE;

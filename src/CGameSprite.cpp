@@ -16832,12 +16832,183 @@ void CGameSprite::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL i
     }
 }
 
+// Morale deltas the trigger sweep applies, as bytes: the arithmetic is done in
+// a BYTE, so a subtraction that underflows wraps high and is then pulled up to
+// the ceiling by the clamp rather than down to zero.  That is the binary's
+// behaviour, not an accident of this port.
+static const BYTE MORALE_DELTA_ALLY_DIED = 0xFF;    // -1  (0x85BC76)
+static const BYTE MORALE_DELTA_ENEMY_DIED = 0x02;   // +2  (0x85BC78)
+static const BYTE MORALE_DELTA_WOUNDED = 0xFE;      // -2  (0x85BC7A)
+static const BYTE MORALE_DELTA_KILLED = 0x03;       // +3  (0x85BC7C)
+
+static const BYTE MORALE_CEILING = 20;
+
+// NOTE: Uninline.  The binary repeats this clamp after every morale change.
+static BYTE Iwd2ClampMorale(BYTE nMorale)
+{
+    return nMorale > MORALE_CEILING - 1 ? MORALE_CEILING : nMorale;
+}
+
 // 0x728580 (vtable 0xAC)
-// TODO(vtable-stub): recover CGameSprite::ApplyTriggers -- per-trigger-opcode
-// switch; the binary calls CGameAIBase::ApplyTriggers first.
 void CGameSprite::ApplyTriggers()
 {
     CGameAIBase::ApplyTriggers();
+
+    POSITION pos = m_pendingTriggers.GetHeadPosition();
+
+    CAIObjectType type;
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 543
+    UTIL_ASSERT(pGame != NULL);
+
+    while (pos != NULL) {
+        CAITrigger* pTrigger = m_pendingTriggers.GetNext(pos);
+
+        // Bit 1 marks a trigger this sweep has already consumed; the list
+        // itself is drained elsewhere.
+        if ((pTrigger->m_flags & 2) != 0) {
+            continue;
+        }
+
+        pTrigger->m_flags |= 2;
+
+        switch (pTrigger->m_triggerID) {
+        case CAITRIGGER_ATTACKEDBY: {
+            m_dialogWait = 0;
+            m_dialogWaitTarget = -1;
+
+            if ((m_derivedStats.m_generalState & STATE_CHARMED) != 0) {
+                CGameObject* pAttacker = ResolveActionTarget(pTrigger->m_triggerCause,
+                    CGameObject::TYPE_SPRITE);
+
+                if (pAttacker != NULL) {
+                    // A charmed creature attacked by another good-aligned one
+                    // turns on it, unless it is a party member.
+                    if (m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF
+                        && pAttacker->m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF
+                        && pGame->GetCharacterPortraitNum(m_id) == -1) {
+                        Enemy();
+                        m_equipedEffectList.RemoveAllOfType(this, 5, 0, -1);
+                        m_timedEffectList.RemoveAllOfType(this, 5, 0, -1);
+                    }
+
+                    pGame->GetObjectArray()->ReleaseShare(pAttacker->m_id,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+            }
+
+            break;
+        }
+
+        case CAITRIGGER_HITBY: {
+            m_dialogWait = 0;
+            m_dialogWaitTarget = -1;
+
+            if (m_derivedStats.m_nMaxHitPoints != 0) {
+                LONG nHitPoints = m_baseStats.m_hitPoints;
+                LONG nMaxHitPoints = m_derivedStats.m_nMaxHitPoints;
+                LONG nPercent = nHitPoints * 100 / nMaxHitPoints;
+                LONG nPreviousPercent = field_7110 * 100 / nMaxHitPoints;
+
+                // Morale drops once on crossing the half mark and again on
+                // crossing the quarter mark, never twice for the same wound.
+                if (nPercent < 50 && nPreviousPercent > 49) {
+                    m_baseStats.m_morale = Iwd2ClampMorale(
+                        static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_WOUNDED));
+
+                    if (nPercent < 25 && nPreviousPercent > 24) {
+                        m_baseStats.m_morale = Iwd2ClampMorale(
+                            static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_WOUNDED));
+                    }
+
+                    field_7110 = nHitPoints;
+                } else if (nPercent < 25 && nPreviousPercent > 24) {
+                    m_baseStats.m_morale = Iwd2ClampMorale(
+                        static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_WOUNDED));
+                }
+            }
+
+            break;
+        }
+
+        case CAITRIGGER_DIED: {
+            type.Set(pTrigger->m_triggerCause);
+
+            if (m_typeAI.OfType(type, FALSE, FALSE)) {
+                // One of my own kind fell.
+                m_baseStats.m_morale = Iwd2ClampMorale(
+                    static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_ALLY_DIED));
+            } else if (m_typeAI.m_nEnemyAlly == CAIObjectType::EA_PC
+                && type.m_nEnemyAlly == CAIObjectType::EA_PC) {
+                m_baseStats.m_morale = Iwd2ClampMorale(
+                    static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_ALLY_DIED));
+            } else if (m_typeAI.IsEnemyOf(type)) {
+                m_baseStats.m_morale = Iwd2ClampMorale(
+                    static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_ENEMY_DIED));
+            }
+
+            break;
+        }
+
+        case CAITRIGGER_KILLED: {
+            m_baseStats.m_morale = Iwd2ClampMorale(
+                static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_KILLED));
+
+            if (m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
+                if (pTrigger->m_triggerCause.m_nClass == CAIObjectType::C_INNOCENT) {
+                    pGame->ChangeReputation(CInfGame::KILL_INNOCENT);
+                }
+
+                if (pTrigger->m_triggerCause.m_nClass == CAIObjectType::C_FLAMINGFIST) {
+                    pGame->ChangeReputation(CInfGame::KILL_FIST);
+                }
+
+                LONG nVictimId = pTrigger->m_triggerCause.m_nInstance;
+                CGameSprite* pVictim;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nVictimId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pVictim),
+                    INFINITE);
+
+                if (rc == CGameObjectArray::SUCCESS) {
+                    if (strcmp(pVictim->m_baseStats.m_tertiaryDeathVariable, "Kill_Innocent") == 0) {
+                        pGame->ChangeReputation(CInfGame::KILL_INNOCENT);
+                    }
+
+                    // Only non-party kills award XP, and only for a victim
+                    // that was actually hostile.
+                    if (pGame->GetCharacterPortraitNum(nVictimId) < 0
+                        && pVictim->m_typeAI.m_nEnemyAlly > CAIObjectType::EA_EVILCUTOFF) {
+                        pVictim->m_derivedStats.m_nXPValue = pGame->ShareXP(
+                            pVictim->m_baseStats.field_252, TRUE, TRUE);
+                    }
+
+                    m_cGameStats.RecordKill(pVictim);
+
+                    pGame->GetObjectArray()->ReleaseShare(nVictimId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                } else if (rc == CGameObjectArray::DELETED
+                    && pGame->GetCharacterPortraitNum(nVictimId) < 0) {
+                    // The victim is already gone, so the award rides on the
+                    // trigger itself.
+                    LONG nXP = pTrigger->m_specificID;
+                    if (pTrigger->m_triggerCause.m_nEnemyAlly < CAIObjectType::EA_EVILCUTOFF) {
+                        nXP = 0;
+                    }
+
+                    pGame->ShareXP(nXP, TRUE, FALSE);
+                }
+            }
+
+            break;
+        }
+        }
+    }
 }
 
 // 0x734550

@@ -114,6 +114,7 @@ public:
     SHORT FloatMessage();
     CGameObject* ResolveActionTarget();
     CGameObject* ResolveActionTarget(BYTE nObjectType);
+    CGameObject* ResolveActionTarget(const CAIObjectType& type, BYTE nObjectType);
     void SpellIdToResRef(int spellId, CString& outResRef);
     SHORT ForceSpellAction(CGameObject* target);
     SHORT ForceSpellPointAction();

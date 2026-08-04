@@ -3569,6 +3569,75 @@ CGameObject* CGameAIBase::ResolveActionTarget(BYTE nObjectType)
     return pObj;
 }
 
+// 0x45C030 - same resolve and same filters as the overload above, but the
+// object comes from a caller-supplied type instead of m_curAction.m_acteeID.
+// The binary emits both bodies in full rather than delegating.
+CGameObject* CGameAIBase::ResolveActionTarget(const CAIObjectType& type, BYTE nObjectType)
+{
+    CGameObject* pObj = type.GetObject(this, FALSE);
+    if (pObj != NULL
+        && pObj->GetObjectType() == CGameObject::TYPE_SPRITE
+        && static_cast<CGameSprite*>(pObj)->GetDerivedStats()->m_cImmunitiesAIType.OnList(m_typeAI)) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            pObj->m_id,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        pObj = NULL;
+    }
+
+    UpdateTarget(pObj);
+
+    if (pObj != NULL) {
+        if (pObj->GetObjectType() != nObjectType
+            && nObjectType != CGameObject::TYPE_AIBASE
+            && nObjectType != CGameObject::TYPE_NONE) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            UpdateTarget(NULL);
+            return NULL;
+        }
+
+        if (nObjectType == CGameObject::TYPE_AIBASE
+            && (pObj->GetObjectType() & CGameObject::TYPE_AIBASE) == 0) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            UpdateTarget(NULL);
+            return NULL;
+        }
+
+        if (GetObjectType() == CGameObject::TYPE_SPRITE
+            && g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) == -1
+            && (static_cast<CGameSprite*>(this)->GetDerivedStats()->m_generalState & STATE_BLIND) != 0
+            && pObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            const CPoint& targetPos = pObj->GetPos();
+            CPoint ptTarget(
+                targetPos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                targetPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+            CPoint ptThis(
+                m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+            LONG nSquares = CAIUtil::CountSquares(ptThis, ptTarget);
+
+            if (nSquares > (static_cast<CGameSprite*>(this)->m_animation.GetPersonalSpace() >> 1) + 4) {
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    pObj->m_id,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+                UpdateTarget(NULL);
+                return NULL;
+            }
+        }
+    }
+
+    UpdateTarget(pObj);
+
+    return pObj;
+}
+
 // 0x44DC10 case 0xA1 - IncrementChapter(S:Chapter*).
 SHORT CGameAIBase::IncrementChapter()
 {
