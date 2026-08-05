@@ -1,7 +1,6 @@
 #include "IcewindCGameEffects.h"
 
 #include "CCreatureFile.h"
-#include "DebugLog.h"
 #include "CBaldurChitin.h"
 #include "CGameArea.h"
 #include "CGameObjectArray.h"

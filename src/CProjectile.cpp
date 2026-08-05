@@ -1,7 +1,5 @@
 #include "CProjectile.h"
 
-#include "DebugLog.h"
-
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>

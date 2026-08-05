@@ -1,7 +1,5 @@
 #include "CGameEffect.h"
 
-#include "DebugLog.h"
-
 #include "CAIScript.h"
 #include "CAITrigger.h"
 #include "CMessage.h"

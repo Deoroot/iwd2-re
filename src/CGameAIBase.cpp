@@ -9,7 +9,6 @@
 #include "CBaldurProjector.h"
 #include "CGameArea.h"
 #include "CGameContainer.h"
-#include "DebugLog.h"
 #include "CGameDoor.h"
 #include "CGameEffect.h"
 #include "CGameJournal.h"
