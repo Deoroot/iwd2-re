@@ -1,0 +1,52 @@
+# Find which party member can actually cast: open the spellbook once per
+# portrait and dump the page each time. The spell grid lives on panel 2;
+# a caster shows active buttons there, a non-caster shows none.
+#
+#   scripts/vm.sh smoke 3 150 --ui scripts/scenarios/spellbook-scan.txt
+wait world 3000
+waitgo 6000
+sleep 30
+center
+sleep 30
+click 1 0
+sleep 20
+goto spellbook
+sleep 60
+dump
+goto world
+sleep 20
+click 1 1
+sleep 20
+goto spellbook
+sleep 60
+dump
+goto world
+sleep 20
+click 1 2
+sleep 20
+goto spellbook
+sleep 60
+dump
+goto world
+sleep 20
+click 1 3
+sleep 20
+goto spellbook
+sleep 60
+dump
+goto world
+sleep 20
+click 1 4
+sleep 20
+goto spellbook
+sleep 60
+dump
+goto world
+sleep 20
+click 1 5
+sleep 20
+goto spellbook
+sleep 60
+dump
+goto world
+sleep 20

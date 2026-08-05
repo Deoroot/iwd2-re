@@ -1,0 +1,37 @@
+# WORK IN PROGRESS -- does not cast yet. Kept for the ground it already
+# covers, because casting is the gate on several remaining proofs
+# (CMessageVisualEffect on Stoneskin / Mirror Image, the projectile classes,
+# the effect pipeline).
+#
+# Measured so far on slot 3:
+#   - Party members 0 and 1 are not casters. Members 2..5 are; 2 and 3 have
+#     the fullest spellbooks (see spellbook-scan.txt).
+#   - IWD2 does NOT cast from the spellbook screen. Clicking a memorised icon
+#     on panel 2 (controls 6..11; 30..37 down the right edge are the level
+#     tabs) leaves the screen on "spellbook" and arms nothing.
+#   - Member 2's action bar, via the `bar` op, is
+#       7, 3C, 3D, 5, 3, 48, 49, 5E, 50, 51, 52, 0A
+#     so slots 5 and 6 (panel 1 controls 11 and 12) are quick SPELLS -- the
+#     0x46+ band -- and slot 4 (control 10) is type 3, the cast-spell button.
+#   - Clicking control 11 then the ground fires nothing: the debug log stays
+#     empty, so CGameSprite::Spell is never entered.
+#
+# Next thing to try: click the type-3 cast button (control 10) and dump the
+# picker it opens, rather than the quick slot.
+#
+# Proof marker once it works: CGameSprite::Spell already logs
+# "CAST spell=<resref>" for the spell_capture rig, so no probe is needed --
+#   scripts/vm.sh smoke 3 150 --ui scripts/scenarios/cast-spell.txt \
+#       --expect "CAST spell="
+wait world 3000
+waitgo 6000
+sleep 30
+center
+sleep 30
+click 1 2
+sleep 40
+bar
+click 1 11
+sleep 60
+clickxy 400 250
+sleep 150
