@@ -5451,8 +5451,6 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
     // CGameTrigger methods, so the container has nothing meaningful there.
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TRIGGER_STATUS
 
-    // ASSERT -- reaches a faithful UTIL_ASSERT that ends in abort()
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_VISUAL_EFFECT
 ;
 }
 

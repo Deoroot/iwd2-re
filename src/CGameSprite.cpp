@@ -8851,8 +8851,11 @@ void CGameSprite::RenderMirrorImage(INT placement, CRect& rFX, CRect& rGCBounds,
     SHORT searchSquareCode;
     CPoint pos;
 
+    // The offset is applied to the local copy only -- the binary reads m_pos.y
+    // and never writes it back, so a `+=` here would walk the sprite across the
+    // map one placement offset per rendered frame.
     pos.x = m_pos.x + mirrorImagePlacementX[placement];
-    pos.y = m_pos.y += mirrorImagePlacementY[placement];
+    pos.y = m_pos.y + mirrorImagePlacementY[placement];
     pos.y += m_pArea->GetHeightOffset(pos, m_listType);
 
     m_animation.CalculateGCBoundsRect(rGCBounds,
@@ -8863,8 +8866,12 @@ void CGameSprite::RenderMirrorImage(INT placement, CRect& rFX, CRect& rGCBounds,
         rFX.Height());
 
     if (!IsRectEmpty(rViewRect & rGCBounds)) {
-        mirrorPos.x = max(pos.x, m_pArea->GetInfinity()->nAreaX - 1) / CPathSearch::GRID_SQUARE_SIZEX;
-        mirrorPos.y = max(pos.y, m_pArea->GetInfinity()->nAreaY - 1) / CPathSearch::GRID_SQUARE_SIZEY;
+        // Clamp into the area before converting to search squares: the binary
+        // does min(max(pos, 0), dim - 1), so an image pushed off the edge tests
+        // the border square.  A plain max() sends every test to the far edge
+        // instead, which is what stopped the copies being drawn.
+        mirrorPos.x = min(max(pos.x, 0), m_pArea->GetInfinity()->nAreaX - 1) / CPathSearch::GRID_SQUARE_SIZEX;
+        mirrorPos.y = min(max(pos.y, 0), m_pArea->GetInfinity()->nAreaY - 1) / CPathSearch::GRID_SQUARE_SIZEY;
         if ((pSearch->GetLOSCost(mirrorPos, m_terrainTable, searchSquareCode, FALSE) != CPathSearch::COST_IMPASSABLE
                 || searchSquareCode == 14)
             && pVisibility->IsTileExplored(pVisibility->PointToTile(mirrorPos))) {
