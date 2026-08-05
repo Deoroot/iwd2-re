@@ -8866,20 +8866,25 @@ void CGameSprite::RenderMirrorImage(INT placement, CRect& rFX, CRect& rGCBounds,
         rFX.Height());
 
     if (!IsRectEmpty(rViewRect & rGCBounds)) {
-        // Clamp into the area before converting to search squares: the binary
-        // does min(max(pos, 0), dim - 1), so an image pushed off the edge tests
-        // the border square.  A plain max() sends every test to the far edge
-        // instead, which is what stopped the copies being drawn.
-        mirrorPos.x = min(max(pos.x, 0), m_pArea->GetInfinity()->nAreaX - 1) / CPathSearch::GRID_SQUARE_SIZEX;
-        mirrorPos.y = min(max(pos.y, 0), m_pArea->GetInfinity()->nAreaY - 1) / CPathSearch::GRID_SQUARE_SIZEY;
+        // Three coordinate spaces, which the binary keeps in three separate
+        // stack slots: the world position, that position clamped into the area,
+        // and the clamped one divided down into search squares.  Only the
+        // search-map lookup wants squares; the visibility map divides by its
+        // own tile size, and the renderer wants the world position.
+        CPoint clampedPos(min(max(pos.x, 0), m_pArea->GetInfinity()->nAreaX - 1),
+            min(max(pos.y, 0), m_pArea->GetInfinity()->nAreaY - 1));
+
+        mirrorPos.x = clampedPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+        mirrorPos.y = clampedPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
         if ((pSearch->GetLOSCost(mirrorPos, m_terrainTable, searchSquareCode, FALSE) != CPathSearch::COST_IMPASSABLE
                 || searchSquareCode == 14)
-            && pVisibility->IsTileExplored(pVisibility->PointToTile(mirrorPos))) {
+            && pVisibility->IsTileExplored(pVisibility->PointToTile(clampedPos))) {
             m_animation.Render(m_pArea->GetInfinity(),
                 pVidMode,
                 nSurface,
                 rFX,
-                mirrorPos,
+                pos,
                 ptReference,
                 dwRenderFlags | 0x2,
                 rgbTint,
