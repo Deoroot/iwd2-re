@@ -4090,10 +4090,553 @@ BOOL CGameSprite::CanSpeak(BOOL ignoreDeath, BOOL ignoreSilence)
     return TRUE;
 }
 
+// The battle cry is throttled globally, and a creature that just shouted keeps
+// quiet for a while afterwards.
+static const LONG BATTLE_CRY_TIMEOUT = 30;
+static const SHORT ATTACK_SOUND_DEADZONE = 90;
+
 // 0x7011E0
 void CGameSprite::PlaySound(BYTE soundID, BOOL showText, BOOL showCircle, BOOL overrideOption)
 {
-    // TODO: Incomplete.
+    STR_RES strRes;
+
+    // NOTE: Uninline.
+    BYTE nChannel = GetChannel();
+
+    // Set by the cases whose sound is not tied to a spot in the world; the
+    // tail reads it to choose between a positioned and a plain play.
+    BOOL bNonPositional = FALSE;
+
+    if (!CanSpeak(soundID == 7, FALSE)) {
+        return;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // Slot in m_speech the case settled on; the tail needs it to look up the
+    // soundset-specific text and the custom sound.
+    INT nSlot;
+
+    switch (soundID) {
+    case 1: {
+        SHORT nSounds = GetNumSounds(0, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(13, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 2: {
+        SHORT nSounds = GetNumSounds(7, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 7;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 3: {
+        SHORT nSounds = GetNumSounds(9, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 9;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 4: {
+        SHORT nSounds = GetNumSounds(11, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 11;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 5: {
+        // Battle cry.  Creatures share one global cooldown so a whole room
+        // does not shout at once; party members bypass it.
+        if (pGame->GetCharacterPortraitNum(m_id) == -1) {
+            if (g_pBaldurChitin->GetScreenWorld()->m_nBattleCryTimeOut >= 1) {
+                return;
+            }
+
+            g_pBaldurChitin->GetScreenWorld()->m_nBattleCryTimeOut = BATTLE_CRY_TIMEOUT;
+        }
+
+        if (pGame->GetOptions()->m_bAttackSounds == 0 || m_attackSoundDeadzone > 0) {
+            return;
+        }
+
+        m_attackSoundDeadzone = ATTACK_SOUND_DEADZONE;
+
+        if (field_70FC == 0) {
+            SHORT nSounds = GetNumSounds(2, 5);
+            if (nSounds == 0) {
+                return;
+            }
+
+            INT nIndex = rand() % nSounds;
+            nSlot = nIndex + 2;
+            g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+            strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+            break;
+        }
+
+        // Creature-supplied battle cries play straight from their own list and
+        // never reach the subtitle tail.
+        if (field_7360.IsEmpty()) {
+            return;
+        }
+
+        CSound cSecondary;
+
+        INT nIndex = rand() % field_7360.GetCount();
+        POSITION pos = field_7360.GetHeadPosition();
+        while (pos != NULL && nIndex != 0) {
+            nIndex--;
+            field_7360.GetNext(pos);
+        }
+
+        CGameSpriteSoundEntry& entry = field_7360.GetAt(pos);
+
+        cSecondary.SetResRef(CResRef(entry.field_0), TRUE, TRUE);
+        cSecondary.m_nPitchVariance = 5;
+        cSecondary.m_nVolumeVariance = 20;
+        cSecondary.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        if (!cSecondary.GetLooping()) {
+            cSecondary.SetFireForget(TRUE);
+        }
+
+        cSecondary.Play(m_pos.x, m_pos.y, 0, FALSE);
+
+        return;
+    }
+
+    case 6: {
+        if (field_70FD != 0) {
+            // Creature-supplied variant: remember the pick, play nothing here.
+            if (field_737C.IsEmpty()) {
+                return;
+            }
+
+            INT nIndex = rand() % field_737C.GetCount();
+            POSITION pos = field_737C.GetHeadPosition();
+            while (pos != NULL && nIndex != 0) {
+                nIndex--;
+                field_737C.GetNext(pos);
+            }
+
+            CGameSpriteSoundEntry& entry = field_737C.GetAt(pos);
+            field_7410 = entry.field_0;
+            field_7414 = entry.field_4;
+
+            return;
+        }
+
+        SHORT nSounds = GetNumSounds(33, 3);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 33;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(13, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 7: {
+        SHORT nSounds = GetNumSounds(36, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 36;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(13, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 8: {
+        SHORT nSounds = GetNumSounds(13, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 13;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(13, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 9: {
+        if (field_7100 == 0) {
+            bNonPositional = TRUE;
+
+            // Selection barks are rationed by an option: always at 3, one time
+            // in five at 2, never otherwise -- unless the caller overrides it.
+            BOOL bPlay = FALSE;
+            DWORD nFrequency = pGame->GetOptions()->m_nSelectionSoundsFrequency;
+            if (nFrequency == 2) {
+                if (rand() % 5 == 0) {
+                    bPlay = TRUE;
+                }
+            } else if (nFrequency == 3) {
+                bPlay = TRUE;
+            }
+
+            if (!overrideOption && !bPlay) {
+                return;
+            }
+
+            if (field_710C < 9) {
+                // Rotate through the selection barks rather than picking at
+                // random, so the same one does not come up twice in a row.
+                SHORT nSounds = GetNumSounds(15, 7);
+                INT nIndex = nSounds < 1 ? 0 : field_710A % nSounds;
+                nSlot = nIndex + 15;
+                g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+                if (nChannel == 13) {
+                    strRes.cSound.SetChannel(6, reinterpret_cast<DWORD>(m_pArea));
+                } else {
+                    strRes.cSound.SetChannel(nChannel, 0);
+                }
+
+                field_710A++;
+                field_710C++;
+            } else {
+                // Nine selections in, the creature starts answering back.
+                nSlot = field_710E + 29;
+                g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+                if (nChannel == 13) {
+                    strRes.cSound.SetChannel(6, reinterpret_cast<DWORD>(m_pArea));
+                } else {
+                    strRes.cSound.SetChannel(nChannel, 0);
+                }
+
+                field_710E++;
+
+                SHORT nSounds = GetNumSounds(29, 4);
+                if (nSounds <= field_710E) {
+                    field_710E = 0;
+                    field_710C = 0;
+                }
+
+                field_710A = 0;
+            }
+
+            break;
+        }
+
+        if (field_73D0.IsEmpty()) {
+            return;
+        }
+
+        CSound cSecondary;
+
+        INT nIndex = rand() % field_73D0.GetCount();
+        POSITION pos = field_73D0.GetHeadPosition();
+        while (pos != NULL && nIndex != 0) {
+            nIndex--;
+            field_73D0.GetNext(pos);
+        }
+
+        CGameSpriteSoundEntry& entry = field_73D0.GetAt(pos);
+
+        cSecondary.SetResRef(CResRef(entry.field_0), TRUE, TRUE);
+        cSecondary.m_nPitchVariance = 5;
+        cSecondary.m_nVolumeVariance = 20;
+        cSecondary.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        if (!cSecondary.GetLooping()) {
+            cSecondary.SetFireForget(TRUE);
+        }
+
+        cSecondary.Play(m_pos.x, m_pos.y, 0, FALSE);
+
+        return;
+    }
+
+    case 10: {
+        bNonPositional = TRUE;
+
+        SHORT nSounds = GetNumSounds(15, 7);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 15;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(6, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 11: {
+        // Order acknowledgements are rationed like selections, but the "one
+        // time in five" slot is instead "only the first order after a select".
+        BOOL bPlay = FALSE;
+        DWORD nFrequency = pGame->GetOptions()->m_nCommandSoundsFrequency;
+        if (nFrequency == 2) {
+            if (m_firstActionSound != 0) {
+                bPlay = TRUE;
+            }
+        } else if (nFrequency == 3) {
+            bPlay = TRUE;
+        }
+
+        if (!overrideOption && !bPlay) {
+            return;
+        }
+
+        SHORT nSounds = GetNumSounds(22, 7);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 22;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        m_firstActionSound = 0;
+
+        break;
+    }
+
+    case 12: {
+        bNonPositional = TRUE;
+
+        SHORT nSounds = GetNumSounds(29, 4);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 29;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        // The binary sets the area channel first and then overwrites it; the
+        // first call has no effect but is part of the function.
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(6, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 13: {
+        SHORT nSounds = GetNumSounds(38, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 38;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 14:
+    case 16: {
+        // The binary reaches case 14 by jumping into case 16's body, so the
+        // two share everything but the pool size and the deadzone.
+        SHORT nCount = 2;
+
+        if (soundID == 14) {
+            if (m_attackSoundDeadzone > 0) {
+                return;
+            }
+
+            // Armed before the pool is consulted, so an empty pool still
+            // silences the creature for the same stretch.
+            m_attackSoundDeadzone = ATTACK_SOUND_DEADZONE;
+            nCount = 4;
+        }
+
+        SHORT nSounds = GetNumSounds(40, nCount);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 40;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 15: {
+        SHORT nSounds = GetNumSounds(44, 20);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 44;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+        // __LINE__: 6997
+        UTIL_ASSERT(FALSE);
+        return;
+    }
+
+    COLORREF nameColor = CVidPalette::RANGE_COLORS[m_baseStats.m_colors[CVIDPALETTE_RANGE_MAIN_CLOTH]];
+    BOOL show = pGame->GetOptions()->m_bSubtitles != FALSE;
+
+    strRes.szText.TrimLeft();
+
+    if (m_secondarySounds != "") {
+        // A creature with its own soundset can override both the line and the
+        // sample the switch just picked.
+        if (show) {
+            CString sSoundSet(reinterpret_cast<const char*>(field_725A));
+            STRREF strSpeech = pGame->GetRuleTables().GetSpeechStringRef(sSoundSet, nSlot);
+            if (strSpeech != -1) {
+                STR_RES resSpeech;
+                g_pBaldurChitin->GetTlkTable().Fetch(strSpeech, resSpeech);
+
+                if (resSpeech.szText.GetLength() == 0) {
+                    strRes.szText = "";
+                } else {
+                    strRes.szText = resSpeech.szText;
+                }
+            }
+        }
+
+        CString sSoundName;
+        CString sSoundSetName;
+        LONG nNumber = pGame->GetRuleTables().GetCustomSound(sSoundName, static_cast<BYTE>(nSlot));
+        m_secondarySounds.CopyToString(sSoundSetName);
+        sSoundName.TrimLeft();
+        sSoundName.TrimRight();
+        sSoundName = sSoundSetName + sSoundName;
+
+        // Unlike VerbalConstant, a numbered custom sound is only taken when the
+        // WAV actually exists, so a gap in the soundset keeps the stock sample.
+        if (nNumber == 0
+            || g_pChitin->cDimm.m_cKeyTable.FindKey(CResRef(sSoundName), 4, TRUE) != NULL) {
+            strRes.cSound.SetResRef(CResRef(sSoundName), TRUE, TRUE);
+        }
+    }
+
+    if (m_typeAI.GetEnemyAlly() == CAIObjectType::EA_PC) {
+        if (strRes.cSound.GetRes() != NULL) {
+            if (!strRes.cSound.GetLooping()) {
+                strRes.cSound.SetFireForget(TRUE);
+            }
+
+            if (strRes.cSound.Play(FALSE) && showCircle) {
+                m_talkingCounter = min(strRes.cSound.GetPlayTime() / 66, STANDARD_VERBAL_CONSTANT_LENGTH);
+            }
+        }
+    } else {
+        if (strRes.cSound.GetRes() != NULL) {
+            if (!strRes.cSound.GetLooping()) {
+                strRes.cSound.SetFireForget(TRUE);
+            }
+
+            // Non-party voices go through the sprite's own channel so a
+            // creature never talks over itself.  The binary spells the block
+            // out three times, once per positioning case; the three differ
+            // only in the last two calls.
+            if (!m_sndVoice.IsSoundPlaying()
+                || m_sndVoice.GetResRef() != strRes.cSound.GetResRef()) {
+                m_sndVoice.Stop();
+                m_sndVoice.SetResRef(strRes.cSound.GetResRef(), TRUE, TRUE);
+
+                if (strRes.cSound.m_nArea != 0 && !bNonPositional) {
+                    m_sndVoice.SetChannel(strRes.cSound.m_nChannel, reinterpret_cast<DWORD>(m_pArea));
+                    if (m_sndVoice.Play(m_pos.x, m_pos.y, 0, FALSE) && showCircle) {
+                        m_talkingCounter = min(strRes.cSound.GetPlayTime() / 66, STANDARD_VERBAL_CONSTANT_LENGTH);
+                    }
+                } else {
+                    m_sndVoice.SetChannel(strRes.cSound.m_nChannel, 0);
+                    if (m_sndVoice.Play(FALSE) && showCircle) {
+                        m_talkingCounter = min(strRes.cSound.GetPlayTime() / 66, STANDARD_VERBAL_CONSTANT_LENGTH);
+                    }
+                }
+            }
+        }
+    }
+
+    if (strRes.szText != "" && showText && show) {
+        g_pBaldurChitin->GetScreenWorld()->DisplayText(m_sName,
+            strRes.szText,
+            nameColor,
+            nameColor,
+            -1,
+            FALSE);
+    }
 }
 
 // 0x702900
