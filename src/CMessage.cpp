@@ -5439,7 +5439,6 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
 
     // CALLS-STUB -- Run() is faithful, its payload callee is still unimplemented
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_MOVE_GLOBAL
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PLAY_SOUND
 
     // NULLDEREF -- Run() casts the target to CGameTrigger with no type check
     // and writes m_dwFlags / m_trapActivated / m_trapDetected at +0x5D6,
