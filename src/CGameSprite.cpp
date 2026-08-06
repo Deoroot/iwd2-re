@@ -26857,8 +26857,16 @@ void CGameSprite::RefreshCombatFeats()
     CGameEffect* pEffect;
     CMessageAddEffect* pMessage;
 
+    // Each of the five blocks below writes durationType = 1 right after
+    // ClearItemEffect (which zeroes it), loading the WORD 1 from 0x8491AA --
+    // at 0x726594, 0x726611, 0x72668F, 0x72670C and 0x726789 respectively.
+    // It is the only ITEM_EFFECT field any of them sets.  A zero durationType
+    // resolves to an absolute expiry of "now", so the feat effects would be
+    // dropped before they could re-assert their derived-stat spell states.
+
     if (m_nFeatRanks[1] > 0) {
         CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_FEATPOWERATTACK);
+        effect.durationType = 1;
         pEffect = CGameEffect::DecodeEffect(&effect, m_pos, m_id, CPoint(-1, -1));
         pMessage = new CMessageAddEffect(pEffect, m_id, m_id);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
@@ -26866,6 +26874,7 @@ void CGameSprite::RefreshCombatFeats()
 
     if (m_nFeatRanks[0] > 0) {
         CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_FEATEXPERTISE);
+        effect.durationType = 1;
         pEffect = CGameEffect::DecodeEffect(&effect, m_pos, m_id, CPoint(-1, -1));
         pMessage = new CMessageAddEffect(pEffect, m_id, m_id);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
@@ -26873,6 +26882,7 @@ void CGameSprite::RefreshCombatFeats()
 
     if (m_nFeatRanks[2] > 0) {
         CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_FEATARTERIALSTRIKE);
+        effect.durationType = 1;
         pEffect = CGameEffect::DecodeEffect(&effect, m_pos, m_id, CPoint(-1, -1));
         pMessage = new CMessageAddEffect(pEffect, m_id, m_id);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
@@ -26880,6 +26890,7 @@ void CGameSprite::RefreshCombatFeats()
 
     if (m_nFeatRanks[3] > 0) {
         CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_FEATHAMSTRING);
+        effect.durationType = 1;
         pEffect = CGameEffect::DecodeEffect(&effect, m_pos, m_id, CPoint(-1, -1));
         pMessage = new CMessageAddEffect(pEffect, m_id, m_id);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
@@ -26887,6 +26898,7 @@ void CGameSprite::RefreshCombatFeats()
 
     if (m_nFeatRanks[4] > 0) {
         CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_FEATRAPIDSHOT);
+        effect.durationType = 1;
         pEffect = CGameEffect::DecodeEffect(&effect, m_pos, m_id, CPoint(-1, -1));
         pMessage = new CMessageAddEffect(pEffect, m_id, m_id);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
