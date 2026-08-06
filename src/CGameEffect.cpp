@@ -3670,17 +3670,23 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 // IDS mapping exists for them), else the tier comes from the animation
 // type's own GetPersonalSpace() (small/medium/large).
 //
-// DEFERRED: the binary retries the randomly-picked digit (wrapping back to
-// '1' past the branch's own max variant count) if FUN_007E7A54 -- an
-// unnamed "does this resource exist" probe with no recoverable prototype
-// anywhere in this codebase -- reports the file missing. That retry could
-// not be reproduced, so this always keeps the first random digit; a miss
-// just fails CResHelper::SetResRef's own GetResObject call below and leaves
-// the sound silent, same as the binary's own missing-resource path.
-// #guess: the exact variant COUNT per branch (confirmed via disasm to
-// differ, 3/4/5-way depending on damage type and which suffix was picked)
-// is approximated uniformly at 4-way here -- only the prefix/suffix
-// SELECTION logic itself was verified branch-by-branch against real disasm.
+// The variant count is NOT uniform. The binary unrolls this entire tail once
+// per damage-type prefix, so every (prefix, suffix) pair reaches its own
+// _rand site with its own modulus -- 3, 4 or 5 -- recovered by tracing all
+// fourteen digit-pick blocks plus the four explicit-code jump tables
+// (0x4A9A88 BL_, 0x4A9A98 PC_, 0x4A9AA8 SL_, 0x4A9AB8 ML_) and the
+// suffix-only blocks that append and jump into a shared pick. See
+// nVariantCount below; every cell is a traced block, none is a guess.
+//
+// DEFERRED: after picking, the binary probes the resref with FUN_007E7A54 --
+// an unnamed "does this resource exist" helper with no recoverable prototype
+// anywhere in this codebase -- and, if it reports the file missing, retries
+// the next digit, wrapping back to '1' past the branch's own count. That
+// retry is not reproduced, so this keeps its first pick. With the real
+// per-branch counts the pick is at least always inside the branch's own
+// range; a genuinely absent file still just fails CResHelper::SetResRef's
+// GetResObject call below and stays silent, like the binary's own
+// missing-resource path.
 //
 // The two-stage "compare against a cached resref, cancel+reload only if it
 // changed" dance in the tail is CResHelper<CResWave,4>::SetResRef (already
@@ -3718,20 +3724,38 @@ void CGameEffectDamage::PlayHitSound(DWORD damageType, CGameSprite* pTarget)
     // dedicated "BN" (bone) suffix they force below.
     BOOL bBonyException = (nAnimationID == 0x6403 || nAnimationID == 0xE62C || nAnimationID == 0xF019);
 
+    enum { PFX_BL, PFX_PC, PFX_SL, PFX_ML };
+    enum { SFX_CL, SFX_LR, SFX_CH, SFX_PT, SFX_BN, SFX_MS, SFX_MM, SFX_ML };
+
+    // Per-(prefix, suffix) variant counts, transcribed from the binary's
+    // unrolled digit-pick blocks. Rows follow PFX_*, columns SFX_*.
+    static const BYTE nVariantCount[4][8] = {
+        //          CL  LR  Ch  PT  BN  MS  MM  ML
+        /* BL_ */ {  3,  3,  4,  3,  3,  3,  3,  4 },
+        /* PC_ */ {  4,  3,  4,  5,  3,  5,  4,  4 },
+        /* SL_ */ {  3,  3,  3,  4,  3,  4,  3,  3 },
+        /* ML_ */ {  4,  3,  5,  5,  4,  5,  4,  5 },
+    };
+
     CString sPrefix;
+    int nPrefix;
     switch (damageType) {
     case 0x0:       // CRUSHING
         sPrefix = "BL_";
+        nPrefix = PFX_BL;
         break;
     case 0x100000:  // PIERCING
         sPrefix = "PC_";
+        nPrefix = PFX_PC;
         break;
     case 0x1000000: // SLASHING
         sPrefix = "SL_";
+        nPrefix = PFX_SL;
         break;
     case 0x2000000: // MAGICFIRE (sic)
     case 0x4000000: // MAGICCOLD (sic)
         sPrefix = "ML_";
+        nPrefix = PFX_ML;
         break;
     case 0x8000000:
         {
@@ -3754,35 +3778,44 @@ void CGameEffectDamage::PlayHitSound(DWORD damageType, CGameSprite* pTarget)
     }
 
     CString sSuffix;
+    int nSuffix;
     if (bExplicitCode) {
         switch (cExplicitDigit) {
         case '1':
             sSuffix = "CL";
+            nSuffix = SFX_CL;
             break;
         case '2':
             sSuffix = "LR";
+            nSuffix = SFX_LR;
             break;
         case '3':
             sSuffix = "Ch";
+            nSuffix = SFX_CH;
             break;
         case '4':
             sSuffix = "PT";
+            nSuffix = SFX_PT;
             break;
         default:
             return;
         }
     } else if (bBonyException) {
         sSuffix = "BN";
+        nSuffix = SFX_BN;
     } else if (nPersonalSpace < 3) {
         sSuffix = "MS";
+        nSuffix = SFX_MS;
     } else if (nPersonalSpace < 6) {
         sSuffix = "MM";
+        nSuffix = SFX_MM;
     } else {
         sSuffix = "ML";
+        nSuffix = SFX_ML;
     }
 
     CString sResRef = sPrefix + sSuffix;
-    sResRef += static_cast<char>('1' + (rand() % 4));
+    sResRef += static_cast<char>('1' + (rand() % nVariantCount[nPrefix][nSuffix]));
 
     g_pBaldurChitin->GetMessageHandler()->AddMessage(
         new CMessagePlaySoundRef(CResRef(sResRef), pTarget->m_id, pTarget->m_id), FALSE);
