@@ -1,5 +1,7 @@
 #include "CGameSprite.h"
 
+#include <mbstring.h>
+
 #include "CAIScript.h"
 #include "CAIUtil.h"
 #include "CBaldurChitin.h"
@@ -15680,10 +15682,23 @@ SHORT CGameSprite::Attack(CGameSprite* pTarget)
     UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
     pTarget->m_animation.m_animation->GetAnimationResRef(animBodyResRef, CGameAnimationType::RANGE_BODY);
 
-    // DEFERRED: the binary skips the battle song for four generic/golem body
-    // resrefs ("MGEN"/"MKG1"/"MKG2"/"MKG3", compared via an unrecovered
-    // string-compare helper at 0x7E7A54) -- always play it here instead.
-    if (m_pArea != NULL) {
+    // The battle song is suppressed when the target's body animation is one of
+    // four generic/golem resrefs.  The binary unrolls this as four sequential
+    // _mbscmp calls (0x7E7A54) against the literals at 0x8AA828/0x8AA820/
+    // 0x8AA818/0x8AA810, each one branching straight to the "clear the flag"
+    // block on a match, so it stops at the first hit exactly as this loop does.
+    static const char* const GENERIC_BODY_RESREFS[] = { "MGEN", "MKG1", "MKG2", "MKG3" };
+
+    BOOL bPlayBattleSong = TRUE;
+    for (int i = 0; i < 4; i++) {
+        if (_mbscmp(reinterpret_cast<const unsigned char*>(static_cast<const char*>(animBodyResRef)),
+                reinterpret_cast<const unsigned char*>(GENERIC_BODY_RESREFS[i])) == 0) {
+            bPlayBattleSong = FALSE;
+            break;
+        }
+    }
+
+    if (m_pArea != NULL && bPlayBattleSong) {
         m_pArea->PlaySong(3, 0x101f4);
     }
 
