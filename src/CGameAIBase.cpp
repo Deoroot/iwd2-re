@@ -14,6 +14,7 @@
 #include "CGameEffect.h"
 #include "CGameJournal.h"
 #include "CGameSpawning.h"
+#include "CGameSound.h"
 #include "CGameSprite.h"
 #include "CGameStatic.h"
 #include "CGameTiledObject.h"
@@ -447,6 +448,32 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
                     && (pSprite->GetBaseStats()->m_generalState & STATE_DEAD) == 0) {
                     bHolds = FALSE;
                 }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return bHolds;
+    }
+
+    case CAITRIGGER_ISACTIVE: {
+        // 0x45A534: IsActive(O:Object*) -- three different "active" notions
+        // depending on what the cause resolved to.  Anything else is FALSE.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        BOOL bHolds = FALSE;
+
+        if (pObject != NULL) {
+            BYTE nType = pObject->GetObjectType();
+            if (nType == CGameObject::TYPE_SOUND) {
+                bHolds = static_cast<CGameSound*>(pObject)->IsActive();
+            } else if (nType == CGameObject::TYPE_SPRITE) {
+                bHolds = static_cast<CGameSprite*>(pObject)->GetActive();
+            } else if (nType == CGameObject::TYPE_TRIGGER) {
+                bHolds = static_cast<CGameTrigger*>(pObject)->IsTrapActive();
             }
 
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
