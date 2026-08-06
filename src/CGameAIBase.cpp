@@ -456,6 +456,41 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_CREATUREHIDDEN: {
+        // 0x4582E0: CreatureHidden(O:Object*) -- the target's own stealth flag.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = pSprite->GetBaseStats()->m_bStealthMode;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HPGT: {
+        // 0x45435E, tail shared at 0x4540F0: base (not derived) hit points
+        // strictly greater than the trigger's value.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = pSprite->GetBaseStats()->m_hitPoints > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
         // uses to notice the party.  On a fresh sighting it records the object
@@ -603,6 +638,30 @@ void CGameAIBase::DoAction()
     } else {
         m_actionCount++;
     }
+}
+
+// 0x45D050 (vtable 0xA4)
+BOOL CGameAIBase::ResolveTriggerSprite(CAITrigger& trigger, CGameSprite** ppSprite)
+{
+    trigger.m_triggerCause.Decode(this);
+
+    CGameObject* pObject = trigger.m_triggerCause.GetObjectWithType(this,
+        CGameObject::TYPE_SPRITE,
+        FALSE);
+    *ppSprite = static_cast<CGameSprite*>(pObject);
+
+    if (pObject != NULL && pObject->GetAIType().Equal(CAIObjectType::NOT_SPRITE)) {
+        // Resolved to a placeholder rather than a real creature: drop it and
+        // hand the caller NULL, releasing the share GetObjectWithType took.
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare((*ppSprite)->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        *ppSprite = NULL;
+    }
+
+    // Always FALSE here; callers use the result as a "the share is not mine to
+    // release" flag, and the shared trigger epilogue keys its ReleaseShare on it.
+    return FALSE;
 }
 
 // 0x44DAC0
