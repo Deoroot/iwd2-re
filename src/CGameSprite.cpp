@@ -20208,17 +20208,24 @@ SHORT CGameSprite::ExecuteAction()
     // 0x7290DB (jumptable case 0x02). Attack(3) / AttackNoSound(98): resolve the
     // target sprite and delegate to Attack() for the actual range/gate/damage
     // resolution -- the real combat entry point this dispatch has been missing.
-    // Two things NOT reproduced, both binary-only and inert without a target:
-    // a profiler-zone timer wrapping the whole case (DAT_008cf6dc+0x1ab6/+0x1af6/
-    // +0x1a76 bookkeeping, pure telemetry, no named fields exist for it); and a
-    // PC-only auto-target-acquisition fallback (0x729123-0x7291af, only reached
-    // when GetCharacterPortraitNum(m_id) != -1 and no target is already queued)
-    // that builds a CAIObjectType enemy-of filter from m_typeAI.GetEnemyOf() and
-    // hands it to the unrecovered FUN_0045c030 -- left NULL here, same as if
-    // that lookup had failed to find anything.
+    // The one thing NOT reproduced is binary-only telemetry: a profiler-zone
+    // timer wrapping the whole case (DAT_008cf6dc+0x1ab6/+0x1af6/+0x1a76
+    // bookkeeping, no named fields exist for it).
     if (m_curAction.m_actionID == CAIAction::ATTACK
         || m_curAction.m_actionID == CAIAction::ATTACKNOSOUND) {
         CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
+
+        // Party-member auto-target acquisition (0x729123-0x7291AF): when the
+        // action carries no resolvable actee, a PC falls back to "anything
+        // hostile to me" -- an ANYONE filter narrowed to whichever enemy-ally
+        // side opposes m_typeAI's own.  Non-party sprites get no such fallback.
+        if (pObj == NULL
+            && g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1) {
+            CAIObjectType typeTarget(CAIObjectType::ANYONE);
+            typeTarget.m_nEnemyAlly = m_typeAI.GetEnemyOf().m_nEnemyAlly;
+            pObj = ResolveActionTarget(typeTarget, CGameObject::TYPE_SPRITE);
+        }
+
         CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
 
         // "First hostile encounter with a good-aligned creature" latch: the
@@ -20232,6 +20239,48 @@ SHORT CGameSprite::ExecuteAction()
         }
 
         SHORT actionReturn = Attack(pTarget);
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        return actionReturn;
+    }
+
+    // 0x72A094 (jumptable case 0x35). AttackOneRound(105): the plain form of the
+    // Attack case above -- same target resolve, same good-aligned-target latch,
+    // same Attack() call -- with neither the profiler zone nor the party
+    // auto-acquisition fallback.  Nothing in this case enforces the "one round"
+    // limit or otherwise distinguishes the action from Attack(3); whatever makes
+    // it stop after a round lives downstream of the action ID itself.
+    if (m_curAction.m_actionID == CAIAction::ATTACKONEROUND) {
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
+        CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
+
+        if (pTarget != NULL && (m_baseStats.m_flags & 0x100000) == 0) {
+            if (pTarget->GetAIType().m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
+                m_baseStats.m_flags |= 0x100000;
+            }
+        }
+
+        SHORT actionReturn = Attack(pTarget);
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        return actionReturn;
+    }
+
+    // 0x729E07 (jumptable case 0x2b). GroupAttack(94): ignores the action's
+    // actee entirely and synthesises its own filter -- an ANYONE type narrowed
+    // to whichever enemy-ally side opposes this sprite's own -- resolves a
+    // single sprite through it, then hands that to GroupAttack(), which
+    // re-queues the fight as a plain Attack against a name-agnostic group type.
+    if (m_curAction.m_actionID == CAIAction::GROUPATTACK) {
+        CAIObjectType typeTarget(CAIObjectType::ANYONE);
+        typeTarget.m_nEnemyAlly = m_typeAI.GetEnemyOf().m_nEnemyAlly;
+
+        CGameObject* pObj = ResolveActionTarget(typeTarget, CGameObject::TYPE_SPRITE);
+        SHORT actionReturn = GroupAttack(static_cast<CGameSprite*>(pObj));
         if (pObj != NULL) {
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
