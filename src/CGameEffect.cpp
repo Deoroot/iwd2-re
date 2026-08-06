@@ -3660,8 +3660,11 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 // damage type (0x8000000, no IDS name found for it) that always plays a
 // single fixed cue with no randomization.
 //
-// Builds a resref shaped <damage-type prefix><armor/size-tier suffix><digit>
-// (e.g. "PC_MS3"): the target's worn armor (SLOT_ARMOR) supplies an explicit
+// Builds a resref shaped "H_"<damage-type prefix><armor/size-tier suffix><digit>
+// (e.g. "H_PC_MS3" -- the CString is constructed from the literal "H_" at
+// 0x4A8E0E, in the prologue, before anything else is appended to it; the
+// shipped WAVs confirm the shape, CHITIN.KEY indexes H_BL_*/H_PC_*/H_SL_*/
+// H_ML_* and no bare BL_*/PC_* at all).  The target's worn armor (SLOT_ARMOR) supplies an explicit
 // two-character animation-type code if equipped -- a WORD packed as two
 // ASCII chars, confirmed via real disasm (CItem::GetAnimationType()'s
 // returned WORD, low byte 'A' marks "explicit code present", high byte is
@@ -3682,11 +3685,18 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 // an unnamed "does this resource exist" helper with no recoverable prototype
 // anywhere in this codebase -- and, if it reports the file missing, retries
 // the next digit, wrapping back to '1' past the branch's own count. That
-// retry is not reproduced, so this keeps its first pick. With the real
-// per-branch counts the pick is at least always inside the branch's own
-// range; a genuinely absent file still just fails CResHelper::SetResRef's
-// GetResObject call below and stays silent, like the binary's own
-// missing-resource path.
+// retry is not reproduced, so this keeps its first pick.
+//
+// That matters for exactly one cell.  Enumerating all 119 resrefs this table
+// can produce and checking each against CHITIN.KEY leaves a single miss:
+// ML_/MS picks 1-5 but only H_ML_MS1-4 ship, so that one branch lands on a
+// missing file 1 time in 5 and stays silent until the retry is recovered.
+// ML_/LR is the harmless mirror image -- the code picks 1-3 and never reaches
+// the shipped H_ML_LR4.  The other 30 of 32 cells match the shipped variant
+// count exactly, which is the independent confirmation that the block tracing
+// below is right.  A missing file just fails CResHelper::SetResRef's
+// GetResObject call and stays silent, like the binary's own missing-resource
+// path.
 //
 // The two-stage "compare against a cached resref, cancel+reload only if it
 // changed" dance in the tail is CResHelper<CResWave,4>::SetResRef (already
@@ -3814,7 +3824,7 @@ void CGameEffectDamage::PlayHitSound(DWORD damageType, CGameSprite* pTarget)
         nSuffix = SFX_ML;
     }
 
-    CString sResRef = sPrefix + sSuffix;
+    CString sResRef = CString("H_") + sPrefix + sSuffix;
     sResRef += static_cast<char>('1' + (rand() % nVariantCount[nPrefix][nSuffix]));
 
     g_pBaldurChitin->GetMessageHandler()->AddMessage(
