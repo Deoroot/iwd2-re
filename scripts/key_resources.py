@@ -31,10 +31,11 @@ TYPES = {
     0x0001: "BMP", 0x0002: "MVE", 0x0004: "WAV", 0x0005: "WFX",
     0x0006: "PLT", 0x03E8: "BAM", 0x03E9: "WED", 0x03EA: "CHU",
     0x03EB: "TIS", 0x03EC: "MOS", 0x03ED: "ITM", 0x03EE: "SPL",
-    0x03EF: "IDS", 0x03F0: "CRE", 0x03F1: "ARE", 0x03F2: "DLG",
-    0x03F3: "2DA", 0x03F4: "GAM", 0x03F5: "STO", 0x03F6: "WMP",
-    0x03F7: "EFF", 0x03F8: "BS", 0x03F9: "CHR", 0x03FA: "VVC",
-    0x03FB: "VEF", 0x03FC: "PRO", 0x03FE: "BIO", 0x0802: "INI",
+    0x03EF: "BCS", 0x03F0: "IDS", 0x03F1: "CRE", 0x03F2: "ARE",
+    0x03F3: "DLG", 0x03F4: "2DA", 0x03F5: "GAM", 0x03F6: "STO",
+    0x03F7: "WMP", 0x03F8: "EFF", 0x03F9: "BS", 0x03FA: "CHR",
+    0x03FB: "VVC", 0x03FC: "VEF", 0x03FD: "PRO", 0x03FE: "BIO",
+    0x0802: "INI",
 }
 TYPE_BY_NAME = {v: k for k, v in TYPES.items()}
 
@@ -66,6 +67,59 @@ def read_resources(path):
     return out
 
 
+def read_bif_names(path):
+    """The KEY's BIF table, indexed by the locator's top 12 bits."""
+    with open(path, "rb") as handle:
+        blob = handle.read()
+
+    bif_count, bif_offset = struct.unpack_from("<I", blob, 8)[0], struct.unpack_from("<I", blob, 16)[0]
+
+    names = []
+    for i in range(bif_count):
+        base = bif_offset + i * 12
+        _length, name_offset, name_length = struct.unpack_from("<IIH", blob, base)
+        raw = blob[name_offset:name_offset + name_length]
+        names.append(raw.split(b"\0", 1)[0].decode("ascii", "replace").replace("\\", os.sep))
+    return names
+
+
+def extract(key_path, resources, target, want_type):
+    """Pull one resource's bytes out of the BIF the KEY points at."""
+    target = target.upper()
+    hit = None
+    for resref, type_id, locator in resources:
+        if resref.upper() == target and (want_type is None or type_id == want_type):
+            hit = (resref, type_id, locator)
+            break
+    if hit is None:
+        raise SystemExit(f"{target}: not indexed by {key_path}")
+
+    resref, type_id, locator = hit
+    bif_index = locator >> 20
+    file_index = locator & 0x3FFF
+
+    game_dir = os.path.dirname(key_path)
+    bif_name = read_bif_names(key_path)[bif_index]
+    bif_path = os.path.join(game_dir, bif_name)
+    if not os.path.isfile(bif_path):
+        raise SystemExit(f"{bif_path}: BIF missing (CD-only resource?)")
+
+    with open(bif_path, "rb") as handle:
+        bif = handle.read()
+
+    if bif[:4] != b"BIFF":
+        raise SystemExit(f"{bif_path}: compressed BIF ({bif[:4]!r}), not supported")
+
+    entry_count, _tile_count, entry_offset = struct.unpack_from("<III", bif, 8)
+    for i in range(entry_count):
+        base = entry_offset + i * 16
+        loc, offset, size, etype = struct.unpack_from("<IIIH", bif, base)
+        if (loc & 0x3FFF) == file_index:
+            return resref, TYPES.get(etype, hex(etype)), bif[offset:offset + size]
+
+    raise SystemExit(f"{resref}: locator {locator:#x} not found in {bif_name}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--key", help="path to CHITIN.KEY")
@@ -73,6 +127,8 @@ def main():
     parser.add_argument("--type", help="filter by type name (WAV, SPL, ...) or 0xNNNN")
     parser.add_argument("--exists", help="test one exact resref; exit 0 found, 1 missing")
     parser.add_argument("--count", action="store_true", help="print only the number of matches")
+    parser.add_argument("--extract", help="unpack one exact resref from its BIF")
+    parser.add_argument("--out", help="write --extract to this file instead of stdout")
     args = parser.parse_args()
 
     key_path = find_key(args.key)
@@ -86,6 +142,16 @@ def main():
         want_type = TYPE_BY_NAME.get(args.type.upper())
         if want_type is None:
             want_type = int(args.type, 0)
+
+    if args.extract:
+        resref, type_name, data = extract(key_path, resources, args.extract, want_type)
+        if args.out:
+            with open(args.out, "wb") as handle:
+                handle.write(data)
+            print(f"{resref} ({type_name}) {len(data)} bytes -> {args.out}")
+        else:
+            sys.stdout.write(data.decode("ascii", "replace"))
+        return 0
 
     if args.exists:
         target = args.exists.upper()
