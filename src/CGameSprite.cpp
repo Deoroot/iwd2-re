@@ -2536,6 +2536,16 @@ void CGameSprite::AIUpdate()
                             ITEM_EFFECT effect;
                             CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_NONDETECTION);
 
+                            // Same missing store as the day blindness grant
+                            // above: ClearItemEffect zeroes durationType, and a
+                            // zero one resolves to an absolute expiry of "now",
+                            // so the effect would be dropped on the next list
+                            // pass and the STATE_NONDETECTION guard would re-add
+                            // it every tick.  The binary writes 1
+                            // (instant/permanent) at 0x6F8DAD, a WORD loaded
+                            // from 0x8491AA.
+                            effect.durationType = 1;
+
                             CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
                                 GetPos(),
                                 m_id,
