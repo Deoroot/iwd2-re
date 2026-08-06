@@ -19634,9 +19634,15 @@ CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWea
                 if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_ARTERIAL_STRIKE] && HasFeat(5)) {
                     // Arterial Strike.
                     ITEM_EFFECT effect;
+                    // Field attribution here was re-derived from the disasm by
+                    // tracking esp across the intervening pushes (base is the
+                    // `lea` feeding ClearItemEffect; every store below lands at
+                    // base+offset).  0x46 goes to duration at base+0x0E, not to
+                    // savingThrow at base+0x24, which the binary leaves zero.
                     CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_BLEEDINGWOUNDS);
                     effect.targetType = 2;
-                    effect.savingThrow = 0x46;
+                    effect.effectAmount = 1;
+                    effect.duration = 0x46;
                     CGameEffect* pStyleEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
                     pStyleEffect->m_source = GetPos();
                     pStyleEffect->m_sourceID = m_id;
@@ -19645,11 +19651,16 @@ CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWea
                 } else if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_HAMSTRING] && HasFeat(0x1b)) {
                     // Hamstring.
                     ITEM_EFFECT effect;
+                    // Same three values as before, all landing one field later
+                    // than they were recovered: 0x32 -> effectAmount (base+0x04),
+                    // 2 -> dwFlags (base+0x08), 0x46 -> duration (base+0x0E).
+                    // durationType (base+0x0C) is loaded from the WORD 0 at
+                    // 0x8491A8, i.e. left at ClearItemEffect's zero.
                     CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_MOVEMENTRATEWITHPORTRAIT);
                     effect.targetType = 2;
-                    effect.durationType = 2;
-                    effect.duration = 0x32;
-                    effect.savingThrow = 0x46;
+                    effect.effectAmount = 0x32;
+                    effect.dwFlags = 2;
+                    effect.duration = 0x46;
                     CGameEffect* pStyleEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
                     pStyleEffect->m_source = GetPos();
                     pStyleEffect->m_sourceID = m_id;
@@ -19800,10 +19811,17 @@ CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWea
         && GetFeatValue(8) == 1
         && (!m_timedEffectList.IsTypeOnList(ICEWIND_CGAMEEFFECT_FEATCLEAVE) || GetFeatValue(8) == 2)) {
         ITEM_EFFECT effect;
+        // effectAmount and dwFlags are two different reads of the cleave rank:
+        // the binary stores field_5636 - 1 at base+0x04 *before* calling
+        // GetFeatValue, then stores GetFeatValue(8)'s return at base+0x08.
+        // Both stores are written `[esp+0x38]`, one on each side of the call,
+        // which is how they were originally merged into a single assignment.
         CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_FEATCLEAVE);
-        effect.effectAmount = GetFeatValue(8) - 1;
-        effect.durationType = 8;
-        effect.savingThrow = 7;
+        effect.targetType = 1;
+        effect.effectAmount = field_5636 - 1;
+        effect.dwFlags = GetFeatValue(8);
+        effect.duration = 7;
+        effect.special = pTarget->m_id;
         CGameEffect* pCleaveEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
         pCleaveEffect->m_source = GetPos();
         pCleaveEffect->m_sourceID = m_id;
@@ -19828,7 +19846,12 @@ CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWea
                 ITEM_EFFECT effect;
                 CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_STUN);
                 effect.targetType = 2;
-                effect.probabilityLower = 1;
+                // base+0x03 is spellLevel, not probabilityLower at base+0x13.
+                effect.spellLevel = 1;
+                // The duration is read from the global DWORD at 0x84EB90.
+                effect.duration = 14;
+                // 4 = Fortitude, the correct save for a stunning blow.
+                effect.savingThrow = 4;
                 INT nStunDC = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nWIS)
                     - 1 + m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_MONK) / 2;
                 effect.saveMod = nStunDC;
@@ -19861,6 +19884,11 @@ CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWea
                 ITEM_EFFECT effect;
                 CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_DEATH);
                 effect.targetType = 2;
+                effect.spellLevel = 1;
+                effect.dwFlags = 4;
+                // The one site in this block that really does write 1 to
+                // durationType, from 0x8491AA at 0x73E344.
+                effect.durationType = 1;
                 effect.savingThrow = 4;
                 INT nDeathDC = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nWIS)
                     - 1 + m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_MONK) / 2;
@@ -19896,9 +19924,13 @@ CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWea
         ITEM_EFFECT effect;
         CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_POISON);
         effect.targetType = 2;
-        effect.probabilityLower = 10;
+        effect.spellLevel = 10;
+        effect.dwFlags = 8;
         effect.effectAmount = -1 - (rand() % 6);
-        effect.savingThrow = 7;
+        effect.duration = 7;
+        // 4 = Fortitude, the correct save for poison -- the 7 recovered here
+        // before was this site's duration read as a savingThrow.
+        effect.savingThrow = 4;
         CGameEffect* pPoisonEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
         // Sources from the target itself and is queued, same as the monk
         // specials above.
