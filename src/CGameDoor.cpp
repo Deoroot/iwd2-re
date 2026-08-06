@@ -470,6 +470,156 @@ BOOL CGameDoor::IsOver(const CPoint& pt)
     return TRUE;
 }
 
+// 0x487D10
+//
+// Recovered: the secret-undiscovered-door passthrough, the state 0/2/3
+// dispatch, and (within state 2) the bash/pick-lock/remove-traps/cast-spell
+// icons plus the plain-passthrough icons.
+// Still unrecovered: state 0's second GroupAction, which the binary only
+// issues when no party member is already within an area-flag-dependent
+// distance (via unresolved FUN_007EA8C0) of either of the door's two use
+// points (m_ptDest1/m_ptDest2) -- it nudges the group toward whichever point
+// is nearer. The first GroupAction below already walks the whole party to
+// the door, which is enough to reach and open it.
+void CGameDoor::OnActionButton(const CPoint& pt)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    if ((m_dwFlags & 0x80) != 0 && (m_dwFlags & 0x100) == 0) {
+        // Secret, undiscovered door: behaves like empty ground.
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+        CGameObject::OnActionButton(pt);
+        return;
+    }
+
+    CAIGroup* pGroup = pGame->GetGroup();
+
+    switch (pGame->GetState()) {
+    case 0:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+
+        if (pGroup->GetCount() != 0) {
+            CAIObjectType doorType(0, 0, 0, 0, 0, 0, 0, 0, m_id, 0, 0);
+            CAIAction moveToDoor(CAIAction::MOVETOPOINT, doorType, m_id, 0, 0);
+            pGroup->GroupAction(moveToDoor, TRUE, NULL);
+        }
+        break;
+
+    case 2:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+
+        switch (pGame->GetIconIndex()) {
+        case 0x0C:
+            // Bash the door open: only when closed and locked.
+            if ((m_dwFlags & 0x1) == 0 && (m_dwFlags & 0x2) != 0) {
+                CAIAction bash(CAIAction::BASHDOOR, m_typeAI, 0, 0, 0);
+                pGroup->GroupAction(bash, TRUE, NULL);
+            } else {
+                CGameObject::OnActionButton(pt);
+                return;
+            }
+            break;
+
+        case 0x12:
+        case 0x28:
+        case 0xFF:
+            CGameObject::OnActionButton(pt);
+            return;
+
+        case 0x14:
+            // Cast the pending spell on the door.
+            pGame->UseMagicOnObject(m_id);
+            break;
+
+        case 0x24: {
+            // Thief skills: disarm a known active trap, otherwise pick the lock.
+            if (m_trapActivated != 0 && m_trapDetected != 0) {
+                SHORT nPortrait = g_pBaldurChitin->m_pEngineWorld->GetSelectedCharacter();
+                LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+
+                CGameSprite* pSprite;
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        reinterpret_cast<CGameObject**>(&pSprite),
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+                if (rc == CGameObjectArray::SUCCESS) {
+                    BYTE nSkill = pSprite->GetBaseStats()->m_skills[CGAMESPRITE_SKILL_DISABLE_DEVICE];
+                    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                    if (nSkill == 0) {
+                        return;
+                    }
+                }
+
+                CAIAction removeTraps(CAIAction::REMOVETRAPS, m_typeAI, 0, 0, 0);
+                pGroup->GroupAction(removeTraps, TRUE, NULL);
+            } else {
+                if ((m_dwFlags & 0x2) == 0) {
+                    CGameObject::OnActionButton(pt);
+                    return;
+                }
+
+                SHORT nPortrait = g_pBaldurChitin->m_pEngineWorld->GetSelectedCharacter();
+                LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+
+                CGameSprite* pSprite;
+                BYTE rc;
+                do {
+                    rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        reinterpret_cast<CGameObject**>(&pSprite),
+                        INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+                if (rc == CGameObjectArray::SUCCESS) {
+                    // pick locks; no named CGAMESPRITE_SKILL_ constant yet
+                    BYTE nSkill = pSprite->GetBaseStats()->m_skills[10];
+                    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                    if (nSkill == 0) {
+                        return;
+                    }
+                }
+
+                CAIAction pickLock(CAIAction::PICKLOCK, m_typeAI, 0, 0, 0);
+                pGroup->GroupAction(pickLock, TRUE, NULL);
+            }
+            break;
+        }
+
+        default:
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameDoor.cpp
+            // __LINE__: 978
+            UTIL_ASSERT(FALSE);
+        }
+
+        pGame->SetState(0);
+        pGame->GetButtonArray()->SetSelectedButton(100);
+        pGame->GetButtonArray()->UpdateState();
+        break;
+
+    case 3:
+        pGame->SetLastClick(CPoint(-1, -1));
+        pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
+        CGameObject::OnActionButton(pt);
+        break;
+
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameDoor.cpp
+        // __LINE__: 989
+        UTIL_ASSERT(FALSE);
+    }
+}
+
 // 0x4892B0
 void CGameDoor::RemoveFromArea()
 {
