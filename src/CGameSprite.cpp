@@ -15786,6 +15786,310 @@ SHORT CGameSprite::Attack(CGameSprite* pTarget)
     return moveReturn == ACTION_DONE ? ACTION_INTERRUPTABLE : moveReturn;
 }
 
+// 0x738E70
+//
+// ATTACKREEVALUATE(134), reached from ExecuteAction's jump-table case at
+// binary address 0x72A33E (`this->AttackReevaluate()`, no target resolution
+// there -- unlike ATTACK/ATTACKONEROUND/GROUPATTACK, this action carries no actee of its
+// own). Resolves its own target from m_curAction.m_acteeID2, which is seeded
+// from m_curAction.m_acteeID (decoded) the first time this action runs
+// (m_actionCount == 0) and re-seeded from the same filter every time the
+// target has to be abandoned and re-acquired below.
+//
+// Structural sibling of Attack() (0x737EF0): shares the equipment/range/LOS/
+// ResolveAttack tail almost verbatim, but every reason Attack() would abort
+// with a trigger message or AutoPause instead makes this function abandon
+// the current target and re-acquire a new one via CGameArea::GetNearest --
+// consistent with the action's name. This function never calls AutoPause
+// except once, deep in the ATTACKONEROUND stop-check below; it is absent
+// from every other branch (and from the binary's required call set).
+SHORT CGameSprite::AttackReevaluate()
+{
+    if (m_actionCount == 0) {
+        CAIObjectType typeFilter;
+        typeFilter.Set(m_curAction.m_acteeID);
+        typeFilter.Decode(this);
+        m_curAction.m_acteeID2.Set(typeFilter);
+    }
+
+    CGameObject* pObj = ResolveActionTarget(m_curAction.m_acteeID2, CGameObject::TYPE_SPRITE);
+
+    // "First hostile encounter with a good-aligned creature" latch -- same
+    // as ExecuteAction's ATTACK/ATTACKONEROUND cases.
+    if (pObj != NULL && (m_baseStats.m_flags & 0x100000) == 0) {
+        if (pObj->GetAIType().m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
+            m_baseStats.m_flags |= 0x100000;
+        }
+    }
+
+    CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
+    if (pTarget != NULL) {
+        UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
+
+        if (pTarget->m_animation.m_animation->GetListType() != CGameObject::LIST_FLIGHT) {
+            BOOL bAbandonTarget = FALSE;
+
+            if (!pTarget->CheckInvisibility(GetCanSeeInvisible())
+                || pTarget->m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]) {
+                bAbandonTarget = TRUE;
+            }
+            if (pTarget->m_id == m_id) {
+                bAbandonTarget = TRUE;
+            }
+            if (pTarget->m_derivedStats.m_generalState & STATE_DEAD) {
+                bAbandonTarget = TRUE;
+            }
+
+            if ((pTarget->m_derivedStats.m_generalState & STATE_SLEEPING)
+                && m_equipment.m_selectedWeapon == CGameSpriteEquipment::SLOT_FIST) {
+                if (!GetAIType().IsClassValid(6 /*#guess*/)) {
+                    goto abandonTarget;
+                }
+            }
+
+            if (!bAbandonTarget) {
+                // Rare cosmetic feedback: roughly a 1-in-6 chance once this
+                // action starts (or always, for a non-party target). HACK:
+                // the CMessage subclass built here is unrecovered (vtable at
+                // binary address 0x84C348, caller/target = m_id, a single
+                // raw byte payload of 5, no marshal/run override of its own
+                // -- everything it shares is generic CMessage plumbing, so
+                // its concrete identity couldn't be pinned down). Not
+                // constructed; the rand() roll is kept so the PRNG stream
+                // still matches the binary. Replaces binary range
+                // 0x7391b1-0x7391f8.
+                if (m_actionCount == 0
+                    && (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) == -1
+                        || rand() % 6 == 0)) {
+                    // (message intentionally not sent -- see HACK above)
+                }
+
+                if (m_lastAttackFeedbackTargetId != pTarget->m_id) {
+                    FeedBack(FEEDBACK_ATTACKS, 0, 0, 0, pTarget->GetNameRef(), 0, 0);
+                    m_lastAttackFeedbackTargetId = pTarget->m_id;
+                }
+
+                CItem* pWeapon = m_equipment.m_items[m_equipment.m_selectedWeapon];
+                if (pWeapon == NULL) {
+                    EquipMostDamagingMelee();
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                        pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    return ACTION_ERROR;
+                }
+
+                pWeapon->Demand();
+                ITEM_ABILITY* ability = pWeapon->GetAbility(m_equipment.m_selectedWeaponAbility);
+                if (ability == NULL) {
+                    // No usable ability at all.
+                    CString itemResRef;
+                    pWeapon->cResRef.CopyToString(itemResRef);
+                    CAITrigger trigger(CAITrigger::UNUSABLE, 0);
+                    trigger.m_string1 = itemResRef;
+                    CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                        pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    pWeapon->Release();
+                    return ACTION_ERROR;
+                }
+
+                if (ability->type == 4) {
+                    // Launcher with no usable ammo.
+                    CString itemResRef;
+                    pWeapon->cResRef.CopyToString(itemResRef);
+                    CAITrigger trigger(CAITrigger::UNUSABLE, 0);
+                    trigger.m_string1 = itemResRef;
+                    CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                        pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    pWeapon->Release();
+                    return ACTION_ERROR;
+                }
+
+                if (ability->usageFlags == 3
+                    && pWeapon->GetUsageCount(m_equipment.m_selectedWeaponAbility) == 0
+                    && ability->maxUsageCount != 0) {
+                    // Charge-limited item that's used up.
+                    CString itemResRef;
+                    pWeapon->cResRef.CopyToString(itemResRef);
+                    CAITrigger trigger(CAITrigger::UNUSABLE, 0);
+                    trigger.m_string1 = itemResRef;
+                    CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                        pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    pWeapon->Release();
+                    return ACTION_ERROR;
+                }
+
+                LONG distSquares;
+                CItem* pLauncher = NULL;
+                ITEM_ABILITY* launcherAbility = NULL;
+
+                if (ability->type == 2) {
+                    CPoint targetPos = pTarget->GetPos();
+                    CPoint selfPos = GetPos();
+                    LONG dx = (selfPos.x / CPathSearch::GRID_SQUARE_SIZEX) - (targetPos.x / CPathSearch::GRID_SQUARE_SIZEX);
+                    LONG dy = (selfPos.y / CPathSearch::GRID_SQUARE_SIZEY) - (targetPos.y / CPathSearch::GRID_SQUARE_SIZEY);
+                    distSquares = dx * dx + dy * dy;
+
+                    SHORT launcherSlot;
+                    pLauncher = GetLauncher(ability, launcherSlot);
+                    if (pLauncher != NULL) {
+                        pLauncher->Demand();
+                        launcherAbility = pLauncher->GetAbility(0);
+                    }
+                } else {
+                    CPoint targetCell(pTarget->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+                        pTarget->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
+                    CPoint selfCell(GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+                        GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
+                    distSquares = CAIUtil::CountSquares(selfCell, targetCell);
+                    distSquares = distSquares * distSquares;
+                }
+
+                SHORT effectiveRange = ability->range + 1;
+                if (launcherAbility != NULL) {
+                    SHORT launcherRange = launcherAbility->range + 1;
+                    if (launcherRange > effectiveRange) {
+                        effectiveRange = launcherRange;
+                    }
+                }
+
+                if (pLauncher != NULL) {
+                    pLauncher->Release();
+                }
+                pWeapon->Release();
+
+                // Unlike Attack(), this battle-song check runs AFTER the
+                // range/launcher calculation, not before it -- the binary's
+                // own ordering, not a copy-paste of Attack()'s.
+                CString animBodyResRef;
+                UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
+                pTarget->m_animation.m_animation->GetAnimationResRef(animBodyResRef, CGameAnimationType::RANGE_BODY);
+
+                static const char* const GENERIC_BODY_RESREFS[] = { "MGEN", "MKG1", "MKG2", "MKG3" };
+
+                BOOL bPlayBattleSong = TRUE;
+                for (int i = 0; i < 4; i++) {
+                    if (_mbscmp(reinterpret_cast<const unsigned char*>(static_cast<const char*>(animBodyResRef)),
+                            reinterpret_cast<const unsigned char*>(GENERIC_BODY_RESREFS[i])) == 0) {
+                        bPlayBattleSong = FALSE;
+                        break;
+                    }
+                }
+
+                if (m_pArea != NULL && bPlayBattleSong) {
+                    m_pArea->PlaySong(3, 0x101f4);
+                }
+
+                BYTE combinedSpace = m_animation.GetPersonalSpace();
+                combinedSpace = static_cast<BYTE>(
+                    ((pTarget->m_animation.GetPersonalSpace() - 1) >> 1) + ((combinedSpace - 1) >> 1) - 1);
+
+                LONG totalRange = combinedSpace + effectiveRange;
+                BOOL bInRange = distSquares <= totalRange * totalRange
+                    || (field_7118 != 0 && distSquares <= (totalRange + 1) * (totalRange + 1));
+
+                if (bInRange) {
+                    BOOL bLOS = m_pArea->CheckLOS(pTarget->GetPos(), GetPos(), m_terrainTable, pTarget->Orderable(FALSE));
+                    if (bLOS) {
+                        if (m_pPath != NULL) {
+                            // DEFERRED: post the clear-search message built
+                            // at binary address 0x7399ea (vtable 0x84C44C,
+                            // the same one CGameSprite::MoveToObject and
+                            // Attack() already defer) so a path in progress
+                            // halts before the swing lands.
+                        }
+
+                        if (m_attackFrame == -2) {
+                            m_attackFrame = -1;
+                        }
+
+                        m_lastActionID = CAIAction::ATTACK;
+                        SHORT resolveResult = ResolveAttack(pTarget);
+
+                        // ATTACKONEROUND stop-check: right when the swing
+                        // animation is back at frame 0 and another action is
+                        // queued, force ACTION_DONE for ATTACKONEROUND
+                        // specifically and return immediately -- faithfully
+                        // skipping BOTH the m_specificID check AND the
+                        // ReleaseShare below on this one path, exactly as
+                        // the binary does (looks like a genuine reference
+                        // leak in the original game; reproduced as-is, not
+                        // "fixed").
+                        if (m_attackFrame == 0 && m_actionCount != 0) {
+                            AutoPause(0x40);
+                            if (m_curAction.m_actionID == CAIAction::ATTACKONEROUND) {
+                                return ACTION_DONE;
+                            }
+                        }
+
+                        SHORT sVar5 = resolveResult;
+                        if (m_curAction.m_specificID < static_cast<LONG>(static_cast<SHORT>(m_actionCount))) {
+                            sVar5 = ACTION_DONE;
+                        }
+                        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                            pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                        return sVar5;
+                    }
+                }
+
+                SHORT moveReturn = MoveToObject(pTarget);
+                SHORT sVar5 = moveReturn;
+                if (moveReturn == ACTION_DONE) {
+                    sVar5 = ACTION_ERROR;
+                }
+                m_lastActionID = CAIAction::MOVETOOBJECT;
+
+                if (m_curAction.m_specificID < static_cast<LONG>(static_cast<SHORT>(m_actionCount))) {
+                    sVar5 = ACTION_DONE;
+                }
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                return sVar5;
+            }
+        }
+
+    abandonTarget:
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    // Current target is gone/invalid: re-acquire against the action's
+    // original type filter (ignoring sleeping creatures this time, unlike
+    // Attack()'s own target-died fallback which does not).
+    CAIObjectType typeFilter;
+    typeFilter.Set(m_curAction.m_acteeID);
+    typeFilter.Decode(this);
+
+    LONG nearestId = m_pArea->GetNearest(
+        m_id,
+        typeFilter,
+        GetVisualRange(),
+        m_terrainTable,
+        /*checkLOS=*/TRUE,
+        GetCanSeeInvisible(),
+        /*ignoreSleeping=*/TRUE,
+        /*nNearest=*/0,
+        /*ignoreDead=*/FALSE);
+
+    if (nearestId == CGameObjectArray::INVALID_INDEX) {
+        return ACTION_DONE;
+    }
+
+    m_curAction.m_acteeID2.Set(typeFilter);
+    CGameObject* pReacquired = ResolveActionTarget(m_curAction.m_acteeID2, CGameObject::TYPE_SPRITE);
+    if (pReacquired == NULL) {
+        return ACTION_ERROR;
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+        pReacquired->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    return ACTION_INTERRUPTABLE;
+}
+
 // 0x71CC90
 //
 // Refresh the weapon-proficiency contribution after the equipped weapons may
@@ -20310,6 +20614,13 @@ SHORT CGameSprite::ExecuteAction()
                 pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
         return actionReturn;
+    }
+
+    // 0x72A33E (jumptable case 0x40). AttackReevaluate(134): a thin
+    // dispatch, no target resolution here at all -- AttackReevaluate()
+    // resolves its own target from m_curAction internally.
+    if (m_curAction.m_actionID == CAIAction::ATTACKREEVALUATE) {
+        return AttackReevaluate();
     }
 
     // 0x729A84 (jumptable case 0x19). Spell(31) / SpellNoDec(191).  Spell()
