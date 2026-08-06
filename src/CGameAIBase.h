@@ -69,6 +69,7 @@ public:
     /* 00B4 */ virtual BOOL GetCanSeeInvisible();
 
     void CheckTimers(LONG cycles);
+    BOOL CanSee(CGameObject* pObject, BOOL bIncludeDead);
     void ClearTriggers();
     BOOL CheckAppropriateTarget(CSpell* pSpell, CGameAIBase* pTarget);
     BOOL PartyHasItem(const CResRef& resRef);

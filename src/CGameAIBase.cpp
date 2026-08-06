@@ -405,6 +405,42 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_SEE: {
+        // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
+        // uses to notice the party.  On a fresh sighting it records the object
+        // in m_lSeen and posts SetLastObject so LastSeenBy() resolves in the
+        // response block.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        BOOL bHolds = CanSee(pObject, cause.GetSpecifics());
+
+        if (bHolds) {
+            if (!m_lSeen.Equal(pObject->GetAIType())) {
+                // Spotting a party member reveals the spotter: m_canBeSeen is
+                // the countdown CGameSprite::AIUpdate ticks back down to zero.
+                if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pObject->GetId()) != -1) {
+                    m_canBeSeen = 4 * (VISIBLE_DELAY + 1);
+                }
+
+                m_lSeen.Set(pObject->GetAIType());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageSetLastObject(pObject->GetAIType(), CAITRIGGER_SEE, m_id, m_id),
+                    FALSE);
+            }
+
+            SetAIType342(pObject->GetAIType());
+        }
+
+        if (pObject != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return bHolds;
+    }
+
     // 0x455E40: IsTeamBitOn(I:TeamFlag*TeamBit) -- mask test against the
     // team-allegiance bits written by SetTeamBit (0x729A3C).
     case CAITRIGGER_ISTEAMBITON:
@@ -516,6 +552,64 @@ void CGameAIBase::DoAction()
     } else {
         m_actionCount++;
     }
+}
+
+// 0x44DAC0
+BOOL CGameAIBase::CanSee(CGameObject* pObject, BOOL bIncludeDead)
+{
+    if (pObject == NULL) {
+        return FALSE;
+    }
+
+    if (pObject->m_pArea != m_pArea) {
+        return FALSE;
+    }
+
+    if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+
+        if (pSprite->m_baseStats.m_bStealthMode) {
+            return FALSE;
+        }
+
+        // bIncludeDead lets a caller notice corpses; See() itself passes the
+        // trigger's specifics field, which is 0 for the plain See(O:Object*).
+        if (!bIncludeDead
+            && (pSprite->m_derivedStats.m_generalState & STATE_DEAD) != 0) {
+            return FALSE;
+        }
+    }
+
+    CPoint ptObject = pObject->GetPos();
+    CPoint cellObject(ptObject.x / CPathSearch::GRID_SQUARE_SIZEX,
+        ptObject.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+    CPoint ptSelf = GetPos();
+    CPoint cellSelf(ptSelf.x / CPathSearch::GRID_SQUARE_SIZEX,
+        ptSelf.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+    LONG nDistSq = (cellSelf.x - cellObject.x) * (cellSelf.x - cellObject.x)
+        + (cellSelf.y - cellObject.y) * (cellSelf.y - cellObject.y);
+
+    // Only a party-orderable sprite is required to stand on explored ground --
+    // monsters see each other through the fog of war.
+    BOOL bCheckExplored = FALSE;
+    if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+        bCheckExplored = static_cast<CGameSprite*>(pObject)->Orderable(FALSE);
+    }
+
+    if (nDistSq > GetVisualRange() * GetVisualRange()) {
+        return FALSE;
+    }
+
+    if (!m_pArea->CheckLOS(pObject->GetPos(),
+            GetPos(),
+            GetVisibleTerrainTable(),
+            bCheckExplored)) {
+        return FALSE;
+    }
+
+    return TRUE;
 }
 
 // 0x44DC10
