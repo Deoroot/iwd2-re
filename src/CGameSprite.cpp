@@ -1899,6 +1899,15 @@ void CGameSprite::AIUpdate()
                     ITEM_EFFECT effect;
                     CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_DAYBLINDNESS);
 
+                    // ClearItemEffect zeroes durationType, which ResolveEffect
+                    // would convert into an absolute expiry of "now" -- the
+                    // effect would die on the next list pass, fire OnRemove and
+                    // be re-added on the following tick, forever.  The binary
+                    // writes 1 (instant/permanent) here, at 0x6F69A2, so it
+                    // applies once and stays on the list where IsTypeOnList
+                    // above can see it.
+                    effect.durationType = 1;
+
                     CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
                         GetPos(),
                         m_id,
