@@ -405,6 +405,57 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_ALLEGIANCE: {
+        // 0x453C35: Allegiance(O:Object*,I:Allegiance*EA).  Compares only the
+        // decoded cause's EA byte -- no object is resolved and no share taken.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+        return cause.m_triggerCause.m_nEnemyAlly == cause.m_specificID;
+    }
+
+    case CAITRIGGER_EXISTS: {
+        // 0x453C9C: Exists(O:Object*) -- true if the cause resolves to a live
+        // object.  Decodes and resolves through m_triggerCause directly.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+
+        CGameObject* pObject = cause.m_triggerCause.GetObjectFromId(this, TRUE);
+        BOOL bHolds = pObject != NULL;
+
+        if (pObject != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return bHolds;
+    }
+
+    case CAITRIGGER_DEAD: {
+        // 0x4566A6: Dead(O:Object*) -- true when the object is gone, is not a
+        // sprite, or carries STATE_DEAD in EITHER stat block.  Only a live
+        // sprite makes this false.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectFromId(this, TRUE);
+        BOOL bHolds = TRUE;
+
+        if (pObject != NULL) {
+            if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+                if ((pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0
+                    && (pSprite->GetBaseStats()->m_generalState & STATE_DEAD) == 0) {
+                    bHolds = FALSE;
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return bHolds;
+    }
+
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
         // uses to notice the party.  On a fresh sighting it records the object
