@@ -1405,7 +1405,10 @@ CGameObject* CAIObjectType::GetObjectFromId(CGameAIBase* caller, BOOL checkBackL
         nId = FindObjectId(caller, checkBackList);
     }
 
-    CGameObject* pObject;
+    // 0x40D114 zeroes this slot in the prologue, before any of the NOONE
+    // compares -- GetShare leaves it untouched when the id does not resolve,
+    // so without the initialiser the caller gets stack garbage.
+    CGameObject* pObject = NULL;
     BYTE rc;
     do {
         rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nId,
