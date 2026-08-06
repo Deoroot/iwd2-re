@@ -1,5 +1,7 @@
 #include "CGameEffect.h"
 
+#include <mbstring.h>
+
 #include "DebugLog.h"
 
 #include "CAIScript.h"
@@ -3681,22 +3683,26 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 // suffix-only blocks that append and jump into a shared pick. See
 // nVariantCount below; every cell is a traced block, none is a guess.
 //
-// DEFERRED: after picking, the binary probes the resref with FUN_007E7A54 --
-// an unnamed "does this resource exist" helper with no recoverable prototype
-// anywhere in this codebase -- and, if it reports the file missing, retries
-// the next digit, wrapping back to '1' past the branch's own count. That
-// retry is not reproduced, so this keeps its first pick.
+// After picking a digit the binary does NOT probe whether the resource
+// exists -- 0x7E7A54 is the CRT's _mbscmp (it locks _MB_CP_LOCK, consults the
+// mbctype lead-byte table at 0xA1AD61, and tail-calls strcmp when
+// __mbcodepage is 0; 620 call sites across the image).  What it compares is
+// the candidate resref against the last hit sound this same target played,
+// kept in CGameSprite::m_lastHitSoundResRef -- so the same variant never
+// fires twice in a row on one creature.  On a match it steps to the next
+// digit, wrapping past the branch's own count back to '1'.  All thirteen
+// digit-pick blocks share the shape, and each one's wrap constant is its own
+// count minus one -- an independent confirmation of the nVariantCount table
+// below (the shared mod-3 block at 0x4A90C4 compares against 2, the mod-5
+// blocks against 4).
 //
-// That matters for exactly one cell.  Enumerating all 119 resrefs this table
-// can produce and checking each against CHITIN.KEY leaves a single miss:
-// ML_/MS picks 1-5 but only H_ML_MS1-4 ship, so that one branch lands on a
-// missing file 1 time in 5 and stays silent until the retry is recovered.
-// ML_/LR is the harmless mirror image -- the code picks 1-3 and never reaches
-// the shipped H_ML_LR4.  The other 30 of 32 cells match the shipped variant
-// count exactly, which is the independent confirmation that the block tracing
-// below is right.  A missing file just fails CResHelper::SetResRef's
-// GetResObject call and stays silent, like the binary's own missing-resource
-// path.
+// Two of the 32 cells still disagree with what CHITIN.KEY actually ships, and
+// both are retail data gaps this code reproduces faithfully rather than code
+// left unrecovered: ML_/MS picks 1-5 but only H_ML_MS1-4 exist, so that branch
+// lands on a missing file 1 time in 5 and stays silent, and ML_/LR picks 1-3
+// so the shipped H_ML_LR4 is never reached.  A missing file just fails
+// CResHelper::SetResRef's GetResObject call and stays silent, like the
+// binary's own missing-resource path.
 //
 // The two-stage "compare against a cached resref, cancel+reload only if it
 // changed" dance in the tail is CResHelper<CResWave,4>::SetResRef (already
@@ -3825,7 +3831,22 @@ void CGameEffectDamage::PlayHitSound(DWORD damageType, CGameSprite* pTarget)
     }
 
     CString sResRef = CString("H_") + sPrefix + sSuffix;
-    sResRef += static_cast<char>('1' + (rand() % nVariantCount[nPrefix][nSuffix]));
+
+    int nCount = nVariantCount[nPrefix][nSuffix];
+    char cDigit = static_cast<char>('1' + (rand() % nCount));
+
+    // The pick is tested on a throwaway copy, leaving sResRef digitless so the
+    // stepped digit can be appended to a pristine base.
+    CString sCandidate = sResRef;
+    sCandidate += cDigit;
+    if (_mbscmp(reinterpret_cast<const unsigned char*>(static_cast<const char*>(sCandidate)),
+            reinterpret_cast<const unsigned char*>(
+                static_cast<const char*>(pTarget->m_lastHitSoundResRef))) == 0) {
+        cDigit = (cDigit - '1' == nCount - 1) ? '1' : static_cast<char>(cDigit + 1);
+    }
+
+    sResRef += cDigit;
+    pTarget->m_lastHitSoundResRef = sResRef;
 
     g_pBaldurChitin->GetMessageHandler()->AddMessage(
         new CMessagePlaySoundRef(CResRef(sResRef), pTarget->m_id, pTarget->m_id), FALSE);

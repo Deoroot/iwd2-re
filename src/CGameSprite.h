@@ -1048,7 +1048,7 @@ public:
     /* 70FF */ BOOLEAN field_70FF;
     /* 7100 */ BOOLEAN field_7100;
     /* 7101 */ BOOLEAN field_7101;
-    /* 7102 */ BYTE field_7102[4];
+    /* 7102 */ CString m_lastHitSoundResRef;
     /* 7106 */ int field_7106;
     /* 710A */ SHORT field_710A;
     /* 710C */ SHORT field_710C;
