@@ -23214,7 +23214,7 @@ SHORT CGameSprite::ForceHide(CGameSprite* pSprite)
 
     ITEM_EFFECT effect;
     CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_INVISIBLE);
-    effect.durationType = 0x100;
+    effect.durationType = 0x1000;
     effect.dwFlags = 0;
     effect.effectAmount = 1;
     effect.duration = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + 300;
