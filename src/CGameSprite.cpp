@@ -21067,7 +21067,7 @@ SHORT CGameSprite::UseDoor()
 
     pDoor = static_cast<CGameDoor*>(pObject);
 
-    if (g_pChitin->cNetwork.m_nServiceProvider == 0
+    if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
         || g_pChitin->cNetwork.m_idLocalPlayer == pDoor->m_remotePlayerID) {
         pDoor->ToggleDoor(m_typeAI, FALSE);
     } else {
