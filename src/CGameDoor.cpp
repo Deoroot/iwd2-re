@@ -501,9 +501,17 @@ void CGameDoor::OnActionButton(const CPoint& pt)
         pGame->SetLastTarget(CGameObjectArray::INVALID_INDEX);
 
         if (pGroup->GetCount() != 0) {
-            CAIObjectType doorType(0, 0, 0, 0, 0, 0, 0, 0, m_id, 0, 0);
-            CAIAction moveToDoor(CAIAction::MOVETOPOINT, doorType, m_id, 0, 0);
-            pGroup->GroupAction(moveToDoor, TRUE, NULL);
+            // The binary reads the action id from the ordinal word table at
+            // 0x847890 (= 142, UseDoor) and leaves all three of the action's
+            // CAIObjectTypes default-constructed -- the door is identified by
+            // m_specificID, not by the actee's instance field.
+            CAIAction useDoor;
+            useDoor.m_actionID = CAIAction::USEDOOR;
+            useDoor.m_specificID = m_id;
+            useDoor.m_specificID2 = 0;
+            useDoor.m_specificID3 = 0;
+            useDoor.m_internalFlags = 0;
+            pGroup->GroupAction(useDoor, TRUE, NULL);
         }
         break;
 

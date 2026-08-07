@@ -153,6 +153,9 @@ const SHORT CAIAction::STARTDIALOG = 137;
 // 0x84788A
 const SHORT CAIAction::PLAYERDIALOG = 139;
 
+// 0x847890
+const SHORT CAIAction::USEDOOR = 142;
+
 // 0x847896
 const SHORT CAIAction::PICKLOCK = 145;
 
