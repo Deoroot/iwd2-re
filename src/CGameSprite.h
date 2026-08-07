@@ -668,6 +668,7 @@ public:
     SHORT MoveToPoint();
     SHORT MoveToObject(CGameObject* pTarget);
     SHORT UseContainer();
+    SHORT UseDoor();
     SHORT Dialogue(CGameSprite* pTarget);
     SHORT PlayerDialog(CGameSprite* pTarget);
     SHORT OneSwing();

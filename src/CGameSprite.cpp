@@ -20808,6 +20808,12 @@ SHORT CGameSprite::ExecuteAction()
         return UseContainer();
     }
 
+    // 0x72A3D3 (ExecuteAction jumptable case 0x45). UseDoor(): the clicked door is
+    // in m_curAction.m_specificID; CGameDoor::OnActionButton put it there.
+    if (m_curAction.m_actionID == CAIAction::USEDOOR) {
+        return UseDoor();
+    }
+
     // 0x7290D2 (ExecuteAction jumptable case 0x55). RandomWalk(): ambient
     // wandering for area creatures (Targos villagers etc.).
     if (m_curAction.m_actionID == CAIAction::RANDOMWALK) {
@@ -20983,6 +20989,145 @@ SHORT CGameSprite::UseContainer()
     ClearActions(FALSE);
 
     return ACTION_INTERRUPTABLE;
+}
+
+// 0x75ACB0
+SHORT CGameSprite::UseDoor()
+{
+    if (m_actionCount >= 1) {
+        return ACTION_INTERRUPTABLE;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // The door is the current action's m_specificID, not its actee --
+    // CGameDoor::OnActionButton pokes it there when the click queues UseDoor.
+    LONG nDoorId = m_curAction.m_specificID;
+
+    if (pGame->GetCharacterPortraitNum(m_id) == -1 && !pGame->IsFamiliar(m_id)) {
+        return ACTION_DONE;
+    }
+
+    if (!Orderable(FALSE) || !m_bSelected) {
+        return ACTION_DONE;
+    }
+
+    CGameObjectArray* pArray = pGame->GetObjectArray();
+
+    CGameObject* pObject;
+    if (pArray->GetShare(nDoorId, CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreatureAI.cpp
+        // __LINE__: 24158
+        UTIL_ASSERT(FALSE);
+        return ACTION_ERROR;
+    }
+
+    CGameDoor* pDoor = static_cast<CGameDoor*>(pObject);
+
+    CMessage* message = new CMessageSetForceActionPick(TRUE, m_id, pDoor->GetId());
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+    CAITrigger trigger(CAITrigger::CLICKED, m_typeAI, 0);
+    message = new CMessageSetTrigger(trigger, m_id, pDoor->GetId());
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+    const CPoint& ptDest = pDoor->GetMoveDest(m_pos);
+
+    // Two hand-tuned areas let the party reach a door from much farther off.
+    LONG nRange = CGameDoor::RANGE_DOOR;
+    const char* sAreaName = reinterpret_cast<const char*>(m_pArea->m_header.m_areaName);
+    if (_strnicmp(sAreaName, "ar5004", 7) == 0) {
+        nRange = CGameDoor::RANGE_DOOR / 10;
+    } else if (_strnicmp(sAreaName, "ar5202", 7) == 0) {
+        nRange = CGameDoor::RANGE_DOOR / 5;
+    }
+
+    INT dx = ptDest.x - m_pos.x;
+    INT dy = ptDest.y - m_pos.y;
+
+    if (nRange < (dy * dy * 16) / 9 + dx * dx) {
+        // Not at the door yet -- the queued MoveToPoint is still walking us in.
+        pArray->ReleaseShare(nDoorId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return ACTION_DONE;
+    }
+
+    BYTE rc;
+    do {
+        rc = pArray->GetDeny(nDoorId, CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+    } while (rc == CGameObjectArray::SHARED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreatureAI.cpp
+        // __LINE__: 24206
+        UTIL_ASSERT(FALSE);
+        pArray->ReleaseShare(nDoorId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return ACTION_ERROR;
+    }
+
+    pDoor = static_cast<CGameDoor*>(pObject);
+
+    if (g_pChitin->cNetwork.m_nServiceProvider == 0
+        || g_pChitin->cNetwork.m_idLocalPlayer == pDoor->m_remotePlayerID) {
+        pDoor->ToggleDoor(m_typeAI, FALSE);
+    } else {
+        // HACK: a door owned by another machine is toggled by broadcasting a
+        // message instead -- the message class (vtable 0x848C58, ctor 0x4F53E0,
+        // Run 0x4FD1D0) is unrecovered, so the remote toggle is dropped --
+        // replaces 0x75AFDB-0x75B029
+    }
+
+    pArray->ReleaseDeny(nDoorId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    pArray->ReleaseShare(nDoorId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    LONG* pList = pGame->GetGroup()->GetGroupList();
+    if (pList == NULL) {
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreatureAI.cpp
+        // __LINE__: 24216
+        UTIL_ASSERT(FALSE);
+        return ACTION_ERROR;
+    }
+
+    // Everyone else in the group stops crowding the doorway: pushing a pending
+    // MoveToPoint's attempt counter past its limit makes it give up next tick.
+    if (pGame->GetGroup()->GetCount() != 0) {
+        SHORT i = 0;
+        do {
+            if (m_id != pList[i]) {
+                CGameObject* pMemberObject;
+                BYTE rcMember;
+                do {
+                    rcMember = pArray->GetDeny(pList[i],
+                        CGameObjectArray::THREAD_ASYNCH,
+                        &pMemberObject,
+                        INFINITE);
+                } while (rcMember == CGameObjectArray::SHARED);
+
+                if (rcMember == CGameObjectArray::SUCCESS) {
+                    CGameAIBase* pMember = static_cast<CGameAIBase*>(pMemberObject);
+                    pMember->ClearActions(FALSE);
+
+                    if (pMember->m_curAction.m_actionID == CAIAction::MOVETOPOINT) {
+                        // 0x85BBA6 holds the move-attempt limit (4).
+                        pMember->m_curAction.m_specificID2 = 4 + 1;
+                    }
+
+                    pArray->ReleaseDeny(pList[i],
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                } else {
+                    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreatureAI.cpp
+                    // __LINE__: 24228
+                    UTIL_ASSERT(FALSE);
+                }
+            }
+            i++;
+        } while (i < static_cast<SHORT>(pGame->GetGroup()->GetCount()));
+    }
+
+    delete[] pList;
+
+    return ACTION_DONE;
 }
 
 static void SetDialogueTalkedTo(CGameSprite* pSource, CGameSprite* pTarget)

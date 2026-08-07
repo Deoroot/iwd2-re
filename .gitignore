@@ -440,6 +440,9 @@ FodyWeavers.xsd
 /re-agent.host.yaml
 /ghidra-bridge.host.yaml
 /data/pdb/bg2_pdb.sqlite
+/data/pdb/bg2_pdb_globals.txt
+/data/pdb/bg2_pdb_symbols.txt
+/data/pdb/bg2_pdb_types.txt
 data/ghidra/IWD2_rep.zip
 
 # Canonical pristine IWD2.exe (md5 25cb3d8a) pulled from VM = the binary Ghidra imported.

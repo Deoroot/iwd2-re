@@ -931,3 +931,28 @@ BOOL CGameDoor::IsOpen()
 {
     return m_dwFlags & 0x1;
 }
+
+// 0x48B2C0
+const CPoint& CGameDoor::GetMoveDest(const CPoint& ptSource)
+{
+    INT dx1 = ptSource.x - m_ptDest1.x;
+    INT dy1 = ptSource.y - m_ptDest1.y;
+    INT dx2 = ptSource.x - m_ptDest2.x;
+    INT dy2 = ptSource.y - m_ptDest2.y;
+
+    if ((dy1 * dy1 * 16) / 9 + dx1 * dx1 < (dy2 * dy2 * 16) / 9 + dx2 * dx2) {
+        return m_ptDest1;
+    }
+
+    return m_ptDest2;
+}
+
+// 0x489680
+void CGameDoor::ToggleDoor(const CAIObjectType& user, BOOL ignoreLocked)
+{
+    // TODO: Incomplete. This is the door's open/close toggle: it checks
+    // CSearchBitmap::CanToggleDoor, gates on m_keyType via PartyHasItem /
+    // FindItemPersonal / FindItemBags, plays m_openSound/m_closeSound or displays
+    // the locked message, and flips m_tiledObject between
+    // CTiledObject::STATE_PRIMARY_TILE and STATE_SECONDARY_TILE.
+}

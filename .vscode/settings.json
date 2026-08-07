@@ -8,5 +8,9 @@
         "_MBCS",
         "_WIN32_WINNT=0x0501"
     ],
-    "C_Cpp.default.intelliSenseMode": "windows-msvc-x86"
+    "C_Cpp.default.intelliSenseMode": "windows-msvc-x86",
+    "cmake.configureOnOpen": false,
+    "cmake.configureOnEdit": false,
+    "cmake.generator": "Visual Studio 18 2026",
+    "cmake.platform": "Win32"
 }

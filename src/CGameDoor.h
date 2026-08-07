@@ -20,6 +20,8 @@ public:
     /* 0058 */ void SetCursor(LONG nToolTip) override;
 
     void OnDoorStatusUpdate(BOOLEAN bDoorOpened, DWORD dwFlags, WORD nTrapActivated, WORD nTrapDetected);
+    const CPoint& GetMoveDest(const CPoint& ptSource);
+    void ToggleDoor(const CAIObjectType& user, BOOL ignoreLocked);
     void Marshal(CAreaFileDoorObject** pDoorObject);
     void SetDrawPoly(SHORT time);
     DWORD GetFlags();
