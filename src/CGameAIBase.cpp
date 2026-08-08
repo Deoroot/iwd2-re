@@ -25,6 +25,7 @@
 #include "CProjectile.h"
 #include "CScreenCharacter.h"
 #include "CScreenChapter.h"
+#include "CScreenInventory.h"
 #include "CScreenWorld.h"
 #include "CSpell.h"
 #include "CTimerWorld.h"
@@ -4122,6 +4123,198 @@ SHORT CGameAIBase::IncrementGlobal()
     }
 
     return ACTION_DONE;
+}
+
+// 0x464950
+BOOL CGameAIBase::PlaceItem(CItem* pItem, BOOL haveDeny, BOOL dropUnplaced, DWORD num, BOOL feedback)
+{
+    if (pItem == NULL) {
+        return TRUE;
+    }
+
+    // A stack of `num` is delivered one unit at a time: split a fresh copy off
+    // for the remainder and recurse, then place `pItem` itself below. The copy
+    // is made before the flag bit below is set, and the recursion sets it on the
+    // copy in turn.
+    if (num > 1) {
+        PlaceItem(new CItem(*pItem), haveDeny, dropUnplaced, num - 1, TRUE);
+    }
+
+    pItem->m_flags |= 2;
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    if (pGame->IsFamiliar(m_id)) {
+        // A familiar carries nothing of its own -- the item is messaged to the
+        // protagonist instead.
+        CMessage* pMessage = new CMessageAddItem(*pItem, m_id, pGame->GetProtagonist());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+        return TRUE;
+    }
+
+    if (pGame->GetCharacterPortraitNum(m_id) != -1) {
+        // Party member: scan the personal (backpack) slots UPWARD from 18, the
+        // same base `CGameSpriteEquipment::GetUsedSlotsCount` walks.
+        CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+
+        INT nIndex;
+        for (nIndex = 0; nIndex < CScreenInventory::PERSONAL_INVENTORY_SIZE; nIndex++) {
+            if (pSprite->m_equipment.m_items[18 + nIndex] == NULL) {
+                break;
+            }
+        }
+
+        if (nIndex < CScreenInventory::PERSONAL_INVENTORY_SIZE) {
+            if (haveDeny) {
+                // The caller already owns the lock, so neither the deny pair nor
+                // the multiplayer broadcast below runs.
+                pSprite->m_equipment.m_items[18 + nIndex] = pItem;
+                return TRUE;
+            }
+
+            CGameObject* pObjectTemp;
+
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetDeny(m_id,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObjectTemp,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                pSprite->m_equipment.m_items[18 + nIndex] = pItem;
+                pGame->GetObjectArray()->ReleaseDeny(m_id,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+
+            // Broadcast even when the lock was not acquired and nothing was
+            // stored -- the original does not gate this on `rc`.
+            if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+                && g_pChitin->cNetwork.m_idLocalPlayer != m_remotePlayerID) {
+                CMessage* pMessage = new CMessageAddItem(*pItem, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+            }
+
+            return TRUE;
+        }
+
+        // Pack full: the item drops on the ground pile instead.
+        if (!dropUnplaced) {
+            return FALSE;
+        }
+
+        LONG nContainerId = pGame->GetGroundPile(m_id);
+        if (nContainerId == CGameObjectArray::INVALID_INDEX) {
+            return FALSE;
+        }
+
+        CGameObject* pObjectTemp;
+
+        BYTE rc = pGame->GetObjectArray()->GetDeny(nContainerId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObjectTemp,
+            INFINITE);
+        if (rc == CGameObjectArray::SUCCESS) {
+            static_cast<CGameContainer*>(pObjectTemp)->PlaceItemInBlankSlot(pItem, TRUE, SHORT_MAX);
+            pGame->GetObjectArray()->ReleaseDeny(nContainerId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        return FALSE;
+    }
+
+    if (m_objectType == TYPE_SPRITE) {
+        CGameSprite* pSprite = static_cast<CGameSprite*>(this);
+
+        if (feedback) {
+            pGame->FeedBack(CInfGame::FEEDBACK_ITEMLOST, 0, TRUE);
+        }
+
+        // Non-party sprites scan DOWNWARD, and over a different range than the
+        // party scan above: m_items[42] down to m_items[15]. Both the direction
+        // and the bounds differ -- this is not the same loop.
+        INT nIndex;
+        for (nIndex = 27; nIndex >= 0; nIndex--) {
+            if (pSprite->m_equipment.m_items[15 + nIndex] == NULL) {
+                break;
+            }
+        }
+
+        if (nIndex >= 0) {
+            if (haveDeny) {
+                pSprite->m_equipment.m_items[15 + nIndex] = pItem;
+                return TRUE;
+            }
+
+            CGameObject* pObjectTemp;
+
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetDeny(m_id,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObjectTemp,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc == CGameObjectArray::SUCCESS) {
+                // NOTE: base 18, not the 15 the scan above found the slot with
+                // -- verified byte-exact at 0x464D7B (`89 9C BE 20 4B 00 00`)
+                // against its sibling store at 0x464D27 (`... 14 4B 00 00`).
+                // The original writes three slots past the free one it located;
+                // reproduced as-is rather than "corrected".
+                pSprite->m_equipment.m_items[18 + nIndex] = pItem;
+                pGame->GetObjectArray()->ReleaseDeny(m_id,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+
+            if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+                && g_pChitin->cNetwork.m_idLocalPlayer != m_remotePlayerID) {
+                CMessage* pMessage = new CMessageAddItem(*pItem, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+            }
+
+            return TRUE;
+        }
+
+        if (!dropUnplaced) {
+            return FALSE;
+        }
+
+        LONG nContainerId = pGame->GetGroundPile(m_id);
+        if (nContainerId == CGameObjectArray::INVALID_INDEX) {
+            return FALSE;
+        }
+
+        CGameObject* pObjectTemp;
+
+        BYTE rc = pGame->GetObjectArray()->GetDeny(nContainerId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObjectTemp,
+            INFINITE);
+        if (rc == CGameObjectArray::SUCCESS) {
+            static_cast<CGameContainer*>(pObjectTemp)->PlaceItemInBlankSlot(pItem, TRUE, SHORT_MAX);
+            pGame->GetObjectArray()->ReleaseDeny(nContainerId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        return FALSE;
+    }
+
+    if (m_objectType == TYPE_CONTAINER) {
+        static_cast<CGameContainer*>(this)->PlaceItemInBlankSlot(pItem, TRUE, SHORT_MAX);
+        return TRUE;
+    }
+
+    if (dropUnplaced) {
+        delete pItem;
+    }
+
+    return FALSE;
 }
 
 // 0x465110

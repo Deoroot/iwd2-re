@@ -113,6 +113,7 @@ public:
     SHORT ForceSpellAction(CGameObject* target);
     SHORT ForceSpellPointAction();
     void PutItemGround(CItem* pItem);
+    BOOL PlaceItem(CItem* pItem, BOOL haveDeny, BOOL dropUnplaced, DWORD num, BOOL feedback);
     SHORT ClearActions(CGameObject* target);
     SHORT TakePartyGold();
     SHORT GivePartyGold();
