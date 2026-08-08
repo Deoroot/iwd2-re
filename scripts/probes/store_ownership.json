@@ -1,0 +1,49 @@
+{
+  "_why": "Store screen never opens because CGameRemoteObjectArray::Add returns FALSE on its Find: the (m_idLocalPlayer=1, localObjectID) entry already exists when ChangeControlOnLoadGame tries to claim, so pObject->m_remotePlayerID stays 0 and CScreenWorld::StartStore sees bInControl=0. Add/ChangeControl/CGameObjectArray::Add are all verified faithful against the asm, so the only hypothesis left is INITIALISATION ORDER: in the original m_idLocalPlayer may still be 0 while the party objects are added during load, making the two Add calls collide on (0, index) and leaving the later claim free to succeed. Ours already holds 1 at that point. This table logs m_idLocalPlayer at every site that touches the chain, on the original, so the ordering is measured rather than argued.",
+
+  "_globals": "g_pChitin = 0x8CF6D8 (distinct from g_pBaldurChitin 0x8CF6DC). CNetwork sits at CChitin+0x952, so m_bIsHost(06E1)=+0x1033, m_bPlayerCreated(06F9)=+0x104B, m_idLocalPlayer(06FA)=+0x104C. Confirmed against the asm at 0x59A3FA-0x59A415 and 0x59BF33.",
+
+  "log": "tmp_store_ownership.log",
+  "hooks": [
+    {
+      "addr": "0x7A6960", "name": "CNetwork::CreatePlayer",
+      "args": ["ptr"], "ret": "u8", "bt": true, "max": 20,
+      "globals": [
+        {"chain": ["0x8CF6D8", "0x104C"], "type": "u32", "label": "idLocalPlayer"},
+        {"chain": ["0x8CF6D8", "0x104B"], "type": "u8", "label": "playerCreated"},
+        {"chain": ["0x8CF6D8", "0x1033"], "type": "u8", "label": "isHost"}
+      ]
+    },
+    {
+      "addr": "0x59A0F0", "name": "CGameObjectArray::Add",
+      "args": ["ptr", "ptr", "u32"], "ret": "u8", "max": 400,
+      "globals": [
+        {"chain": ["0x8CF6D8", "0x104C"], "type": "u32", "label": "idLocalPlayer"},
+        {"chain": ["0x8CF6D8", "0x104B"], "type": "u8", "label": "playerCreated"},
+        {"chain": ["0x8CF6D8", "0x1033"], "type": "u8", "label": "isHost"}
+      ]
+    },
+    {
+      "addr": "0x59AEF0", "name": "CGameRemoteObjectArray::Add",
+      "args": ["u32", "s32", "s32", "u8"], "ret": "u32", "max": 400,
+      "globals": [
+        {"chain": ["0x8CF6D8", "0x104C"], "type": "u32", "label": "idLocalPlayer"}
+      ]
+    },
+    {
+      "addr": "0x59BF30", "name": "CGameRemoteObjectArray::ChangeControlOnLoadGame",
+      "ret": "u32", "bt": true, "max": 20,
+      "globals": [
+        {"chain": ["0x8CF6D8", "0x104C"], "type": "u32", "label": "idLocalPlayer"},
+        {"chain": ["0x8CF6D8", "0x1033"], "type": "u8", "label": "isHost"}
+      ]
+    },
+    {
+      "addr": "0x59B350", "name": "CGameRemoteObjectArray::ChangeControl",
+      "args": ["u32", "s32", "u32", "s32", "u8"], "ret": "u32", "max": 200,
+      "globals": [
+        {"chain": ["0x8CF6D8", "0x104C"], "type": "u32", "label": "idLocalPlayer"}
+      ]
+    }
+  ]
+}

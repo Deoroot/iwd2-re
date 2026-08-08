@@ -1,0 +1,25 @@
+# Prove escape backs out of an action-bar submenu.
+#
+# Escape takes the innermost thing first: an action waiting for a target, then
+# the bar's own state stack, and only with neither pending does it open the
+# options screen. This drives the middle case, which is the one that runs on the
+# stack recovered at 0x589FF0.
+#
+# Whole keyboard route, no mouse:
+#   2   selects one party member, dropping the group bar 0x6E to 0x72
+#   F12 is bar slot 11, Special Abilities, which opens the picker 0x6A
+#   Esc pops that back to 0x72
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+key 50
+sleep 30
+bar
+key 123
+sleep 30
+bar
+key 27
+sleep 30
+bar

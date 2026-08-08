@@ -9,7 +9,6 @@
 #include "CBaldurProjector.h"
 #include "CGameArea.h"
 #include "CGameContainer.h"
-#include "DebugLog.h"
 #include "CGameDoor.h"
 #include "CGameEffect.h"
 #include "CGameJournal.h"
@@ -208,10 +207,20 @@ const BYTE* CGameAIBase::GetTerrainTable()
 // 0x44CBC0
 // HACK: the binary inherits CGameObject::CanSaveGame here (slot 0x28 == 0x44CBC0,
 // which sets strError=16502 and returns FALSE). But CGameDoor/CGameContainer/
-// CGameTrigger/CGameTiledObject don't model their own CanSaveGame->TRUE overrides
-// yet, and CGameArea::CanSaveGame blocks the save if ANY object returns FALSE --
-// so a faithful FALSE here breaks all saving. Return TRUE until those overrides
-// are recovered. -- replaces 0x44CBC0
+// HACK: CGameAIBase does not override CanSaveGame at all -- its vtable slot
+// 0x0028 holds 0x44CBC0, i.e. the inherited CGameObject::CanSaveGame
+// (strError = 16502, return FALSE). We return TRUE instead, because
+// CGameArea::CanSaveGame walks the area's vert-sort lists and blocks the save
+// if ANY object answers FALSE, so a faithful FALSE here blocks all saving.
+// -- replaces 0x44CBC0
+//
+// Blocker, narrowed 2026-07-31: of the seven CGameAIBase subclasses, five
+// override slot 0x0028 to 0x47C830 (strError = -1, return TRUE) and
+// CGameSprite has its own at 0x75E890. CGameContainer, CGameDoor and
+// CGameTrigger were the three still missing and are now declared, so the only
+// subclass left inheriting the FALSE is CGameTiledObject. Its vtable
+// (0x84C700) resolves from a single anchor, which is too weak to bet saving
+// on -- confirm that table, then delete this override and let the base answer.
 BOOLEAN CGameAIBase::CanSaveGame(STRREF& strError)
 {
     strError = -1;
@@ -3803,10 +3812,11 @@ CGameObject* CGameAIBase::ResolveActionTarget(BYTE nObjectType)
 // above, except the object comes from a caller-supplied CAIObjectType instead
 // of m_curAction.m_acteeID.  Used by the dispatcher cases that synthesise their
 // own target filter (e.g. GroupAttack's "enemy of me") rather than acting on
-// the actee the action carries.
-CGameObject* CGameAIBase::ResolveActionTarget(const CAIObjectType& typeTarget, BYTE nObjectType)
+// the actee the action carries.  The binary emits both bodies in full rather
+// than delegating.
+CGameObject* CGameAIBase::ResolveActionTarget(const CAIObjectType& type, BYTE nObjectType)
 {
-    CGameObject* pObj = typeTarget.GetObject(this, FALSE);
+    CGameObject* pObj = type.GetObject(this, FALSE);
     if (pObj != NULL
         && pObj->GetObjectType() == CGameObject::TYPE_SPRITE
         && static_cast<CGameSprite*>(pObj)->GetDerivedStats()->m_cImmunitiesAIType.OnList(m_typeAI)) {
@@ -3992,7 +4002,8 @@ SHORT CGameAIBase::StartCutScene()
     return ACTION_DONE;
 }
 
-// 0x4507E0 - case body for FloatMessage (0xF1).
+// Case body for FloatMessage (0xF1), at 0x4507E0 inside ExecuteAction --
+// not a function of its own, so no address marker.
 // Resolves m_acteeID, queues a CMessageFloatText so the strref (m_specificID)
 // is displayed above the target sprite.  Binary takes an SP fast path
 // calling FUN_004C80E0 directly; routing through CMessageFloatText::Run
@@ -4018,7 +4029,8 @@ SHORT CGameAIBase::FloatMessage()
     return ACTION_DONE;
 }
 
-// 0x452020 - case body for HideCreature (0xE9).
+// Case body for HideCreature (0xE9), at 0x452020 inside ExecuteAction --
+// not a function of its own, so no address marker.
 // Resolves target via m_acteeID and calls SetStealthState(m_specificID).
 // TODO: Skips the FUN_0045BDD0 immunity/distance filter and the MP
 // broadcast (CMessage90) -- SP semantics are preserved.

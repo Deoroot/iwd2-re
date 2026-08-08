@@ -20,8 +20,8 @@
 
 // Splits a raw DLG script blob (one or more BIOC-style "Trigger(args)"
 // expressions juxtaposed without separators) into the line-per-call shape
-// CAIScriptFile::Parse{Conditional,Response}String expects. Binary at
-// 0x483527..0x4836f0 keeps two CStrings -- a shrinking source and a growing
+// CAIScriptFile::Parse{Conditional,Response}String expects. The binary keeps
+// two CStrings at 0x483527..0x4836F0 -- a shrinking source and a growing
 // accumulator -- and walks ')' to ')'.
 static CString DLGNormalize(const char* pBytes, int nLen)
 {
@@ -623,12 +623,12 @@ void CGameDialogSprite::AsynchronousUpdate()
             return;
         }
 
-        // CChitin field at offset 0x1032 is the game-pause flag. When the
-        // game is unpaused we tick once per AU; when paused we slow down to
-        // one tick per 10 AU bumps so dialog doesn't race.
-        BYTE bPaused = *(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032);
+        // Single player ticks the freeze counter once per AU; in a connected
+        // network session we slow down to one tick per 10 AU bumps so dialog
+        // doesn't race the other clients.
+        BOOLEAN bNetworkGame = g_pChitin->cNetwork.m_bConnectionEstablished;
 
-        if (bPaused == 0) {
+        if (bNetworkGame == 0) {
             LONG counterBefore = m_dialogFreezeCounter--;
             if (counterBefore > 0) {
                 return;

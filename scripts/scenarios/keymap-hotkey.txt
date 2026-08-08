@@ -1,0 +1,27 @@
+# Prove a Keymap.ini binding reaches the action bar.
+#
+# The stock Keymap.ini binds "Special Abilities" to V, which is keymap action
+# 19 -> button type 0x0A. HandleKeymapAction then splits two ways:
+#
+#   1. on the world bar the type IS shown, so GetButtonId finds its slot and
+#      the key clicks it -- the bar goes 0x72 -> 0x6A, the innate picker;
+#   2. pressed again inside that picker the type is NOT shown, GetButtonId
+#      returns 0xFF, and the key goes through CInfButtonArray::CheckActivation
+#      instead -- which refuses, because the bar is no longer in state 0x72.
+#
+# So one scenario exercises both halves. Gate it with
+# --hit CInfButtonArray::CheckActivation: nothing else calls that function.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 1
+sleep 30
+bar
+key 86
+sleep 30
+bar
+key 86
+sleep 30
+bar

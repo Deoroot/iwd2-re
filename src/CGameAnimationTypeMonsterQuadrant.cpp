@@ -789,7 +789,7 @@ void CGameAnimationTypeMonsterQuadrant::SetColorRangeAll(BYTE rangeValue)
     }
 }
 
-// 0x6E7A40
+// 0x6BC5F0
 void CGameAnimationTypeMonsterQuadrant::Render(CInfinity* pInfinity, CVidMode* pVidMode, INT nSurface, const CRect& rectFX, const CPoint& ptNewPos, const CPoint& ptReference, DWORD dwRenderFlags, COLORREF rgbTintColor, const CRect& rGCBounds, BOOL bDithered, BOOL bFadeOut, LONG posZ, BYTE transparency)
 {
     // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjAnimation.cpp
@@ -1004,7 +1004,7 @@ SHORT CGameAnimationTypeMonsterQuadrant::SetSequence(SHORT nSequence)
 }
 
 // 0x6C2D70
-BOOLEAN CGameAnimationTypeMonsterQuadrant::GetCurrentSequenceAndFrame(SHORT nSequence, SHORT nFrame)
+BOOLEAN CGameAnimationTypeMonsterQuadrant::GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame)
 {
     nSequence = m_currentVidCell->m_nCurrentSequence;
     nFrame = m_currentVidCell->m_nCurrentFrame;

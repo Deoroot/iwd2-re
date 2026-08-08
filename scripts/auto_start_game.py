@@ -57,6 +57,9 @@ def main() -> int:
     ap.add_argument("--no-wait", action="store_true", help="launch and return without waiting for the result")
     ap.add_argument("--exe", default=str(EXE), help="iwd2-re.exe to launch (default: build/Debug; lets the scratch build+smoke gate point at an isolated exe)")
     ap.add_argument("--kill-after", action="store_true", help="terminate the launched process before returning (build+smoke gate use; interactive launches omit it to keep the window open)")
+    ap.add_argument("--ui-script", help="AutoUI script to replay once the game is up (see src/AutoUI.h)")
+    ap.add_argument("--ui-result", help="where AutoUI writes its JSONL (default: alongside the script)")
+    ap.add_argument("--ui-go", help="gate file a `waitgo` step blocks on, so the scenario cannot act before the observer is attached")
     args = ap.parse_args()
 
     if args.no_launch:
@@ -81,8 +84,24 @@ def main() -> int:
             env["IWD2_RE_AUTO_SLOT"] = str(args.slot)
             description = f"visible save slot {args.slot}"
 
+    # AutoUI is inert unless IWD2_RE_UI_SCRIPT is set, so this is the only place
+    # that arms it. Absolute paths: the game's cwd is the install dir, not the repo.
+    if args.ui_script:
+        ui_script = Path(args.ui_script).resolve()
+        ui_result = Path(args.ui_result).resolve() if args.ui_result \
+            else ui_script.with_suffix(".jsonl")
+        if ui_result.exists():
+            ui_result.unlink()
+        env["IWD2_RE_UI_SCRIPT"] = str(ui_script)
+        env["IWD2_RE_UI_RESULT"] = str(ui_result)
+        if args.ui_go:
+            env["IWD2_RE_UI_GO"] = str(Path(args.ui_go).resolve())
+        description += f"; ui script {ui_script.name}"
+
     proc = subprocess.Popen([args.exe], cwd=str(GAME_DIR), env=env)
     print(f"pid={proc.pid}; auto {description}")
+    if args.ui_script:
+        print(f"ui_result={env['IWD2_RE_UI_RESULT']}")
 
     if args.no_wait:
         print(f"result={result_path}")

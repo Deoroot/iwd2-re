@@ -1,0 +1,24 @@
+# Prove CGameSprite::GetInnateSpellsButtonList runs from the action bar.
+#
+# The world bar (state 0x72) ends with button type 0x0A -- "Special Abilities".
+# Clicking it runs DispatchActionBarClick case 10 -> SetState(0x6A), and the
+# picker branch of SetState calls BuildPickerList kind 4, which is the only
+# caller of GetInnateSpellsButtonList.
+#
+# Slot N of the action bar is control (N + 6) on panel 1.  Measured with `bar`:
+#   portrait 4's world bar is  07 3C 3D 05 03 48 49 4A 50 51 52 0A
+# so type 0x0A sits in slot 11, i.e. control 17.
+#
+# `bar` is the diagnostic that pins that down; `dump` cannot see button types --
+# every bar cell is the same always-active control whatever the bar shows.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 4
+sleep 30
+bar
+click 1 17
+sleep 30
+bar

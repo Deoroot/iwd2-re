@@ -1,0 +1,12 @@
+# arc baseline -- findings that are accepted and must not fail the gate.
+#
+# Format:  <path>:<line>: <tool>   # why it is accepted
+#
+# A line here is a claim that the finding was checked against the binary and is
+# correct as written. arc reports an entry that no longer matches anything as
+# `WARN stale baseline`, so this file cannot quietly rot into a permanent mute.
+#
+# This is NOT a place to park unreviewed noise. If a finding is real, fix it;
+# if the lint is wrong about this specific site, record why here.
+
+src/CSpawn.cpp:949: lint_stuck_loop_index   # bit-shift loop; the binary genuinely has no advance in the body

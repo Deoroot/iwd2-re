@@ -1,0 +1,9 @@
+# Click the first action-bar button and let --hit prove the click reached code.
+# Panel 1 / control 6 is the first action button (CInfButtonArray.cpp:598,627).
+# waitgo first: vm.sh only attaches the crash guard after the save loads, so
+# without it the click happens while nothing is watching.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 6
+sleep 60

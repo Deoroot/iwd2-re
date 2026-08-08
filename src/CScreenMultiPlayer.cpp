@@ -1890,7 +1890,7 @@ void CScreenMultiPlayer::OnModifyButtonClick()
     }
 }
 
-// 0x663810
+// 0x64D950
 void CScreenMultiPlayer::CancelEngine()
 {
     while (GetTopPopup() != NULL) {
@@ -3634,4 +3634,11 @@ BOOL CUIControlButtonMultiPlayerSelection::Render(BOOL bForce)
         }
     }
     return CUIControlButton::Render(bForce);
+}
+
+// 0x5D72C0
+void CScreenMultiPlayer::EngineDestroyed()
+{
+    // Folded with CScreenWorldMap::EngineGameUninit at 0x5D72C0.
+    m_cUIManager.fUninit();
 }

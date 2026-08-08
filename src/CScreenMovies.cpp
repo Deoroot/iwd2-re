@@ -554,3 +554,24 @@ void CUIControlButtonMoviesDone::OnLButtonClick(CPoint pt)
     // NOTE: Uninline.
     pMovies->OnDoneButtonClick();
 }
+
+// 0x71E750
+void CScreenMovies::OnLButtonDblClk(CPoint pt)
+{
+    // Empty in the binary: the slot holds a folded no-op stub distinct from
+    // the base's, so the override exists but does nothing.
+}
+
+// 0x71E750
+void CScreenMovies::OnRButtonDown(CPoint pt)
+{
+    // Empty in the binary: the slot holds a folded no-op stub distinct from
+    // the base's, so the override exists but does nothing.
+}
+
+// 0x71E750
+void CScreenMovies::OnRButtonUp(CPoint pt)
+{
+    // Empty in the binary: the slot holds a folded no-op stub distinct from
+    // the base's, so the override exists but does nothing.
+}

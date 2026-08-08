@@ -215,7 +215,7 @@ void CGameTrigger::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL 
 
             if (m_trapDetected != 0) {
                 if (m_drawPoly != 400
-                        && *(reinterpret_cast<char*>(g_pBaldurChitin) + 0x497E) == 0) {
+                        && !g_pBaldurChitin->GetBaldurMessage()->m_bInMessageSetDrawPoly) {
                     g_pBaldurChitin->GetMessageHandler()->AddMessage(
                         new CMessageSetDrawPoly(400, m_id, m_id), FALSE);
                 }
@@ -349,8 +349,7 @@ BOOLEAN CGameTrigger::DoAIUpdate(BOOLEAN active, LONG counter)
     }
 
     if (m_triggerType == 0) {
-        if ((m_dwFlags & 0x20) != 0
-            && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x4446) == 0) {
+        if ((m_dwFlags & 0x20) != 0 && pGame->m_cOptions.m_nTutorialState == 0) {
             return FALSE;
         }
 
@@ -372,11 +371,12 @@ BOOLEAN CGameTrigger::DoAIUpdate(BOOLEAN active, LONG counter)
                         && ((m_dwFlags & 0x40) != 0
                             || pGame->GetCharacterPortraitNum(pSprite->m_id) != -1
                             || pGame->m_familiars.Find(reinterpret_cast<int*>(pSprite->m_id)) != NULL)) {
-                        // Skip the edit-mode trigger-placement preview (CChitin +0x1032/+0x1033,
-                        // CGameSprite +0x580); always 0 in normal play, so the trap is processed.
-                        if (!(*(reinterpret_cast<BYTE*>(g_pChitin) + 0x1032) == 1
-                              && *(reinterpret_cast<BYTE*>(g_pChitin) + 0x1033) == 1
-                              && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pSprite) + 0x580) == 1)) {
+                        // Multiplayer host only: sprites the server flagged through
+                        // CMessage107 (field_580) do not spring the trap. Single player
+                        // never establishes a connection, so the trap is always processed.
+                        if (!(g_pChitin->cNetwork.m_bConnectionEstablished == 1
+                              && g_pChitin->cNetwork.m_bIsHost == 1
+                              && pSprite->field_580 == 1)) {
                             if (IsOverActivate(pSprite->GetPos())) {
                                 CPoint ptLast(pSprite->field_536A, pSprite->field_536E);
                                 if (!IsOverActivate(ptLast)) {
@@ -417,6 +417,13 @@ BOOLEAN CGameTrigger::DoAIUpdate(BOOLEAN active, LONG counter)
     }
 
     return CResRef(m_scriptRes) != CResRef();
+}
+
+// 0x47C830
+BOOLEAN CGameTrigger::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
 }
 
 // 0x4CE180

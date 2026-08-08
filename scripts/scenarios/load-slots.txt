@@ -1,0 +1,18 @@
+# Prove CScreenLoad::RefreshGameSlots runs under the crash guard.
+# The startup auto-load calls it too, but that happens before the guard
+# attaches (the guard waits for `loaded:`), so --hit never sees it. Going
+# back to the load screen from inside the game re-enters it while armed.
+# Options control 5 is the load button: it sets m_dwErrorState 5 and summons
+# popup panel 4, whose button 0 is CScreenOptions::LoadGame (CScreenOptions.cpp:1588).
+wait world 3000
+waitgo 6000
+sleep 30
+goto options
+sleep 60
+click 2 5
+sleep 60
+expect control 4 0
+click 4 0
+sleep 180
+expect screen load
+dump

@@ -593,7 +593,7 @@ BOOL CGameAnimationTypeCharacter::IsMirroring()
 }
 
 // 0x6C5AD0
-BOOLEAN CGameAnimationTypeCharacter::GetCurrentSequenceAndFrame(SHORT nSequence, SHORT nFrame)
+BOOLEAN CGameAnimationTypeCharacter::GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame)
 {
     nSequence = m_currentVidCell->m_nCurrentSequence;
     nFrame = m_currentVidCell->m_nCurrentFrame;

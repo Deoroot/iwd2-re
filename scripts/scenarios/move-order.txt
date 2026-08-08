@@ -1,0 +1,22 @@
+# Issue a walk order. Selecting a portrait and clicking the ground is the
+# cheapest path that reaches the message queue: the selection posts a
+# CMessagePlaySound (soundset slot 15..21) through CInfGame::SelectCharacter,
+# and the move order builds a CAIAction delivered as CMessageAddAction, whose
+# comm type is SEND -- so this drives CMessageHandler::Send as well.
+#
+# Slot 3 restores its viewport ~1600px below the party, so `center` first or
+# the ground clicks land on nothing.
+#
+#   scripts/vm.sh smoke 3 120 --ui scripts/scenarios/move-order.txt \
+#       --hit CGameSprite::PlaySound
+wait world 3000
+waitgo 6000
+sleep 30
+center
+sleep 30
+click 1 0
+sleep 30
+clickxy 400 250
+sleep 60
+clickxy 300 200
+sleep 60

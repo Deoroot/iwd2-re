@@ -46,9 +46,11 @@ def check(path):
 
 
 def main():
+    # Recursive: src/ has subdirectories (src/music/), and a leaked pack there is
+    # exactly as fatal as one at the top level.
     files = sorted(
-        glob.glob(os.path.join(REPO, "src", "*.h"))
-        + glob.glob(os.path.join(REPO, "src", "*.cpp"))
+        glob.glob(os.path.join(REPO, "src", "**", "*.h"), recursive=True)
+        + glob.glob(os.path.join(REPO, "src", "**", "*.cpp"), recursive=True)
     )
     fails = 0
     for f in files:

@@ -8,6 +8,8 @@
 
 // 0x6E8180
 CGameAnimationTypeMonsterIcewindNew::CGameAnimationTypeMonsterIcewindNew(USHORT animationID, BYTE* colorRangeValues, WORD facing)
+    : m_charPalette(CVidPalette::TYPE_RANGE)
+    , m_weaponPalette(CVidPalette::TYPE_RANGE)
 {
     field_34E6 = 0;
     m_renderWeapons = TRUE;

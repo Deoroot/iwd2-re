@@ -155,7 +155,13 @@ public:
     void UpdateIdentifyCost();
     void UpdateStoreCost();
     void UpdateSpellCost();
+    BOOL CheckSpellUsable(INT nPortraitNum, const CResRef& cResSpell);
+    BOOL IsBuyItemButtonClickable();
     void OnBuyItemButtonClick();
+    void BuyPersonalItems();
+    void BuyBagItems();
+    void BuyPersonalItemsExt();
+    void BuyBagItemsExt();
     BOOL IsSellItemButtonClickable();
     void OnSellItemButtonClick();
     void SellPersonalItems();

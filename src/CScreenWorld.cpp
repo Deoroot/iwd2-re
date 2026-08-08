@@ -17,7 +17,9 @@
 #include "CScreenLoad.h"
 #include "CScreenMap.h"
 #include "CScreenMultiPlayer.h"
+#include "CScreenStore.h"
 #include "CScreenWorldMap.h"
+#include "CStore.h"
 #include "CUIControlFactory.h"
 #include "CUIControlLabel.h"
 #include "CUIControlTextDisplay.h"
@@ -26,6 +28,9 @@
 #include "CUtil.h"
 // 0x85A1EC
 const LONG CScreenWorld::BORED_TIME = 3000;
+
+// 0x8F85B8
+BOOL CScreenWorld::bMultiplayerStore;
 
 // 0x8F85BC
 int CScreenWorld::dword_8F85BC;
@@ -345,9 +350,11 @@ void CScreenWorld::OnKeyDown(SHORT a2)
         }
 
         if (!m_bInControlOfDialog || !m_internalLoadedDialog.m_waitingForResponse) {
-            if (nKey == VK_TAB) {
-                m_cUIManager.ForceToolTip();
+            if (HandleWorldKey(nKey)) {
+                continue;
             }
+
+            HandleKeymapAction(nKey);
             continue;
         }
 
@@ -396,6 +403,274 @@ void CScreenWorld::OnKeyDown(SHORT a2)
                 break;
             }
         }
+    }
+}
+
+// The fixed part of the world keyboard: keys the engine handles itself,
+// whatever Keymap.ini says.  Returns whether the key was consumed -- only a key
+// that falls through here reaches the bindings.
+//
+// NOTE: Convenience -- the binary inlines this inside OnKeyDown as a switch on
+// (key - 9) whose default is the keymap walk.
+BOOL CScreenWorld::HandleWorldKey(BYTE nKey)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    switch (nKey) {
+    case VK_LEFT:
+    case VK_NUMPAD4:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 7;
+        return TRUE;
+    case VK_UP:
+    case VK_NUMPAD8:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 1;
+        return TRUE;
+    case VK_RIGHT:
+    case VK_NUMPAD6:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 3;
+        return TRUE;
+    case VK_DOWN:
+    case VK_NUMPAD2:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 5;
+        return TRUE;
+    case VK_NUMPAD9:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 2;
+        return TRUE;
+    case VK_NUMPAD3:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 4;
+        return TRUE;
+    case VK_NUMPAD1:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 6;
+        return TRUE;
+    case VK_NUMPAD7:
+        pGame->m_gameAreas[pGame->m_visibleArea]->m_nKeyScrollState = 8;
+        return TRUE;
+    case VK_SNAPSHOT:
+        if (g_pBaldurChitin->pActiveEngine != NULL) {
+            g_pBaldurChitin->pActiveEngine->pVidMode->PrintScreen();
+        }
+        return TRUE;
+    case VK_SPACE:
+        TogglePauseGame(1, 1, 0);
+        return TRUE;
+    case VK_F1:
+    case VK_F2:
+    case VK_F3:
+    case VK_F4:
+    case VK_F5:
+    case VK_F6:
+    case VK_F7:
+    case VK_F8:
+    case VK_F9:
+    case VK_F10:
+    case VK_F11:
+    case VK_F12: {
+        // The function keys are the action bar's twelve slots, and shift makes
+        // the press a right-click -- the same split the mouse has.
+        CUIPanel* pPanel = m_cUIManager.GetPanel(1);
+        if (pPanel != NULL && pPanel->m_bActive) {
+            if (m_bShiftKeyDown) {
+                pGame->GetButtonArray()->OnRButtonPressed(nKey - VK_F1);
+            } else {
+                pGame->GetButtonArray()->OnLButtonPressed(nKey - VK_F1);
+            }
+        }
+        return TRUE;
+    }
+    case VK_TAB:
+        // TODO: Incomplete.  0x687a2e also drives the multiplayer chat and the
+        // hidden-interface toggle before it gets here.
+        m_cUIManager.ForceToolTip();
+        return TRUE;
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6': {
+        // Select that party member.  Pressing the digit of the one member
+        // already selected on its own opens their record instead, the same as
+        // double-clicking the portrait.  Ctrl or shift adds to the selection
+        // rather than replacing it.
+        SHORT nPortrait = static_cast<SHORT>(nKey - '1');
+        LONG nCharacterId = nPortrait < pGame->m_nCharacters
+            ? pGame->m_characterPortraits[nPortrait]
+            : CGameObjectArray::INVALID_INDEX;
+
+        if (pGame->m_nState != 0) {
+            // TODO: Incomplete.  While an action is waiting for a target
+            // (0x687d7d) the digit aims it at that member instead.
+            return TRUE;
+        }
+
+        if (pGame->GetGroup()->GetCount() == 1
+            && pGame->GetGroup()->GetGroupLeader() == nCharacterId) {
+            pGame->OnPortraitLDblClick(nKey - '1');
+            return TRUE;
+        }
+
+        if (!m_bCtrlKeyDown && !m_bShiftKeyDown) {
+            pGame->UnselectAll();
+        }
+
+        pGame->SelectCharacter(nCharacterId, 1);
+        pGame->SelectToolbar();
+        return TRUE;
+    }
+    case VK_RETURN:
+    case VK_ESCAPE:
+        if (m_nPopupState != -1) {
+            // A popup is up, and both keys answer it the same way.  The state
+            // that means "my own dialogue popup" is 7 on a local game and 0x15
+            // once a real multiplayer session is up.
+            INT nOwnDialog = 7;
+            if (g_pChitin->cNetwork.m_bConnectionEstablished
+                && g_pChitin->cNetwork.m_nServiceProvider != CNetwork::SERV_PROV_NULL) {
+                nOwnDialog = 0x15;
+            }
+
+            if (m_nPopupState == nOwnDialog) {
+                m_bDialogButtonClicked = 1;
+                if (m_dialogContinueFlag == 0) {
+                    m_internalLoadedDialog.m_responseMarker = m_dialogReplyIndex;
+                }
+            } else if (m_nPopupState == 6) {
+                StopCommand();
+                m_nPopupState = -1;
+            } else if (m_nPopupState == 8) {
+                StopContainer();
+                m_nPopupState = -1;
+            } else if (m_nPopupState == 0
+                || m_nPopupState == 0x11
+                || m_nPopupState == 0x13
+                || m_nPopupState == 0x15
+                || m_nPopupState == 0x16) {
+                // Nothing to answer in these.
+            } else {
+                // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+                // __LINE__: 5469
+                UTIL_ASSERT(FALSE);
+            }
+
+            return TRUE;
+        }
+
+        if (nKey == VK_RETURN) {
+            return TRUE;
+        }
+
+        {
+            // Escape backs out of whatever is innermost: an action waiting for
+            // a target, then the action bar's own submenu stack, and with
+            // neither of those pending it opens the options screen.
+            if (pGame->m_nState != 0) {
+                pGame->m_nState = 0;
+                pGame->GetButtonArray()->m_nSelectedButton = 100;
+                pGame->GetButtonArray()->UpdateState();
+                pGame->m_tempCursor = 4;
+            } else if (!pGame->GetButtonArray()->m_stateStack.empty()) {
+                pGame->GetButtonArray()->m_nSelectedButton = 100;
+                pGame->GetButtonArray()->ResetState();
+            } else {
+                static_cast<CBaldurEngine*>(g_pBaldurChitin->pActiveEngine)
+                    ->OnLeftPanelButtonClick(9);
+            }
+        }
+
+        return TRUE;
+    case VK_PRIOR:
+    case VK_NEXT: {
+        // Scroll the message log by releasing the mouse on its arrow, which is
+        // control 0 of the panel that owns that direction.
+        if (m_cUIManager.m_bHidden) {
+            return TRUE;
+        }
+
+        CUIPanel* pPanel = m_cUIManager.GetPanel(nKey == VK_PRIOR ? 0x15 : 0x13);
+        if (pPanel != NULL && pPanel->m_bActive) {
+            CUIControlBase* pControl = pPanel->GetControl(0);
+            if (pControl != NULL && pControl->m_bActive) {
+                pControl->OnLButtonUp(pControl->m_ptOrigin);
+            }
+        }
+
+        return TRUE;
+    }
+
+    default:
+        return FALSE;
+    }
+}
+
+// Dispatch one Keymap.ini binding.  A key that OnKeyDown's own switch does not
+// consume is looked up in the keymap: the first action whose key matches and
+// whose CTRL requirement matches the current modifier wins.
+//
+// NOTE: Convenience -- the binary inlines this at the tail of OnKeyDown
+// (0x687f3b), and handles far more actions than the action-bar ones below.
+void CScreenWorld::HandleKeymapAction(BYTE nKey)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    for (SHORT nAction = 0; nAction < CINFGAME_KEYMAP_SIZE; nAction++) {
+        if (pGame->GetKeymap(nAction) != nKey) {
+            continue;
+        }
+
+        if (pGame->GetKeymapFlag(nAction) != m_bCtrlKeyDown) {
+            continue;
+        }
+
+        // TODO: Incomplete.  Only the action-bar bindings are recovered; the
+        // binary dispatches 0x35 actions here (0x68bd68).
+        // The action names come from the engine's own Keymap.ini key table:
+        // 11 "Cast Spell", 12 "Use Item", 13 "Dialog", 19 "Special Abilities",
+        // 0x2D..0x2F "Quick Item Slot1".."Slot3".
+        INT nButtonType = -1;
+        BOOL bQuickItem = FALSE;
+        switch (nAction) {
+        case 11:
+            nButtonType = 3;
+            break;
+        case 12:
+            nButtonType = 0x0E;
+            break;
+        case 13:
+            nButtonType = 5;
+            break;
+        case 19:
+            nButtonType = 0x0A;
+            break;
+        case 0x2D:
+        case 0x2E:
+        case 0x2F:
+            nButtonType = nAction + 0x23;
+            bQuickItem = TRUE;
+            break;
+        default:
+            break;
+        }
+
+        if (nButtonType != -1) {
+            // The bar has to be on screen; a button it currently shows is
+            // clicked where it sits, and only a hidden one goes through
+            // CheckActivation.
+            CUIPanel* pPanel = m_cUIManager.GetPanel(1);
+            if (pPanel != NULL && pPanel->m_bActive) {
+                BYTE nButton = pGame->GetButtonArray()->GetButtonId(nButtonType);
+                if (nButton != 0xFF) {
+                    if (bQuickItem && m_bShiftKeyDown) {
+                        pGame->GetButtonArray()->OnRButtonPressed(nButton);
+                    } else {
+                        pGame->GetButtonArray()->OnLButtonPressed(nButton);
+                    }
+                } else {
+                    pGame->GetButtonArray()->CheckActivation(nButtonType);
+                }
+            }
+        }
+
+        return;
     }
 }
 
@@ -2487,13 +2762,231 @@ void CScreenWorld::StopCommand()
 // 0x6913C0
 void CScreenWorld::StartStore(const CAIObjectType& cAIProprietor, const CAIObjectType& cAICustomer, CResRef cResStore, BOOLEAN bInitiate)
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    LONG nCustomerId = cAICustomer.m_nInstance;
+
+    bMultiplayerStore = g_pChitin->cNetwork.m_nServiceProvider != CNetwork::SERV_PROV_NULL;
+
+    if (g_pChitin->cNetwork.m_bConnectionEstablished == 1) {
+        if (!g_pChitin->cNetwork.m_bIsHost) {
+            if (!g_pBaldurChitin->GetBaldurMessage()->DemandResourceFromServer(cResStore.GetResRefStr(),
+                    1014,
+                    TRUE,
+                    TRUE,
+                    TRUE)) {
+                g_pChitin->cNetwork.CloseSession(TRUE);
+                return;
+            }
+        } else {
+            pGame->DemandServerStore(cResStore, TRUE);
+        }
+    }
+
+
+    CStore* pStore = new CStore(cResStore);
+
+    // A bag is always driven locally, never handed to the session host.
+    if (pStore->m_header.m_nStoreType == CSTOREFILEHEADER_STORETYPE_BAG) {
+        bMultiplayerStore = FALSE;
+    }
+
+    if (!g_pChitin->cNetwork.m_bIsHost) {
+        CMessageStoreRelease* pMessage = new CMessageStoreRelease(pStore->m_resRef,
+            CGameObjectArray::INVALID_INDEX,
+            CGameObjectArray::INVALID_INDEX);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+    } else {
+        pGame->ReleaseServerStore(pStore->m_resRef);
+    }
+
+    delete pStore;
+
+    BOOLEAN bInControl;
+
+    if (g_pChitin->cNetwork.m_bConnectionEstablished == 1) {
+        CGameObject* pCustomer;
+
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nCustomerId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pCustomer,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            bInControl = pCustomer->m_remotePlayerID == g_pChitin->cNetwork.m_idLocalPlayer;
+
+            if (bInitiate == 1) {
+                INT nPlayer = g_pChitin->cNetwork.FindPlayerLocationByID(pCustomer->m_remotePlayerID, FALSE);
+
+                if (bMultiplayerStore) {
+                    if (!pGame->m_multiplayerSettings.GetPermission(nPlayer, CGamePermission::PURCHASING)) {
+                        g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(-1,
+                            0x2A5F,
+                            0xFF,
+                            0xFF,
+                            -1,
+                            CGameObjectArray::INVALID_INDEX,
+                            CGameObjectArray::INVALID_INDEX);
+
+                        if (g_pChitin->cNetwork.m_bIsHost) {
+                            pGame->m_multiplayerSettings.m_bHostPermittedStore = FALSE;
+                            pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+                        }
+
+                        pGame->GetObjectArray()->ReleaseShare(nCustomerId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            INFINITE);
+                        return;
+                    }
+
+                    STRREF strError;
+                    if (bMultiplayerStore
+                        && pGame->m_multiplayerSettings.m_bRestrictStoreOption == 1
+                        && !pGame->CanEnterStore(strError)) {
+                        g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(-1,
+                            strError,
+                            0xFF,
+                            0xFF,
+                            -1,
+                            CGameObjectArray::INVALID_INDEX,
+                            CGameObjectArray::INVALID_INDEX);
+
+                        if (g_pChitin->cNetwork.m_bIsHost) {
+                            pGame->m_multiplayerSettings.m_bHostPermittedStore = FALSE;
+                            pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+                        }
+
+                        pGame->GetObjectArray()->ReleaseShare(nCustomerId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            INFINITE);
+                        return;
+                    }
+                }
+            }
+
+            if (g_pChitin->cNetwork.m_bIsHost
+                && ((bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)
+                    || bInControl)) {
+                pGame->m_multiplayerSettings.m_bHostPermittedStore = TRUE;
+                pGame->m_multiplayerSettings.m_idHostPermittedStore = pCustomer->m_remotePlayerID;
+            }
+
+            pGame->GetObjectArray()->ReleaseShare(nCustomerId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        } else {
+            bInControl = FALSE;
+
+            if (bInitiate == 1) {
+                g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(-1,
+                    0x2A5F,
+                    0xFF,
+                    0xFF,
+                    -1,
+                    CGameObjectArray::INVALID_INDEX,
+                    CGameObjectArray::INVALID_INDEX);
+
+                if (g_pChitin->cNetwork.m_bIsHost) {
+                    pGame->m_multiplayerSettings.m_bHostPermittedStore = FALSE;
+                    pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+                }
+
+                return;
+            }
+
+            if (g_pChitin->cNetwork.m_bIsHost
+                && bMultiplayerStore
+                && pGame->m_multiplayerSettings.m_bRestrictStoreOption) {
+                pGame->m_multiplayerSettings.m_bHostPermittedStore = TRUE;
+                pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+            }
+        }
+    } else {
+        bInControl = TRUE;
+    }
+
+    if (bInitiate == 1
+        && ((bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)
+            || !bInControl)) {
+        CMessageEnterStoreMode* pMessage = new CMessageEnterStoreMode(cAIProprietor,
+            cAICustomer,
+            cResStore,
+            nCustomerId,
+            nCustomerId);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+    }
+
+
+    if ((bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)
+        || bInControl) {
+        m_bInControlOfStore = bInControl;
+
+        if (!g_pChitin->cNetwork.m_bConnectionEstablished
+            || (bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)) {
+            pGame->GetWorldTimer()->StopTime();
+            m_bPaused = TRUE;
+        }
+
+        CScreenStore* pScreenStore = g_pBaldurChitin->m_pEngineStore;
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+        // __LINE__: 5914
+        UTIL_ASSERT(pScreenStore != NULL);
+
+        BOOLEAN bConnected = g_pChitin->cNetwork.m_bConnectionEstablished;
+
+        pScreenStore->StartStore(cAIProprietor, cAICustomer, cResStore);
+
+        if (bConnected == g_pChitin->cNetwork.m_bConnectionEstablished) {
+            DWORD dwPanelId = pScreenStore->GetDefaultMainPanel();
+
+            // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
+            // __LINE__: 5933
+            UTIL_ASSERT(dwPanelId != MAXDWORD);
+
+            pScreenStore->SwitchMainPanel(dwPanelId);
+
+
+            g_pChitin->pActiveEngine->SelectEngine(pScreenStore);
+        }
+    }
 }
 
 // 0x691B50
 void CScreenWorld::StopStore()
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    if (m_bInControlOfStore == 1
+        && bMultiplayerStore
+        && pGame->m_multiplayerSettings.m_bRestrictStoreOption) {
+        CMessageExitStoreMode* pMessage = new CMessageExitStoreMode(CGameObjectArray::INVALID_INDEX,
+            CGameObjectArray::INVALID_INDEX);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+    }
+
+    if (g_pChitin->cNetwork.m_bIsHost == 1) {
+        pGame->m_multiplayerSettings.m_bHostPermittedStore = FALSE;
+        pGame->m_multiplayerSettings.m_idHostPermittedStore = 0;
+    } else if (g_pChitin->cNetwork.m_nServiceProvider != CNetwork::SERV_PROV_NULL) {
+        // HACK: the client-side release of the permission the host granted is
+        // not issued -- the binary calls an unrecovered CBaldurMessage method
+        // at 0x436C00 (`this` is GetBaldurMessage(); it posts specific message
+        // type 89 / subtype 121, no payload, to the host player) and naming it
+        // would be a guess -- replaces 0x436C00. Needs an active network
+        // session to be reachable at all.
+    }
+
+    if (!g_pChitin->cNetwork.m_bConnectionEstablished
+        || (bMultiplayerStore && pGame->m_multiplayerSettings.m_bRestrictStoreOption)) {
+        pGame->GetWorldTimer()->StartTime();
+        m_bPaused = FALSE;
+    }
+
+    g_pBaldurChitin->m_pEngineStore->StopStore();
 }
 
 // 0x691C70

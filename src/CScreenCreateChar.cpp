@@ -632,11 +632,10 @@ void CScreenCreateChar::OnMouseMove(CPoint pt)
     m_cUIManager.OnMouseMove(pt);
 }
 
-// 0x49FC40
-BOOL CScreenCreateChar::CheckMouseRButton()
-{
-    return TRUE;
-}
+// CScreenCreateChar does NOT override CheckMouseRButton: its vtable slot
+// 0x0088 holds 0x78E6E0, the inherited CWarp::CheckMouseRButton (`return
+// FALSE`). It used to be defined here as `return TRUE` against 0x49FC40, which
+// is the OTHER folded stub (`mov eax,1; ret`) that the 17 other screens use.
 
 // 0x6077E0
 void CScreenCreateChar::OnRButtonDown(CPoint pt)

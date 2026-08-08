@@ -1,0 +1,22 @@
+# Open the Bag of Holding from the inventory item requester. That is the
+# merchant-free route into CScreenStore: CScreenInventory::OnUseButtonClick
+# case 3 hands the container's resref to CScreenWorld::StartStore.
+# Requester panel 5: control 9 is "Open Container", control 4 is "Done".
+#
+# Needs the save that carries the container -- the default combat slot does not:
+#   scripts/vm.sh smoke --save "000000039-store" 120 \
+#       --ui scripts/scenarios/store-open-bag.txt --hit CScreenWorld::StartStore
+# There the container sits in the first backpack slot, control 30 of panel 2.
+wait world 3000
+waitgo 6000
+sleep 30
+goto inventory
+sleep 120
+expect screen inventory
+rclick 2 30
+sleep 60
+expect control 5 9
+click 5 9
+sleep 240
+expect screen store
+dump

@@ -142,3 +142,68 @@ python scripts/frida_formation_trace.py --attach   # attach to a running IWD2.ex
 
 Perform the in-game action, then Ctrl-C / kill. Logs are `tmp_*` (untracked RE
 noise — delete freely).
+
+## Unattended on the original — `vm.sh trace`
+
+The template above assumes a human at the keyboard: spawn, click, Ctrl-C, read.
+`scripts/vm.sh trace` is the unattended form — `vm.sh smoke`'s counterpart for a
+binary we have no source for.
+
+```bash
+scripts/vm.sh trace --hooks scripts/probes/store_ownership.json --load-slot -1 \
+                    --hit CGameObjectArray::Add --timeout 120
+```
+
+It spawns `IWD2.exe` in session 1 under Frida, installs a hook table, waits, and
+prints a verdict with an exit code: `CLEAN` 0, `CRASH` 1, `NOT-LOADED` /
+`NOT-EXERCISED` / `NO-VERDICT` 2. The last three all mean *ran, proved nothing* —
+the same discipline as smoke's `--hit`, so a green run cannot be a false green.
+
+- **Hook table**, not a bespoke script: the schema lives in `scripts/frida_hooks.py`
+  and is shared with `frida_probe.py`. Beyond args and `this_dump` it takes
+  `globals` (a deref chain — `g_pChitin(0x8CF6D8)->cNetwork.m_idLocalPlayer(+0x104C)`
+  is `{"chain": ["0x8CF6D8", "0x104C"], "type": "u32"}`) and `bt`.
+- **Every hook self-verifies**: the driver dumps 8 bytes at each site on install,
+  so a silent no-fire is diffed against `sym.py bytes ADDR 8` rather than guessed at.
+- **Crash handling** is the crash guard's: `Process.setExceptionHandler` + EBP
+  walk, `system` exceptions passed through. The original has no PDB, so frames come
+  back raw and `vm.sh` symbolizes them host-side through `sym.py addr2fn`.
+- **It spawns rather than attaches**, because the questions worth asking are
+  usually about startup and load order, and a game already at the main menu has
+  missed all of it.
+- **Every click is a real click.** The cursor is moved onto the control and the
+  left button pressed, then the engine's own poll (`CChitin::AsynchronousUpdate:1537`)
+  dispatches `OnLButtonDown/Up`. Calling the handlers directly does not work:
+  `OnLoadGameButtonClick` opens by taking the UI manager's critical section
+  (`CScreenConnection.cpp:1142-1143`) and never returns from it — from `onEnter`, from
+  `onLeave`, and from the engine's own mid-body call site alike. The engine polls
+  `m_ptPointer`, which comes from the real cursor and reads `(-1,-1)` when the pointer
+  is off the window, so unattended it never dispatches anything on its own.
+  `SetCursorPos` speaks desktop pixels while the engine works in 800×600 game space,
+  so the driver measures the linear map with two probe points instead of assuming it —
+  aiming blind put `(645,295)` at game `(402,205)` and hit no control.
+- **Getting into a save takes four steps, none of them guessable statically:**
+  - The intro movies are a hard block, not decoration. The connection screen runs
+    one update, then `PlayMovieInternal` does `SelectEngine(projector)` and the menu
+    stops (1 update in 32714 engine ticks). The driver no-ops that one chokepoint.
+  - Skipping them then leaves `byte_8F376C` set — the flag is raised when the
+    movies are *queued* (`CScreenConnection.cpp:688`), not when they finish — so the
+    engine skips its own `DismissPopup` (`:704`) and popup 19 ("Finding the network
+    devices...") stays on the stack forever. The driver calls `DismissPopup` itself.
+  - Input only goes live when `AutoSelectServiceProvider` runs, which is the line that
+    sets `m_bAllowInput = TRUE` (`:741-743`). Clicking before that freezes the game.
+  - Loading through the connection screen is the multiplayer HOST path — it ends in
+    `SetArbitrationLockStatus` (`:1285-1287`) — so the game parks on Character
+    Arbitration until Done (GUIMP panel 0 / control 28) is pressed.
+- **Our side of a differential stays `Iwd2DebugLog`.** This tool is original-only
+  on purpose: our build is a different image, and the debug build's +0xA base shift
+  breaks Frida member reads (`53fe6dccc766`).
+
+First result off it: the store-ownership question (memlite `5c1c8585edfa`) had been
+stuck on a hypothesis that `m_idLocalPlayer` was still 0 during load in the original.
+It is not — it reads 1 at all 177 `CGameObjectArray::Add` calls, exactly as ours does.
+The real divergence is one level down: the original's `ChangeControlOnLoadGame` claims
+each object with `ChangeControl(old=(0,id), new=(1,id), bLocalControl=0)`, which returns
+1 and makes **zero** calls to `CGameRemoteObjectArray::Add`. Ours routes that same claim
+through `Add`, which refuses because the entry already exists. Two days of static
+argument, one unattended run.

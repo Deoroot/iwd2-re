@@ -3318,6 +3318,12 @@ const C2DArray* CRuleTables::GetClassAbilityTable(BYTE nClass, DWORD nSpecialist
     UTIL_ASSERT_MSG(FALSE, "GetClassAbilityTable Being  called incorrectly");
 }
 
+// 0x5463E0
+void CRuleTables::GetRandomItem(CString& sResRef) const
+{
+    // TODO: Incomplete.
+}
+
 // 0x546680
 STRREF CRuleTables::GetSpeechStringRef(CString& sSoundSet, INT nSpeech) const
 {

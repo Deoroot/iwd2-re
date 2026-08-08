@@ -53,8 +53,15 @@ public:
     /* 0110 */ BOOLEAN PrintSurfaceToBmp(LPBYTE& data, int nSurface, const CRect& r, LONG& size, short nScale) override;
     /* 011C */ ~CVidInf() override;
     /* 0120 */ BOOL CreateSurfaces3d() override;
-    /* 0124 */ BOOL DestroySurfaces3d(CVidMode* pNextVidMode) override;
     /* 012C */ BOOL ActivateVideoMode3d(CVidMode* pPrevVidMode, HWND hWnd, BOOLEAN bFullscreen) override;
+
+    // NOT an override. CVidInf's vtable slot 0x0124 holds 0x78E6E0 -- the same
+    // `xor eax,eax; ret` stub as CVidMode's, so CVidInf inherits the base's
+    // "nothing to destroy" answer. The real teardown at 0x7BE210 is a plain
+    // member, in no vtable, called directly from DeactivateVideoMode. Declaring
+    // it `override` made a virtual dispatch through a CVidMode* run this code
+    // where the binary returns FALSE.
+    BOOL DestroySurfaces3d(CVidMode* pNextVidMode);
 
     BOOL FullScreenFlip(BOOL bRenderCursor);
     BOOL WindowedFlip(BOOL bRenderCursor);

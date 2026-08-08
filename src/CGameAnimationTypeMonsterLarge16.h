@@ -15,6 +15,7 @@ public:
     /* 0024 */ void GetAnimationResRef(CString& resRef, BYTE range) override;
     /* 0068 */ char* GetSndReady() override;
     /* 006C */ char* GetSndWalk(SHORT tableIndex) override;
+    /* 0058 */ BOOL GetPathSmooth() override;
     /* 0074 */ BOOL IsFalseColor() override;
     /* 007C */ BOOL IsMirroring() override;
     /* 0080 */ BOOL IsBeginningOfSequence() override;
@@ -30,6 +31,7 @@ public:
     /* 00A8 */ void SetColorRangeAll(BYTE rangeValue) override;
     /* 00AC */ SHORT SetSequence(SHORT nSequence) override;
     /* 00C8 */ SHORT GetCurrentFrame() override;
+    /* 00CC */ BOOLEAN GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame) override;
     /* 00D0 */ BOOLEAN GetCurrentResRef(CString& resBody, CString& resWeapon, CString& resShield, CString& resHelmet) override;
 
     /* 03FE */ CString m_resRef;

@@ -4,10 +4,18 @@
 #   scripts/vm.sh build [--run]        sync+build via remote_build.sh, print ONLY errors/warnings
 #                                      (full log -> tmp_vm_build.log). --run: kill ours + launch s1.
 #   scripts/vm.sh run [slot]           kill ours, launch game in session 1 (default save slot 3)
-#   scripts/vm.sh smoke [slot] [secs]  arc gate: run OUR build + load save (default slot 3) + arm the
+#   scripts/vm.sh smoke [slot] [secs] [--hit SYM [--hit-min N]] [--expect RE [--expect-min N]]
+#                                      arc gate: run OUR build + load save (default slot 3) + arm the
 #                                      crash guard; interactive HOLDS until ENTER (= RESULT: CLEAN) or a
 #                                      fault. Non-TTY (piped/backgrounded) auto-ends CLEAN after [secs]
 #                                      of no fault (default 90s) so it never hangs. Symbolized bt on crash.
+#                                      Exit 0 CLEAN / 1 CRASH / 2 the path never ran (see below).
+#                                      --hit SYM   counts entries to SYM via the guard's PDB symbols
+#                                                  (no source change); 0 hits -> RESULT: NOT-EXERCISED,
+#                                                  unresolvable -> RESULT: NOT-INSTRUMENTED. Both exit 2.
+#                                      --expect RE greps the debug log instead, for the flow where you
+#                                                  deliberately added Iwd2DebugLog in an uncommitted tree.
+#                                      Without either, a CLEAN only means "no fault while idle".
 #   scripts/vm.sh log <regex> [-n 50] [-f <vm-path>]
 #                                      Select-String server-side (UTF-16 safe, no iconv), last N
 #   scripts/vm.sh tail [N] [-f <vm-path>]   last N raw lines of the debug log
@@ -24,6 +32,18 @@
 #   scripts/vm.sh push <src> <vm-path> scp to VM
 #   scripts/vm.sh frida <script.py> [args...]
 #                                      scp script + run it as the session-1 payload, ready-to-log
+#   scripts/vm.sh trace --hooks <table.json> [--load-slot N] [--hit NAME [--hit-min N]]
+#                       [--settle-ticks N] [--post-load S] [--timeout S] [--out NAME]
+#                                      smoke's counterpart for the ORIGINAL IWD2.exe: spawn it under
+#                                      Frida, drive it into a loaded save by CALLING the engine (not
+#                                      keystrokes), run the hook table, WAIT for the verdict. Use it
+#                                      when the static read cannot answer a runtime question.
+#                                      Exit 0 CLEAN / 1 CRASH / 2 NOT-LOADED|NOT-EXERCISED|NO-VERDICT.
+#                                      Trace -> tmp_orig_trace.jsonl; crash frames symbolized via
+#                                      sym.py (the original has no PDB). Table schema: frida_hooks.py.
+#                                      Gets into a save by itself: skips the movies, dismisses the
+#                                      network popup, calibrates the cursor, clicks Load Game then
+#                                      Done on arbitration. --load-slot -1 stops at the menu.
 set -euo pipefail
 
 VM="win11vm"
@@ -107,19 +127,61 @@ case "$cmd" in
     # Arc gate: exercise the recovered path on OUR build with the crash oracle armed.
     # Closes the gap that shipped the Fireball crashes (validated on the original only,
     # never run on our exe). Interactive: holds until you confirm the cast or it faults.
-    slot="${1:-3}"
+    # positionals first ([slot] [secs]), then flags in any order
+    slot=""; hold=""; hit=""; hit_min=1; expect=""; expect_min=1; ui=""; uiverdict=""; save=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --save)       save="$2"; shift 2 ;;
+        --hit)        hit="$2"; shift 2 ;;
+        --hit-min)    hit_min="$2"; shift 2 ;;
+        --expect)     expect="$2"; shift 2 ;;
+        --expect-min) expect_min="$2"; shift 2 ;;
+        --ui)         ui="$2"; shift 2 ;;
+        --*) echo "smoke: unknown flag $1" >&2; exit 2 ;;
+        # With --save there is no slot to give, so the positionals are [secs]
+        # only -- otherwise `smoke --save X 300` silently reads 300 as the slot
+        # and falls back to the default hold.
+        *) if [ -n "$save" ]; then
+             if [ -z "$hold" ]; then hold="$1"; fi
+           elif [ -z "$slot" ]; then slot="$1"
+           elif [ -z "$hold" ]; then hold="$1"
+           fi
+           shift ;;
+      esac
+    done
+    slot="${slot:-3}"
     # Optional auto-hold (seconds): end with RESULT: CLEAN after N seconds of no
     # fault, for a non-interactive driver. Defaults to 90s whenever stdin is not a
     # TTY, so a backgrounded/piped smoke can never hang the way the old ENTER-only
     # loop did ([ -t 0 ] rejected piped ENTER -> spun on `while kill -0 gpid`).
-    hold="${2:-}"
     if [ ! -t 0 ] && [ -z "$hold" ]; then hold=90; fi
-    sed -i "s/--slot [^ ]*/--slot $slot/" "$HERE/vm_s1_payload.cmd"
-    scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
+    # Regenerate the payload rather than sed-patching it: --ui adds arguments,
+    # not just a different slot number.
+    uiargs=""
+    if [ -n "$ui" ]; then
+      [ -f "$ui" ] || { echo "smoke: no such ui script: $ui" >&2; exit 2; }
+      scp -q "$ui" "$VM:$VM_REPO/tmp_ui_script.txt"
+      ssh "$VM" 'cmd /c "del /q C:\iwd2-re\tmp_ui_result.jsonl 2>nul & exit 0"' >/dev/null 2>&1 || true
+      ssh "$VM" 'cmd /c "del /q C:\iwd2-re\tmp_ui_go.txt 2>nul & exit 0"' >/dev/null 2>&1 || true
+      # Drop our copy too: the pull below tolerates failure, so a stale local
+      # file would be read as this run's result and report the PREVIOUS verdict.
+      rm -f "$REPO/tmp_ui_result.jsonl"
+      uiargs=" --ui-script C:\\iwd2-re\\tmp_ui_script.txt --ui-result C:\\iwd2-re\\tmp_ui_result.jsonl --ui-go C:\\iwd2-re\\tmp_ui_go.txt"
+    fi
+    # --save NAME wins over the positional slot: an MPSave directory name is stable,
+    # a visible load-screen index shifts every time a save is added.
+    loadargs="--slot $slot"
+    if [ -n "$save" ]; then loadargs="--save-name \"$save\""; fi
+    printf '@echo off\r\nREM Generated by vm.sh smoke -- do not edit.\r\ncd /d C:\\iwd2-re\r\npython scripts\\auto_start_game.py %s%s > C:\\iwd2-re\\vm_s1_out.txt 2>&1\r\n' \
+      "$loadargs" "$uiargs" > "$HERE/vm_s1_payload.cmd"
+    # Ship the launcher too: remote_build.sh syncs it, but only on a build, so a
+    # smoke right after editing it would silently run the VM's stale copy.
+    scp -q "$HERE/vm_s1_payload.cmd" "$HERE/auto_start_game.py" "$VM:$VM_REPO/scripts/"
     ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
     clear_log   # fresh capture each launch (exe is down -> log unlocked)
     ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
-    echo "==> launching our build (slot $slot), waiting for load..."
+    if [ -n "$save" ]; then what="save $save"; else what="slot $slot"; fi
+    echo "==> launching our build ($what), waiting for load..."
     out=""
     for i in $(seq 1 30); do
       out=$(ssh "$VM" 'cmd /c "type C:\iwd2-re\vm_s1_out.txt 2>nul"' 2>/dev/null || true)
@@ -136,14 +198,23 @@ case "$cmd" in
     glog="$REPO/tmp_smoke_guard.log"; : > "$glog"
     # attach-by-pid as a host-side bg ssh child; its stdout streams back reliably
     # (unlike the vm.sh-frida VBS payload). </dev/null so it never steals our ENTER.
-    ssh "$VM" "python $VM_REPO/scripts/frida_crash_guard.py $pid" </dev/null >"$glog" 2>&1 &
+    countarg=""
+    [ -n "$hit" ] && countarg=" --count '$(ps_quote "$hit")'"
+    ssh "$VM" "python $VM_REPO/scripts/frida_crash_guard.py $pid$countarg" </dev/null >"$glog" 2>&1 &
     gpid=$!
     for i in $(seq 1 20); do grep -qE "ARMED|ATTACH_FAILED" "$glog" 2>/dev/null && break; sleep 1; done
     if grep -q ATTACH_FAILED "$glog" 2>/dev/null; then
       echo "guard attach FAILED:"; cat "$glog"; kill "$gpid" 2>/dev/null || true; exit 1
     fi
+    # Release the scenario only now: before this point --hit would miss every
+    # click, because the guard was not attached yet.
+    if [ -n "$ui" ]; then
+      ssh "$VM" 'cmd /c "echo go > C:\iwd2-re\tmp_ui_go.txt & exit 0"' >/dev/null 2>&1 || true
+    fi
     echo
     echo "==> CRASH GUARD ARMED on pid $pid (slot $slot loaded)."
+    [ -n "$hit" ]    && echo "    Watching entries to '$hit' (need >= $hit_min)."
+    [ -n "$expect" ] && echo "    Watching the debug log for /$expect/ (need >= $expect_min)."
     echo "    Drive the recovered path in the VM window now (cast the spell / trigger the code)."
     if [ -n "$hold" ]; then
       echo "    Auto-hold: ${hold}s with no fault  ->  RESULT: CLEAN (non-interactive)."
@@ -183,7 +254,85 @@ case "$cmd" in
       echo "(full guard log: tmp_smoke_guard.log)"
       exit 1
     fi
-    echo "RESULT: CLEAN  (no fault while the path was driven; guard log: tmp_smoke_guard.log)"
+
+    # A UI scenario is the strongest evidence available: it says which screens
+    # were reached and which assertions held. Pull it before anything else.
+    if [ -n "$ui" ]; then
+      scp -q "$VM:$VM_REPO/tmp_ui_result.jsonl" "$REPO/tmp_ui_result.jsonl" 2>/dev/null || true
+      if [ ! -s "$REPO/tmp_ui_result.jsonl" ]; then
+        echo "=================== RESULT: UI-NO-RESULT ==================="
+        echo "AutoUI wrote nothing. The build did not crash, but the scenario"
+        echo "never ran -- check that this exe has AutoUI compiled in."
+        exit 2
+      fi
+      verdictline=$(grep '"op":"verdict"' "$REPO/tmp_ui_result.jsonl" | tail -1)
+      if [ -z "$verdictline" ]; then
+        echo "=================== RESULT: UI-INCOMPLETE ==================="
+        echo "scenario started but never reached its verdict (last lines):"
+        tail -3 "$REPO/tmp_ui_result.jsonl"
+        echo "(full log: tmp_ui_result.jsonl)"
+        exit 2
+      fi
+      case "$verdictline" in
+        *'"verdict":"PASS"'*)
+          # Do NOT exit here: --ui composes with --hit, and that pairing is the
+          # whole point -- "the scenario clicked X" plus "symbol Y then fired"
+          # is what proves a UI action actually reached the code.
+          uiverdict="PASS" ;;
+        *)
+          echo "===================== RESULT: UI-FAIL ====================="
+          grep '"status":"fail"' "$REPO/tmp_ui_result.jsonl" | head -5
+          echo "$verdictline"
+          echo "(full log: tmp_ui_result.jsonl)"
+          exit 2 ;;
+      esac
+    fi
+
+    # No fault is only half the answer: it does not distinguish "the recovered
+    # code is correct" from "the recovered code never ran". Exit 2 is that third
+    # state -- ran clean, proved nothing -- and callers must not read it as a pass.
+    if [ -n "$hit" ]; then
+      if grep -q "^NOT_INSTRUMENTED " "$glog" 2>/dev/null; then
+        echo "================= RESULT: NOT-INSTRUMENTED ================="
+        echo "symbol '$hit' resolved to no address in our build."
+        echo "inlined, folded by /OPT:ICF, or the wrong name -- this smoke proves nothing."
+        exit 2
+      fi
+      n=$(grep "^HITS $hit " "$glog" 2>/dev/null | tail -1 | awk '{print $NF}')
+      n="${n:-0}"
+      if [ "$n" -lt "$hit_min" ]; then
+        echo "=================== RESULT: NOT-EXERCISED =================="
+        echo "'$hit' was entered $n time(s) in ${hold:-the session}s, need >= $hit_min."
+        if [ "$n" = 0 ]; then
+          echo "the build did not crash -- but the recovered path never ran, so this proves nothing."
+        else
+          echo "the build did not crash, but the path ran fewer times than the gate requires."
+        fi
+        exit 2
+      fi
+      echo "RESULT: CLEAN  ($hit hit x$n; guard log: tmp_smoke_guard.log)"
+      exit 0
+    fi
+
+    if [ -n "$expect" ]; then
+      # clear_log ran before launch, so this count is this run's, not history.
+      hits=$(vm_ps "@(Select-String -Path '$(ps_quote "$DEFAULT_LOG")' -Pattern '$(ps_quote "$expect")').Count" 2>/dev/null | tr -d '\r' | tail -1)
+      hits="${hits:-0}"
+      if [ "$hits" -lt "$expect_min" ]; then
+        echo "=================== RESULT: NOT-EXERCISED =================="
+        echo "no /$expect/ in the debug log after ${hold:-the session}s (got $hits, need >= $expect_min)."
+        echo "the build did not crash -- but the recovered path never ran, so this proves nothing."
+        exit 2
+      fi
+      echo "RESULT: CLEAN  (marker /$expect/ x$hits; guard log: tmp_smoke_guard.log)"
+      exit 0
+    fi
+
+    if [ -n "$uiverdict" ]; then
+      echo "RESULT: CLEAN  (ui scenario PASS; log: tmp_ui_result.jsonl)"
+      exit 0
+    fi
+    echo "RESULT: CLEAN  (no fault only -- nothing proved the path ran; pass --hit or --ui to gate on that)"
     ;;
   log)
     pat="${1:?usage: vm.sh log <regex> [-n N] [-f vm-path]}"; shift
@@ -228,6 +377,90 @@ case "$cmd" in
   push)
     src="${1:?vm.sh push <src> <vm-path>}"; dst="${2:?vm.sh push <src> <vm-path>}"
     scp -q "$src" "$VM:$dst" && echo "pushed -> $dst"
+    ;;
+  trace)
+    # The original's counterpart of `smoke`: spawn IWD2.exe under Frida in session 1,
+    # let frida_orig.py drive it into a loaded save through engine calls, run the hook
+    # table, and come back with a verdict. Unlike `frida` (fire-and-forget) this waits.
+    hooks=""; slot=3; settle=10; postload=20; timeout=180; hit=""; hit_min=1
+    outname="tmp_orig_trace.jsonl"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --hooks) hooks="$2"; shift 2 ;;
+        --load-slot) slot="$2"; shift 2 ;;
+        --settle-ticks) settle="$2"; shift 2 ;;
+        --post-load) postload="$2"; shift 2 ;;
+        --timeout) timeout="$2"; shift 2 ;;
+        --hit) hit="$2"; shift 2 ;;
+        --hit-min) hit_min="$2"; shift 2 ;;
+        --out) outname="$2"; shift 2 ;;
+        *) echo "vm.sh trace: unknown flag '$1'"; exit 2 ;;
+      esac
+    done
+    [ -n "$hooks" ] || { echo "vm.sh trace --hooks <table.json> [--load-slot N] [--hit NAME] ..."; exit 2; }
+    [ -f "$hooks" ] || { echo "no such hook table: $hooks"; exit 2; }
+    hooksbase="$(basename "$hooks")"
+    status="$outname.status"
+
+    # Gotcha 4: a stuck driver from a previous run silently blocks frida.attach.
+    # Clear it BEFORE shipping, not after, and take the old game down with it --
+    # a leftover IWD2.exe would fight the new one for the session-1 desktop.
+    ssh "$VM" 'powershell -NoProfile -Command "Stop-Process -Name python -Force -ErrorAction SilentlyContinue"' >/dev/null 2>&1 || true
+    ssh "$VM" 'cmd /c "taskkill /im IWD2.exe /f >nul 2>&1 & exit 0"' >/dev/null 2>&1 || true
+    clean_frida_temp >/dev/null 2>&1 || true
+    scp -q "$HERE/frida_orig.py" "$HERE/frida_hooks.py" "$hooks" "$VM:$VM_REPO/scripts/"
+    ssh "$VM" "cmd /c \"del /q C:\\iwd2-re\\$outname C:\\iwd2-re\\$status >nul 2>&1 & exit 0\"" >/dev/null 2>&1 || true
+
+    hitargs=""
+    [ -n "$hit" ] && hitargs=" --hit \"$hit\" --hit-min $hit_min"
+    printf '@echo off\r\nREM Generated by vm.sh trace -- do not edit.\r\ncd /d C:\\iwd2-re\r\npython scripts\\frida_orig.py --hooks scripts\\%s --out C:\\iwd2-re\\%s --load-slot %s --settle-ticks %s --post-load %s --timeout %s%s > C:\\iwd2-re\\vm_s1_out.txt 2>&1\r\n' \
+      "$hooksbase" "$outname" "$slot" "$settle" "$postload" "$timeout" "$hitargs" > "$HERE/vm_s1_payload.cmd"
+    scp -q "$HERE/vm_s1_payload.cmd" "$VM:$VM_REPO/scripts/"
+    ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
+    echo "==> tracing the ORIGINAL ($hooksbase, slot $slot), waiting for the verdict..."
+    [ -n "$hit" ] && echo "    Watching entries to '$hit' (need >= $hit_min)."
+
+    # Poll the DEDICATED status file, never vm_s1_out.txt: the VBS parent exits and
+    # takes the stdout redirection with it (gotcha 2).
+    st=""
+    end=$(( $(date +%s) + timeout + 90 ))
+    while [ "$(date +%s)" -lt "$end" ]; do
+      st=$(ssh "$VM" "cmd /c \"type C:\\iwd2-re\\$status 2>nul\"" 2>/dev/null || true)
+      case "$st" in *RESULT:*) break ;; esac
+      sleep 5
+    done
+    ssh "$VM" 'powershell -NoProfile -Command "Stop-Process -Name python -Force -ErrorAction SilentlyContinue"' >/dev/null 2>&1 || true
+    ssh "$VM" 'cmd /c "taskkill /im IWD2.exe /f >nul 2>&1 & exit 0"' >/dev/null 2>&1 || true
+    clean_frida_temp >/dev/null 2>&1 || true
+    scp -q "$VM:$VM_REPO/$outname" "$REPO/$outname" 2>/dev/null || true
+    scp -q "$VM:$VM_REPO/$status" "$REPO/$status" 2>/dev/null || true
+
+    case "$st" in
+      *RESULT:*) : ;;
+      *) echo "=================== RESULT: NO-VERDICT ==================="
+         echo "the driver never wrote a verdict (last status: '${st:-<empty>}')."
+         echo "vm_s1_out.txt is the place to look -- a python traceback lands there:"
+         ssh "$VM" 'cmd /c "type C:\iwd2-re\vm_s1_out.txt 2>nul"' 2>/dev/null | tail -20 || true
+         exit 2 ;;
+    esac
+
+    echo
+    printf '%s\n' "$st" | grep -v '^  frame ' || true
+    # The original has no PDB, so the guard's frames come back as bare addresses.
+    # Ghidra knows them: resolve host-side rather than shipping symbols to the VM.
+    if printf '%s\n' "$st" | grep -q '^  frame '; then
+      echo "  --- symbolized backtrace ---"
+      printf '%s\n' "$st" | sed -n 's/^  frame //p' | tr -d '\r' | while read -r fr; do
+        "$REPO/.venv-reagent/bin/python" "$HERE/sym.py" addr2fn "$fr" 2>/dev/null || echo "  $fr  ?"
+      done
+    fi
+    echo "(trace: $outname)"
+    verdict=$(printf '%s\n' "$st" | sed -n 's/^RESULT: \([A-Z-]*\).*/\1/p' | tail -1)
+    case "$verdict" in
+      CLEAN) exit 0 ;;
+      CRASH) exit 1 ;;
+      *)     exit 2 ;;
+    esac
     ;;
   frida)
     script="${1:?vm.sh frida <script.py> [args...]}"; shift

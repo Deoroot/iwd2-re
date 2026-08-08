@@ -2,7 +2,6 @@
 
 #include <mbstring.h>
 
-#include "DebugLog.h"
 
 #include "CAIScript.h"
 #include "CAITrigger.h"
@@ -1245,6 +1244,17 @@ BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
     return bResult;
 }
 
+// 0x799E60
+void CGameEffect::OnAdd(CGameSprite* pSprite)
+{
+    // Base no-op; subclasses override to react to effect application.
+    //
+    // The binary really is empty here: vtable slot 0x0010 of CGameEffect holds
+    // 0x799E60, a bare `ret 4` shared by /OPT:ICF with every other one-argument
+    // no-op virtual in the image. It is NOT 0x4A3FF0 -- that is FireSpell
+    // below, whose marker this function had drifted above.
+}
+
 // 0x4A3FF0
 //
 // Fired when a delayed effect's deadline elapses (waiting types 6/7/8 in
@@ -1252,11 +1262,6 @@ BOOL CGameEffect::ResolveEffect(CGameSprite* pSprite)
 // m_sourceID, the original takes a share on the source object and posts
 // CMessage feedback back to it.  Name from the BG2 PDB CGameEffect method
 // list (FireSpell).
-void CGameEffect::OnAdd(CGameSprite* pSprite)
-{
-    // Base no-op; subclasses override to react to effect application.
-}
-
 void CGameEffect::FireSpell(CGameSprite* pSprite)
 {
     // 0x4A3FF0.  When a delayed effect (duration type 6/7/8) reaches its
@@ -1529,13 +1534,13 @@ int CGameEffect::CheckAdd(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField70
                         static_cast<CGameSprite*>(pSource), m_sourceRes, m_savingThrow,
                         nClass, nSpecialization, static_cast<BYTE>(m_casterLevel));
                 }
-                // Source-resref fold (0x4A3E13): when m_sourceRes matches the resref
-                // stored at the global 0x8F8E60 (a runtime-populated spell filter that
-                // does not resolve statically), fold the Animal Empathy save modifier
-                // (0x547620) into m_saveMod as well.  The binary compares m_sourceRes
-                // as two raw dwords against 0x8F8E60 / 0x8F8E64.
-                if (reinterpret_cast<const DWORD*>(&m_sourceRes)[0] == *reinterpret_cast<const DWORD*>(0x008F8E60)
-                    && reinterpret_cast<const DWORD*>(&m_sourceRes)[1] == *reinterpret_cast<const DWORD*>(0x008F8E64)) {
+                // Source-resref fold (0x4A3E13): the effect only takes the Animal
+                // Empathy save modifier (0x547620) when it came from Charm Animal
+                // itself.  0x4A3DFD/0x4A3E0B compare m_sourceRes as two dwords against
+                // the global CResRef at 0x8F8E60 / 0x8F8E64 -- that global is
+                // CGameSprite::SPIN108 ("SPIN108", Charm Animal), the same one
+                // CInfButtonArray builds the Animal Empathy button from.
+                if (m_sourceRes == CGameSprite::SPIN108) {
                     m_saveMod += CRuleTables::GetAnimalEmpathySaveMod(1,
                         static_cast<CGameSprite*>(pSource), m_saveMod, m_spellLevel);
                 }
@@ -1640,11 +1645,10 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
         return TRUE;
     }
 
-    // Friendly-fire gate (0x4A4387): with the party-conflict game flag set, only a
-    // self-targeted effect, opcode 0x68, or opcode 0x0D carrying a set field_18C may
-    // roll a save; everything else is blocked outright.  field_18C lives in the
-    // derived-effect slice, past CGameEffect's own layout.
-    if (*reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x43e6) == 1) {
+    // Cutscene gate (0x4A4387): while a cutscene is running, only a self-targeted
+    // effect, opcode 0x68, or a death effect (opcode 0x0D) with a non-default
+    // death type may roll a save; everything else is blocked outright.
+    if (pGame->m_gameSave.m_cutScene == 1) {
         if (pSprite->m_id == m_sourceID) {
             return TRUE;
         }
@@ -1654,7 +1658,7 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
         if (m_effectID != 0xd) {
             return FALSE;
         }
-        if (*reinterpret_cast<int*>(reinterpret_cast<BYTE*>(this) + 0x18c) == 0) {
+        if (static_cast<CGameEffectDeath*>(this)->m_deathType == 0) {
             return FALSE;
         }
     }
@@ -1756,12 +1760,14 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
         nRoll = nWillRoll;
         nSaveTotal = pSprite->m_derivedStats.m_nSaveVSWill + nWillRoll;
 
-        // UNIMPLEMENTED (0x4A47EA): the SPWI420 (Emotion: Fear) rogue trap-sense
-        // aura.  When the source spell is SPWI420 and the target is good-aligned (EA
-        // <= EA_GOODCUTOFF), the original scans the party for a nearby rogue (class
-        // 7, level >= 2, within squared distance 0x2711) carrying trap sense and adds
-        // +4 to the will save.  Same special-cased resref CheckAdd's pre-branch
-        // (0x4A3B90) leaves unrecovered; dropped here for parity.
+        // UNIMPLEMENTED (0x4A47EA): the SPWI420 (Emotion: Fear) paladin aura of
+        // courage.  When the source spell is SPWI420 the original scans the party
+        // for a nearby paladin -- GetClassLevel(7) >= 2, general-state bit 0x800
+        // clear, within squared distance 0x2711 of the target -- and, if one is
+        // found, adds +4 to the will save.  (class 7 = PALADIN in CLASS.IDS; the
+        // +4-vs-fear ally aura is the D&D 3e Aura of Courage.)  Same special-cased
+        // resref CheckAdd's pre-branch (0x4A3B90) leaves unrecovered; dropped here
+        // for parity.
 
         if (m_effectID == 0x18 && pSprite->GetAIType().m_nRace == 5) {
             nSaveTotal += 2;
@@ -1776,16 +1782,20 @@ int CGameEffect::CheckSave(CGameSprite* pSprite, BYTE* pField70F6, BYTE* pField7
     }
 
     // Shared modifiers applied to whichever save was rolled (0x4A498B).
-    if ((pSprite->m_baseStats.field_2FB & 1) != 0) {
+    if ((pSprite->m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
         nSaveTotal += 5;
     }
     if (pSprite->GetAIType().m_nEnemyAlly != CAIObjectType::EA_PC) {
-        // Difficulty-based save adjustment for non-PCs (globals hold -4 / -2).
-        int nDifficulty = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x4456);
+        // Difficulty-based save adjustment for non-PCs (0x4A49B0).  The binary reads
+        // the difficulty at pGame+0x4456, which is m_cOptions (+0x43EA) plus
+        // CGameOptions::m_nDifficultyLevel (+0x6C), and adds one of two read-only
+        // .data constants: 0x84EB04 = -4 on difficulty 1, 0x84EB08 = -2 on 2.
+        // Nothing in the image writes either, and this is their only reader.
+        DWORD nDifficulty = pGame->m_cOptions.m_nDifficultyLevel;
         if (nDifficulty == 1) {
-            nSaveTotal += *reinterpret_cast<const int*>(0x0084EB04);
+            nSaveTotal += -4;
         } else if (nDifficulty == 2) {
-            nSaveTotal += *reinterpret_cast<const int*>(0x0084EB08);
+            nSaveTotal += -2;
         }
     }
     BYTE nRace = pSprite->GetAIType().m_nRace;
@@ -4340,7 +4350,7 @@ BOOL CGameEffectInvisible::ApplyEffect(CGameSprite* pSprite)
                 return TRUE;
             }
             // Clear the force-visible sanctuary bit CGameEffectForceVisible set.
-            pSprite->GetBaseStats()->m_critSectService &= ~0x1;
+            pSprite->GetBaseStats()->m_visible &= ~0x1;
             return TRUE;
         }
         pSprite->GetBaseStats()->m_generalState |= (STATE_INVISIBLE | STATE_IMPROVEDINVISIBILITY);
@@ -10048,7 +10058,7 @@ BOOL CGameEffectForceVisible::ApplyEffect(CGameSprite* pSprite)
 {
     if ((pSprite->GetBaseStats()->m_generalState & STATE_IMPROVEDINVISIBILITY) != 0
         || (pSprite->GetDerivedStats()->m_generalState & STATE_IMPROVEDINVISIBILITY) != 0) {
-        pSprite->GetBaseStats()->m_critSectService |= 0x1;
+        pSprite->GetBaseStats()->m_visible |= 0x1;
     } else {
         pSprite->GetBaseStats()->m_generalState &= ~STATE_INVISIBLE;
         pSprite->GetDerivedStats()->m_generalState &= ~STATE_INVISIBLE;

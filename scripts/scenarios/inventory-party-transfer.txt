@@ -1,0 +1,38 @@
+# Prove giving an item to another party member still works.
+#
+# The transfer is not a drag: picking an item up parks it in
+# CScreenInventory::m_pTempItem, and the next click decides where it goes.
+# Clicking a portrait with something held runs
+# CUIControlPortraitInventory::OnLButtonClick -> BeginSwap / SwapWithPortrait /
+# EndSwap, which is the whole party-transfer path.
+#
+# The inventory screen's six portraits are panel 1, controls 0..5 (46x46 in a
+# row); the backpack grid is panel 2. Which grid slots hold an item depends on
+# the save, so this tries four of them in turn -- one pickup is enough for the
+# gate, and a click on an empty slot is a no-op.
+#
+# Gate with --hit CScreenInventory::SwapWithPortrait.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+goto inventory
+wait inventory 600
+sleep 40
+click 2 5
+sleep 15
+click 1 1
+sleep 20
+click 2 6
+sleep 15
+click 1 1
+sleep 20
+click 2 15
+sleep 15
+click 1 1
+sleep 20
+click 2 16
+sleep 15
+click 1 1
+sleep 20

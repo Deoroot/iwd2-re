@@ -106,7 +106,9 @@ def main() -> int:
         f"RED={n_red} YELLOW={n_yellow}"
         + (f"  (shown: signal~/{args.signal}/)" if args.signal else "")
     )
-    return 0
+    # Gate semantics: RED is a real faithfulness break, YELLOW is advisory
+    # (STL-inline call-count noise is the classic false positive).
+    return 1 if n_red else 0
 
 
 if __name__ == "__main__":

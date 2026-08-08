@@ -435,6 +435,7 @@ public:
     INT GetLoadingHint(INT nHintNumber) const;
     INT GetNumLoadingHints() const;
     const C2DArray* GetClassAbilityTable(BYTE nClass, DWORD nSpecialist) const;
+    void GetRandomItem(CString& sResRef) const;
     STRREF GetSpeechStringRef(CString& sSoundSet, INT nSpeech) const;
     BOOLEAN IsHatedRace(const CAIObjectType& typeAI, const CCreatureFileHeader& BStats) const;
     BOOLEAN IsHatedRace(BYTE& nRace, const CCreatureFileHeader& BStats) const;
@@ -445,7 +446,8 @@ public:
     static int GetSpellAbilityValue(CGameSprite* pSprite, const CResRef& resRef, int nSaveMod, BYTE nClass, DWORD nSpecialization, BYTE nCasterLevel);
     // #guess name: the only field read is m_derivedStats.m_nSkills[1] -- the Animal
     // Empathy skill (SKILLS.IDS index 1).  CGameEffect::CheckAdd folds the result into
-    // the save DC for the spell whose resref constant lives at 0x8F8E60.
+    // the save DC of Charm Animal (CGameSprite::SPIN108, the global CResRef at
+    // 0x8F8E60) -- the ability the Animal Empathy skill drives.
     static int GetAnimalEmpathySaveMod(int nMode, CGameSprite* pSprite, int nSaveMod, int nSpellLevel);
     static bool CheckUseMagicDevice(CGameSprite* pSprite, CItem* pItem);
     BYTE GetSpecializationIndex(BYTE nClass, DWORD nSpecialization) const;
