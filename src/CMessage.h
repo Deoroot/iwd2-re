@@ -33,6 +33,7 @@ public:
     static const BYTE MSG_TYPE_CMESSAGE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_ADD_ACTION;
     static const BYTE MSG_SUBTYPE_CMESSAGE_ADD_EFFECT;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_ADD_ITEM;
     static const BYTE MSG_SUBTYPE_CMESSAGE_ANIMATION_CHANGE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_CHANGE_DIRECTION;
     static const BYTE MSG_SUBTYPE_CMESSAGE_CLEAR_ACTIONS;
@@ -63,6 +64,7 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_PARTY_GOLD;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PLAY_SOUND;
     static const BYTE MSG_SUBTYPE_CMESSAGE_PLAY_SOUND_REF;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_REMOVE_ITEM;
     static const BYTE MSG_SUBTYPE_CMESSAGE_REMOVE_REPLIES;
     static const BYTE MSG_SUBTYPE_CMESSAGE_REPUTATION_CHANGE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_ACTIVE;
@@ -483,6 +485,20 @@ public:
     /* 000C */ CGameEffect* m_effect;
 };
 
+class CMessageAddItem : public CMessage {
+public:
+    CMessageAddItem(const CItem& item, LONG caller, LONG target);
+    ~CMessageAddItem() override;
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ CItem m_item;
+};
+
 class CMessageAnimationChange : public CMessage {
 public:
     CMessageAnimationChange(WORD animationId, LONG caller, LONG target);
@@ -869,6 +885,19 @@ public:
     /* 000C */ CResRef m_cResSound;
     /* 0014 */ BYTE m_nChannel;
     /* 0015 */ BOOLEAN m_bPositioned;
+};
+
+class CMessageRemoveItem : public CMessage {
+public:
+    CMessageRemoveItem(SHORT slotNum, LONG caller, LONG target);
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ SHORT m_slotNum;
 };
 
 class CMessageRemoveReplies : public CMessage {
