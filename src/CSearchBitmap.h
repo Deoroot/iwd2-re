@@ -36,6 +36,7 @@ public:
     void AddDoor(CPoint* pPoints, USHORT nPoints, BOOL bOpaque);
     void RemoveDoor(CPoint* pPoints, USHORT nPoints);
     BOOLEAN CanToggleDoor(const CPoint* pPoints, USHORT nPoints);
+    BOOLEAN IsBlockingDoor(const CPoint& point, BYTE personalSpace, const CPoint* pPoints, USHORT nPoints); /*#guess*/
 
     SHORT GetTableIndex(const CPoint& pt);
 

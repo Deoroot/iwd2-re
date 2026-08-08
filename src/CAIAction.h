@@ -70,6 +70,7 @@ public:
     static const SHORT STARTDIALOG;
     static const SHORT PLAYERDIALOG;
     static const SHORT USEDOOR;
+    static const SHORT CLOSEDOOR;
     static const SHORT PICKLOCK;
     static const SHORT BASHDOOR;
     static const SHORT APPLYSPELL;
@@ -82,6 +83,7 @@ public:
     static const SHORT ATTACKREEVALUATE;
     static const SHORT STARTDIALOGUENOSET;
     static const SHORT TIMEDMOVETOPOINT;
+    static const SHORT CHUNKCREATURE;
     static const SHORT BACKGROUND;
 
     static const CAIAction NULL_ACTION;

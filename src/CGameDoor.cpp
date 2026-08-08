@@ -1382,11 +1382,29 @@ void CGameDoor::ToggleDoor(const CAIObjectType& user, BOOL ignoreLocked)
         const char* sAreaName = reinterpret_cast<const char*>(m_pArea->m_header.m_areaName);
         if (_strnicmp(sAreaName, "ar5004", 7) == 0) {
             if (!m_pArea->m_search.CanToggleDoor(m_pClosedSearch, m_nClosedSearch)) {
-                // HACK: ar5004 forcibly clears whoever is blocking the doorway (gibs
-                // them, then queues a fresh CloseDoor retry) via FUN_0047A1C0 -- 112
-                // decompile lines, sole caller this function, unrecovered. Every area
-                // (including ar5004) just refuses to close here for now instead.
-                // Replaces 0x489dc2-0x48a422.
+                // NOTE: `cBlockerType` is set up and never read.
+                CAIObjectType cBlockerType(CAIObjectType::ANYONE);
+                CAIAction action;
+
+                CGameObject* pBlocker = m_pArea->GetDoorBlocker(m_id, m_pClosedSearch, m_nClosedSearch);
+                if (pBlocker != NULL) {
+                    action.m_actionID = CAIAction::CHUNKCREATURE;
+                    action.m_acteeID.Set(pBlocker->GetAIType());
+
+                    CMessage* message = new CMessageAddAction(action, m_id, m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pBlocker->GetId(),
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+
+                    action.m_actionID = CAIAction::CLOSEDOOR;
+                    action.m_acteeID.Set(m_typeAI);
+
+                    message = new CMessageAddAction(action, m_id, user.GetInstance());
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                }
+
                 return;
             }
         } else {

@@ -603,6 +603,45 @@ BOOLEAN CSearchBitmap::CanToggleDoor(const CPoint* pPoints, USHORT nPoints)
     return TRUE;
 }
 
+// 0x54A210
+BOOLEAN CSearchBitmap::IsBlockingDoor(const CPoint& point, BYTE personalSpace, const CPoint* pPoints, USHORT nPoints)
+{
+    if (point.x < 0 || point.y < 0 || point.x >= 320 || point.y >= 320) {
+        return FALSE;
+    }
+
+    INT nSpace = (personalSpace - 1) / 2;
+
+    INT nLeft = point.x - nSpace;
+    INT nRight = point.x + nSpace;
+    INT nTop = point.y - nSpace;
+    INT nBottom = point.y + nSpace;
+
+    if (nLeft < 0) {
+        nLeft = 0;
+    } else if (nRight > m_GridSquareDimensions.cx - 1) {
+        nRight = m_GridSquareDimensions.cx - 1;
+    }
+
+    if (nTop < 0) {
+        nTop = 0;
+    } else if (nBottom > m_GridSquareDimensions.cy - 1) {
+        nBottom = m_GridSquareDimensions.cy - 1;
+    }
+
+    for (INT y = nTop; y <= nBottom; y++) {
+        for (INT x = nLeft; x <= nRight; x++) {
+            for (USHORT nIndex = 0; nIndex < nPoints; nIndex++) {
+                if (pPoints[nIndex].x == x && pPoints[nIndex].y == y) {
+                    return TRUE;
+                }
+            }
+        }
+    }
+
+    return FALSE;
+}
+
 // NOTE: Inlined.
 SHORT CSearchBitmap::GetTableIndex(const CPoint& pt)
 {

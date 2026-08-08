@@ -218,6 +218,7 @@ public:
     int ExitSpawn();
     int EnterSpawn();
     void SaveMusicPosition();
+    CGameObject* GetDoorBlocker(LONG startObject, const CPoint* pPoints, USHORT nPoints); /*#guess*/
 
     CAreaFileHeader* GetHeader();
     CInfinity* GetInfinity();

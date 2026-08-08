@@ -5505,6 +5505,110 @@ void CGameArea::SaveMusicPosition()
     g_pBaldurChitin->AddMusicPosition(m_resRef, g_pBaldurChitin->cSoundMixer.m_nCurrentSong);
 }
 
+// 0x47A1C0
+CGameObject* CGameArea::GetDoorBlocker(LONG startObject, const CPoint* pPoints, USHORT nPoints)
+{
+    CAIObjectType cSearcherType(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+
+    CGameObject* pStart;
+    if (m_pGame->GetObjectArray()->GetShare(startObject,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pStart,
+            INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        return NULL;
+    }
+
+    cSearcherType.Set(pStart->GetAIType());
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameArea.cpp
+    // __LINE__: 9002
+    UTIL_ASSERT(pStart->GetVertListType() == CGameObject::LIST_FRONT);
+
+    // NOTE: the binary still makes this call -- its result went to a local that
+    // the optimizer dropped.
+    pStart->GetPos();
+
+    POSITION posVert = pStart->GetVertListPos();
+
+    m_pGame->GetObjectArray()->ReleaseShare(startObject, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    // The front vert list is y-sorted: scan outwards from the door's own node,
+    // one step backward and one step forward per pass.
+    POSITION posBack = posVert;
+    m_lVertSort.GetPrev(posBack);
+    POSITION posFwd = posVert;
+    m_lVertSort.GetNext(posFwd);
+
+    while (posBack != NULL || posFwd != NULL) {
+        if (posBack != NULL) {
+            LONG nCandidateId = reinterpret_cast<LONG>(m_lVertSort.GetPrev(posBack));
+
+            CGameObject* pObject;
+            if (m_pGame->GetObjectArray()->GetShare(nCandidateId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE)
+                != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            if (pObject->GetObjectType() != CGameObject::TYPE_SPRITE) {
+                m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                continue;
+            }
+
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            if (pSprite->m_active
+                && pSprite->m_activeAI
+                && pSprite->m_activeImprisonment
+                && pSprite->GetVertListPos() != NULL) {
+                const CPoint& pos = pSprite->GetPos();
+                CPoint ptSearch(pos.x / CPathSearch::GRID_SQUARE_SIZEX, pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+                if (m_search.IsBlockingDoor(ptSearch, pSprite->m_animation.GetPersonalSpace(), pPoints, nPoints)) {
+                    return pSprite;
+                }
+            }
+
+            m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+
+        if (posFwd != NULL) {
+            LONG nCandidateId = reinterpret_cast<LONG>(m_lVertSort.GetNext(posFwd));
+
+            CGameObject* pObject;
+            if (m_pGame->GetObjectArray()->GetShare(nCandidateId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE)
+                != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            if (pObject->GetObjectType() != CGameObject::TYPE_SPRITE) {
+                m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                continue;
+            }
+
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            if (pSprite->m_active
+                && pSprite->m_activeAI
+                && pSprite->m_activeImprisonment
+                && pSprite->GetVertListPos() != NULL) {
+                const CPoint& pos = pSprite->GetPos();
+                CPoint ptSearch(pos.x / CPathSearch::GRID_SQUARE_SIZEX, pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+                if (m_search.IsBlockingDoor(ptSearch, pSprite->m_animation.GetPersonalSpace(), pPoints, nPoints)) {
+                    return pSprite;
+                }
+            }
+
+            m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+
+    return NULL;
+}
+
 // NOTE: Inlined.
 void CGameArea::AddToMarkers(LONG id)
 {
