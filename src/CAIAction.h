@@ -65,6 +65,7 @@ public:
     static const SHORT USECONTAINER;
     static const SHORT FORCESPELL;
     static const SHORT FORCESPELLPOINT;
+    static const SHORT TAKEPARTYITEM;
     static const SHORT TAKEPARTYGOLD;
     static const SHORT STARTDIALOG;
     static const SHORT PLAYERDIALOG;

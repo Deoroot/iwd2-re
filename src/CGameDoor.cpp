@@ -1452,11 +1452,9 @@ void CGameDoor::ToggleDoor(const CAIObjectType& user, BOOL ignoreLocked)
         m_dwFlags = dwFlags & ~2;
 
         if ((dwFlags & 0x4000) != 0 && m_keyType != "" && PartyHasItem(m_keyType)) {
-            // HACK: FUN_00463B30 (CGameAIBase::TakePartyItem, 330 decompile lines, its
-            // own arc) is unrecovered, so the key is never actually removed from
-            // whichever container it was found in. Replaces 0x48a468-0x48a495.
-            m_curAction.m_actionID = 116; // TakePartyItem
+            m_curAction.m_actionID = CAIAction::TAKEPARTYITEM;
             m_curAction.SetString1(m_keyType.GetResRefStr());
+            TakePartyItem();
         }
     }
 }

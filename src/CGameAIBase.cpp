@@ -1832,6 +1832,14 @@ SHORT CGameAIBase::ExecuteAction()
             }
         }
         actionReturn = ACTION_DONE;
+    } else if (m_curAction.m_actionID == 0x74
+        || m_curAction.m_actionID == 0xBC
+        || m_curAction.m_actionID == 0xC1
+        || m_curAction.m_actionID == 0xCC) {
+        // 0x74 = TakePartyItem (ACTION.IDS 116), 0xBC = TakePartyItemAll (188),
+        // 0xC1 = TakePartyItemRange (193), 0xCC = TakePartyItemNum (204).  All
+        // four share case 0x22 of the dispatch byte table at 0x4529AC.
+        actionReturn = TakePartyItem();
     } else if (m_curAction.m_actionID == 0x79
         || m_curAction.m_actionID == 0x7A) {
         // 0x79 = StartCutSceneMode (ACTION.IDS 121),
@@ -4315,6 +4323,169 @@ BOOL CGameAIBase::PlaceItem(CItem* pItem, BOOL haveDeny, BOOL dropUnplaced, DWOR
     }
 
     return FALSE;
+}
+
+// 0x463B30
+SHORT CGameAIBase::TakePartyItem()
+{
+    // Serves four ACTION.IDS entries, all routed to this case by the dispatch
+    // byte table at 0x4529AC: 116 TakePartyItem(S:Item*), 188
+    // TakePartyItemAll(S:Item*), 193 TakePartyItemRange(S:Item*,I:Range*) and
+    // 204 TakePartyItemNum(S:Item*,I:Num).  The two variants that carry a
+    // second script parameter both read it out of m_specificID, so which
+    // meaning it has is decided here, up front.
+    CString name = m_curAction.GetString1();
+
+    CItem* pItem = NULL;
+    LONG nCount = 1;
+    BOOL bNum = FALSE;
+    LONG nRange = 0;
+    BOOL bRange = FALSE;
+
+    if (m_curAction.m_actionID == 204) {
+        bNum = TRUE;
+        nCount = m_curAction.m_specificID;
+    }
+
+    if (m_curAction.m_actionID == 193) {
+        bRange = TRUE;
+        nRange = m_curAction.m_specificID;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    for (SHORT nPortrait = 0; nPortrait < pGame->GetNumCharacters(); nPortrait++) {
+        int nTaken = 0;
+        LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+
+        CGameSprite* sprite;
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&sprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            return 0;
+        }
+
+        // TakePartyItemRange only reaches members standing in the same area and
+        // within the script's range, measured in search-map squares -- each
+        // coordinate is divided down BEFORE the subtraction, so this is not the
+        // usual EXACT_SCALE dx^2 + 16dy^2/9 form used elsewhere.
+        BOOL bTake = !bRange;
+        if (bRange && sprite->m_pArea == m_pArea) {
+            const CPoint& ptSprite = sprite->GetPos();
+
+            int nDeltaY = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY
+                - ptSprite.y / CPathSearch::GRID_SQUARE_SIZEY;
+            int nDeltaX = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX
+                - ptSprite.x / CPathSearch::GRID_SQUARE_SIZEX;
+
+            bTake = nDeltaX * nDeltaX + nDeltaY * nDeltaY <= nRange;
+        }
+
+        if (bTake) {
+            SHORT nSlot = sprite->FindItemPersonal(name, 0, FALSE);
+            while (nSlot != -1) {
+                // The slot index is into the whole equipment array, so the
+                // copy is taken from m_items[0] -- not the +18 personal window
+                // PlaceItem scans.
+                pItem = new CItem(*sprite->m_equipment.m_items[nSlot]);
+
+                CMessage* pMessage = new CMessageRemoveItem(nSlot, m_id, sprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+
+                CAbilityId abId;
+                abId.m_itemType = 2;
+                abId.m_itemNum = nSlot;
+                abId.m_abilityNum = 0;
+                sprite->UpdateQuickButtons(abId, 0, TRUE, FALSE);
+                abId.m_abilityNum = 1;
+                sprite->UpdateQuickButtons(abId, 0, TRUE, FALSE);
+                abId.m_abilityNum = 2;
+                sprite->UpdateQuickButtons(abId, 0, TRUE, FALSE);
+
+                if (bNum) {
+                    if (pItem->GetMaxStackable() > 1) {
+                        if (pItem->GetUsageCount(0) > nCount) {
+                            // Only part of the stack is wanted: shrink the
+                            // taken copy and message the remainder back.
+                            pItem->SetUsageCount(0,
+                                static_cast<WORD>(pItem->GetUsageCount(0) - nCount));
+                            nCount = 0;
+
+                            CMessage* pRemainder = new CMessageAddItem(*pItem, m_id, sprite->m_id);
+                            g_pBaldurChitin->GetMessageHandler()->AddMessage(pRemainder, FALSE);
+                        } else {
+                            nCount -= pItem->GetUsageCount(0);
+                        }
+                    } else {
+                        nCount--;
+                    }
+                }
+
+                PlaceItem(pItem, TRUE, TRUE, 1, TRUE);
+
+                if (m_curAction.m_actionID != 188 && m_curAction.m_actionID != 204) {
+                    // Plain TakePartyItem / TakePartyItemRange take exactly one.
+                    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                    return ACTION_DONE;
+                }
+
+                nTaken++;
+
+                if (m_curAction.m_actionID == 204 && nCount < 1) {
+                    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                    return ACTION_DONE;
+                }
+
+                // Skip the copies already taken off this member so the search
+                // advances instead of finding the same slot again.
+                nSlot = sprite->FindItemPersonal(name, nTaken, FALSE);
+            }
+
+            if (pItem == NULL
+                || m_curAction.m_actionID == 188
+                || (m_curAction.m_actionID == 204 && nCount > 0)) {
+                SHORT nBags = sprite->TakeItemBags(name, nCount, -1);
+                if (nBags > 0) {
+                    nCount -= nBags;
+
+                    // Nothing came back from the bags but a count, so the
+                    // replacement is built from the resref alone.
+                    PlaceItem(new CItem(CResRef(name), 1, 0, 0, 0, 0),
+                        TRUE,
+                        TRUE,
+                        nBags,
+                        TRUE);
+                }
+
+                if (m_curAction.m_actionID == 204 && nCount < 1) {
+                    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                    return ACTION_DONE;
+                }
+            }
+        }
+
+        pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    if (pItem != NULL) {
+        return ACTION_DONE;
+    }
+
+    return ACTION_ERROR;
 }
 
 // 0x465110
