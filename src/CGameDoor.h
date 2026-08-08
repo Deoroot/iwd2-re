@@ -12,6 +12,10 @@
 class CGameDoor : public CGameAIBase {
 public:
     static const LONG RANGE_DOOR;
+    static const COLORREF HIGHLIGHT_COLOR;
+    static const COLORREF TRAP_COLOR;
+    static const COLORREF DRAW_POLY_SECRET_COLOR;
+    static const COLORREF DRAW_POLY_COLOR;
 
     CGameDoor(CGameArea* pArea, CAreaFileDoorObject* pDoorObject, CAreaPoint* pPoints, WORD maxPts);
     /* 0000 */ ~CGameDoor() override;
@@ -20,7 +24,13 @@ public:
     /* 0034 */ BOOL IsOver(const CPoint& pt) override;
     /* 0040 */ void OnActionButton(const CPoint& pt) override;
     /* 0048 */ void RemoveFromArea() override;
+    /* 004C */ void Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface) override;
     /* 0058 */ void SetCursor(LONG nToolTip) override;
+
+    // #guess: the binary has two of these, one per polygon set; the names follow
+    // CGameContainer/CGameTrigger's already-recovered `RenderClippedPoly`.
+    /* 00B8 */ virtual void RenderClippedPolyClosed(CGameArea* pArea, CVidMode* pVidMode, INT nSurface, COLORREF color);
+    /* 00BC */ virtual void RenderClippedPolyOpen(CGameArea* pArea, CVidMode* pVidMode, INT nSurface, COLORREF color);
 
     void OnDoorStatusUpdate(BOOLEAN bDoorOpened, DWORD dwFlags, WORD nTrapActivated, WORD nTrapDetected);
     const CPoint& GetMoveDest(const CPoint& ptSource);

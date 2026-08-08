@@ -10,12 +10,26 @@
 #include "CPathSearch.h"
 #include "CScreenWorld.h"
 #include "CUtil.h"
+#include "CVidInf.h"
+#include "CVidMode.h"
 #include "CVidPoly.h"
 
 // 0x8D41D8
 const LONG CGameDoor::RANGE_DOOR = 16
     * CPathSearch::GRID_SQUARE_SIZEX
     * CPathSearch::GRID_SQUARE_SIZEX;
+
+// 0x8A85F8
+const COLORREF CGameDoor::HIGHLIGHT_COLOR = RGB(0x20, 0x40, 0xA0);
+
+// 0x8A85FC
+const COLORREF CGameDoor::TRAP_COLOR = RGB(0x00, 0xFA, 0x00);
+
+// 0x8A8604
+const COLORREF CGameDoor::DRAW_POLY_SECRET_COLOR = RGB(0xFF, 0x00, 0xFF);
+
+// 0x8A8608
+const COLORREF CGameDoor::DRAW_POLY_COLOR = RGB(0xFF, 0x00, 0x00);
 
 // 0x485AC0
 CGameDoor::CGameDoor(CGameArea* pArea, CAreaFileDoorObject* pDoorObject, CAreaPoint* pPoints, WORD maxPts)
@@ -901,6 +915,279 @@ void CGameDoor::Marshal(CAreaFileDoorObject** pDoorObject)
     (*pDoorObject)->m_detectionDifficulty = m_detectionDifficulty;
     (*pDoorObject)->m_lockDifficulty = m_lockDifficulty;
     (*pDoorObject)->m_strNotPickable = m_strNotPickable;
+}
+
+// 0x488B30
+void CGameDoor::Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    SHORT nState = pGame->m_nState;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameDoor.cpp
+    // __LINE__: 1028
+    UTIL_ASSERT(pVidMode != NULL);
+
+    if ((m_dwFlags & 0x2000) != 0) {
+        return;
+    }
+
+    CInfinity* pInfinity = m_pArea->GetInfinity();
+    BOOL bDrewFill = FALSE;
+
+    if (m_id == m_pArea->m_iPicked) {
+        if (m_pArea->m_visibility.IsTileExplored(
+                m_pArea->m_visibility.PointToTile(CPoint(m_pos.x, m_pos.y)))
+            && (m_dwFlags & 0x80) == 0) {
+            // pGame +0x3896: the highlight-on-hover option (not yet broken out in
+            // the CInfGame layout; read by offset to match IWD2.exe, exactly as
+            // `CGameContainer::Render` does).
+            const BYTE bHighlightOnHover = *(reinterpret_cast<const BYTE*>(pGame) + 0x3896);
+
+            if (bHighlightOnHover != 0 && nState == 0) {
+                if ((m_dwFlags & 0x1) != 0) {
+                    if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
+                        RenderClippedPolyOpen(pArea, pVidMode, nSurface,
+                            g_pChitin->GetCurrentVideoMode()->GetColor(HIGHLIGHT_COLOR));
+                        bDrewFill = TRUE;
+                    }
+                    pInfinity->OutlinePoly(m_pOpenPolygon, m_nOpenPolygon, m_rOpenBounding, HIGHLIGHT_COLOR);
+                } else {
+                    if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
+                        RenderClippedPolyClosed(pArea, pVidMode, nSurface,
+                            g_pChitin->GetCurrentVideoMode()->GetColor(HIGHLIGHT_COLOR));
+                        bDrewFill = TRUE;
+                    }
+                    pInfinity->OutlinePoly(m_pClosedPolygon, m_nClosedPolygon, m_rClosedBounding, HIGHLIGHT_COLOR);
+                }
+            }
+
+            if (nState == 2) {
+                // Trap-detection cursor: outline a door that either has a spotted
+                // trap on it or is simply locked.
+                if (pGame->m_iconIndex == '$'
+                    && ((m_trapActivated != 0 && m_trapDetected != 0) || (m_dwFlags & 0x2) != 0)) {
+                    if ((m_dwFlags & 0x1) != 0) {
+                        if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
+                            RenderClippedPolyOpen(pArea, pVidMode, nSurface,
+                                g_pChitin->GetCurrentVideoMode()->GetColor(TRAP_COLOR));
+                            bDrewFill = TRUE;
+                        }
+                        pInfinity->OutlinePoly(m_pOpenPolygon, m_nOpenPolygon, m_rOpenBounding, TRAP_COLOR);
+                    } else {
+                        if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
+                            RenderClippedPolyClosed(pArea, pVidMode, nSurface,
+                                g_pChitin->GetCurrentVideoMode()->GetColor(TRAP_COLOR));
+                            bDrewFill = TRUE;
+                        }
+                        pInfinity->OutlinePoly(m_pClosedPolygon, m_nClosedPolygon, m_rClosedBounding, TRAP_COLOR);
+                    }
+                }
+
+                // Lockpicking cursor: only a closed, locked door outlines.
+                if (pGame->m_iconIndex == '\f'
+                    && (m_dwFlags & 0x1) == 0
+                    && (m_dwFlags & 0x2) != 0) {
+                    if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated()) {
+                        RenderClippedPolyClosed(pArea, pVidMode, nSurface,
+                            g_pChitin->GetCurrentVideoMode()->GetColor(TRAP_COLOR));
+                        bDrewFill = TRUE;
+                    }
+                    pInfinity->OutlinePoly(m_pClosedPolygon, m_nClosedPolygon, m_rClosedBounding, TRAP_COLOR);
+                }
+            }
+        }
+    }
+
+    // A script-driven flash (`SetDrawPoly`). A secret door that has already been
+    // found flashes magenta, everything else red.
+    if (m_drawPoly > 0) {
+        if ((m_dwFlags & 0x80) != 0 && (m_dwFlags & 0x100) != 0) {
+            if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated() && !bDrewFill) {
+                if ((m_dwFlags & 0x1) != 0) {
+                    if (m_nOpenPolygon > 0) {
+                        RenderClippedPolyOpen(pArea, pVidMode, nSurface,
+                            g_pChitin->GetCurrentVideoMode()->GetColor(DRAW_POLY_SECRET_COLOR));
+                    }
+                } else {
+                    if (m_nClosedPolygon > 0) {
+                        RenderClippedPolyClosed(pArea, pVidMode, nSurface,
+                            g_pChitin->GetCurrentVideoMode()->GetColor(DRAW_POLY_SECRET_COLOR));
+                    }
+                }
+            }
+
+            if ((m_dwFlags & 0x1) != 0) {
+                if (m_nOpenPolygon > 0) {
+                    pInfinity->OutlinePoly(m_pOpenPolygon, m_nOpenPolygon, m_rOpenBounding, DRAW_POLY_SECRET_COLOR);
+                }
+            } else {
+                if (m_nClosedPolygon > 0) {
+                    pInfinity->OutlinePoly(m_pClosedPolygon, m_nClosedPolygon, m_rClosedBounding, DRAW_POLY_SECRET_COLOR);
+                }
+            }
+        } else {
+            if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated() && !bDrewFill) {
+                if ((m_dwFlags & 0x1) != 0) {
+                    if (m_nOpenPolygon > 0) {
+                        RenderClippedPolyOpen(pArea, pVidMode, nSurface,
+                            g_pChitin->GetCurrentVideoMode()->GetColor(DRAW_POLY_COLOR));
+                    }
+                } else {
+                    if (m_nClosedPolygon > 0) {
+                        RenderClippedPolyClosed(pArea, pVidMode, nSurface,
+                            g_pChitin->GetCurrentVideoMode()->GetColor(DRAW_POLY_COLOR));
+                    }
+                }
+            }
+
+            if ((m_dwFlags & 0x1) != 0) {
+                if (m_nOpenPolygon > 0) {
+                    pInfinity->OutlinePoly(m_pOpenPolygon, m_nOpenPolygon, m_rOpenBounding, DRAW_POLY_COLOR);
+                }
+            } else {
+                if (m_nClosedPolygon > 0) {
+                    pInfinity->OutlinePoly(m_pClosedPolygon, m_nClosedPolygon, m_rClosedBounding, DRAW_POLY_COLOR);
+                }
+            }
+        }
+
+        return;
+    }
+
+    // Holding the menu key (Tab) outlines every non-secret door on explored ground.
+    if ((m_dwFlags & 0x80) != 0
+        || !m_pArea->m_visibility.IsTileExplored(
+               m_pArea->m_visibility.PointToTile(CPoint(m_pos.x, m_pos.y)))
+        || g_pBaldurChitin->pActiveEngine != g_pBaldurChitin->m_pEngineWorld
+        || g_pBaldurChitin->m_pEngineWorld->GetMenuKey() != TRUE) {
+        return;
+    }
+
+    if (CInfinity::TRANSLUCENT_BLTS_ON && !g_pChitin->cVideo.Is3dAccelerated() && !bDrewFill) {
+        if ((m_dwFlags & 0x1) != 0) {
+            if (m_nOpenPolygon > 0) {
+                RenderClippedPolyOpen(pArea, pVidMode, nSurface,
+                    g_pChitin->GetCurrentVideoMode()->GetColor(DRAW_POLY_COLOR));
+            }
+        } else {
+            if (m_nClosedPolygon > 0) {
+                RenderClippedPolyClosed(pArea, pVidMode, nSurface,
+                    g_pChitin->GetCurrentVideoMode()->GetColor(DRAW_POLY_COLOR));
+            }
+        }
+    }
+
+    if ((m_dwFlags & 0x1) != 0) {
+        if (m_nOpenPolygon > 0) {
+            pInfinity->OutlinePoly(m_pOpenPolygon, m_nOpenPolygon, m_rOpenBounding, DRAW_POLY_COLOR);
+        }
+    } else {
+        if (m_nClosedPolygon > 0) {
+            pInfinity->OutlinePoly(m_pClosedPolygon, m_nClosedPolygon, m_rClosedBounding, DRAW_POLY_COLOR);
+        }
+    }
+}
+
+// 0x48B3C0
+void CGameDoor::RenderClippedPolyClosed(CGameArea* pArea, CVidMode* pVidMode, INT nSurface, COLORREF color)
+{
+    CInfinity* pInfinity = pArea->GetInfinity();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameDoor.cpp
+    // __LINE__: 2155
+    UTIL_ASSERT(pInfinity != NULL && pVidMode != NULL);
+
+    CRect rViewport;
+    rViewport.left = pInfinity->nCurrentX;
+    rViewport.top = pInfinity->nCurrentY;
+    rViewport.right = rViewport.left + pInfinity->rViewPort.Width();
+    rViewport.bottom = rViewport.top + pInfinity->rViewPort.Height();
+
+    CPoint ptReference(0, 0);
+
+    CVidPoly poly;
+    poly.SetPoly(reinterpret_cast<WORD*>(m_pClosedPolygonPoints), m_nClosedPolygon);
+
+    for (int i = 0; i < m_closedBoundingGrid.GetSize(); i++) {
+        CRect* pGridRect = m_closedBoundingGrid[i];
+        if (pGridRect == NULL) {
+            continue;
+        }
+
+        CRect rClip;
+        rClip.IntersectRect(&rViewport, pGridRect);
+
+        if (rClip.left == 0 && rClip.right == 0 && rClip.top == 0 && rClip.bottom == 0) {
+            continue;
+        }
+
+        CPoint ptPos(rClip.left, rClip.top);
+
+        CRect rFXRect(rClip);
+        rFXRect.OffsetRect(-rClip.left, -rClip.top);
+
+        if (pInfinity->FXPrep(rFXRect, CInfinity::FXPREP_COPYFROMBACK, nSurface, ptPos, ptReference)) {
+            if (pInfinity->FXLock(rFXRect, 0)) {
+                static_cast<CVidInf*>(pVidMode)->RenderConvexPoly(rClip, &poly, color, CInfinity::MIRROR_FX, ptPos, FALSE);
+
+                CPoint ptZero(0, 0);
+                if (pInfinity->FXUnlock(0, NULL, ptZero)) {
+                    pInfinity->FXBltFrom(nSurface, rFXRect, ptPos.x, ptPos.y, ptReference.x, ptReference.y, 0);
+                }
+            }
+        }
+    }
+}
+
+// 0x48B600
+void CGameDoor::RenderClippedPolyOpen(CGameArea* pArea, CVidMode* pVidMode, INT nSurface, COLORREF color)
+{
+    CInfinity* pInfinity = pArea->GetInfinity();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameDoor.cpp
+    // __LINE__: 2204
+    UTIL_ASSERT(pInfinity != NULL && pVidMode != NULL);
+
+    CRect rViewport;
+    rViewport.left = pInfinity->nCurrentX;
+    rViewport.top = pInfinity->nCurrentY;
+    rViewport.right = rViewport.left + pInfinity->rViewPort.Width();
+    rViewport.bottom = rViewport.top + pInfinity->rViewPort.Height();
+
+    CPoint ptReference(0, 0);
+
+    CVidPoly poly;
+    poly.SetPoly(reinterpret_cast<WORD*>(m_pOpenPolygonPoints), m_nOpenPolygon);
+
+    for (int i = 0; i < m_openBoundingGrid.GetSize(); i++) {
+        CRect* pGridRect = m_openBoundingGrid[i];
+        if (pGridRect == NULL) {
+            continue;
+        }
+
+        CRect rClip;
+        rClip.IntersectRect(&rViewport, pGridRect);
+
+        if (rClip.left == 0 && rClip.right == 0 && rClip.top == 0 && rClip.bottom == 0) {
+            continue;
+        }
+
+        CPoint ptPos(rClip.left, rClip.top);
+
+        CRect rFXRect(rClip);
+        rFXRect.OffsetRect(-rClip.left, -rClip.top);
+
+        if (pInfinity->FXPrep(rFXRect, CInfinity::FXPREP_COPYFROMBACK, nSurface, ptPos, ptReference)) {
+            if (pInfinity->FXLock(rFXRect, 0)) {
+                static_cast<CVidInf*>(pVidMode)->RenderConvexPoly(rClip, &poly, color, CInfinity::MIRROR_FX, ptPos, FALSE);
+
+                CPoint ptZero(0, 0);
+                if (pInfinity->FXUnlock(0, NULL, ptZero)) {
+                    pInfinity->FXBltFrom(nSurface, rFXRect, ptPos.x, ptPos.y, ptReference.x, ptReference.y, 0);
+                }
+            }
+        }
+    }
 }
 
 // 0x48B350
