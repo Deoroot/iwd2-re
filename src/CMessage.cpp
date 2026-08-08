@@ -20,6 +20,7 @@
 #include "CScreenCharacter.h"
 #include "CScreenConnection.h"
 #include "CScreenCreateChar.h"
+#include "CScreenInventory.h"
 #include "CScreenLoad.h"
 #include "CScreenMultiPlayer.h"
 #include "CScreenSinglePlayer.h"
@@ -5928,7 +5929,60 @@ BOOL CMessageAddItem::UnmarshalMessage(BYTE* pData, DWORD dwSize)
 // 0x4F9150
 void CMessageAddItem::Run()
 {
-    // TODO: Incomplete.
+    CGameSprite* pSprite;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
+        BOOLEAN bStored = FALSE;
+
+        // The personal (backpack) slots start at 18, right after the three
+        // quick-item slots -- same base `CGameSpriteEquipment::GetUsedSlotsCount`
+        // walks.
+        for (INT nIndex = 0; nIndex < CScreenInventory::PERSONAL_INVENTORY_SIZE; nIndex++) {
+            if (bStored) {
+                break;
+            }
+
+            if (pSprite->m_equipment.m_items[18 + nIndex] == NULL) {
+                pSprite->m_equipment.m_items[18 + nIndex] = new CItem(m_item);
+                pSprite->Equip(static_cast<SHORT>(18 + nIndex));
+                bStored = TRUE;
+            }
+        }
+
+        if (bStored) {
+            CMessage* pMessage = new CMessageSpriteEquipment(pSprite, pSprite->m_id, pSprite->m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+        } else {
+            // No free slot: the item drops at the sprite's feet instead.
+            CItem* pItem = new CItem(m_item);
+            pSprite->FeedBack(CGameSprite::FEEDBACK_ITEM_DROPPED_FULL, 0, 0, 0, -1, 0, 0);
+            pSprite->PutItemGround(pItem);
+
+            if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->m_id) != -1) {
+                g_pBaldurChitin->GetObjectGame()->FeedBack(CInfGame::FEEDBACK_INVENTORYFULL_ITEMDROPPED,
+                    0,
+                    TRUE);
+            }
+        }
+
+        g_pBaldurChitin->GetActiveEngine()->UpdatePersonalItemStatus(m_targetId);
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
 // -----------------------------------------------------------------------------
@@ -9385,10 +9439,69 @@ BOOL CMessageRemoveItem::UnmarshalMessage(BYTE* pData, DWORD dwSize)
     return TRUE;
 }
 
+// Defined in CGameSprite.cpp (no header declaration in the original).
+void RefreshWeaponSetButtons(CGameSprite* pSprite);
+
 // 0x504250
 void CMessageRemoveItem::Run()
 {
-    // TODO: Incomplete.
+    CGameSprite* pSprite;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            if (pSprite->m_equipment.m_items[m_slotNum] != NULL) {
+                pSprite->Unequip(m_slotNum);
+                g_pBaldurChitin->GetObjectGame()->AddDisposableItem(pSprite->m_equipment.m_items[m_slotNum]);
+                pSprite->m_equipment.m_items[m_slotNum] = NULL;
+
+                if (m_slotNum == pSprite->m_equipment.m_selectedWeapon) {
+                    pSprite->EquipMostDamagingMelee();
+                }
+            }
+
+            CMessage* pMessage = new CMessageSpriteEquipment(pSprite, pSprite->m_id, pSprite->m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+
+            g_pBaldurChitin->GetActiveEngine()->UpdatePersonalItemStatus(m_targetId);
+
+            if (m_slotNum >= CGameSpriteEquipment::SLOT_WEAPON
+                && m_slotNum < CGameSpriteEquipment::SLOT_WEAPON + CGAMESAVECHARACTER_NUM_QUICK_WEAPONS22) {
+                CButtonData buttonData;
+                pSprite->SetQuickWeapon(static_cast<BYTE>(m_slotNum - CGameSpriteEquipment::SLOT_WEAPON),
+                    buttonData);
+                pSprite->SetQuickWeapon(static_cast<BYTE>(m_slotNum - CGameSpriteEquipment::SLOT_WEAPON),
+                    static_cast<BYTE>(0));
+            } else if (m_slotNum >= CGameSpriteEquipment::SLOT_MISC
+                && m_slotNum < CGameSpriteEquipment::SLOT_MISC + CGAMESAVECHARACTER_NUM_QUICK_ITEMS22) {
+                CButtonData buttonData;
+                pSprite->SetQuickItem(static_cast<BYTE>(m_slotNum - CGameSpriteEquipment::SLOT_MISC),
+                    buttonData);
+            }
+
+            // Each weapon set owns two consecutive weapon slots, so the removed
+            // slot only invalidates the toolbar when it belongs to the active set.
+            if ((m_slotNum - CGameSpriteEquipment::SLOT_WEAPON) / 2 == pSprite->m_nWeaponSet) {
+                RefreshWeaponSetButtons(pSprite);
+
+                if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->m_id)
+                    == g_pBaldurChitin->m_pEngineWorld->GetSelectedCharacter()) {
+                    g_pBaldurChitin->GetObjectGame()->m_cButtonArray.UpdateButtons();
+                }
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
 }
 
 // -----------------------------------------------------------------------------
