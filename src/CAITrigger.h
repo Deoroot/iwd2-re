@@ -235,6 +235,7 @@ public:
     static const SHORT TRIGGER;
     static const SHORT ENTERED;
     static const SHORT OPENED;
+    static const SHORT CLOSED;
     static const SHORT DISARMED;
     static const SHORT UNLOCKED;
     static const SHORT DISARMFAILED;
