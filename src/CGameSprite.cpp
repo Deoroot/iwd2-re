@@ -10524,7 +10524,7 @@ SHORT CGameSprite::FindItemPersonal(const CString& sName, int number, BOOL restr
 
     for (SHORT slot = 0; slot < end; slot++) {
         if (m_equipment.m_items[slot] != NULL
-            && m_equipment.m_items[slot]->cResRef == sName) {
+            && m_equipment.m_items[slot]->cResRef == sMutableName) {
             if (number > 0) {
                 number--;
             } else {
@@ -10533,7 +10533,7 @@ SHORT CGameSprite::FindItemPersonal(const CString& sName, int number, BOOL restr
         }
     }
 
-    return 0;
+    return -1;
 }
 
 // 0x71D3D0
