@@ -22131,10 +22131,8 @@ SHORT CGameSprite::UseDoor()
         || g_pChitin->cNetwork.m_idLocalPlayer == pDoor->m_remotePlayerID) {
         pDoor->ToggleDoor(m_typeAI, FALSE);
     } else {
-        // HACK: a door owned by another machine is toggled by broadcasting a
-        // message instead -- the message class (vtable 0x848C58, ctor 0x4F53E0,
-        // Run 0x4FD1D0) is unrecovered, so the remote toggle is dropped --
-        // replaces 0x75AFDB-0x75B029
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(
+            new CMessageDoorOpen((pDoor->m_dwFlags & 0x1) != 1, m_id, pDoor->m_id), FALSE);
     }
 
     pArray->ReleaseDeny(nDoorId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
