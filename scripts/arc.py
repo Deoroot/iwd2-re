@@ -269,8 +269,12 @@ class Caps:
 # Every lint prints `src/path.cpp:123: message`, with optional indented detail
 # lines beneath. One adapter covers all seven. The line number is optional:
 # a whole-file finding (an unbalanced pack at EOF) has no single line to blame.
+# The separator is either way round: the lints build paths with os.path, so on
+# Windows they print `src\CSpawn.cpp:949`. Match both and normalise to `/`, or
+# every finding on that host silently fails to parse and the step reports a
+# crash instead of the (possibly baselined) finding it actually found.
 HIT_RE = re.compile(
-    r"^(?P<file>(?:src|scripts|refs)/\S+?)(?::(?P<line>\d+))?:\s*(?P<msg>\S.*)$")
+    r"^(?P<file>(?:src|scripts|refs)[\\/]\S+?)(?::(?P<line>\d+))?:\s*(?P<msg>\S.*)$")
 RE_LINT_CODE_RE = re.compile(r"^(?P<code>RE\d{3}):\s*(?P<msg>.*)$")
 
 
@@ -286,8 +290,8 @@ def parse_lint(tool: str, rc: int, out: str, err: str) -> Report:
         if cm:
             code, msg = cm["code"], cm["msg"]
         rep.findings.append(Finding(
-            severity="fail", message=msg, file=m["file"], code=code,
-            line=int(m["line"]) if m["line"] else None))
+            severity="fail", message=msg, file=m["file"].replace("\\", "/"),
+            code=code, line=int(m["line"]) if m["line"] else None))
     if rc != 0 and not rep.findings:
         # Exited non-zero with nothing parseable: a crash, not a finding.
         rep.status = "error"
