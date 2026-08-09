@@ -1,5 +1,6 @@
 #include "CGameAIBase.h"
 
+#include "C2DArray.h"
 #include "CAIConditionResponse.h"
 #include "CAIResponse.h"
 #include "CAIUtil.h"
@@ -1849,6 +1850,12 @@ SHORT CGameAIBase::ExecuteAction()
         // 0xC1 = TakePartyItemRange (193), 0xCC = TakePartyItemNum (204).  All
         // four share case 0x22 of the dispatch byte table at 0x4529AC.
         actionReturn = TakePartyItem();
+    } else if (m_curAction.m_actionID == 0xDC
+        || m_curAction.m_actionID == 0xE2) {
+        // 0xDC = 220, 0xE2 = 226.  Both share case 0x5C of the dispatch byte
+        // table at 0x4529AC and neither appears in IWD2's ACTION.IDS, which
+        // has no entry between 205 and 228; 226 is the counted variant.
+        actionReturn = TakePartyItemList();
     } else if (m_curAction.m_actionID == 0x79
         || m_curAction.m_actionID == 0x7A) {
         // 0x79 = StartCutSceneMode (ACTION.IDS 121),
@@ -4498,6 +4505,132 @@ SHORT CGameAIBase::TakePartyItem()
     }
 
     return ACTION_ERROR;
+}
+
+// Serves the two action ids the dispatch byte table at 0x4529AC routes to case
+// 0x5C: 220 and 226.  A sweep of all 326 entries found no third.  Neither id is
+// listed in IWD2's own ACTION.IDS -- that file has no entry at all between 205
+// and 228 -- so both are engine-internal leftovers here; in BG2 they are
+// TakeItemListParty and TakeItemListPartyNum /*#guess*/, which matches what the
+// code does: 226 is the one that carries a count, read out of m_specificID.
+//
+// The binary compares m_actionID against the immediate 226, not against a
+// CAIAction constant loaded from the ordinal table, so the literal is faithful.
+//
+// 0x464200
+SHORT CGameAIBase::TakePartyItemList()
+{
+    C2DArray itemList;
+    CString name;
+
+    itemList.Load(CResRef(m_curAction.GetString1()));
+
+    LONG nCount = -1;
+    if (m_curAction.m_actionID == 226) {
+        nCount = m_curAction.m_specificID;
+    }
+
+    for (int nRow = 0; nRow < itemList.GetHeight(); nRow++) {
+        // Only column 0 of each row is read -- the rest of the 2DA is ignored.
+        name = itemList.GetAt(CPoint(0, nRow));
+
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        BOOL found = FALSE;
+
+        for (SHORT nPortrait = 0; nPortrait < pGame->GetNumCharacters(); nPortrait++) {
+            int nTaken = 0;
+            LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+
+            CGameSprite* sprite;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&sprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return 0;
+            }
+
+            SHORT nSlot = sprite->FindItemPersonal(name, 0, FALSE);
+            if (nSlot != -1) {
+                found = TRUE;
+
+                do {
+                    // The slot index is into the whole equipment array, so the
+                    // copy is taken from m_items[0] -- not the +18 personal
+                    // window PlaceItem scans.
+                    CItem* pItem = new CItem(*sprite->m_equipment.m_items[nSlot]);
+
+                    CMessage* pMessage = new CMessageRemoveItem(nSlot, m_id, sprite->m_id);
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+
+                    CAbilityId abId;
+                    abId.m_itemType = 2;
+                    abId.m_itemNum = nSlot;
+                    abId.m_abilityNum = 0;
+                    sprite->UpdateQuickButtons(abId, 0, TRUE, FALSE);
+                    abId.m_abilityNum = 1;
+                    sprite->UpdateQuickButtons(abId, 0, TRUE, FALSE);
+                    abId.m_abilityNum = 2;
+                    sprite->UpdateQuickButtons(abId, 0, TRUE, FALSE);
+
+                    PlaceItem(pItem, TRUE, TRUE, 1, TRUE);
+
+                    nTaken++;
+
+                    // Skip the copies already taken off this member so the
+                    // search advances instead of finding the same slot again.
+                    nSlot = sprite->FindItemPersonal(name, nTaken, FALSE);
+                } while (nSlot != -1);
+            }
+
+            // The bags are emptied of this item unconditionally, and of every
+            // copy in them -- unlike TakePartyItem this pass has no per-member
+            // limit, so the count that comes back is not subtracted from
+            // nCount, and the replacement is placed without feedback.
+            SHORT nBags = sprite->TakeItemBags(name, SHORT_MAX, -1);
+            if (nBags > 0) {
+                found = TRUE;
+
+                // Nothing came back from the bags but a count, so the
+                // replacement is built from the resref alone.
+                PlaceItem(new CItem(CResRef(name), 1, 0, 0, 0, 0),
+                    TRUE,
+                    TRUE,
+                    nBags,
+                    FALSE);
+            }
+
+            pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        if (found && m_curAction.m_actionID == 226 && --nCount < 1) {
+            return ACTION_DONE;
+        }
+    }
+
+    // nCount still holding its starting value means nothing was ever taken, in
+    // which case the counted variant hands the actor the list's default item
+    // instead -- but only if that resref really is an item in the key table.
+    if (nCount == m_curAction.m_specificID && m_curAction.m_actionID == 226) {
+        CString newItem = itemList.GetDefault();
+        newItem.MakeUpper();
+
+        if (g_pBaldurChitin->cDimm.m_cKeyTable.FindKey(CResRef(newItem), 1005, TRUE) != NULL) {
+            PlaceItem(new CItem(CResRef(newItem), 0, 0, 0, 0, 0),
+                TRUE,
+                TRUE,
+                1,
+                TRUE);
+        }
+    }
+
+    return ACTION_DONE;
 }
 
 // 0x465110
