@@ -793,7 +793,7 @@ BOOL CGameRemoteObjectArray::ChangeControlOnLoadGame()
 // NOTE: Inlined.
 void CGameRemoteObjectArray::Clean()
 {
-    for (SHORT nIndex = 0; nIndex < m_nArraySize; nIndex++) {
+    for (SHORT nIndex = m_nArraySize - 1; nIndex >= 0; nIndex--) {
         CGameRemoteObjectListEntry* node = m_pArray[nIndex];
         while (node != NULL) {
             CGameRemoteObjectListEntry* next = node->pNext;
@@ -801,6 +801,7 @@ void CGameRemoteObjectArray::Clean()
             delete node;
             node = next;
         }
+        m_pArray[nIndex] = NULL;
     }
 
     // NOTE: Uninline.
