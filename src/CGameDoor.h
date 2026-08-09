@@ -29,6 +29,7 @@ public:
     /* 004C */ void Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface) override;
     /* 0050 */ BOOLEAN DoAIUpdate(BOOLEAN active, LONG counter) override;
     /* 0058 */ void SetCursor(LONG nToolTip) override;
+    /* 0078 */ void AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply) override;
 
     // #guess: the binary has two of these, one per polygon set; the names follow
     // CGameContainer/CGameTrigger's already-recovered `RenderClippedPoly`.

@@ -3,11 +3,14 @@
 #include "CAIScript.h"
 #include "CAITrigger.h"
 #include "CBaldurChitin.h"
+#include "CCreatureFile.h"
 #include "CGameArea.h"
+#include "CGameEffect.h"
 #include "CGameSprite.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CPathSearch.h"
+#include "CProjectile.h"
 #include "CScreenWorld.h"
 #include "CUtil.h"
 #include "CVidInf.h"
@@ -418,6 +421,199 @@ BOOLEAN CGameDoor::CompressTime(DWORD deltaTime)
     }
 
     return TRUE;
+}
+
+// 0x486860
+void CGameDoor::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
+{
+    BOOL bTrapTriggered = FALSE;
+    CMessage* pMessage;
+
+    switch (pEffect->m_effectID) {
+    case CGAMEEFFECT_KNOCK:
+        if (m_lockDifficulty == 100) {
+            g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(
+                (STRREF)-1, 0x5A81, 0, 0xD7C8A0, (LONG)-1, m_id, m_id);
+            goto cleanup;
+        }
+
+        m_dwFlags &= ~0x2U;
+        pMessage = new CMessageDoorOpen(TRUE, m_id, m_id);
+        break;
+
+    case CGAMEEFFECT_DETECTTRAPS:
+        if (m_trapActivated == 0)
+            goto cleanup;
+
+        if (m_trapDetected == 0
+                && m_trapDetectionDifficulty < 100
+                && (m_dwFlags & 0x8) != 0) {
+            CAITrigger trigger(CAITRIGGER_DETECTED, m_typeAI, 0);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
+
+            m_trapDetected = 1;
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageTriggerStatus(m_dwFlags, m_trapActivated, m_trapDetected, m_id, m_id), FALSE);
+            bTrapTriggered = TRUE;
+
+            // Same shape as CGameTrigger::AddEffect: the type bound to the trap
+            // is resolved and, when it is a bare sprite-type AI marker, its
+            // trap-detected auto-pause fires.
+            CGameObject* pObject = m_typeAI.GetObject(reinterpret_cast<CGameAIBase*>(m_id), FALSE);
+            if (pObject != NULL) {
+                CAIObjectType spriteType(CGameObject::TYPE_SPRITE, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+                if (pObject->GetAIType().Equal(spriteType)) {
+                    static_cast<CGameAIBase*>(pObject)->AutoPause(0x80);
+                }
+            }
+        }
+
+        if (m_trapDetected != 0) {
+            if (m_drawPoly != 400
+                    && !g_pBaldurChitin->GetBaldurMessage()->m_bInMessageSetDrawPoly) {
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageSetDrawPoly(400, m_id, m_id), FALSE);
+            }
+            m_drawPoly = 400;
+        }
+
+        if (bTrapTriggered != TRUE)
+            goto cleanup;
+
+        pMessage = new CMessageDoorStatus(this, m_id, m_id);
+        break;
+
+    case CGAMEEFFECT_CASTSPELL: {
+        CAIObjectType acteeType;
+        acteeType.Set(GetAIType());
+
+        CAIAction forceSpell;
+        forceSpell.m_actionID = CAIAction::FORCESPELL;
+        forceSpell.m_acteeID.Set(acteeType);
+
+        CString spellRes;
+        pEffect->m_res.CopyToString(spellRes);
+        forceSpell.SetString1(spellRes);
+        forceSpell.m_specificID = pEffect->m_effectAmount;
+
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(
+            new CMessageAddAction(forceSpell, m_id, pEffect->m_sourceID), FALSE);
+        goto cleanup;
+    }
+
+    case CGAMEEFFECT_SUMMON: {
+        // The summon carries its own unsummon timer: an ITEM_EFFECT is built by
+        // hand, decoded into a CGameEffect and later handed to the spawned
+        // sprite.  durationType 4 and the /15 are read off the binary; the
+        // effect leaks when the summoning effect is itself permanent (see the
+        // m_durationType test below), which is what the original does.
+        ITEM_EFFECT* itemEffect = new ITEM_EFFECT;
+        CGameEffect::ClearItemEffect(itemEffect, CGAMEEFFECT_SKILLUNSUMMON);
+        itemEffect->durationType = 4;
+        itemEffect->duration = (pEffect->m_duration
+                                   - g_pBaldurChitin->GetObjectGame()->m_worldTime.m_gameTime)
+            / CTimerWorld::TIMESCALE_MSEC_PER_SEC;
+        itemEffect->effectAmount = 1;
+
+        CPoint ptEffectSource(-1, -1);
+        CPoint ptEffectTarget(-1, -1);
+        CGameEffect* pUnsummon = CGameEffect::DecodeEffect(itemEffect,
+            ptEffectSource,
+            -1,
+            ptEffectTarget);
+        delete itemEffect;
+
+        int nGridX = pEffect->m_target.x / CPathSearch::GRID_SQUARE_SIZEX;
+        int nGridY = pEffect->m_target.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+        CCreatureFile creatureFile;
+        creatureFile.SetResRef(pEffect->m_res, TRUE, TRUE);
+
+        CGameSprite* pSprite = new CGameSprite(creatureFile.GetData(),
+            creatureFile.GetDataSize(),
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0x7FFFFFFF,
+            CPoint(-1, -1),
+            0);
+        pSprite->SetResRef(creatureFile.GetResRef().GetResRefStr());
+        creatureFile.ReleaseData();
+
+        if (pSprite != NULL) {
+            LONG nSpriteId = pSprite->m_id;
+
+            CString creatureRes;
+            pEffect->m_res.CopyToString(creatureRes);
+            pSprite->SetResRef(creatureRes);
+
+            if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(nSpriteId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE)
+                == CGameObjectArray::SUCCESS) {
+                CPoint ptSpawn;
+                m_pArea->m_search.FindNearbyPassablePoint(&ptSpawn,
+                    nGridX,
+                    nGridY,
+                    GetTerrainTable(),
+                    pSprite->m_animation.GetPersonalSpace(),
+                    -1);
+
+                CPoint ptSprite(ptSpawn.x * CPathSearch::GRID_SQUARE_SIZEX,
+                    ptSpawn.y * CPathSearch::GRID_SQUARE_SIZEY);
+                pSprite->AddToArea(m_pArea, ptSprite, 0, pSprite->m_animation.GetListType());
+
+                CProjectile* pProjectile = CProjectile::DecodeProjectile(0x90, pSprite, 0);
+
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageFireProjectile(pProjectile->m_projectileType,
+                        nSpriteId,
+                        CPoint(0, 0),
+                        0x1E,
+                        nSpriteId,
+                        nSpriteId,
+                        0),
+                    FALSE);
+
+                pProjectile->Fire(m_pArea, nSpriteId, nSpriteId, CPoint(0, 0), 0, 0);
+
+                // Three CAIObjectType copies the binary builds and never reads
+                // -- the same dead-local shape CGameArea::GetDoorBlocker and
+                // ToggleDoor have. Kept: their CString members make the
+                // construction observable, so the original really does it.
+                CAIObjectType typeSpawned(pSprite->GetAIType());
+                CAIObjectType typeLiveA(pSprite->m_liveTypeAI);
+                CAIObjectType typeLiveB(pSprite->m_liveTypeAI);
+
+                if (pEffect->m_durationType != 1) {
+                    pUnsummon->m_casterLevel = pEffect->m_casterLevel;
+                    pSprite->AddEffect(pUnsummon, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+                }
+
+                pSprite->SetSequence(CGameSprite::SEQ_AWAKE);
+                pSprite->SetFacing(rand() % 16);
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(nSpriteId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+
+        goto cleanup;
+    }
+
+    default:
+        goto cleanup;
+    }
+
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+
+cleanup:
+    delete pEffect;
 }
 
 // 0x4876E0
