@@ -370,6 +370,56 @@ BOOLEAN CGameDoor::CanSaveGame(STRREF& strError)
     return TRUE;
 }
 
+// 0x487530
+BOOLEAN CGameDoor::CompressTime(DWORD deltaTime)
+{
+    // Both comparisons here are unsigned in the binary (`jae` / `jbe`), which is
+    // what the usual arithmetic conversions give: m_drawPoly is sign-extended to
+    // int first and only then read as unsigned.  The casts are explicit so the
+    // conversion is visible rather than a warning.
+    if (static_cast<DWORD>(m_drawPoly) < deltaTime) {
+        m_drawPoly = 0;
+    } else {
+        m_drawPoly = static_cast<SHORT>(m_drawPoly - deltaTime);
+    }
+
+    // Anything shorter than one game hour is not enough time for the door to
+    // have swung shut on its own.
+    if (deltaTime > static_cast<DWORD>(CTimerWorld::TIMESCALE_MSEC_PER_SEC
+            * CTimerWorld::TIMESCALE_SEC_PER_MIN
+            * CTimerWorld::TIMESCALE_MIN_PER_HOUR)) {
+        // The close is the same body ToggleDoor's close branch runs, minus the
+        // sound: nobody is there to hear it.  It is deliberately not certain --
+        // one door in five is left standing open.
+        if ((m_dwFlags & 1) != 0
+            && (m_dwFlags & 0x20) == 0
+            && m_pArea->m_search.CanToggleDoor(m_pClosedSearch, m_nClosedSearch)
+            && rand() % 5 != 0) {
+            m_dwFlags &= ~1u;
+            m_pos = m_ptOpenDest;
+            m_tiledObject.m_wAIState = CTiledObject::STATE_SECONDARY_TILE;
+
+            if (m_pOpenSearch != NULL) {
+                m_pArea->m_search.RemoveDoor(m_pOpenSearch, m_nOpenSearch);
+            }
+            if (m_pClosedSearch != NULL) {
+                m_pArea->m_search.AddDoor(m_pClosedSearch, m_nClosedSearch, (m_dwFlags >> 10) & 1);
+            }
+
+            if (InControl()) {
+                CMessageDoorStatus* pMessage = new CMessageDoorStatus(this, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+            }
+        }
+
+        // Cleared whether or not the door moved: the "you cannot open this"
+        // latch ToggleDoor sets does not survive a time compression.
+        m_dwFlags &= ~0x1000u;
+    }
+
+    return TRUE;
+}
+
 // 0x4876E0
 void CGameDoor::DebugDump(const CString& message, BOOLEAN bEchoToScreen)
 {
