@@ -5,6 +5,7 @@
 #include "CAIScript.h"
 #include "CAITrigger.h"
 #include "CBaldurChitin.h"
+#include "CCreatureFile.h"
 #include "CGameArea.h"
 #include "CGameEffect.h"
 #include "CGameObjectArray.h"
@@ -14,6 +15,7 @@
 #include "CInfCursor.h"
 #include "CInfGame.h"
 #include "CPathSearch.h"
+#include "CProjectile.h"
 #include "CScreenWorld.h"
 #include "CUtil.h"
 #include "CVidInf.h"
@@ -242,10 +244,109 @@ void CGameTrigger::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL 
         break;
     }
 
-    case CGAMEEFFECT_SUMMON:
-        // HACK: CCreatureFile/CGameSprite spawn unrecovered (FindNearbyPassablePoint sig, CGameSprite
-        // ctor args, CProjectile dispatch unknown) — replaces 0x4CDBDA
+    case CGAMEEFFECT_SUMMON: {
+        // The same block CGameDoor::AddEffect and CGameContainer::AddEffect have,
+        // with one real difference: those two allocate the scratch ITEM_EFFECT on
+        // the heap and free it after decoding, while the trigger builds it on the
+        // stack. The summon carries its own unsummon timer, decoded here and handed
+        // to the spawned sprite below; it leaks when the summoning effect is itself
+        // permanent (see the m_durationType test), which is what the original does.
+        ITEM_EFFECT itemEffect;
+        CGameEffect::ClearItemEffect(&itemEffect, CGAMEEFFECT_SKILLUNSUMMON);
+        itemEffect.durationType = 4;
+        itemEffect.duration = (pEffect->m_duration
+                                  - g_pBaldurChitin->GetObjectGame()->m_worldTime.m_gameTime)
+            / CTimerWorld::TIMESCALE_MSEC_PER_SEC;
+        itemEffect.effectAmount = 1;
+
+        CPoint ptEffectSource(-1, -1);
+        CPoint ptEffectTarget(-1, -1);
+        CGameEffect* pUnsummon = CGameEffect::DecodeEffect(&itemEffect,
+            ptEffectSource,
+            -1,
+            ptEffectTarget);
+
+        int nGridX = pEffect->m_target.x / CPathSearch::GRID_SQUARE_SIZEX;
+        int nGridY = pEffect->m_target.y / CPathSearch::GRID_SQUARE_SIZEY;
+
+        CCreatureFile creatureFile;
+        creatureFile.SetResRef(pEffect->m_res, TRUE, TRUE);
+
+        CGameSprite* pSprite = new CGameSprite(creatureFile.GetData(),
+            creatureFile.GetDataSize(),
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0x7FFFFFFF,
+            CPoint(-1, -1),
+            0);
+        pSprite->SetResRef(creatureFile.GetResRef().GetResRefStr());
+        creatureFile.ReleaseData();
+
+        if (pSprite != NULL) {
+            LONG nSpriteId = pSprite->m_id;
+
+            CString creatureRes;
+            pEffect->m_res.CopyToString(creatureRes);
+            pSprite->SetResRef(creatureRes);
+
+            if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(nSpriteId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE)
+                == CGameObjectArray::SUCCESS) {
+                CPoint ptSpawn;
+                m_pArea->m_search.FindNearbyPassablePoint(&ptSpawn,
+                    nGridX,
+                    nGridY,
+                    GetTerrainTable(),
+                    pSprite->m_animation.GetPersonalSpace(),
+                    -1);
+
+                CPoint ptSprite(ptSpawn.x * CPathSearch::GRID_SQUARE_SIZEX,
+                    ptSpawn.y * CPathSearch::GRID_SQUARE_SIZEY);
+                pSprite->AddToArea(m_pArea, ptSprite, 0, pSprite->m_animation.GetListType());
+
+                CProjectile* pProjectile = CProjectile::DecodeProjectile(0x90, pSprite, 0);
+
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageFireProjectile(pProjectile->m_projectileType,
+                        nSpriteId,
+                        CPoint(0, 0),
+                        0x1E,
+                        nSpriteId,
+                        nSpriteId,
+                        0),
+                    FALSE);
+
+                pProjectile->Fire(m_pArea, nSpriteId, nSpriteId, CPoint(0, 0), 0, 0);
+
+                // Three CAIObjectType copies the binary builds and never reads
+                // -- the same dead-local shape CGameArea::GetDoorBlocker and
+                // CGameDoor::ToggleDoor have. Kept: their CString members make the
+                // construction observable, so the original really does it.
+                CAIObjectType typeSpawned(pSprite->GetAIType());
+                CAIObjectType typeLiveA(pSprite->m_liveTypeAI);
+                CAIObjectType typeLiveB(pSprite->m_liveTypeAI);
+
+                if (pEffect->m_durationType != 1) {
+                    pUnsummon->m_casterLevel = pEffect->m_casterLevel;
+                    pSprite->AddEffect(pUnsummon, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+                }
+
+                pSprite->SetSequence(CGameSprite::SEQ_AWAKE);
+                pSprite->SetFacing(rand() % 16);
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(nSpriteId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+
         break;
+    }
 
     default:
         break;
