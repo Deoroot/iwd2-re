@@ -77,6 +77,7 @@ public:
     static const SHORT GIVEGOLDFORCE;
     static const SHORT MOVETOOBJECTFOLLOW;
     static const SHORT REALLYFORCESPELL;
+    static const SHORT RUNAWAYFROMNOINTERRUPT;
     static const SHORT SPELLNODEC;
     static const SHORT SPELLPOINTNODEC;
     static const SHORT GIVEPARTYGOLD;

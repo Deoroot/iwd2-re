@@ -527,6 +527,17 @@ def source_sites(path: Path, start: int, end: int) -> list[tuple[int, str, set[s
         if any("NOTE: Uninline" in raw[k] for k in range(max(0, i - 3), i)):
             continue
         var = m.group(1).lstrip("&")
+        arg_id_text = m.group(2)
+        if arg_id_text is None:
+            # The call is split across lines and the effect id sits on the next
+            # one. Without this the id reads as absent, the site reports
+            # UNRESOLVED, and a whole function's verdict is thrown away over
+            # nothing but line wrapping.
+            for ln2 in body[i + 1 : i + 3]:
+                m2 = re.match(r"\s*,?\s*([^),]+)\s*\)", ln2)
+                if m2:
+                    arg_id_text = m2.group(1)
+                    break
         # Any MENTION of the field counts, not just an assignment LHS: the resref is
         # filled by handing the field to a helper (`SPIN232.GetResRef(effect.res)`),
         # which an LHS-only regex reads as a dropped store.
@@ -534,7 +545,7 @@ def source_sites(path: Path, start: int, end: int) -> list[tuple[int, str, set[s
             r"\b" + re.escape(var) + r"\s*(?:\.|->)\s*(\w+)\s*(?:=(?!=)\s*(.*))?"
         )
         fields: set[str] = set()
-        arg_id = (m.group(2) or "").strip()
+        arg_id = (arg_id_text or "").strip()
         if arg_id and arg_id != "0":
             fields.add("effectID")  # ClearItemEffect's 2nd argument IS effectID
         for ln2 in body[i + 1 : i + 1 + 60]:
@@ -677,9 +688,21 @@ def compare_site(bsite, ssite, path, header, lines, verbose):
             lines.append(header)
         lines.append(where)
         for name in dropped:
-            rhs = "; ".join(r for _, n, r in bsite.stores if n == name)
-            off = next(o for o, n, _ in bsite.stores if n == name)
-            lines.append(f"     !! DROPPED  {name} (+0x{off:02X})  binary stores: {rhs}")
+            # `effectID` can come from ClearItemEffect's own second argument
+            # rather than from a store, so there is not always a store to cite.
+            hits = [(o, r) for o, n, r in bsite.stores if n == name]
+            if hits:
+                lines.append(
+                    f"     !! DROPPED  {name} (+0x{hits[0][0]:02X})  binary stores: "
+                    + "; ".join(r for _, r in hits)
+                )
+            else:
+                lines.append(
+                    f"     !! DROPPED  {name}  passed as ClearItemEffect's second "
+                    f"argument (0x{bsite.effect_id:X})"
+                    if bsite.effect_id is not None
+                    else f"     !! DROPPED  {name}"
+                )
         for name in extra:
             lines.append(
                 f"     !! EXTRA    {name}  assigned in source, never stored by the binary"

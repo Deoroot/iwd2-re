@@ -13230,10 +13230,9 @@ CString CGameSprite::GetRaceLabel(BYTE nRace)
 //
 // Recovered: the stagger, the passive secret-door sweep, the bard-song cycle
 // (re-applies the song's ability effects to nearby allies via a CMessage105
-// effect-list message), the detect-traps sweep (door / trigger / container) and
-// the stealth re-check (every third cycle -> sub_757B40).
-// Still unrecovered: the turn-undead case (case 3) and the singer's own
-// song-marker effect (case 0).
+// effect-list message), the detect-traps sweep (door / trigger / container),
+// the stealth re-check (every third cycle) and the turn-undead sweep (case 3).
+// Still unrecovered: the singer's own song-marker effect (case 0).
 // 0x72FD20
 void CGameSprite::CheckModal()
 {
@@ -13535,9 +13534,154 @@ void CGameSprite::CheckModal()
             sub_757B40();
         }
         break;
-    case 3:
-        // Unrecovered: per-round turn-undead sweep.
+    case 3: {  // Turn Undead -- each cycle the caster sweeps everything within
+               // half its visual range and works through the first few sprites
+               // it finds, destroying, commanding or routing each one.
+        // NOTE: `turnAction` is filled only in the routed branch below, and
+        // `turnTrigger` starts as the empty trigger the same way case 1's does.
+        CAIAction turnAction;
+        CAITrigger turnTrigger(CAITRIGGER_NO_TRIGGER, 0);
+        BOOL bTurnedAny = FALSE;
+
+        CAIObjectType searchType;
+        searchType.Set(CAIObjectType::ANYONE);
+
+        CTypedPtrList<CPtrList, LONG*> objects;
+        m_pArea->GetAllInRange(m_pos, searchType, GetVisualRange() >> 1,
+            GetVisibleTerrainTable(), objects, TRUE, FALSE);
+
+        // Two rolls of a d4 plus two: the number of list entries this cycle is
+        // allowed to consume.  It is spent on every entry walked, not only on
+        // the ones that turn out to be undead.
+        INT nRemaining = (rand() % 4) + (rand() % 4) + 2;
+
+        POSITION pos = objects.GetHeadPosition();
+        if (pos != NULL) {
+            do {
+                if (nRemaining-- == 0) {
+                    break;
+                }
+                LONG objId = reinterpret_cast<LONG>(objects.GetNext(pos));
+
+                CGameObject* pObject;
+                BYTE rc;
+                do {
+                    rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(objId,
+                        CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+                if (rc == CGameObjectArray::SUCCESS) {
+                    if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                        CGameSprite* pTarget = static_cast<CGameSprite*>(pObject);
+
+                        INT roll = rand() % 4;
+                        // 0x73111B: the binary compares the d4 roll against 4,
+                        // which it can never equal -- the guard never skips.
+                        if (roll != 4) {
+                            INT nCheck = roll + pTarget->m_derivedStats.m_nLevel;
+
+                            if (m_derivedStats.m_nTurnUndeadLevel < nCheck + 5) {
+                                // Beaten, but by less than 5: the undead is only
+                                // routed -- a visual, a TURNEDBY trigger on the
+                                // victim and a timed flee action away from the
+                                // caster.
+                                if (nCheck <= m_derivedStats.m_nTurnUndeadLevel) {
+                                    bTurnedAny = TRUE;
+
+                                    ITEM_EFFECT effect;
+                                    CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_VISUALSPELLHIT);
+                                    effect.dwFlags = 0;
+                                    CGameEffect* pVisual = CGameEffect::DecodeEffect(
+                                        &effect,
+                                        m_pos,
+                                        m_id,
+                                        CPoint(-1, -1));
+                                    CMessage* message = new CMessageAddEffect(pVisual,
+                                        pTarget->m_id, m_id);
+                                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                                        message, FALSE);
+
+                                    turnTrigger = CAITrigger(CAITRIGGER_TURNEDBY, m_typeAI, 0);
+                                    message = new CMessageSetTrigger(turnTrigger,
+                                        pTarget->m_id, m_id);
+                                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                                        message, FALSE);
+
+                                    CAIAction runAway;
+                                    // NOTE: a second CAIAction is constructed at
+                                    // 0x73158F and never read -- the same dead-local
+                                    // shape as CGameDoor::ToggleDoor's cBlockerType.
+                                    CAIAction cUnusedAction;
+                                    runAway.m_actionID = CAIAction::RUNAWAYFROMNOINTERRUPT;
+                                    runAway.m_acteeID.Set(m_typeAI);
+                                    runAway.m_specificID =
+                                        m_derivedStats.m_nTurnUndeadLevel * 100;
+                                    runAway.m_specificID2 = 0;
+                                    runAway.m_specificID3 = 0;
+                                    runAway.m_internalFlags = 0;
+
+                                    turnAction = runAway;
+                                    message = new CMessageAddAction(turnAction,
+                                        pTarget->m_id, m_id);
+                                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                                        message, FALSE);
+                                }
+                            } else {
+                                // Beaten by 5 or more: an evil caster commands the
+                                // undead instead of destroying it.
+                                bTurnedAny = TRUE;
+
+                                BYTE nAlignment = m_typeAI.m_nAlignment;
+                                if (nAlignment == CAIOBJECTTYPE_LAWFUL_EVIL
+                                    || nAlignment == CAIOBJECTTYPE_NEUTRAL_EVIL
+                                    || nAlignment == CAIOBJECTTYPE_CHAOTIC_EVIL) {
+                                    ITEM_EFFECT effect;
+                                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_DOMINATE);
+                                    effect.dwFlags = 4;
+                                    effect.durationType = 0;
+                                    effect.duration = 60;
+                                    CGameEffect* pDominate = CGameEffect::DecodeEffect(
+                                        &effect,
+                                        m_pos,
+                                        m_id,
+                                        CPoint(-1, -1));
+                                    CMessage* message = new CMessageAddEffect(pDominate,
+                                        pTarget->m_id, m_id);
+                                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                                        message, FALSE);
+                                } else {
+                                    // Built by hand rather than decoded: there is no
+                                    // ITEM_EFFECT behind it.  0x7311DA writes
+                                    // m_deathType 0, the ctor's 1 being a dead store,
+                                    // and 0x7311E4 onwards runs even when the
+                                    // allocation failed -- both preserved.
+                                    CGameEffectDeath* pDeath = new CGameEffectDeath();
+                                    pDeath->m_deathType = 0;
+                                    pDeath->m_effectAmount = 0;
+                                    pDeath->m_dwFlags = 8;
+                                    pDeath->m_sourceID = m_id;
+
+                                    CMessage* message = new CMessageAddEffect(pDeath,
+                                        pTarget->m_id, m_id);
+                                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                                        message, FALSE);
+                                }
+                            }
+                        }
+                    }
+
+                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(objId,
+                        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                }
+            } while (pos != NULL);
+
+            if (bTurnedAny) {
+                CResRef sound("ACT_06");
+                PlaySound(sound);
+            }
+        }
         break;
+    }
     default:
         break;
     }
