@@ -575,6 +575,122 @@ def pair_sites(bin_sites, src_sites):
     return pairs if len(pairs) == len(src_sites) else list(zip(bin_sites, src_sites))
 
 
+def id_name(eid: int | None) -> str:
+    """`0x88 (CGAMEEFFECT_FORCEVISIBLE)` -- the effect id is what identifies a site."""
+    if eid is None:
+        return "?"
+    for name, val in defines().items():
+        if val == eid and name.startswith("CGAMEEFFECT_"):
+            return f"0x{eid:X} ({name})"
+    return f"0x{eid:X}"
+
+
+def audit_count_mismatch(bin_sites, src_sites, header, path, verbose):
+    """Binary and source disagree on HOW MANY sites there are -> (findings, lines).
+
+    Two very different things produce that, and only one is a bug:
+
+      * the compiler CLONED a block, so one source site is emitted N times.  MSVC
+        does this to resolve a later branch early -- `CGameSprite::Spell` tests
+        `m_actionID != SPELLNODEC` after the cast-start block and gets two copies
+        of the whole block, hence 4 binary sites for 2 source ones.  Every binary
+        effect id is still one the source has, so nothing is missing;
+      * the binary emits an effect id the source NEVER mentions, i.e. a whole
+        effect block is unrecovered.  That is the finding worth chasing.
+
+    Distinguishing them needs only the ids, so do that rather than giving up.
+    """
+    lines = [header]
+    b_ids = [b.effect_id for b in bin_sites]
+    s_ids = [s[3] for s in src_sites]
+    # An id that does not resolve (held in a register, or a source constant this
+    # tool cannot see) is reported on its own line rather than abandoning the whole
+    # function: the ids that DO resolve still identify unrecovered blocks.
+    unresolved = [b for b in bin_sites if b.effect_id is None]
+    unresolved_src = [s for s in src_sites if s[3] is None]
+    unrecovered = sorted(set(b_ids) - set(s_ids) - {None})
+    orphaned = sorted(set(s_ids) - set(b_ids) - {None})
+    if unrecovered or orphaned or unresolved or unresolved_src:
+        lines.append(
+            f"  !! SITE COUNT MISMATCH: binary has {len(bin_sites)} ClearItemEffect "
+            f"call(s), source has {len(src_sites)}"
+        )
+        for eid in unrecovered:
+            at = ", ".join(f"0x{b.addr:X}" for b in bin_sites if b.effect_id == eid)
+            lines.append(
+                f"     !! UNRECOVERED  {id_name(eid)}  binary calls at {at}, "
+                f"no source site"
+            )
+        for eid in orphaned:
+            at = ", ".join(str(s[0]) for s in src_sites if s[3] == eid)
+            lines.append(
+                f"     !! ORPHANED     {id_name(eid)}  source site(s) at "
+                f"{path.name}:{at}, binary makes no such call"
+            )
+        for b in unresolved:
+            lines.append(
+                f"     ?? UNRESOLVED   binary 0x{b.addr:X} passes an effect id this "
+                f"tool cannot fold to a constant -- audit by hand"
+            )
+        for s in unresolved_src:
+            lines.append(
+                f"     ?? UNRESOLVED   {path.name}:{s[0]} `{s[1]}` passes an effect id "
+                f"this tool cannot fold to a constant -- audit by hand"
+            )
+        return 1, lines
+
+    # Same id SET on both sides, different counts: the compiler cloned. Audit each
+    # source site against every clone -- a clone that disagrees with its siblings
+    # is itself worth seeing, so none of them is skipped.
+    findings = 0
+    for ssite in src_sites:
+        for bsite in [b for b in bin_sites if b.effect_id == ssite[3]]:
+            findings += compare_site(bsite, ssite, path, header, lines, verbose)
+    if findings == 0 and not verbose:
+        return 0, []
+    if findings == 0:
+        lines.insert(
+            1,
+            f"  {len(bin_sites)} binary sites for {len(src_sites)} source site(s) "
+            f"-- compiler-cloned block, ids all accounted for",
+        )
+    return findings, lines
+
+
+def compare_site(bsite, ssite, path, header, lines, verbose):
+    """Field-diff one binary site against its source site -> 0 or 1 finding."""
+    findings = 0
+    sline, var, sfields, _sid = ssite
+    where = f"  {path.name}:{sline}  `{var}`  (binary 0x{bsite.addr:X})"
+    if bsite.unsure:
+        if verbose:
+            if header not in lines:
+                lines.append(header)
+            lines.append(f"{where}  UNSURE: {bsite.unsure}")
+        return 0
+    bfields = bsite.fields
+    dropped = sorted(bfields - sfields)
+    extra = sorted(sfields - bfields)
+    if dropped or extra:
+        findings += 1
+        if header not in lines:
+            lines.append(header)
+        lines.append(where)
+        for name in dropped:
+            rhs = "; ".join(r for _, n, r in bsite.stores if n == name)
+            off = next(o for o, n, _ in bsite.stores if n == name)
+            lines.append(f"     !! DROPPED  {name} (+0x{off:02X})  binary stores: {rhs}")
+        for name in extra:
+            lines.append(
+                f"     !! EXTRA    {name}  assigned in source, never stored by the binary"
+            )
+    elif verbose:
+        if header not in lines:
+            lines.append(header)
+        lines.append(f"{where}  ok  [{', '.join(sorted(bfields)) or 'no stores'}]")
+    return findings
+
+
 def audit_function(addr, cls, meth, path, start, end, marker_addrs, verbose):
     """-> (n_findings, printed_lines)."""
     src_sites = source_sites(path, start, end)
@@ -587,13 +703,7 @@ def audit_function(addr, cls, meth, path, start, end, marker_addrs, verbose):
     header = f"== {cls}::{meth}  0x{addr:X}  ({path.name}:{start}-{end})"
 
     if len(bin_sites) != len(src_sites):
-        findings += 1
-        lines.append(header)
-        lines.append(
-            f"  !! SITE COUNT MISMATCH: binary has {len(bin_sites)} ClearItemEffect "
-            f"call(s), source has {len(src_sites)} -- pairing is unreliable, audit by hand"
-        )
-        return findings, lines
+        return audit_count_mismatch(bin_sites, src_sites, header, path, verbose)
 
     for (bsite, (sline, var, sfields, _sid)) in pair_sites(bin_sites, src_sites):
         where = f"  {path.name}:{sline}  `{var}`  (binary 0x{bsite.addr:X})"
