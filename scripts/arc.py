@@ -346,6 +346,34 @@ def parse_parity_offsets(rc: int, out: str, err: str) -> Report:
     return rep
 
 
+def parse_item_effect(rc: int, out: str, err: str) -> Report:
+    """Two severities: a DROPPED/EXTRA field is a real faithfulness bug (fail); a
+    SITE COUNT MISMATCH means the recovery is missing whole effect blocks, which
+    is an incompleteness signal, not a wrong-value one (warn)."""
+    rep = Report(tool="lint_item_effect", exit_code=rc)
+    bad = mismatch = 0
+    for line in out.splitlines():
+        s = line.strip()
+        if s.startswith("!! DROPPED") or s.startswith("!! EXTRA"):
+            bad += 1
+            rep.findings.append(Finding(severity="fail", message=s))
+        elif "SITE COUNT MISMATCH" in s:
+            mismatch += 1
+            rep.findings.append(Finding(severity="warn", message=s))
+    rep.counts.update(field_bugs=bad, incomplete=mismatch)
+    m = re.search(r"== item-effect sweep: (\d+) function\(s\) reported", out)
+    reported = int(m.group(1)) if m else 0
+    if bad:
+        rep.summary = f"{bad} ITEM_EFFECT field(s) wrong across {reported} function(s)"
+        rep.status = "fail"
+    elif mismatch:
+        rep.summary = f"fields clean; {mismatch} fn(s) with fewer sites than the binary"
+        rep.status = "warn"
+    else:
+        rep.summary = "every ClearItemEffect site matches the binary field-for-field"
+    return rep
+
+
 def parse_arg_provenance(rc: int, out: str, err: str) -> Report:
     """--sweep prints an `== check:` roll-up; a single address prints only the
     per-site rows, so the counts have to come from the tags either way."""
@@ -1125,6 +1153,9 @@ def cmd_sweep(args) -> int:
         Step(id="arg_provenance", label="arg_prov", needs=("exe",), timeout=1800,
              argv=[PY, str(SCRIPTS / "arg_provenance.py"), "--sweep", "--check"],
              parse=parse_arg_provenance),
+        Step(id="lint_item_effect", label="item_eff", needs=("exe", "exports"), timeout=1800,
+             argv=[PY, str(SCRIPTS / "lint_item_effect.py"), "--sweep"],
+             parse=parse_item_effect),
     ]
     if args.deep:
         heavy.append(Step(
