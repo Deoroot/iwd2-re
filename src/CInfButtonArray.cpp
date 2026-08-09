@@ -2618,10 +2618,21 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         pSprite->UseButtonAction(bd, 1);
                     }
                     break;
-                case 0x77: { // TODO: Wilderness Lore in Ghidra; this port still cycles weapon sets.
-                    BYTE nNext = static_cast<BYTE>((pSprite->m_nWeaponSet + 1) & 0x3);
-                    pSprite->SetWeaponSet(nNext);
-                    m_nQuickWeaponSlot = nNext;
+                case 0x77: { // Wilderness Lore.  0x593181.
+                    ITEM_EFFECT effect;
+                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_RANGERTRACKING);
+                    effect.targetType = 1;
+                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                        CPoint(-1, -1),
+                        -1,
+                        CPoint(-1, -1));
+                    pEffect->SetSource(pSprite->GetPos());
+                    pEffect->SetSourceId(pSprite->GetId());
+                    pEffect->SetEnabled(FALSE);
+
+                    CMessage* message = new CMessageAddEffect(pEffect,
+                        pSprite->GetId(), pSprite->GetId());
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
                     break;
                 }
                 default:
@@ -3086,9 +3097,8 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
             return;
         case 0x77:
-            // TODO: Ghidra identifies type 0x77 as Wilderness Lore (tooltip
-            // 0x7DBA) and applies effect 0x11E. This port still cycles to the
-            // next quick-weapon set.
+            // Wilderness Lore (tooltip 0x7DBA): hands the leader a disabled
+            // RANGERTRACKING effect addressed to itself.  0x590AF4.
             {
                 LONG nLeader = pGame->GetGroup()->GetGroupLeader();
                 CGameSprite* pSprite = NULL;
@@ -3100,9 +3110,21 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         INFINITE);
                 } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
                 if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    BYTE nNext = static_cast<BYTE>((pSprite->m_nWeaponSet + 1) & 0x3);
-                    pSprite->SetWeaponSet(nNext);
-                    m_nQuickWeaponSlot = nNext;
+                    ITEM_EFFECT effect;
+                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_RANGERTRACKING);
+                    effect.targetType = 1;
+                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                        CPoint(-1, -1),
+                        -1,
+                        CPoint(-1, -1));
+                    pEffect->SetSource(pSprite->GetPos());
+                    pEffect->SetSourceId(pSprite->GetId());
+                    pEffect->SetEnabled(FALSE);
+
+                    CMessage* message = new CMessageAddEffect(pEffect,
+                        pSprite->GetId(), pSprite->GetId());
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
                     pGame->GetObjectArray()->ReleaseDeny(nLeader,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
