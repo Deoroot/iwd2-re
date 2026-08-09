@@ -1,0 +1,31 @@
+# Open the container store, put a party item into it, then buy it back. That
+# drives CScreenStore::OnBuyItemButtonClick, which for a bag store with a bag
+# open runs BuyBagItemsExt, BuyPersonalItemsExt and BuyBagItems in turn.
+#
+# The bag starts empty, so the sell leg is what gives the buy leg something to
+# work on. Buy/sell is panel 2: controls 5..10 are the store (bag) rows, 13..18
+# the group (party) rows, control 2 is Buy and control 3 is Sell.
+#   scripts/vm.sh smoke --save "000000039-store" 200 \
+#       --ui scripts/scenarios/store-buy-item.txt \
+#       --hit CScreenStore::OnBuyItemButtonClick
+wait world 3000
+waitgo 6000
+sleep 30
+goto inventory
+sleep 120
+expect screen inventory
+rclick 2 30
+sleep 60
+click 5 9
+sleep 240
+expect screen store
+click 2 13
+sleep 90
+click 2 3
+sleep 180
+click 2 5
+sleep 90
+click 2 2
+sleep 180
+expect screen store
+dump

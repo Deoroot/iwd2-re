@@ -634,19 +634,20 @@ def main():
 
     if "--sweep" in args:
         args.remove("--sweep")
-        sweep(callee, argc, nrv, check)
-        return
+        return sweep(callee, argc, nrv, check)
 
     if not args:
         print(__doc__)
-        return
+        return 0
     addr = resolve_name(args[0])
     if check:
-        cmd_check(addr, callee, argc, nrv)
-        return
+        # Gate semantics: a suspected operand SWAP is a defect, so exit 1.
+        # `review` is inconclusive and stays exit 0 (a warning for the caller).
+        return 1 if cmd_check(addr, callee, argc, nrv)[2] else 0
     lo, name, hits = audit_fn(addr, callee, argc, nrv)
     print(f"{name}  {lo:#x}  ({len(hits)} operator+ site(s))")
     print_hits(lo, name, hits, argc, nrv)
+    return 0
 
 
 def sweep(callee, argc, nrv, check=False):
@@ -675,7 +676,7 @@ def sweep(callee, argc, nrv, check=False):
             t_ok += o; t_rev += r; t_swap += s; t_stub += st
         print(f"\n== check: {t_ok} OK, {t_rev} review, {t_swap} SWAP?, "
               f"{t_stub} stub/inlined site(s) across {len(sites)} recovered fns ==")
-        return
+        return 1 if t_swap else 0
     total = 0
     for (lo, nm), sl in sorted(sites.items()):
         _, _, hits = audit_fn(lo, callee, argc, nrv)
@@ -683,7 +684,8 @@ def sweep(callee, argc, nrv, check=False):
             print(f"\n{nm}  {lo:#x}")
             total += print_hits(lo, nm, hits, argc, nrv)
     print(f"\n== {total} operator+ operand sites across {len(sites)} recovered fns ==")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

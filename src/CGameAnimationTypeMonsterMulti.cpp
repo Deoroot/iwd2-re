@@ -838,3 +838,19 @@ void CGameAnimationTypeMonsterMulti::GetAnimationResRef(CString& resRef, BYTE ra
         resRef = "";
     }
 }
+
+// 0x49FC40
+BOOL CGameAnimationTypeMonsterMulti::GetPathSmooth()
+{
+    return TRUE;
+}
+
+// 0x6C2D70
+BOOLEAN CGameAnimationTypeMonsterMulti::GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame)
+{
+    // Folded with the Ankheg/Quadrant/Character copies at 0x6C2D70: the binary
+    // writes through both parameters, which is why they are references.
+    nSequence = m_currentVidCell->m_nCurrentSequence;
+    nFrame = m_currentVidCell->m_nCurrentFrame;
+    return TRUE;
+}

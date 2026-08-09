@@ -561,7 +561,7 @@ void CBaldurEngine::UpdateCursorShape(BYTE nCursor)
     g_pBaldurChitin->GetObjectCursor()->SetCursor(pGame == NULL || pGame->m_tempCursor == 4 ? nCursor : pGame->m_tempCursor, FALSE);
 }
 
-// 0x4277C0
+// 0x427AC0
 void CBaldurEngine::EnablePortrait(DWORD dwPanelId, DWORD dwControlId, BOOL bEnable)
 {
     CUIPanel* pPanel = m_cUIManager.GetPanel(dwPanelId);

@@ -3,6 +3,7 @@
 #include <process.h>
 #include <winver.h>
 
+#include "AutoUI.h"
 #include "CAlias.h"
 #include "CBaldurChitin.h"
 #include "CKeyInfo.h"
@@ -1696,6 +1697,14 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
 
             pActiveEngine->TimerUpdate();
             pActiveEngine->TimerAsynchronousUpdate();
+
+            // TEST SCAFFOLDING (AutoUI.h): replay a scripted click here, after
+            // the real input has been processed, so a synthetic click enters the
+            // engine exactly where a real one does. Inert unless
+            // IWD2_RE_UI_SCRIPT is set.
+            if (Iwd2AutoUI::IsEnabled()) {
+                Iwd2AutoUI::Tick(pActiveEngine);
+            }
         }
     }
 }

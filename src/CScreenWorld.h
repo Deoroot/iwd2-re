@@ -22,6 +22,9 @@ class CUIControlTextDisplay;
 class CScreenWorld : public CBaldurEngine {
 public:
     static const LONG BORED_TIME;
+    // Set by StartStore: the store is arbitrated by the session host rather
+    // than driven locally. Always FALSE for a bag and in single player.
+    static BOOL bMultiplayerStore; // #guess (name only)
     static int dword_8F85BC;
 
     CScreenWorld();
@@ -115,6 +118,8 @@ public:
     void SetPendingRest(INT nHP, BOOLEAN bRenting, BOOLEAN bMovie);
     void StartRestMultiplayerHost(INT nHP, BOOLEAN bRenting, BOOLEAN bMovie);
     void CheckEndOfHardPause();
+    BOOL HandleWorldKey(BYTE nKey);
+    void HandleKeymapAction(BYTE nKey);
     void SetChatKeyboardFocus();
     void CheckEndOfMultiplayerSynch();
     void DeleteAreaMultiplayer();

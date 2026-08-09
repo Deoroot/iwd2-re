@@ -7,6 +7,9 @@
   sym.py disasm 0xADDR [count=24]      capstone x86-32, call/jmp targets named
   sym.py findptr 0xVALUE               scan all sections for LE dword (vtable slot discovery)
   sym.py callsites 0xTARGET            scan .text for E8 rel32 calls to target (factory case wiring)
+  sym.py scan HEXBYTES [--limit N] [--fn RE]  .text byte pattern -> containing fns; a field
+                                       displacement is little-endian ('scan 38560000' = [reg+0x5638]).
+                                       Caps at 96 hits: --limit 0 for all, --fn to filter by function.
   sym.py vtable 0xADDR [slots=16]      dump vtable slots resolved to names
   sym.py addr2fn 0xADDR                containing function (address_map bisect) + src file:line
   sym.py crash  dump.dmp [N] [--loose]  minidump: exception + symbolicated stack scan (--loose for our-build dumps)
@@ -22,6 +25,7 @@ Names: .ghidra-exports/address_map.json + src_index.json (file:line join).
 import bisect
 import json
 import os
+import re
 import string
 import struct
 import sys
@@ -193,30 +197,63 @@ def cmd_disasm(addr, count=24):
             break
 
 
-def cmd_findptr(value):
+def find_pointers(value, limit=65):
+    """Every location holding *value* as a little-endian dword, as (va, section)."""
     pat = struct.pack("<I", value)
-    hits = 0
+    hits = []
     for sec in pe().sections:
         name = sec.Name.rstrip(b"\0").decode("latin-1")
         data = sec.get_data()
         base = image_base() + sec.VirtualAddress
         off = data.find(pat)
         while off != -1:
-            print(f"0x{base + off:08x}  {name}{annot(value)}")
-            hits += 1
-            if hits > 64:
-                print("... (>64 hits, stopping)")
-                return
+            hits.append((base + off, name))
+            if len(hits) >= limit:
+                return hits
             off = data.find(pat, off + 4)
+    return hits
+
+
+def find_callsites(target):
+    """Every `.text` E8 rel32 call whose destination is *target*."""
+    sites = []
+    for sec in pe().sections:
+        if not sec.Name.startswith(b".text"):
+            continue
+        data = sec.get_data()
+        base = image_base() + sec.VirtualAddress
+        off = data.find(b"\xe8")
+        while off != -1:
+            if off + 5 <= len(data):
+                (rel,) = struct.unpack_from("<i", data, off + 1)
+                site = base + off
+                if (site + 5 + rel) & 0xFFFFFFFF == target:
+                    sites.append(site)
+            off = data.find(b"\xe8", off + 1)
+    return sites
+
+
+def cmd_findptr(value):
+    hits = find_pointers(value)
+    for va, name in hits[:64]:
+        print(f"0x{va:08x}  {name}{annot(value)}")
+    if len(hits) > 64:
+        print("... (>64 hits, stopping)")
+        return
     if not hits:
         print("no hit")
         sys.exit(1)
 
 
-def cmd_scan(hexbytes, sect=b".text"):
+def cmd_scan(hexbytes, sect=b".text", limit=96, fnpat=None):
     """List code addresses containing a raw byte pattern (e.g. a field disp:
-    'scan 38560000' finds [reg+0x5638] accesses), mapped to containing fns."""
+    'scan 38560000' finds [reg+0x5638] accesses), mapped to containing fns.
+
+    limit=0 lifts the cap. fnpat keeps only hits whose containing function
+    matches the regex -- use it instead of a shell grep, so the cap counts
+    what you asked for rather than truncating before the interesting range."""
     pat = bytes.fromhex(hexbytes)
+    rx = re.compile(fnpat) if fnpat else None
     hits = 0
     for sec in pe().sections:
         if not sec.Name.startswith(sect):
@@ -227,11 +264,12 @@ def cmd_scan(hexbytes, sect=b".text"):
         while off != -1:
             va = base + off
             nm = addr2name(va) or "?"
-            print(f"0x{va:08x}  {nm}")
-            hits += 1
-            if hits > 96:
-                print("... (>96 hits, stopping)")
-                return
+            if rx is None or rx.search(nm):
+                print(f"0x{va:08x}  {nm}")
+                hits += 1
+                if limit and hits > limit:
+                    print(f"... (>{limit} hits, stopping -- raise with --limit N, 0 = all)")
+                    return
             off = data.find(pat, off + 1)
     if not hits:
         print("no hit")
@@ -239,25 +277,12 @@ def cmd_scan(hexbytes, sect=b".text"):
 
 
 def cmd_callsites(target):
-    for sec in pe().sections:
-        if not sec.Name.startswith(b".text"):
-            continue
-        data = sec.get_data()
-        base = image_base() + sec.VirtualAddress
-        hits = 0
-        off = data.find(b"\xe8")
-        while off != -1:
-            if off + 5 <= len(data):
-                (rel,) = struct.unpack_from("<i", data, off + 1)
-                site = base + off
-                if (site + 5 + rel) & 0xFFFFFFFF == target:
-                    nm = addr2name(site) or "?"
-                    print(f"0x{site:08x}  {nm}")
-                    hits += 1
-            off = data.find(b"\xe8", off + 1)
-        if not hits:
-            print("no call site")
-            sys.exit(1)
+    sites = find_callsites(target)
+    for site in sites:
+        print(f"0x{site:08x}  {addr2name(site) or '?'}")
+    if not sites:
+        print("no call site")
+        sys.exit(1)
 
 
 def cmd_vtable(addr, slots=16):
@@ -362,7 +387,19 @@ def main():
         elif cmd == "callsites":
             cmd_callsites(parse_addr(rest[0]))
         elif cmd == "scan":
-            cmd_scan(rest[0])
+            limit = 96
+            fnpat = None
+            args = list(rest[1:])
+            while args:
+                if args[0] == "--limit":
+                    limit = int(args[1])
+                    args = args[2:]
+                elif args[0] == "--fn":
+                    fnpat = args[1]
+                    args = args[2:]
+                else:
+                    sys.exit(f"scan: unknown argument {args[0]}")
+            cmd_scan(rest[0], limit=limit, fnpat=fnpat)
         elif cmd == "vtable":
             cmd_vtable(parse_addr(rest[0]), int(rest[1]) if len(rest) > 1 else 16)
         elif cmd == "addr2fn":

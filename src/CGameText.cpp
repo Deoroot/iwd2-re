@@ -1,8 +1,11 @@
 #include "CGameText.h"
 
 #include "CBaldurChitin.h"
+#include "CGameAnimationType.h"
 #include "CGameArea.h"
+#include "CGameSprite.h"
 #include "CInfGame.h"
+#include "CInfinity.h"
 #include "CUtil.h"
 #include "CVidMode.h"
 
@@ -58,7 +61,7 @@ void CGameText::SetText(const CPoint& pt, BYTE nDuration, BYTE nBeginFade, const
         m_nMaxLines = static_cast<BYTE>((size.cy - 2 * PADDING.cy) / m_textFont.GetFontHeight(TRUE));
 
         if (m_szLine != NULL) {
-            delete m_szLine;
+            delete[] m_szLine;
         }
 
         m_szLine = new CString[m_nMaxLines];
@@ -92,6 +95,160 @@ void CGameText::SetText(const CPoint& pt, BYTE nDuration, BYTE nBeginFade, const
 
     m_nBeginFade = nBeginFade;
     m_pos = pt;
+}
+
+// 0x4CBB20
+void CGameText::Render(CGameArea* pArea, CVidMode* pVidMode, int a3)
+{
+    CInfinity* pInfinity = &m_pArea->m_cInfinity;
+    DWORD dwRenderFlags = CInfinity::FXPREP_CLEARFILL | 0x20001;
+    BOOL bFadeOut = FALSE;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\
+    // __LINE__: 550
+    UTIL_ASSERT(pVidMode != NULL);
+
+    if (m_nLines == 0) {
+        return;
+    }
+
+    CRect rFXRect;
+    CPoint ptReference;
+
+    if (m_vidCell.GetRes() == NULL) {
+        // No backing frame: the text box is half the FX surface, and a single
+        // line is narrowed to the width it actually occupies.
+        CSize size;
+        pVidMode->GetFXSize(size);
+        size.cy = size.cy / 2;
+        size.cx = size.cx / 2;
+        SetRect(&rFXRect, 0, 0, size.cx - 1, size.cy - 1);
+
+        LONG nWidth = size.cx;
+        if (m_nLines == 1) {
+            nWidth = m_textFont.GetStringLength(m_szLine[0], FALSE);
+        }
+
+        ptReference.x = nWidth / 2;
+        ptReference.y = (m_nLines * size.cy / m_nMaxLines) / 2;
+    } else {
+        bFadeOut = m_nDuration < m_nBeginFade;
+
+        CSize frameSize;
+        m_vidCell.GetCurrentCenterPoint(ptReference, FALSE);
+        m_vidCell.GetCurrentFrameSize(frameSize, FALSE);
+        SetRect(&rFXRect, 0, 0, frameSize.cx, frameSize.cy);
+    }
+
+    CRect rClip(PADDING.cx,
+        PADDING.cy,
+        rFXRect.right - PADDING.cx,
+        rFXRect.bottom - PADDING.cy);
+
+    // Cull against the world rect the viewport currently shows.
+    CRect rText(m_pos.x - ptReference.x,
+        m_pos.y - m_posZ - ptReference.y,
+        m_pos.x + ptReference.x,
+        m_pos.y - m_posZ + ptReference.y);
+
+    CRect rView(pInfinity->nCurrentX,
+        pInfinity->nCurrentY,
+        pInfinity->nCurrentX + (pInfinity->rViewPort.right - pInfinity->rViewPort.left),
+        pInfinity->nCurrentY + (pInfinity->rViewPort.bottom - pInfinity->rViewPort.top));
+
+    if (!IntersectRect(&rView, &rText, &rView)) {
+        return;
+    }
+
+    // Re-anchor on the owner every frame so the text tracks a moving sprite.
+    // The vertical offset is in line units, biased by the owner's footprint.
+    if (field_1C != 0) {
+        CGameObject* pOwner;
+
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(field_1C,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pOwner,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+
+        CPoint ptOwner = pOwner->GetPos();
+
+        if (pOwner->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pOwner);
+
+            // __FILE__: .\Include\ObjAnimation.h
+            // __LINE__: 2115
+            UTIL_ASSERT(pSprite->m_animation.m_animation != NULL);
+
+            if (pSprite->m_animation.m_animation->m_animationID == ANIM_BEETLE_RHINOCEROUS) {
+                m_pos.x = ptOwner.x;
+                m_pos.y = (m_nLines - 20) * 5 + ptOwner.y;
+            } else {
+                BYTE nPersonalSpace = pSprite->m_animation.GetPersonalSpace();
+                m_pos.x = ptOwner.x;
+                m_pos.y = (m_nLines - nPersonalSpace * 7) * 5 + ptOwner.y;
+            }
+        } else if (pOwner->GetObjectType() != CGameObject::TYPE_TRIGGER) {
+            m_pos.x = ptOwner.x;
+            m_pos.y = (-3 - m_nLines) * 5 + ptOwner.y;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(field_1C,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    // 0x5CDD00: the world-to-screen transform of the padded text bounds, fed
+    // to CVidMode vtable slot 0xAC (0x797E70) -- both unrecovered, so the
+    // call is omitted.
+
+    CPoint ptPos(m_pos.x, m_pos.y - m_posZ);
+    pInfinity->FXPrep(rFXRect, dwRenderFlags, a3, ptPos, ptReference);
+
+    if (pInfinity->FXLock(rFXRect, dwRenderFlags)) {
+        if (m_vidCell.GetRes() != NULL) {
+            pInfinity->FXRender(&m_vidCell, ptReference.x, ptReference.y, dwRenderFlags, 0);
+        }
+
+        if (m_textFont.GetRes()->Demand() != NULL) {
+            for (BYTE nLine = 0; nLine < m_nLines; nLine++) {
+                SHORT nFontHeight = m_textFont.GetFontHeight(TRUE);
+                SHORT nBaseLine = m_textFont.GetBaseLineHeight(TRUE);
+
+                pInfinity->FXTextOut(&m_textFont,
+                    m_szLine[nLine],
+                    PADDING.cx,
+                    nBaseLine + PADDING.cy + nFontHeight * nLine,
+                    rClip,
+                    dwRenderFlags,
+                    TRUE);
+            }
+
+            m_textFont.GetRes()->Release();
+        }
+
+        if (bFadeOut) {
+            pInfinity->FXUnlock(dwRenderFlags,
+                &rFXRect,
+                CPoint(m_pos.x + ptReference.x, m_pos.y + ptReference.y));
+        } else {
+            pInfinity->FXUnlock(dwRenderFlags, NULL, CPoint(0, 0));
+        }
+
+        pInfinity->FXBltFrom(a3,
+            rFXRect,
+            m_pos.x,
+            m_pos.y - m_posZ,
+            ptReference.x,
+            ptReference.y,
+            dwRenderFlags | 1);
+    }
 }
 
 // 0x4CB700
@@ -151,7 +308,7 @@ BOOLEAN CGameText::CanSaveGame(STRREF& strError)
 CGameText::~CGameText()
 {
     if (m_szLine != NULL) {
-        delete m_szLine;
+        delete[] m_szLine;
     }
 
     if (field_1C != 0) {

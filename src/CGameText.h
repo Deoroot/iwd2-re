@@ -7,6 +7,11 @@
 
 class CGameArea;
 
+// Binary-mirror layout: IWD2 packs to 2, so without this the CString*
+// m_szLine 4-aligns after the BYTE m_nMaxLines and the whole tail drifts.
+#pragma pack(push)
+#pragma pack(2)
+
 class CGameText : public CGameObject {
 public:
     static const CSize PADDING;
@@ -16,6 +21,7 @@ public:
     /* 000C */ virtual void AIUpdate();
     /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 0048 */ virtual void RemoveFromArea();
+    /* 004C */ void Render(CGameArea* pArea, CVidMode* pVidMode, int a3) override;
     /* 0050 */ virtual BOOLEAN DoAIUpdate(BOOLEAN active, LONG counter);
 
     void SetText(const CPoint& pt, BYTE nDuration, BYTE nBeginFade, const CString& sText);
@@ -26,7 +32,9 @@ public:
     /* 064C */ INT m_nBeginFade;
     /* 0650 */ BYTE m_nMaxLines;
     /* 0652 */ CString* m_szLine;
-    /* 0656 */ int m_nLines;
+    /* 0656 */ BYTE m_nLines;
 };
+
+#pragma pack(pop)
 
 #endif /* CGAMETEXT_H_ */

@@ -1,7 +1,5 @@
 #include "CProjectile.h"
 
-#include "DebugLog.h"
-
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +23,10 @@
 #include "CResBitmap.h"
 #include "CUtil.h"
 #include "IcewindMisc.h"
+
+// 0x84F06C. Data-segment gather radius the image initialises to 100 and never
+// writes; DecodeProjectile case 0x118 is its only reader in the whole binary.
+static SHORT g_nSpellHitDefaultRange = 100;
 
 static LONG GetProjectileSourceDiagonalOffset(const CRect& rEllipse)
 {
@@ -566,6 +568,104 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    // The single-target spell-projectile family: each of these builds the
+    // IcewindCProjectileTravellingVFX carrier directly (like case 0x18) and
+    // stamps its own animation cell / velocity / facing / sound, so the spell's
+    // effects ride the recovered travel -> OnArrival -> DeliverEffects path.
+    // Previously every one fell to `default: new CProjectile()` (empty Fire),
+    // silently dropping the payload.  Transcribed from the 0x528e7c jump-table
+    // handlers (blocks 0x525a55 / 0x525f00 / 0x525fec / 0x526492 / 0x526a35 /
+    // 0x527436 / 0x527c77); the ctor 0x578110 already seeds height + colours.
+    case 0xFB: {
+        // ICELANT -- Ice Lance's travelling ice bolt ("IcelanT" BAM): the
+        // copy-from-back tinted travelling VFX, 16 directional sequences,
+        // launch sound TRA_19.
+        IcewindCProjectileTravellingVFX* pLance = new IcewindCProjectileTravellingVFX(CResRef("IcelanT"));
+        pLance->m_visualEffect.SetCopyFromBack(TRUE);
+        pLance->m_dirCount = 0x10;
+        pLance->m_fireSoundRef = CResRef("TRA_19");
+        pProjectile = pLance;
+        break;
+    }
+
+    case 0x10C: {
+        // DISINTT -- Disintegrate's travelling ray ("DisintT" BAM): the
+        // copy-from-back tinted travelling VFX, 16 directional sequences,
+        // launch sound TRA_20.
+        IcewindCProjectileTravellingVFX* pRay = new IcewindCProjectileTravellingVFX(CResRef("DisintT"));
+        pRay->m_visualEffect.SetCopyFromBack(TRUE);
+        pRay->m_dirCount = 0x10;
+        pRay->m_fireSoundRef = CResRef("TRA_20");
+        pProjectile = pRay;
+        break;
+    }
+
+    case 0x10F: {
+        // OFSPHET -- Otiluke's Freezing Sphere travelling orb ("OFSpheT" BAM):
+        // the copy-from-back tinted travelling VFX, 16 directional sequences.
+        // The block writes no sound or height override (ctor defaults stand).
+        IcewindCProjectileTravellingVFX* pSphere = new IcewindCProjectileTravellingVFX(CResRef("OFSpheT"));
+        pSphere->m_visualEffect.SetCopyFromBack(TRUE);
+        pSphere->m_dirCount = 0x10;
+        pProjectile = pSphere;
+        break;
+    }
+
+    case 0x11D: {
+        // MSPORET -- the Myconid "Sprays Spores" travelling VFX ("MSporeT" BAM).
+        // The factory first shows the "Sprays Spores" combat-feedback line
+        // (strref 4386) over the caster, then builds the plain travelling VFX
+        // with no member overrides (constructor defaults only).
+        IcewindMisc::DisplayFeedbackMessage(static_cast<CGameSprite*>(pCaster), 4386, 0);
+        pProjectile = new IcewindCProjectileTravellingVFX(CResRef("MSporeT"));
+        break;
+    }
+
+    case 0x12A: {
+        // ALANCET -- Alicorn Lance (SPPR216.SPL, strref 21421): the silver
+        // alicorn-horn lance's travelling VFX ("ALanceT" BAM), a copy-from-back
+        // tinted bolt flying at double the ctor's base velocity, 16 rotation
+        // frames, north-facing fold off, launch sound TRA_57.
+        IcewindCProjectileTravellingVFX* pLance = new IcewindCProjectileTravellingVFX(CResRef("ALanceT"));
+        pLance->m_velocity = static_cast<SHORT>(pLance->m_velocity * 2);
+        pLance->m_visualEffect.SetCopyFromBack(TRUE);
+        pLance->m_dirCount = 0x10;
+        pLance->m_bMirrorNorth = 0;
+        pLance->m_fireSoundRef = CResRef("TRA_57");
+        pProjectile = pLance;
+        break;
+    }
+
+    case 0x13C: {
+        // VSPHERT -- Vitriolic Sphere's travelling acid orb ("VSpherT" BAM):
+        // the copy-from-back tinted travelling VFX flying at double the ctor's
+        // base velocity, single (non-directional) sequence, height + area
+        // height-offset on, launch sound TRA_60, no arrival sound.
+        IcewindCProjectileTravellingVFX* pSphere = new IcewindCProjectileTravellingVFX(CResRef("VSpherT"));
+        pSphere->m_visualEffect.SetCopyFromBack(TRUE);
+        pSphere->m_velocity = static_cast<SHORT>(pSphere->m_velocity << 1);
+        pSphere->m_dirCount = 1;
+        pSphere->m_bHasHeight = TRUE;
+        pSphere->m_useHeightOffset = 1;
+        pSphere->m_fireSoundRef = CResRef("TRA_60");
+        pSphere->m_arrivalSoundRef = CResRef("");
+        pProjectile = pSphere;
+        break;
+    }
+
+    case 0x158: {
+        // MFMISST -- the travelling fire-missile VFX ("MFMissT" BAM): a
+        // copy-from-back tinted bolt flying at double the ctor's base velocity,
+        // height + area height-offset on.  No sound or facing overrides.
+        IcewindCProjectileTravellingVFX* pMissile = new IcewindCProjectileTravellingVFX(CResRef("MFMissT"));
+        pMissile->m_velocity = static_cast<SHORT>(pMissile->m_velocity * 2);
+        pMissile->m_visualEffect.SetCopyFromBack(TRUE);
+        pMissile->m_bHasHeight = TRUE;
+        pMissile->m_useHeightOffset = 1;
+        pProjectile = pMissile;
+        break;
+    }
+
     case 0x25: {
         // MAGICMIS -- the plain single Magic Missile bolt (SPMAGMIS BAM, no
         // sparkle trail), launch whoosh TRA_02 like the launcher's
@@ -719,21 +819,852 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     case 0x26:
         // Fireball (SPWI304): the large area spell-hit projectile. The binary
         // builds it bare (case 0x26 = `new CProjectileFireball()`); all
-        // configuration is in the leaf ctor (0x571E80). It travels and arrives
-        // through the inherited family virtuals, but the SpellHit AOE strike
-        // (vtable slots 36/37/38) and the OnArrival/Fire/AIUpdate overrides are
-        // not yet recovered, so no area damage fires yet.
+        // configuration is in the leaf ctor (0x571E80). It travels, arrives and
+        // fires the AOE strike through the inherited IcewindCProjectileSpellHit
+        // virtuals -- AIUpdate (slot 3) -> GatherTargets (36) -> Strike (37) ->
+        // StrikeTarget (38), plus OnArrival (28)/Fire (27) -- all now recovered,
+        // so each victim gets a carrier loaded with a copy of the effect list on
+        // detonation.
         pProjectile = new CProjectileFireball();
+        break;
+
+    case 0xFF: {
+        // Enchantment-school area spell-hit carrier (projectile 255): SPWI420
+        // Emotion: Fear and the other leaf-less point-cast Enchantment AOE
+        // spells.  The binary (0x525bcd) builds the base spell-hit projectile
+        // directly -- no dedicated leaf -- with nType 0x96, then stamps
+        // emission slot 0's Enchantment detonation cell (EnchanX) and area
+        // sound (ARE_M21) and arms copy-from-back on its visual.
+        //
+        // Without this case the missile fell to the default plain CProjectile,
+        // whose Fire() (0x78E740) is a stub, so the targetType-2 gameplay
+        // effects the caster attached in ForceSpellPointAction (State: Horror,
+        // the save rider, ...) never travelled, gathered, or delivered -- the
+        // creatures in the AOE were never affected.  The base spell-hit family
+        // arrives instantly (m_bHasTravelCell = 0), detonates, and its
+        // AIUpdate -> GatherTargets -> Strike -> StrikeTarget pass spawns a
+        // per-victim carrier loaded with a copy of the effect list.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    // The following leaf-less point-cast AOE spell-hit cases share case 0xFF's shape:
+    // a projectile type our switch lacked, so the missile fell to the default plain
+    // CProjectile (stub Fire()), silently dropping the caster's targetType-2 gameplay
+    // effects. Each reproduces its binary jump-table handler and delivers through the
+    // recovered IcewindCProjectileSpellHit strike chain (proven by case 0xFF).
+    //
+    // The sibling travelling-VFX carriers (Icelance 0xFB, Otiluke 0x10D, Vitriolic
+    // 0x13C -- IcewindCProjectileTravellingVFX) are deliberately NOT recovered here:
+    // routing an effect-carrying spell through that class crashes on arrival (its
+    // CProjectileTravelling delivery path is only partly recovered).  Left for a
+    // dedicated fix rather than shipping a crash -- missing beats wrong.
+
+    case 0xF0: {
+        // See Invisibility (SPWI203) / Invisibility Purge (SPPR309): base spell-hit
+        // carrier (0x525725, nType 0x12c). Seeds the strike filter from the caster's
+        // allegiance, then stamps slot 0's detonation cell (Area2X) + area sound
+        // (EFF_M99) + copy-from-back.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12c);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area2X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xFD: {
+        // Priest/innate area spell-hit carrier (0x525b26, nType 0x258): SPPR313,
+        // SPIN209 and siblings. Stamps slot 0's detonation cell (Area1X) + impact
+        // sound (EFF_P99) + copy-from-back.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x258);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x104: {
+        // Priest/innate area spell-hit carrier (0x525d03, nType 0x258): SPPR414,
+        // SPIN210. Twin of case 0xFD (Area1X / EFF_P99 / copy-from-back).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x258);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x13E: {
+        // Horrid Wilting (SPWI805): Necromancy area spell-hit carrier (0x5275b6,
+        // nType 0x12c). Twin of case 0xFF, differing only in nType and the resrefs:
+        // detonation cell ADHWilX + area sound ARE_M17 + copy-from-back.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12c);
+        pSpellHit->m_visual1.m_cellResRef.Set("ADHWilX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M17");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x151: {
+        // Holy Smite (SPIN203 innate / SPPR324 priest, strref 3925): radiant-burst
+        // area spell-hit carrier (0x527a18, nType 0xC8). Shared tail 0x527abe stamps
+        // emission slot 3's detonation cell (HSmiteA) with a transparent (0x40)
+        // visual, the fan-emission respawn/anim flags and 0x12C density, and the
+        // recurring strike clock (period 0x2710, interval 0xA) over a 0x2D-tick life.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual3.m_cellResRef.Set("HSmiteA");
+        pSpellHit->m_visual3.m_fx.SetTransparency(TRUE, 0x40);
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3DensityBase = 0x12C;
+        pSpellHit->m_strikePeriod = 0x2710;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x2D;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x152: {
+        // Unholy Blight (SPPR325, strref 4346): the evil twin of Holy Smite --
+        // identical shared-tail config (0x527a6c -> 0x527abe) but detonation cell
+        // UBlighA. nType 0xC8.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual3.m_cellResRef.Set("UBlighA");
+        pSpellHit->m_visual3.m_fx.SetTransparency(TRUE, 0x40);
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3DensityBase = 0x12C;
+        pSpellHit->m_strikePeriod = 0x2710;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x2D;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x175: {
+        // Control Undead (SPWI717) / Mass Dominate (SPWI911): Enchantment domination
+        // area spell-hit carrier (0x5286ef, nType 0xC8). Like case 0xFF: detonation
+        // cell EnchanX + area sound ARE_M21 + copy-from-back.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    // The school-detonation spell-hit cases.  Every one of them builds the bare
+    // carrier, optionally seeds the strike filter from the caster's allegiance --
+    // SetStrikeTargetFilter for the offensive spells, SetStrikeAllyFilter for the
+    // beneficial ones -- and stamps emission slot 0 with the school's detonation
+    // cell (Area1X..Area4X for the generic bursts, AbjuraX / AlteraX / EnchanX for
+    // the school-coloured ones), the area sound, and copy-from-back.  Same shape as
+    // case 0xFF above; they differ only in nType (the gather radius), the filter and
+    // the two resrefs.  All of them fell to the default plain CProjectile until now.
+
+    case 0xEC: {
+        // Bless (SPPR101, SPITM02).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xED: {
+        // Bane (SPPR111): the hostile twin of Bless -- same radius and detonation,
+        // the enemy-side filter (0x5255D7 -> 0x52559D, case 0xEC's tail).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xEE: {
+        // Remove Fear (SPPR108, SPIN198): Abjuration detonation on the caster's side.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xEF: {
+        // Detect Evil (SPIN120): no filter -- the gather pass takes everyone in range.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area2X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF1: {
+        // Horror (SPWI205).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area4X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF2: {
+        // Resist Fear (SPWI210): twin of case 0xEE (0x5257DC -> 0x52565A).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF3: {
+        // Chant (SPPR203): the widest of the group (nType 0x15E), no filter.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x15E);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF5: {
+        // Silence, 15' Radius (SPPR211, SPPR988): Alteration detonation, no filter.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF7: {
+        // Ally-side Alteration burst (0x525953 -> 0x525B07, case 0xFC's tail). No
+        // .SPL in the shipped game selects this projectile.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xF8: {
+        // Slow (SPWI312): the hostile twin of case 0xF7.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xFA: {
+        // Remove Paralysis (SPPR308, SPIN248): Abjuration burst on the caster's side
+        // (0x525A0B -> 0x52566D, case 0xEE's tail).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xFC: {
+        // Strength of One (SPPR312).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0xFE: {
+        // Confusion (SPWI401): Enchantment burst, enemy-side (0x525B68 -> 0x52872C,
+        // the EnchanX / ARE_M21 tail case 0xFF also lands on).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x100: {
+        // Malison (SPWI412): same shape as case 0xFE.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x101: {
+        // Defensive Harmony (SPPR406): the tightest radius of the group (nType 0x64),
+        // ally-side.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x64);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x102: {
+        // Magic Circle Against Evil (SPPR408) / Holy Aura (SPPR801).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x108: {
+        // Chaos (SPWI509): Enchantment burst, enemy-side (0x525DF0 -> 0x525C36,
+        // case 0x100's tail).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x10A: {
+        // Righteous Wrath of the Faithful (SPPR511, SPITM05, EFFRWF1/EFFRWF2):
+        // the widest ally burst (nType 0x15E). The binary stamps the detonation
+        // before seeding the filter (0x525E27); order kept.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x15E);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x111: {
+        // Mass Invisibility (SPWI709).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area3X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x113: {
+        // Confusion (SPPR709) / Gram's Paradox (SPIN239) / EFFGPX. Shares the arm
+        // at 0x525B98 with case 0x153 -- both blocks are a bare jmp into it.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x114: {
+        // Symbol of Pain (SPPR714) / Symbol of Stunning (SPPR728).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("SoPainX");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P49");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x115: {
+        // Symbol of Hopelessness (SPPR715) / Symbol of Fear (SPPR727).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("SoHopeX");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P50");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x150: {
+        // Power Word, Blind (SPWI808).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("PWStunH");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M38");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x153: {
+        // Greater Command (SPPR518): twin of case 0x113, same shared arm.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("EnchanX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x154:
+        // No .SPL in the shipped game selects projectile 0x154; it configures
+        // exactly like case 0x155 below (0x527B3E -> 0x526279, case 0x115's tail
+        // entered past the filter call).
+    case 0x155: {
+        // Holy Word (SPPR721) / Blasphemy (SPPR722): unfiltered -- the detonation
+        // gathers everyone in range, and the effect list does the sorting.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->m_visual1.m_cellResRef.Set("SoHopeX");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P50");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x166: {
+        // Invisibility Sphere (SPWI321): the tight ally sphere (nType 0x7D).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x7D);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_M99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x167: {
+        // Healing Circle (SPPR521) / Mass Heal (SPPR802).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x16A: {
+        // Wail of the Banshee (SPWI906): the only case in the family whose area
+        // sound is EFF_W99.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("Area1X");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_W99");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x16B:
+    case 0x16C: {
+        // Two jump-table entries onto the same block (0x52831D). No .SPL in the
+        // shipped game selects either; the configuration is the filtered twin of
+        // case 0x155.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->SetStrikeTargetFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("SoHopeX");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P50");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x16F: {
+        // Mass Haste (SPWI623).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x173: {
+        // Aura of Vitality (SPPR729): the tightest radius in the family (nType 0x46).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x46);
+        pSpellHit->SetStrikeAllyFilter(pCaster);
+        pSpellHit->m_visual1.m_cellResRef.Set("AlteraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M19");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x174: {
+        // Banishment (SPWI718): unfiltered Abjuration burst (0x52869F -> 0x525674,
+        // case 0xEE's tail entered past the filter call).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xA0);
+        pSpellHit->m_visual1.m_cellResRef.Set("AbjuraX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M20");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x17D: {
+        // Breathes Acid (SPIN225): a dragon breath rather than a cast spell, and
+        // the only case in this group that also drives emission slot 2 -- the
+        // GABreaA fan re-emitting over a 0x2D-tick life on the recurring strike
+        // clock, on top of the GABreaX detonation in slot 0.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual1.m_cellResRef.Set("GABreaX");
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_M21");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3.m_cellResRef.Set("GABreaA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3AnimFlag36 = 1;
+        pSpellHit->m_visual3DensityBase = 0x1F4;
+        pSpellHit->m_strikePeriod = 0x2710;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x2D;
+        pSpellHit->m_aoeRange = 0xC8;   // re-stores the value the ctor already set
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    // The persistent-cloud spell-hit cases.  Same bare carrier, but the
+    // configuration lands on emission slot 2 (m_visual3, the re-emitting fan) or
+    // slot 1 (m_visual2) instead of slot 0, and most of them arm the recurring
+    // strike clock so the cloud keeps striking whatever stands in it for the whole
+    // of m_lifetime.  All fell to the default plain CProjectile until now.
+
+    case 0x11A: {
+        // Releases Acidic Vapor (SPIN993, strref 4388): a creature attack rather
+        // than a cast spell -- it announces itself before building the carrier.
+        IcewindMisc::DisplayFeedbackMessage(static_cast<CGameSprite*>(pCaster), 4388, 0);
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x64);
+        pSpellHit->m_visual2.m_cellResRef.Set("SCloudR");
+        pSpellHit->m_visual2.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual2AnimMode = 1;
+        pSpellHit->m_visual2MaxSpawn = 7;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x11E: {
+        // Incendiary cloud, second stage (SPIN983).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual3.m_cellResRef.Set("ICloudB");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3AnimFlag36 = 1;
+        pSpellHit->m_visual3DensityBase = 0x1F4;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x11F: {
+        // Incendiary cloud, first stage (SPIN981, SPIN982): respawns from the pool
+        // instead of animating a flag, and outlives 0x11E (0xC8 ticks).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual3.m_cellResRef.Set("ICloudA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3DensityBase = 0x1F4;
+        pSpellHit->m_lifetime = 0xC8;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x12B: {
+        // Soul Eater (SPWI619) / Orrick's Soul Devourer (SPIN969).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x78);
+        pSpellHit->m_visual3.m_cellResRef.Set("SEaterA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_M18");
+        pSpellHit->m_visual3DensityBase = 0xC8;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x12C: {
+        // Spike Growth (SPPR320, SPIN206): the longest-lived cloud in the family
+        // (0x7D0 ticks) re-striking every tenth pass.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x96);
+        pSpellHit->m_visual1.m_cellResRef.Set("SGrowtX");
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P111");
+        pSpellHit->m_visual1.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3.m_cellResRef.Set("SGrowtA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("AFT_P24");
+        pSpellHit->m_visual3DensityBase = 0xFA;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x7D0;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x12D: {
+        // Rainstorm (SPPR221).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->m_visual3.m_cellResRef.Set("CloudBA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_P24");
+        pSpellHit->m_visual3DensityBase = 0x64;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0xC8;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x133: {
+        // Mist of Eldath (SPPR720): the only case here that stamps slot 0's sound
+        // without a slot-0 cell -- the detonation is silent-visual, audible-only.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x78);
+        pSpellHit->m_visual1.m_soundResRef.Set("EFF_P104");
+        pSpellHit->m_visual3.m_cellResRef.Set("MoEldaA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3DensityBase = 0x4B0;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x135: {
+        // Cloud of Pestilence (SPPR417): a half-transparent (0x80) fan rather than
+        // a copy-from-back one. Shares case 0x13D's clock tail (0x52707B -> 0x52758C).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual3.m_cellResRef.Set("CoPestA");
+        pSpellHit->m_visual3.m_fx.SetTransparency(TRUE, 0x80);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_P25");
+        pSpellHit->m_visual3DensityBase = 0xAF;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x190;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x136: {
+        // Undead Ward (SPPR516): sound only -- no cell in any slot -- and the widest
+        // re-strike interval in the family (0x2710), so the ward strikes once and
+        // then holds for its 0x3E8-tick life.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual1.m_soundResRef.Set("ARE_P28");
+        pSpellHit->m_visual3.m_soundResRef.Set("AFT_P27");
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0x2710;
+        pSpellHit->m_lifetime = 0x3E8;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x13D: {
+        // Suffocate (SPWI711).
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x78);
+        pSpellHit->m_visual3.m_cellResRef.Set("SuffocA");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("AFT_M18");
+        pSpellHit->m_visual3DensityBase = 0x3E8;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x190;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x15F: {
+        // Releases Jelly Vapor (SPIN182, strref 27030): a creature attack, and the
+        // twin of case 0x11A -- it lands on slot 1 through the same tail (0x527F29).
+        IcewindMisc::DisplayFeedbackMessage(static_cast<CGameSprite*>(pCaster), 27030, 0);
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x7D);
+        pSpellHit->m_visual2.m_cellResRef.Set("CloudKR");
+        pSpellHit->m_visual2.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual2AnimMode = 1;
+        pSpellHit->m_visual2MaxSpawn = 7;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x16E: {
+        // Meteor Swarm (SPWI908): the fan neither respawns from the pool nor
+        // animates, and the carrier is pinned to a single direction.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+        pSpellHit->m_visual3.m_cellResRef.Set("MSwarmA");
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_P03");
+        pSpellHit->m_visual3.m_fx.SetCopyFromBack(TRUE);
+        pSpellHit->m_visual3RespawnFlag = 0;
+        pSpellHit->m_visual3AnimMode = 0;
+        pSpellHit->m_visual3DensityBase = 0xFA;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0x2710;
+        pSpellHit->m_lifetime = 0x2D;
+        pSpellHit->m_dirCount = 1;
+        pSpellHit->m_aoeRange = 0x12C;  // re-stores the value the ctor already set
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x179: {
+        // Breathes Mind Fog (SPIN221): case 0x135's cloud on a shorter life.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xC8);
+        pSpellHit->m_visual3.m_cellResRef.Set("CoPestA");
+        pSpellHit->m_visual3.m_fx.SetTransparency(TRUE, 0x80);
+        pSpellHit->m_visual3AnimMode = 1;
+        pSpellHit->m_visual3RespawnFlag = 1;
+        pSpellHit->m_visual3.m_soundResRef.Set("ARE_P25");
+        pSpellHit->m_visual3DensityBase = 0xAF;
+        pSpellHit->m_strikePeriod = 0xA;
+        pSpellHit->m_strikeCountdown = 0;
+        pSpellHit->m_strikeInterval = 0xA;
+        pSpellHit->m_lifetime = 0x12C;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    // The bare spell-hit cases: the carrier alone, at most a strike filter. The
+    // spell's own effect list carries everything visible; nothing is stamped on
+    // the emission slots, so these detonate invisibly and strike. Last of the
+    // types that fell to the default plain CProjectile.
+
+    case 0xF4: {
+        // Find Traps (SPPR205): the only case in the family that opts into
+        // non-creature targets, which is how the sweep sees traps at all.
+        IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+        pSpellHit->m_bAffectNonCreatures = 1;
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x118: {
+        // No .SPL in the shipped game selects projectile 0x118. Its radius is the
+        // only one the factory reads from a global rather than an immediate.
+        IcewindCProjectileSpellHit* pSpellHit =
+            new IcewindCProjectileSpellHit(g_nSpellHitDefaultRange);
+        pProjectile = pSpellHit;
+        break;
+    }
+
+    case 0x119:
+        // No .SPL selects it.
+        pProjectile = new IcewindCProjectileSpellHit(0xFA);
+        break;
+
+    case 0x120:
+        // SPIN975.
+        {
+            IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x12C);
+            pSpellHit->SetStrikeTargetFilter(pCaster);
+            pProjectile = pSpellHit;
+        }
+        break;
+
+    case 0x127:
+        // Horror (SPWI025) -- the innate/item form of case 0xF1's spell, with no
+        // detonation visual of its own (0x5268F3 -> the filter-only tail 0x528872).
+        {
+            IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0xFA);
+            pSpellHit->SetStrikeTargetFilter(pCaster);
+            pProjectile = pSpellHit;
+        }
+        break;
+
+    case 0x140:
+        // Mournful Wail (SPIN134).
+        pProjectile = new IcewindCProjectileSpellHit(0xE1);
+        break;
+
+    case 0x141:
+        // Death Knell (SPIN135).
+        pProjectile = new IcewindCProjectileSpellHit(0xFA);
+        break;
+
+    case 0x142:
+        // No .SPL selects it.
+        pProjectile = new IcewindCProjectileSpellHit(0x96);
+        break;
+
+    case 0x143:
+        // Undying Lament (SPIN137).
+        pProjectile = new IcewindCProjectileSpellHit(0xC8);
+        break;
+
+    case 0x156:
+        // Great Roar (SPIN138): the widest gather in the whole family (nType 0x1F4),
+        // filtered to the roarer's enemies (0x527BCC -> 0x528872).
+        {
+            IcewindCProjectileSpellHit* pSpellHit = new IcewindCProjectileSpellHit(0x1F4);
+            pSpellHit->SetStrikeTargetFilter(pCaster);
+            pProjectile = pSpellHit;
+        }
+        break;
+
+    case 0x180:
+    case 0x181:
+        // Lake of Fire (SPIN254) and Acid Bath (SPIN253) share one block
+        // (0x528CF7): the tightest gather in the family (nType 0x41).
+        pProjectile = new IcewindCProjectileSpellHit(0x41);
         break;
 
     case 0x5F:
         // Stinking Cloud (SPWI213): the persistent-gas area spell-hit projectile.
         // Sibling of Fireball -- another bare IcewindCProjectileSpellHit leaf; all
-        // configuration is in the leaf ctor (0x574B80). Like Fireball the inherited
-        // SpellHit AOE strike and the gas area (ARE_M02) are not yet recovered, but
-        // the detonation visual fires through the inherited OnArrival. Previously this
-        // type fell through to the default `new CProjectile()`, so casting Stinking
-        // Cloud produced nothing.
+        // configuration is in the leaf ctor (0x574B80). The inherited SpellHit AOE
+        // strike (AIUpdate -> GatherTargets -> Strike -> StrikeTarget) is recovered
+        // and the detonation visual fires through the inherited OnArrival; the
+        // persistent gas-area overlay (ARE_M02) rides the same periodic re-strike
+        // clock (m_strikePeriod/m_strikeInterval). Previously this type fell through
+        // to the default `new CProjectile()`, so casting Stinking Cloud produced
+        // nothing.
         pProjectile = new CProjectileStinkingCloud();
         break;
 
@@ -5623,6 +6554,27 @@ void IcewindCProjectileSpellHit::SetStrikeTargetFilter(CGameObject* pSource)
     m_targetType.Set(filter);
 }
 
+// 0x5703F0.  The mirror of SetStrikeTargetFilter above: byte-for-byte the same
+// shape with the two EnemyAlly constants swapped, so the strike pass gathers the
+// source's OWN side instead of its enemies -- a good source (EnemyAlly <=
+// GOODCUTOFF) strikes ALLY, anyone else strikes ENEMY.  DecodeProjectile arms it
+// on the beneficial area spells, which detonate on the party rather than on the
+// creatures around it.
+void IcewindCProjectileSpellHit::SetStrikeAllyFilter(CGameObject* pSource)
+{
+    if (pSource == NULL) {
+        return;
+    }
+
+    CAIObjectType filter;
+    if (pSource->GetAIType().GetEnemyAlly() > CAIObjectType::EA_GOODCUTOFF) {
+        filter.m_nEnemyAlly = CAIObjectType::EA_ENEMY;
+    } else {
+        filter.m_nEnemyAlly = CAIObjectType::EA_ALLY;
+    }
+    m_targetType.Set(filter);
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x56FED0 (vtable slot 36). The gather pass: collect every m_targetType object
@@ -8091,12 +9043,12 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
     // Skip if the impact tile is off-screen or no detonation BAM was loaded. The
     // point is clamped to the area bounds before the visibility lookup.
     LONG nVisX = m_pos.x < 0 ? 0 : m_pos.x;
-    LONG nAreaW = *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(m_pArea) + 0x54C) /*#guess area width*/;
+    LONG nAreaW = m_pArea->GetInfinity()->nAreaX;
     if (nVisX > nAreaW - 1) {
         nVisX = nAreaW - 1;
     }
     LONG nVisY = m_pos.y < 0 ? 0 : m_pos.y;
-    LONG nAreaH = *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(m_pArea) + 0x550) /*#guess area height*/;
+    LONG nAreaH = m_pArea->GetInfinity()->nAreaY;
     if (nVisY > nAreaH - 1) {
         nVisY = nAreaH - 1;
     }

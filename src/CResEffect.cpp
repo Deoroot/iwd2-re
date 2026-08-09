@@ -34,8 +34,10 @@ BOOL CResEffect::Parse(void* pData)
         return FALSE;
     }
 
-    DWORD* header = reinterpret_cast<DWORD*>(pData);
-    if (header[0] != 'EFF ' || header[1] != 'V2.0') {
+    // 0x20464645 / 0x302E3256 in the binary: the bytes as they sit in the file.
+    // A multi-character literal packs them the other way round.
+    BYTE* header = reinterpret_cast<BYTE*>(pData);
+    if (memcmp(header, "EFF ", 4) != 0 || memcmp(header + 4, "V2.0", 4) != 0) {
         return FALSE;
     }
 

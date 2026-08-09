@@ -426,7 +426,7 @@ SHORT CGameAnimationType::GetCurrentFrame()
 }
 
 // 0x55D220
-BOOLEAN CGameAnimationType::GetCurrentSequenceAndFrame(SHORT nSequence, SHORT nFrame)
+BOOLEAN CGameAnimationType::GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame)
 {
     return FALSE;
 }

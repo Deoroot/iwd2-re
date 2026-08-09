@@ -1,0 +1,27 @@
+{
+    "sub_72FD20_0x72FD20": {
+        "address": "0x72FD20",
+        "args": [],
+        "onEnter": true
+    },
+    "GetAllInRangeBack_0x46D590": {
+        "address": "0x46D590",
+        "args": [],
+        "onEnter": true
+    },
+    "CMessage105ctor_0x5152C0": {
+        "address": "0x5152C0",
+        "args": ["void* sourceList", "LONG caller", "LONG target"],
+        "onEnter": true
+    },
+    "CMessageAddEffectRun_0x4F8CA0": {
+        "address": "0x4F8CA0",
+        "args": [],
+        "onEnter": true
+    },
+    "AddMessage_0x4F7500": {
+        "address": "0x4F7500",
+        "args": ["CMessage* msg"],
+        "onEnter": true
+    }
+}

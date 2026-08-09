@@ -1,0 +1,22 @@
+#!/bin/sh
+# Fast, host-only, source-only pre-commit gate for iwd2-re.
+#
+# Budget: under 5s (measured ~1.5s on a small staged diff). It runs re_lint on
+# the staged lines plus the five structural lints whole-tree, and nothing that
+# needs the VM, Ghidra or the PE -- a four-minute hook is a hook people disable.
+#
+# Deliberately NOT here: parity_offsets / vtable_audit / ctor_vtable_check /
+# arg_provenance. They need .bin/iwd2.exe + pefile, and worse, they would fail a
+# commit over a pre-existing binary-vs-source discrepancy the diff never
+# touched. Run those through `arc verify <addr>` where they belong.
+#
+# Escape hatch: ARC_SKIP=1 git commit ...   (handled by .git/hooks/pre-commit,
+# and it keeps the code-review-graph update running, unlike --no-verify).
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+PY="$ROOT/.venv-reagent/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3 || true)"
+# No python at all -> never block a commit. The gate is a safety net, not a
+# dependency of committing.
+[ -n "$PY" ] || exit 0
+exec "$PY" "$ROOT/scripts/arc.py" check --staged --quiet --max-findings 6

@@ -16,15 +16,22 @@ public:
     ~CStore();
     void SetResRef(const CResRef& resRef);
     void Marshal(const CString& sDirName);
+    void RemoveEmptyItems(); // #guess (name only): 0x54CF80
     DWORD GetItemSellValue(CItem& cItem, unsigned char a2);
     DWORD GetItemBuyValue(CItem& cItem, BYTE nCHR, SHORT nReputation, unsigned char a4);
     INT GetNumItems();
     DWORD GetItemNumInStock(INT nIndex);
     BOOL GetItem(INT nIndex, CItem& cItem);
+    BOOL GetItemExt(INT nIndex, CItem& cItem); // #guess (name only): 0x54CFE0
+    BOOL GetItemStats(INT nIndex, CItem& cItem); // #guess (name only): 0x54D130
     CResRef GetItemId(INT nIndex);
     INT GetItemIndex(const CResRef& itemId);
-    INT RemoveItemExt(CResRef resRef, int a2, int a3, int a4, BOOLEAN* a5);
+    INT RemoveItemExt(CResRef resRef, DWORD dwFlags, INT nIndex, INT nAmount, BOOLEAN* pbRemoved);
+    INT RemoveItemExtStore(CResRef resRef, DWORD dwFlags, INT nIndex, INT nAmount, BOOLEAN* pbRemoved); // #guess (name only): 0x54C230
+    INT RemoveItemExtBag(CResRef resRef, DWORD dwFlags, INT nIndex, INT nAmount, BOOLEAN* pbRemoved); // #guess (name only): 0x54C460
     INT AddItemExt(CItem& cItem, DWORD storeFlags);
+    INT AddItemExtStore(CItem& cItem); // #guess (name only): 0x54C770
+    INT AddItemExtBag(CItem& cItem); // #guess (name only): 0x54C5F0
     BOOL IsValidIdentifyItem(CItem* pItem);
     BOOL IsValidSellType(CItem* pItem);
     void CompressItems();
@@ -46,7 +53,7 @@ public:
     /* 011C */ CStoreFileSpell* m_pSpells;
     /* 0120 */ DWORD m_nSpells;
     /* 0124 */ BYTE m_pVersion[8];
-    /* 0128 */ BOOL m_bLocalCopy;
+    /* 012C */ BOOL m_bLocalCopy;
 };
 
 class CStoreFile : public CResHelper<CResStore, 1014> {

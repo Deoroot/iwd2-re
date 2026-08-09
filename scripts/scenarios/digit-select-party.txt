@@ -1,0 +1,27 @@
+# Prove the digit keys select party members.
+#
+# OnKeyDown's own switch owns 1..6: the digit picks that portrait, replacing the
+# selection unless ctrl or shift is held. Two things show it worked:
+#
+#   - the save starts with the whole party selected, so the bar is the group
+#     bar 0x6E; selecting one member drops it to the single-PC bar 0x72;
+#   - the bar is per-character, so pressing 2 and then 1 gives two different
+#     sets of button types.
+#
+# No portrait click first, deliberately: `click 1 <n>` addresses control n,
+# which is the (n+1)th portrait, and mixing the two numberings hides whether the
+# key did anything.
+#
+# Gate with --hit CInfGame::SelectCharacter, which the two presses hit twice.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+bar
+key 50
+sleep 30
+bar
+key 49
+sleep 30
+bar

@@ -98,15 +98,15 @@ skip the very state being tested.
 python scripts\auto_start_game.py --new-game --timeout 60
 python scripts\auto_start_game.py --slot 0 --timeout 60
 python scripts\auto_start_game.py --save-name "000000000-Autosave - Prologue" --timeout 60
-python scripts\frida_intro_trace.py --mode original --timeout 60 --auto-dialog
-python scripts\frida_intro_trace.py --mode re --timeout 60 --auto-dialog
+python scripts\probes\frida_intro_trace.py --mode original --timeout 60 --auto-dialog
+python scripts\probes\frida_intro_trace.py --mode re --timeout 60 --auto-dialog
 ```
 
 Use `--save-name` when a specific save directory must be validated. Visible
 slot numbers depend on load-screen scroll position and can point at another
 save when the directory contains many saves.
 
-`scripts\frida_intro_trace.py` should keep the game window focused, skip original
+`scripts\probes\frida_intro_trace.py` should keep the game window focused, skip original
 intro `.mve` videos, wait briefly on the chapter screen, click Done, and advance
 dialogue Continue/reply buttons when `--auto-dialog` is set.
 

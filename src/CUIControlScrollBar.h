@@ -16,6 +16,7 @@ class CUIControlScrollBar : public CUIControlBase {
 public:
     CUIControlScrollBar(CUIPanel* panel, UI_CONTROL_SCROLLBAR* controlInfo);
     /* 0000 */ ~CUIControlScrollBar() override;
+    /* 000C */ void KillFocus() override;
     /* 0014 */ void OnMouseMove(CPoint pt) override;
     /* 0018 */ BOOL OnLButtonDown(CPoint pt) override;
     /* 001C */ void OnLButtonUp(CPoint pt) override;

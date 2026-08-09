@@ -817,10 +817,9 @@ void CScreenLoad::RefreshGameSlots()
 
     CStringList* pGames = pGame->GetSaveGames();
 
-    if (pGames == NULL) {
-        FreeGameSlots();
-        return;
-    }
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenLoad.cpp
+    // __LINE__: 1344
+    UTIL_ASSERT(pGames != NULL);
 
     CVariable cVariable;
     CResRef cResPortrait;
@@ -834,21 +833,15 @@ void CScreenLoad::RefreshGameSlots()
     ULONG nGameTime;
     INT nChapter;
     STRREF nNameRef;
-    BYTE nSex; // NOTE: Unused.
+    BYTE nSex;
 
     FreeGameSlots();
 
-    INT nGameSlotsCapacity = pGames->GetCount();
-
-    m_aGameSlots.SetSize(nGameSlotsCapacity);
-
-    for (INT nSlot = 0; nSlot < nGameSlotsCapacity; nSlot++) {
-        m_aGameSlots[nSlot] = NULL;
-    }
-    m_nNumGameSlots = 0;
+    m_nNumGameSlots = pGames->GetCount();
+    m_aGameSlots.SetSize(m_nNumGameSlots);
 
     m_nMaxSlotNumber = -1;
-    m_nTopGameSlot = 0;
+    m_nTopGameSlot = max(min(m_nTopGameSlot, m_nNumGameSlots - GAME_SLOTS), 0);
 
     INT nIndex = 0;
 
@@ -856,99 +849,72 @@ void CScreenLoad::RefreshGameSlots()
     while (pos != NULL) {
         sFileName = pGames->GetAt(pos);
         if (sFileName != "default") {
-            CScreenLoadGameSlot* pSlot = new CScreenLoadGameSlot();
-            pSlot->m_sFileName = sFileName;
+            m_aGameSlots[nIndex] = new CScreenLoadGameSlot();
+            m_aGameSlots[nIndex]->m_sFileName = sFileName;
 
-            cResPortrait = "";
-            sName = "";
-            nGameTime = 0;
-            nChapter = 0;
-            sChapter = "";
-            nNameRef = -1;
+            CString sSlotNumber = m_aGameSlots[nIndex]->m_sFileName.SpanIncluding("0123456789");
+            if (m_aGameSlots[nIndex]->m_sFileName.GetAt(sSlotNumber.GetLength()) == '-') {
+                m_aGameSlots[nIndex]->m_sSlotName = m_aGameSlots[nIndex]->m_sFileName.Right(
+                    m_aGameSlots[nIndex]->m_sFileName.GetLength() - sSlotNumber.GetLength() - 1);
 
-            const char* szFileName = static_cast<LPCSTR>(sFileName);
-            int nFileNameLen = strlen(szFileName);
-            int nLeadingDigits = strspn(szFileName, "0123456789");
-            if (nLeadingDigits < nFileNameLen && szFileName[nLeadingDigits] == '-') {
-                pSlot->m_sSlotName = CString(szFileName + nLeadingDigits + 1);
-
-                char numBuf[32];
-                memcpy(numBuf, szFileName, nLeadingDigits);
-                numBuf[nLeadingDigits] = 0;
-                INT nNumber = atol(numBuf);
-                if (nNumber > m_nMaxSlotNumber) {
-                    m_nMaxSlotNumber = nNumber;
+                INT nSlotNumber = atol(sSlotNumber);
+                if (nSlotNumber > m_nMaxSlotNumber) {
+                    m_nMaxSlotNumber = nSlotNumber;
                 }
             } else {
-                pSlot->m_sSlotName = sFileName;
+                m_aGameSlots[nIndex]->m_sSlotName = m_aGameSlots[nIndex]->m_sFileName;
             }
 
-            // Use sprintf to avoid MFC CString concatenation crashes
-            char szDirName[512];
-            const char* szSaveRoot = ".\\mpsave\\";
-            const char* szSlotName = static_cast<LPCSTR>(sFileName);
-            sprintf(szDirName, "%s%s\\", szSaveRoot, szSlotName);
-            sDirName = szDirName;
+            sDirName = g_pBaldurChitin->GetObjectGame()->GetDirSaveRoot() + m_aGameSlots[nIndex]->m_sFileName + "\\";
 
-            // SKIP GAM parsing â€” just load BMPs for now
-#if 1
-            char szGamPath[512];
-            sprintf(szGamPath, "%sICEWIND2.GAM", szDirName);
-            if (g_pChitin->cDimm.ServiceFromFile(&cResGame, CString(szGamPath))) {
+            if (g_pChitin->cDimm.ServiceFromFile(&cResGame, sDirName + "ICEWIND2.GAM")) {
                 BYTE* pGameData = reinterpret_cast<BYTE*>(cResGame.m_pData);
                 CSavedGameHeader* pSavedGameHeader = reinterpret_cast<CSavedGameHeader*>(pGameData + 8);
-
-                // Just read header fields, no creature parsing
-                nGameTime = pSavedGameHeader->m_worldTime * CTimerWorld::TIMESCALE_MSEC_PER_SEC;
-
-                CFileStatus cFileStatus;
-                if (g_pChitin->cDimm.LocalGetFileStatus(szGamPath, cFileStatus)) {
-                    pSlot->m_sFileTime = cFileStatus.m_mtime.Format("%a, %b %d, %Y - %I:%M %p");
-                }
-
-                // Try accessing creature table offsets (raw only, no deref)
                 BYTE* pCreatureRaw = pGameData + pSavedGameHeader->m_partyCreatureTableOffset;
-                BYTE resRefFirstByte = pCreatureRaw[0x0C];
-                if (resRefFirstByte != '\0') {
-                    DWORD creSize = *reinterpret_cast<DWORD*>(pCreatureRaw + 0x08);
-                    if (creSize != 0) {
-                        nNameRef = -1;
-                    } else {
-                        CCreatureFile cCreatureFile;
-                        cCreatureFile.SetResRef(CResRef(reinterpret_cast<char*>(pCreatureRaw + 0x0C)), TRUE, TRUE);
-                        BYTE* pCreatureData = cCreatureFile.GetData();
-                        if (pCreatureData != NULL) {
-                            CCreatureFileHeader* pCreatureFileHeader = reinterpret_cast<CCreatureFileHeader*>(pCreatureData + 8);
-                            nNameRef = pCreatureFileHeader->m_name;
-                            cResPortrait = pCreatureFileHeader->m_portraitSmall;
-                            nSex = pCreatureFileHeader->m_sex;
-                        }
-                        cCreatureFile.ReleaseData();
-                    }
+                CCreatureFileHeader* pCreatureFileHeader;
+
+                if (pCreatureRaw[0x0C] != '\0') {
+                    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenLoad.cpp
+                    // __LINE__: 1419
+                    UTIL_ASSERT(*reinterpret_cast<DWORD*>(pCreatureRaw + 0x08) == 0);
+
+                    CCreatureFile cCreatureFile;
+                    cCreatureFile.SetResRef(CResRef(pCreatureRaw + 0x0C), TRUE, TRUE);
+
+                    pCreatureFileHeader = reinterpret_cast<CCreatureFileHeader*>(cCreatureFile.GetData());
+                    cResPortrait = pCreatureFileHeader->m_portraitSmall;
+                    nSex = pCreatureFileHeader->m_sex;
+
+                    cCreatureFile.ReleaseData();
                 } else {
-                    DWORD creOffset = *reinterpret_cast<DWORD*>(pCreatureRaw + 0x04);
-                    CCreatureFileHeader* pCreatureFileHeader = reinterpret_cast<CCreatureFileHeader*>(pGameData + creOffset + 8);
-                    nNameRef = pCreatureFileHeader->m_name;
+                    pCreatureFileHeader = reinterpret_cast<CCreatureFileHeader*>(
+                        pGameData + *reinterpret_cast<DWORD*>(pCreatureRaw + 0x04) + 8);
                     cResPortrait = pCreatureFileHeader->m_portraitSmall;
                     nSex = pCreatureFileHeader->m_sex;
                 }
 
-                if (nNameRef != -1) {
-                    sName = FetchString(nNameRef);
-                } else {
+                nNameRef = pCreatureFileHeader->m_name;
+                if (nNameRef == -1) {
                     sName = reinterpret_cast<char*>(pCreatureRaw + 0x01BE);
+                } else {
+                    sName = FetchString(nNameRef);
                 }
 
-                // Parse chapter from global variables
-                // Use raw byte offsets (CAreaVariable double causes padding mismatch: 88 vs 84)
+                nGameTime = pSavedGameHeader->m_worldTime * CTimerWorld::TIMESCALE_MSEC_PER_SEC;
+
+                CFileStatus cFileStatus;
+                if (g_pChitin->cDimm.LocalGetFileStatus(sDirName + "ICEWIND2.GAM", cFileStatus) == TRUE) {
+                    m_aGameSlots[nIndex]->m_sFileTime = cFileStatus.m_mtime.Format(_T("%a, %b %d, %Y - %I:%M %p"));
+                }
+
                 nChapter = -1;
-                DWORD varOffset = pSavedGameHeader->m_globalVariablesOffset;
-                DWORD varCount = pSavedGameHeader->m_globalVariablesCount;
-                for (DWORD nVariable = 0; nVariable < varCount && nVariable < 5000; nVariable++) {
-                    BYTE* pVar = pGameData + varOffset + nVariable * 84;
-                    if (memcmp(pVar, "CHAPTER", 7) == 0 && pVar[7] == '\0') {
-                        nChapter = *reinterpret_cast<LONG*>(pVar + 40);
-                        break;
+                for (DWORD nVariable = 0; nVariable < pSavedGameHeader->m_globalVariablesCount; nVariable++) {
+                    cVariable = *reinterpret_cast<CVariable*>(pGameData
+                        + pSavedGameHeader->m_globalVariablesOffset
+                        + nVariable * sizeof(CVariable));
+
+                    if (cVariable.GetName() == CInfGame::CHAPTER_GLOBAL) {
+                        nChapter = cVariable.m_intValue;
                     }
                 }
 
@@ -956,52 +922,62 @@ void CScreenLoad::RefreshGameSlots()
                     nChapter = 0;
                 }
 
-                CList<STRREF, STRREF>* pList = rule.GetChapterText(CResRef("chapters"), nChapter);
-                if (pList != NULL && pList->GetCount() > 0) {
+                sResText = "chapters";
+
+                CList<STRREF, STRREF>* pList = rule.GetChapterText(CResRef(sResText), nChapter);
+
+                // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenLoad.cpp
+                // __LINE__: 1485
+                UTIL_ASSERT(pList != NULL);
+
+                if (pList->GetCount() > 0) {
                     sChapter = FetchString(pList->GetHead());
                 }
+
                 delete pList;
 
                 free(cResGame.m_pData);
                 cResGame.m_pData = NULL;
             }
-#endif
 
-            if (!g_pChitin->cDimm.ServiceFromFile(&(pSlot->m_cResScreenShot), sDirName + "ICEWIND2.BMP")) {
-                pSlot->m_cResScreenShot.m_pData = NULL;
+            if (!g_pChitin->cDimm.ServiceFromFile(&(m_aGameSlots[nIndex]->m_cResScreenShot), sDirName + "ICEWIND2.BMP")) {
+                m_aGameSlots[nIndex]->m_cResScreenShot.m_pData = NULL;
             }
 
-            if (!g_pChitin->cDimm.ServiceFromFile(&(pSlot->m_cBmpResPortrait0), sDirName + "PORTRT0.BMP")) {
-                pSlot->m_cBmpResPortrait0.m_pData = NULL;
+            if (!g_pChitin->cDimm.ServiceFromFile(&(m_aGameSlots[nIndex]->m_cBmpResPortrait0), sDirName + "PORTRT0.BMP")) {
+                m_aGameSlots[nIndex]->m_cBmpResPortrait0.m_pData = NULL;
             }
 
-            if (!g_pChitin->cDimm.ServiceFromFile(&(pSlot->m_cBmpResPortrait1), sDirName + "PORTRT1.BMP")) {
-                pSlot->m_cBmpResPortrait1.m_pData = NULL;
+            if (!g_pChitin->cDimm.ServiceFromFile(&(m_aGameSlots[nIndex]->m_cBmpResPortrait1), sDirName + "PORTRT1.BMP")) {
+                m_aGameSlots[nIndex]->m_cBmpResPortrait1.m_pData = NULL;
             }
 
-            if (!g_pChitin->cDimm.ServiceFromFile(&(pSlot->m_cBmpResPortrait2), sDirName + "PORTRT2.BMP")) {
-                pSlot->m_cBmpResPortrait2.m_pData = NULL;
+            if (!g_pChitin->cDimm.ServiceFromFile(&(m_aGameSlots[nIndex]->m_cBmpResPortrait2), sDirName + "PORTRT2.BMP")) {
+                m_aGameSlots[nIndex]->m_cBmpResPortrait2.m_pData = NULL;
             }
 
-            if (!g_pChitin->cDimm.ServiceFromFile(&(pSlot->m_cBmpResPortrait3), sDirName + "PORTRT3.BMP")) {
-                pSlot->m_cBmpResPortrait3.m_pData = NULL;
+            if (!g_pChitin->cDimm.ServiceFromFile(&(m_aGameSlots[nIndex]->m_cBmpResPortrait3), sDirName + "PORTRT3.BMP")) {
+                m_aGameSlots[nIndex]->m_cBmpResPortrait3.m_pData = NULL;
             }
 
-            if (!g_pChitin->cDimm.ServiceFromFile(&(pSlot->m_cBmpResPortrait4), sDirName + "PORTRT4.BMP")) {
-                pSlot->m_cBmpResPortrait4.m_pData = NULL;
+            if (!g_pChitin->cDimm.ServiceFromFile(&(m_aGameSlots[nIndex]->m_cBmpResPortrait4), sDirName + "PORTRT4.BMP")) {
+                m_aGameSlots[nIndex]->m_cBmpResPortrait4.m_pData = NULL;
             }
 
-            if (!g_pChitin->cDimm.ServiceFromFile(&(pSlot->m_cBmpResPortrait5), sDirName + "PORTRT5.BMP")) {
-                pSlot->m_cBmpResPortrait5.m_pData = NULL;
+            if (!g_pChitin->cDimm.ServiceFromFile(&(m_aGameSlots[nIndex]->m_cBmpResPortrait5), sDirName + "PORTRT5.BMP")) {
+                m_aGameSlots[nIndex]->m_cBmpResPortrait5.m_pData = NULL;
             }
 
-            pSlot->m_cResPortrait = cResPortrait;
-            pSlot->m_sCharacterName = sName;
-            pSlot->m_nTime = nGameTime;
-            pSlot->m_nChapter = nChapter;
-            pSlot->m_sChapter = sChapter;
+            // NOTE: The binary calls an empty CInfGame method here with (cResPortrait, nSex);
+            // 0x71E750 is a `ret 8` folded across 33 symbols, so it is dropped rather than misnamed.
+            (void)nSex;
 
-            m_aGameSlots[nIndex] = pSlot;
+            m_aGameSlots[nIndex]->m_cResPortrait = cResPortrait;
+            m_aGameSlots[nIndex]->m_sCharacterName = sName;
+            m_aGameSlots[nIndex]->m_nTime = nGameTime;
+            m_aGameSlots[nIndex]->m_nChapter = nChapter;
+            m_aGameSlots[nIndex]->m_sChapter = sChapter;
+
             nIndex++;
         }
 
@@ -1009,7 +985,6 @@ void CScreenLoad::RefreshGameSlots()
     }
 
     m_nNumGameSlots = nIndex;
-    m_nTopGameSlot = max(min(m_nTopGameSlot, m_nNumGameSlots - GAME_SLOTS), 0);
 
     delete pGames;
 }

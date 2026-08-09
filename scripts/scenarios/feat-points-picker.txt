@@ -1,0 +1,28 @@
+# Prove the state 0x7B feat-point picker builds and opens.
+#
+# Clicking Power Attack (or Expertise) in the innate picker does not fire it:
+# the innate arm of OnLButtonPressed stashes the ability in
+# m_currentAbilityResRef and enters state 0x7B, whose list comes from
+# CInfButtonArray::BuildFeatPointsPickerList -> CGameSprite::GetFeatPointsButtonList.
+#
+# Route (slot N of the action bar is control (N + 6) on panel 1):
+#   portrait 1 is a melee character with Power Attack
+#   -> its world bar ends with Special Abilities 0x0A in slot 11, control 17
+#   -> the innate picker (0x6A) holds Power Attack in slot 1, control 7
+#
+# The picker that opens has exactly six live cells: "Off" plus one per point,
+# because the base attack bonus is capped at MAX_FEAT_POINTS.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 1
+sleep 30
+bar
+click 1 17
+sleep 30
+bar
+click 1 7
+sleep 30
+bar

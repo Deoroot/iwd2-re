@@ -9,7 +9,12 @@
 #include "CUIControlScrollBar.h"
 #include "CVidFont.h"
 
-#define CSCREENSINGLEPLAYER_VIRTUAL_KEYS 92
+// 90, not 92: the binary's GetNumVirtualKeys is `mov ax, 0x5A` (0x699600), and
+// the member offsets agree -- m_pVirtualKeys 0x0106 -> m_pVirtualKeysFlags
+// 0x03D6 is 720 bytes = 90 * sizeof(CKeyInfo), and the flags array spans
+// 0x03D6..0x0430 = 90 bytes. At 92 the compiler put both arrays 16 and 2 bytes
+// long, shifting every member from m_pVirtualKeysFlags onward.
+#define CSCREENSINGLEPLAYER_VIRTUAL_KEYS 90
 
 // NOTE: There is a misleading typo in the original code. This constant is
 // called `CSCREENMULTIPLAYER_ERROR_BUTTONS` as can be seen in

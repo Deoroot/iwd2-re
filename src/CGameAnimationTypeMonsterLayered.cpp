@@ -1052,3 +1052,13 @@ SHORT CGameAnimationTypeMonsterLayered::SetSequence(SHORT nSequence)
 
     return nSequence;
 }
+
+// 0x6C2D70
+BOOLEAN CGameAnimationTypeMonsterLayered::GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame)
+{
+    // Folded with the Ankheg/Quadrant/Character copies at 0x6C2D70: the binary
+    // writes through both parameters, which is why they are references.
+    nSequence = m_currentVidCell->m_nCurrentSequence;
+    nFrame = m_currentVidCell->m_nCurrentFrame;
+    return TRUE;
+}

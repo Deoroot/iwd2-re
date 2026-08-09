@@ -490,3 +490,21 @@ SHORT CGameAnimationTypeFlying::SetSequence(SHORT nSequence)
 
     return nSequence;
 }
+
+// 0x6A3C60
+BOOLEAN CGameAnimationTypeFlying::CanLieDown()
+{
+    return FALSE;
+}
+
+// 0x6A3C60
+BOOLEAN CGameAnimationTypeFlying::DetectedByInfravision()
+{
+    return FALSE;
+}
+
+// 0x49FC40
+BOOL CGameAnimationTypeFlying::GetPathSmooth()
+{
+    return TRUE;
+}

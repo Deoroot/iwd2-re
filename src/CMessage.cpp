@@ -1,4 +1,4 @@
-#include "CMessage.h"
+﻿#include "CMessage.h"
 
 #include "CBaldurChitin.h"
 #include "CGameAIBase.h"
@@ -2342,7 +2342,7 @@ BOOLEAN CBaldurMessage::SwapItemRequest(BYTE nArea, LONG nObjectID, SHORT nSlotN
 BOOLEAN CBaldurMessage::OnSwapItemRequest(INT nMsgFrom, BYTE* pMessage, DWORD dwSize)
 {
     // MULTIPLAYER: host-side handler for a client's inventory item-swap request.
-    // UNRECOVERED — pairs with SwapItemReply / OnSwapItemReply and the
+    // UNRECOVERED â€” pairs with SwapItemReply / OnSwapItemReply and the
     // CMessageStore* bag-sync. The single-player give-to-portrait / inventory
     // swap paths work without it; this only matters in multiplayer sessions.
     return FALSE;
@@ -5237,7 +5237,7 @@ CMessageHandler::~CMessageHandler()
     m_messageList.RemoveAll();
 }
 
-static BOOL Iwd2MessageRunRecovered(BYTE subType);
+static BOOL Iwd2MessageRunHeldBack(BYTE subType);
 
 // 0x4EE020
 void CMessageHandler::AsynchronousUpdate()
@@ -5245,7 +5245,7 @@ void CMessageHandler::AsynchronousUpdate()
     while (!m_messageList.IsEmpty()) {
         CMessage* pMsg = m_messageList.RemoveHead();
         if (pMsg != NULL) {
-            if (Iwd2MessageRunRecovered(pMsg->GetMsgSubType())) {
+            if (!Iwd2MessageRunHeldBack(pMsg->GetMsgSubType())) {
                 pMsg->Run();
             }
             delete pMsg;
@@ -5409,64 +5409,217 @@ SHORT CMessageHandler::AddMessage(CMessage* message, BOOL bForcePassThrough, SHO
     }
 }
 
-// Subtypes whose Run() is safely recovered.  Anything not in this list is
-// silently dropped (the unrecovered stubs would crash or no-op).  Extend as
-// each CMessage subclass gets its Run() filled in.
-static BOOL Iwd2MessageRunRecovered(BYTE subType)
+// The binary's drain (0x4EE083-0x4EE0AB) calls Run() unconditionally -- it
+// dereferences the message at 0x4EE093 before any test, and evaluates no
+// predicate between RemoveHead and Run.  This list is ours, not the engine's:
+// it withholds the subtypes whose Run() we have not yet cleared to execute,
+// and it shrinks to nothing as they are cleared, at which point both it and
+// its call site go away.
+//
+// A subtype that is absent from this list runs, which is the binary's
+// behaviour.  Every subtype the message system can deliver has been audited
+// against the binary, so absence here is a decision, not an oversight.
+static BOOL Iwd2MessageRunHeldBack(BYTE subType)
 {
-    return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ACTION
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_ACTION
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_ITEM
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_ITEM
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_ADD_ITEM
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CLEAR_DIALOG_ACTIONS
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CUT_SCENE_MODE_STATUS
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXT
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXTREF
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DISPLAY_TEXTREF_SEND
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIALOG_WAIT
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DIRECTION
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PATH
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DROP_PATH
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ENTER_DIALOG
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_INSERT_RESPONSE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTINUE_DIALOG
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_LOAD_DIALOG
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PARTY_GOLD
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_REPLIES
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_NUM_TIMES_TALKED_TO
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_IN_CUT_SCENE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FIRE_PROJECTILE
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SAVE_GAME
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_105;
+    // SAFE -- faithful body, recovered callees, but never observed reaching
+    // the drain on any save we can drive; released once one does.
+    return subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_92
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CLEAR_ACTIONS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_COLOR_CHANGE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_STATUS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DOOR_STATUS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FADE_COLOR
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PROJECTILE_TRAILING_VFX
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_ACTIVE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_AREA_EXPLORED
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_COMMAND_PAUSE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_DRAW_POLY
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_FORCE_ACTION_PICK
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_LAST_OBJECT
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_START_FOLLOW
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_START_SCROLL
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_STOP_ACTIONS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_STOP_FOLLOW
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TOGGLE_INTERFACE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_UNLOCK
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_VERBAL_CONSTANT
+
+    // DIVERGENT -- body knowingly differs from the binary; fix before releasing
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ANIMATION_CHANGE
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_COLOR_RESET
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_ITEMS
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SCREENSHAKE
+
+    // CALLS-STUB -- Run() is faithful, its payload callee is still unimplemented
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_MOVE_GLOBAL
+
+    // NULLDEREF -- Run() casts the target to CGameTrigger with no type check
+    // and writes m_dwFlags / m_trapActivated / m_trapDetected at +0x5D6,
+    // +0x612 and +0x614, which is faithful.  The problem is the caller set:
+    // CGameContainer::AddEffect posts one targeting the container itself (the
+    // binary installs the same vtable at 0x848C3C and stores the container id
+    // in both the source and target slots), and CGameContainer puts
+    // m_pileVidCell[3] at +0x5D4, so the write lands on a live CVidCell that
+    // is rendered every frame.  A scan for the +0x5D6 displacement finds only
+    // CGameTrigger methods, so the container has nothing meaningful there.
+        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_TRIGGER_STATUS
+
+;
 }
 
 // 0x4F7620
 SHORT CMessageHandler::Broadcast(CMessage* message, BOOLEAN bSendMessageToSelf, BOOLEAN bIgnoreObjectControl)
 {
-    if (message == NULL) {
-        return -1;
+    LONG targetId = message->m_targetId;
+
+    CGameObject* pObject;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        pObject = NULL;
     }
 
-    if (bSendMessageToSelf) {
+    // Object-control gate: send over the wire only for an object this station
+    // owns, unless the caller waives the check.  Both arms of the binary's
+    // branch run the same queue/delete tail, so it is hoisted below.
+    if (bIgnoreObjectControl == TRUE
+        || (pObject != NULL
+            && (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                || g_pChitin->cNetwork.m_idLocalPlayer == pObject->m_remotePlayerID))) {
+        if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+            && g_pChitin->cNetwork.GetSessionOpen() == TRUE
+            && (bIgnoreObjectControl == TRUE
+                || (pObject != NULL
+                    && g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+                    && pObject->m_bLocalControl == 0))) {
+            BYTE* pData = STATICBUFFER;
+            DWORD dwSize = 0;
+            message->MarshalMessage(&pData, &dwSize);
+
+            if (dwSize != 0) {
+                CString sPlayerName;
+                g_pChitin->cNetwork.SendSpecificMessage(sPlayerName,
+                    CNetwork::SEND_GUARANTEED | CNetwork::SEND_ALL_PLAYERS,
+                    message->GetMsgType(),
+                    message->GetMsgSubType(),
+                    pData,
+                    dwSize);
+            }
+        }
+    }
+
+    if (bSendMessageToSelf == TRUE) {
         m_messageList.AddTail(message);
     } else {
         delete message;
     }
-    return 1;
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+
+    return 0;
 }
 
 // 0x4F7830
 SHORT CMessageHandler::Send(CMessage* message)
 {
-    if (message == NULL) {
-        return -1;
+    // NOTE: The binary reloads message->m_targetId for the ReleaseShare calls
+    // below, which reads freed memory on the path that deletes the message
+    // first.  The value cannot change, so it is captured once here instead.
+    LONG targetId = message->m_targetId;
+
+    if (targetId != -1) {
+        CGameObject* pObject;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(targetId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            BOOLEAN bDeleteMessage = FALSE;
+
+            if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                || g_pChitin->cNetwork.m_idLocalPlayer == pObject->m_remotePlayerID) {
+                // The target is ours: run the message locally.
+                m_messageList.AddTail(message);
+            } else {
+                CString sPlayerName;
+                BYTE* pData = STATICBUFFER;
+                DWORD dwSize = 0;
+
+                bDeleteMessage = TRUE;
+                message->MarshalMessage(&pData, &dwSize);
+
+                if (dwSize != 0) {
+                    PLAYER_ID idOwner = pObject->m_remotePlayerID;
+                    INT nPlayer = g_pChitin->cNetwork.FindPlayerLocationByID(idOwner, FALSE);
+
+                    if (nPlayer == -1) {
+                        // The owner is not a connected player.  An area id means
+                        // the object belongs to an area nobody is holding, so the
+                        // message is dropped; otherwise it is relayed to the host.
+                        if (g_pBaldurChitin->GetObjectGame()->FindAreaID(idOwner) == TRUE) {
+                            delete message;
+                        } else {
+                            PLAYER_ID idHost = g_pChitin->cNetwork.m_nHostPlayer == -1
+                                ? 0
+                                : g_pChitin->cNetwork.m_pPlayerID[g_pChitin->cNetwork.m_nHostPlayer];
+                            nPlayer = g_pChitin->cNetwork.FindPlayerLocationByID(idHost, FALSE);
+                        }
+
+                        if (nPlayer == -1) {
+                            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(targetId,
+                                CGameObjectArray::THREAD_ASYNCH,
+                                INFINITE);
+                            return -1;
+                        }
+                    }
+
+                    g_pChitin->cNetwork.GetPlayerName(nPlayer, sPlayerName);
+
+                    BYTE nSubType = message->GetMsgSubType();
+                    BYTE nType = message->GetMsgType();
+
+                    if (g_pChitin->cNetwork.SendSpecificMessage(sPlayerName,
+                            CNetwork::SEND_GUARANTEED,
+                            nType,
+                            nSubType,
+                            pData,
+                            dwSize)
+                            == FALSE
+                        && g_pChitin->cNetwork.m_idLocalPlayer == idOwner) {
+                        m_messageList.AddTail(message);
+                        bDeleteMessage = FALSE;
+                    }
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(targetId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bDeleteMessage) {
+                delete message;
+            }
+
+            return 0;
+        }
     }
 
-    m_messageList.AddTail(message);
-    return 1;
+    delete message;
+    return -1;
 }
 
 // -----------------------------------------------------------------------------
@@ -5659,7 +5812,10 @@ void CMessageAnimationChange::Run()
         if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
             pSprite->UnequipAll(TRUE);
             if (pSprite->GetArea() != NULL) {
-                if (pSprite->GetVertListType() != CGameObject::LIST_FLIGHT) {
+                // The guard reads the animation's intrinsic list type
+                // (CGameAnimationType vtable +0x3C), not the object's current
+                // m_listType.
+                if (pSprite->GetAnimation()->GetListType() != CGameObject::LIST_FLIGHT) {
                     pSprite->GetArea()->m_search.RemoveObject(CPoint(pSprite->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
                                                                   pSprite->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY),
                         pSprite->GetAIType().m_nEnemyAlly,
@@ -5672,7 +5828,10 @@ void CMessageAnimationChange::Run()
                 pSprite->GetBaseStats()->m_colors,
                 pSprite->GetDirection());
             if (pSprite->GetArea() != NULL) {
-                if (pSprite->GetVertListType() != CGameObject::LIST_FLIGHT) {
+                // 0x4F964B / 0x4F9748: the guard reads the animation's intrinsic
+                // list type (CGameAnimationType vtable +0x3C), not the object's
+                // current m_listType.
+                if (pSprite->GetAnimation()->GetListType() != CGameObject::LIST_FLIGHT) {
                     pSprite->GetArea()->m_search.AddObject(CPoint(pSprite->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
                                                                pSprite->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY),
                         pSprite->GetAIType().m_nEnemyAlly,
@@ -6842,6 +7001,11 @@ void CMessageColorReset::Run()
                 pSprite->GetAnimation()->SetColorRange(index, colors[index]);
             }
 
+            // The binary's loop bound is 8, not 7: it runs an eighth range
+            // whose value is the byte after m_colors[6], i.e. m_effectVersion.
+            // NOTE: Uninline.
+            pSprite->GetAnimation()->SetColorRange(7, pSprite->GetBaseStats()->m_effectVersion);
+
             // NOTE: Uninline.
             pSprite->GetAnimation()->ClearColorEffectsAll();
         }
@@ -6992,7 +7156,7 @@ void CMessageContainerItems::Run()
 
     if (rc == CGameObjectArray::SUCCESS) {
         SHORT maxcnt = max(m_nItems, pContainer->m_lstItems.GetCount());
-        for (SHORT cnt = 0; cnt < m_nItems; cnt++) {
+        for (SHORT cnt = 0; cnt < maxcnt; cnt++) {
             CItem* oldItem = pContainer->GetItem(cnt);
             if (cnt < m_nItems) {
                 pContainer->SetItem(cnt, m_pItems[cnt]);
@@ -9979,8 +10143,11 @@ BOOL CMessageScreenShake::UnmarshalMessage(BYTE* pData, DWORD dwSize)
 void CMessageScreenShake::Run()
 {
     if (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_bAllScreenShake) {
+        // The binary jumps to the exit when a shake is already running: an
+        // override always shakes, otherwise one in progress is left alone
+        // rather than restarted.
         if (m_bOverride
-            || g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->GetInfinity()->m_bScreenShake) {
+            || !g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->GetInfinity()->m_bScreenShake) {
             g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->GetInfinity()->SetScreenShake(TRUE,
                 m_duration,
                 CPoint(m_magnitudeX, m_magnitudeY));
@@ -13636,12 +13803,19 @@ void CMessageVisualEffect::Run()
                 pSprite->GetDerivedStats()->m_nStoneSkins = m_nEffectProperty;
 
                 if (m_nEffectProperty == 0) {
-                    // TODO: Probably should be 7, check for overrun in
-                    // debugger.
-                    for (BYTE colorRange = 0; colorRange < 8; colorRange++) {
+                    // The binary's loop bound really is 8, not 7 -- and since
+                    // m_colors is BYTE[7] the eighth value is the byte that
+                    // follows it in the stats block, m_effectVersion.  Written
+                    // as an explicit eighth call rather than an over-read, same
+                    // observable effect without the UB.  CMessageColorReset
+                    // does the same thing.
+                    for (BYTE colorRange = 0; colorRange < 7; colorRange++) {
                         pSprite->GetAnimation()->SetColorRange(colorRange,
                             pSprite->GetBaseStats()->m_colors[colorRange]);
                     }
+                    pSprite->GetAnimation()->SetColorRange(7,
+                        pSprite->GetBaseStats()->m_effectVersion);
+
                     pSprite->GetAnimation()->ClearColorEffectsAll();
                 } else {
                     pSprite->SetColorRange(14);
@@ -18614,7 +18788,7 @@ void CMessageChangeStat::Run()
 // CMessageProjectileTrailingVFX (vtable 0x84D328)
 // ---------------------------------------------------------------------------
 
-// 0x554D20 (factory stub — see CProjectile.cpp)
+// 0x554D20 (factory stub â€” see CProjectile.cpp)
 CMessageProjectileTrailingVFX::CMessageProjectileTrailingVFX(LONG target, LONG flightDistSq,
     const CResRef& resRef, LONG launchX, LONG launchY,
     LONG nHeight, LONG nType, SHORT launchHeight)

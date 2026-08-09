@@ -16,6 +16,7 @@ public:
     /* 0040 */ BYTE GetMoveScale() override;
     /* 004C */ BYTE GetMoveScaleDefault() override;
     /* 0054 */ const CRect& GetEllipseRect() override;
+    /* 0074 */ BOOL IsFalseColor() override;
     /* 007C */ BOOL IsMirroring() override;
     /* 0080 */ BOOL IsBeginningOfSequence() override;
     /* 0084 */ BOOL IsEndOfSequence() override;
@@ -29,7 +30,7 @@ public:
     /* 00AC */ SHORT SetSequence(SHORT nSequence) override;
     /* 00BC */ BOOL GetAboveGround() override;
     /* 00C8 */ SHORT GetCurrentFrame() override;
-    /* 00CC */ BOOLEAN GetCurrentSequenceAndFrame(SHORT nSequence, SHORT nFrame) override;
+    /* 00CC */ BOOLEAN GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame) override;
     /* 00D0 */ BOOLEAN GetCurrentResRef(CString& resBody, CString& resWeapon, CString& resShield, CString& resHelmet) override;
 
     /* 03FE */ CString m_resRef;

@@ -569,6 +569,9 @@ public:
     void InitQuickSpellData(CResRef resRef, BYTE type, CButtonData& cButtonData, BYTE nClass, BYTE a5, BYTE a6);
     void InitQuickItemData(SHORT itemNum, SHORT abilityNum, int a3, CButtonData& cButtonData);
     CGameButtonList* GetSongsButtonList();
+    CGameButtonList* GetInnateSpellsButtonList();
+    CGameButtonList* GetFeatPointsButtonList(const CResRef& resRef, UINT nCount);
+    CGameButtonList* GetAllItemUsages(BOOL bStopAtFirst);
     BOOLEAN CanCast(BYTE nClass, DWORD nSpecialization, CSpell* pSpell);
     CGameButtonList* GetInternalButtonList();
     CGameButtonList* GetItemUsages(SHORT slotNum, WORD buttonType, SHORT abilityNum);
@@ -583,8 +586,6 @@ public:
     void ReadyOffInternalList(CButtonData buttonData, BOOLEAN firstCall);
     void UseButtonAction(CButtonData buttonData, BOOLEAN firstCall);
     void UseButtonItem(CButtonData buttonData, BOOLEAN firstCall);
-    BOOLEAN UseSpellAction(const CButtonData* pButtonData, BOOLEAN bUseNow);
-    BOOLEAN UseInnateAction(const CButtonData* pButtonData, BOOLEAN bUseNow);
     void CheckToolTipItem(BYTE buttonNum);
     CItem* GetQuickItem(BYTE buttonNum);
     void UnequipAll(BOOL a1);
@@ -617,7 +618,7 @@ public:
     BOOL HaveUnexportableItems();
     void SetMonkAbilities();
     LONG GetLevel();
-    void SetHideState(BOOLEAN a1, BOOLEAN a2);
+    void SetHideState(BOOLEAN bInvisible, BOOLEAN bLeaveStore);
     INT GetAC();
     INT GetAttacksPerRound();
     void sub_72DE60();
@@ -670,6 +671,7 @@ public:
     SHORT UseContainer();
     SHORT UseDoor();
     SHORT Dialogue(CGameSprite* pTarget);
+    SHORT StartStore(CGameSprite* pTarget);
     SHORT PlayerDialog(CGameSprite* pTarget);
     SHORT OneSwing();
     SHORT Recoil();

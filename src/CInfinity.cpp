@@ -1,7 +1,6 @@
 #include "CInfinity.h"
 
 #include "CBaldurChitin.h"
-#include "DebugLog.h"
 #include "CGameArea.h"
 #include "CGameSprite.h"
 #include "CInfGame.h"

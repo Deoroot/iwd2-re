@@ -972,14 +972,17 @@ void CVidPalette::RealizeRange(DWORD* pDestPalette, INT nBpp, DWORD dwFlags, CVI
         CVIDPALETTE_COLOR rgbRangeTintRatio;
         if ((pAffectArgs->suppressTints & CVidPalette::m_SuppressTintMasks[range]) != 0
             && (nLightPercentage != 0 || nAddPercentage != 0)) {
+            // Interpolate from the base tint toward nTintMax, by the stronger of the
+            // two percentages: 0x7BFEA9 computes (nTintMax - rgbTint.x) * pct / period
+            // + rgbTint.x, so the base tint is the term added, not the destination.
             if (nLightPercentage > nAddPercentage) {
-                rgbRangeTintRatio.rgbRed += nLightPercentage * (nTintMax - rgbTint.rgbRed) / pAffectArgs->aRangeLightPeriods[range];
-                rgbRangeTintRatio.rgbGreen += nLightPercentage * (nTintMax - rgbTint.rgbGreen) / pAffectArgs->aRangeLightPeriods[range];
-                rgbRangeTintRatio.rgbBlue += nLightPercentage * (nTintMax - rgbTint.rgbBlue) / pAffectArgs->aRangeLightPeriods[range];
+                rgbRangeTintRatio.rgbRed = nLightPercentage * (nTintMax - rgbTint.rgbRed) / pAffectArgs->aRangeLightPeriods[range] + rgbTint.rgbRed;
+                rgbRangeTintRatio.rgbGreen = nLightPercentage * (nTintMax - rgbTint.rgbGreen) / pAffectArgs->aRangeLightPeriods[range] + rgbTint.rgbGreen;
+                rgbRangeTintRatio.rgbBlue = nLightPercentage * (nTintMax - rgbTint.rgbBlue) / pAffectArgs->aRangeLightPeriods[range] + rgbTint.rgbBlue;
             } else {
-                rgbRangeTintRatio.rgbRed += nAddPercentage * (nTintMax - rgbTint.rgbRed) / pAffectArgs->aRangeAddPeriods[range];
-                rgbRangeTintRatio.rgbGreen += nAddPercentage * (nTintMax - rgbTint.rgbGreen) / pAffectArgs->aRangeAddPeriods[range];
-                rgbRangeTintRatio.rgbBlue += nAddPercentage * (nTintMax - rgbTint.rgbBlue) / pAffectArgs->aRangeAddPeriods[range];
+                rgbRangeTintRatio.rgbRed = nAddPercentage * (nTintMax - rgbTint.rgbRed) / pAffectArgs->aRangeAddPeriods[range] + rgbTint.rgbRed;
+                rgbRangeTintRatio.rgbGreen = nAddPercentage * (nTintMax - rgbTint.rgbGreen) / pAffectArgs->aRangeAddPeriods[range] + rgbTint.rgbGreen;
+                rgbRangeTintRatio.rgbBlue = nAddPercentage * (nTintMax - rgbTint.rgbBlue) / pAffectArgs->aRangeAddPeriods[range] + rgbTint.rgbBlue;
             }
 
             if (pVidMode->m_nFade != CVidMode::NUM_FADE_FRAMES) {

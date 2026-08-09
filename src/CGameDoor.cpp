@@ -1,4 +1,4 @@
-#include "CGameDoor.h"
+﻿#include "CGameDoor.h"
 
 #include "CAIScript.h"
 #include "CAITrigger.h"
@@ -363,7 +363,14 @@ void CGameDoor::AIUpdate()
     }
 }
 
-// 0x47E040
+// 0x47C830
+BOOLEAN CGameDoor::CanSaveGame(STRREF& strError)
+{
+    strError = -1;
+    return TRUE;
+}
+
+// 0x4876E0
 void CGameDoor::DebugDump(const CString& message, BOOLEAN bEchoToScreen)
 {
     CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
@@ -1475,4 +1482,11 @@ void CGameDoor::ToggleDoor(const CAIObjectType& user, BOOL ignoreLocked)
             TakePartyItem();
         }
     }
+}
+
+// 0x47D7F0
+BOOLEAN CGameDoor::DoAIUpdate(BOOLEAN active, LONG counter)
+{
+    // Folded with CGameContainer::DoAIUpdate at 0x47D7F0.
+    return active && (counter & m_AISpeed) == (m_AISpeed & m_id);
 }

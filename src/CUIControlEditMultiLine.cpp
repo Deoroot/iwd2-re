@@ -451,3 +451,15 @@ void CUIControlEditMultiLineScroller::OnPageDown(DWORD nLines)
 
     InvalidateRect();
 }
+
+// 0x4D6CE0
+void CUIControlEditMultiLine::SetActive(BOOLEAN bActive)
+{
+    // Folded with CUIControlEdit::SetActive at 0x4D6CE0.
+    m_bActive = bActive;
+    if (bActive) {
+        m_cVidFont.RegisterFont();
+    } else {
+        m_cVidFont.Unload();
+    }
+}

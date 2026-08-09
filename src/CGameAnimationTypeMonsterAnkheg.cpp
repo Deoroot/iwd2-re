@@ -180,7 +180,7 @@ BOOL CGameAnimationTypeMonsterAnkheg::GetAboveGround()
 }
 
 // 0x6C2D70
-BOOLEAN CGameAnimationTypeMonsterAnkheg::GetCurrentSequenceAndFrame(SHORT nSequence, SHORT nFrame)
+BOOLEAN CGameAnimationTypeMonsterAnkheg::GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame)
 {
     nSequence = m_currentVidCell->m_nCurrentSequence;
     nFrame = m_currentVidCell->m_nCurrentFrame;
@@ -619,4 +619,10 @@ SHORT CGameAnimationTypeMonsterAnkheg::SetSequence(SHORT nSequence)
     }
 
     return nSequence;
+}
+
+// 0x78E6E0
+BOOL CGameAnimationTypeMonsterAnkheg::IsFalseColor()
+{
+    return FALSE;
 }

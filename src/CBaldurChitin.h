@@ -135,7 +135,7 @@ public:
     /* 00A0 */ const char* GetIniFileName() override;
     /* 00A4 */ const char* GetKeyFileName() override;
     /* 00A8 */ const char* GetLogFileName() override;
-    /* 00A8 */ const char* GetErrFileName() override;
+    /* 00AC */ const char* GetErrFileName() override;
     /* 00B0 */ void SaveBitsPerPixel(USHORT nBpp) override;
     /* 00B4 */ UINT GetSavedBitsPerPixel() override;
     /* 00B8 */ BYTE GetNumberSoundChannels() override;

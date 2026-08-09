@@ -4,7 +4,6 @@
 #include "CUtil.h"
 #include "CVidCell.h"
 #include "CVideo3d.h"
-#include "DebugLog.h" // TEMP-INSTRUMENT (marker-bleed diag) — remove with the MARKDBG logs
 
 typedef struct CVIDMODE_CLIP_OUTCODE {
     unsigned int all;

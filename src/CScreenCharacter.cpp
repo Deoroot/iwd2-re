@@ -5148,12 +5148,12 @@ void CScreenCharacter::UpdateClassSelectionPanel(CGameSprite* pSprite)
             // NOTE: Uninline.
             switch (pButton->GetClass()) {
             case CAIOBJECTTYPE_C_PALADIN:
-                if ((pSprite->GetBaseStats()->field_2FB & 0x8) != 0) {
+                if ((pSprite->GetBaseStats()->m_specFlags & CRE_SPECFLAG_NO_PALADIN) != 0) {
                     bEnabled = FALSE;
                 }
                 break;
             case CAIOBJECTTYPE_C_RANGER:
-                if ((pSprite->GetBaseStats()->field_2FB & 0x4) != 0) {
+                if ((pSprite->GetBaseStats()->m_specFlags & CRE_SPECFLAG_NO_RANGER) != 0) {
                     bEnabled = FALSE;
                 }
                 break;

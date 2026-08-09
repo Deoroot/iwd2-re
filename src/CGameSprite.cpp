@@ -1,4 +1,4 @@
-#include "CGameSprite.h"
+﻿#include "CGameSprite.h"
 
 #include <mbstring.h>
 
@@ -12,6 +12,7 @@
 #include "CGameButtonList.h"
 #include "CGameContainer.h"
 #include "CGameDoor.h"
+#include "CGameOptions.h"
 #include "CGamePermission.h"
 #include "CGameTimer.h"
 #include "CGameTrigger.h"
@@ -25,6 +26,7 @@
 #include "CScreenCreateChar.h"
 #include "CScreenInventory.h"
 #include "CScreenMap.h"
+#include "CScreenStore.h"
 #include "CScreenWorld.h"
 #include "CScreenWorldMap.h"
 #include "CSoundMixer.h"
@@ -1172,7 +1174,7 @@ BOOL CGameSprite::IsOver(const CPoint& pt)
         && m_baseStats.m_bStealthMode == 0
         && (m_typeAI.GetEnemyAlly() <= CAIObjectType::EA_GOODCUTOFF
             || (m_derivedStats.m_generalState & STATE_INVISIBLE) == 0
-            || (m_baseStats.m_critSectService & 0x1) != 0)) {
+            || (m_baseStats.m_visible & 0x1) != 0)) {
         const CRect& rEllipse = m_animation.GetEllipseRect();
         CPoint ptRelative(pt.x - m_pos.x, pt.y - m_pos.y);
         return rEllipse.PtInRect(ptRelative);
@@ -1663,20 +1665,20 @@ void CGameSprite::AIUpdate()
 
     if (pGame->GetWorldTimer()->m_active) {
         if ((m_baseStats.m_generalState & STATE_FADE_OUT) != 0) {
-            if (static_cast<int>(m_baseStats.field_2F9 + m_baseStats.m_fadeSpeed) > 255) {
+            if (static_cast<int>(m_baseStats.m_minTransparency + m_baseStats.m_fadeSpeed) > 255) {
                 m_baseStats.m_generalState &= ~STATE_FADE_OUT;
                 m_derivedStats.m_generalState &= ~STATE_FADE_OUT;
-                m_baseStats.field_2F9 = -1;
+                m_baseStats.m_minTransparency = -1;
             } else {
-                m_baseStats.field_2F9 += m_baseStats.m_fadeSpeed;
+                m_baseStats.m_minTransparency += m_baseStats.m_fadeSpeed;
             }
         } else if ((m_baseStats.m_generalState & STATE_FADE_IN) != 0) {
-            if (static_cast<int>(m_baseStats.field_2F9 - m_baseStats.m_fadeSpeed) < 0) {
+            if (static_cast<int>(m_baseStats.m_minTransparency - m_baseStats.m_fadeSpeed) < 0) {
                 m_baseStats.m_generalState &= ~STATE_FADE_IN;
                 m_derivedStats.m_generalState &= ~STATE_FADE_IN;
-                m_baseStats.field_2F9 = -1;
+                m_baseStats.m_minTransparency = -1;
             } else {
-                m_baseStats.field_2F9 -= m_baseStats.m_fadeSpeed;
+                m_baseStats.m_minTransparency -= m_baseStats.m_fadeSpeed;
             }
         }
 
@@ -3620,7 +3622,7 @@ void CGameSprite::CheckIfVisible()
                 if (!m_bVisibleMonster
                     && m_typeAI.GetEnemyAlly() >= CAIObjectType::EA_EVILCUTOFF
                     && Animate()
-                    && ((m_derivedStats.m_generalState & STATE_INVISIBLE) == 0 || (m_baseStats.m_critSectService & 0x1) != 0)
+                    && ((m_derivedStats.m_generalState & STATE_INVISIBLE) == 0 || (m_baseStats.m_visible & 0x1) != 0)
                     && !m_baseStats.m_bStealthMode
                     && (m_baseStats.m_flags & 0x8000) == 0) {
                     if (m_pArea->m_nVisibleMonster == 0) {
@@ -4126,10 +4128,553 @@ BOOL CGameSprite::CanSpeak(BOOL ignoreDeath, BOOL ignoreSilence)
     return TRUE;
 }
 
+// The battle cry is throttled globally, and a creature that just shouted keeps
+// quiet for a while afterwards.
+static const LONG BATTLE_CRY_TIMEOUT = 30;
+static const SHORT ATTACK_SOUND_DEADZONE = 90;
+
 // 0x7011E0
 void CGameSprite::PlaySound(BYTE soundID, BOOL showText, BOOL showCircle, BOOL overrideOption)
 {
-    // TODO: Incomplete.
+    STR_RES strRes;
+
+    // NOTE: Uninline.
+    BYTE nChannel = GetChannel();
+
+    // Set by the cases whose sound is not tied to a spot in the world; the
+    // tail reads it to choose between a positioned and a plain play.
+    BOOL bNonPositional = FALSE;
+
+    if (!CanSpeak(soundID == 7, FALSE)) {
+        return;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // Slot in m_speech the case settled on; the tail needs it to look up the
+    // soundset-specific text and the custom sound.
+    INT nSlot;
+
+    switch (soundID) {
+    case 1: {
+        SHORT nSounds = GetNumSounds(0, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(13, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 2: {
+        SHORT nSounds = GetNumSounds(7, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 7;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 3: {
+        SHORT nSounds = GetNumSounds(9, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 9;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 4: {
+        SHORT nSounds = GetNumSounds(11, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 11;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 5: {
+        // Battle cry.  Creatures share one global cooldown so a whole room
+        // does not shout at once; party members bypass it.
+        if (pGame->GetCharacterPortraitNum(m_id) == -1) {
+            if (g_pBaldurChitin->GetScreenWorld()->m_nBattleCryTimeOut >= 1) {
+                return;
+            }
+
+            g_pBaldurChitin->GetScreenWorld()->m_nBattleCryTimeOut = BATTLE_CRY_TIMEOUT;
+        }
+
+        if (pGame->GetOptions()->m_bAttackSounds == 0 || m_attackSoundDeadzone > 0) {
+            return;
+        }
+
+        m_attackSoundDeadzone = ATTACK_SOUND_DEADZONE;
+
+        if (field_70FC == 0) {
+            SHORT nSounds = GetNumSounds(2, 5);
+            if (nSounds == 0) {
+                return;
+            }
+
+            INT nIndex = rand() % nSounds;
+            nSlot = nIndex + 2;
+            g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+            strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+            break;
+        }
+
+        // Creature-supplied battle cries play straight from their own list and
+        // never reach the subtitle tail.
+        if (field_7360.IsEmpty()) {
+            return;
+        }
+
+        CSound cSecondary;
+
+        INT nIndex = rand() % field_7360.GetCount();
+        POSITION pos = field_7360.GetHeadPosition();
+        while (pos != NULL && nIndex != 0) {
+            nIndex--;
+            field_7360.GetNext(pos);
+        }
+
+        CGameSpriteSoundEntry& entry = field_7360.GetAt(pos);
+
+        cSecondary.SetResRef(CResRef(entry.field_0), TRUE, TRUE);
+        cSecondary.m_nPitchVariance = 5;
+        cSecondary.m_nVolumeVariance = 20;
+        cSecondary.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        if (!cSecondary.GetLooping()) {
+            cSecondary.SetFireForget(TRUE);
+        }
+
+        cSecondary.Play(m_pos.x, m_pos.y, 0, FALSE);
+
+        return;
+    }
+
+    case 6: {
+        if (field_70FD != 0) {
+            // Creature-supplied variant: remember the pick, play nothing here.
+            if (field_737C.IsEmpty()) {
+                return;
+            }
+
+            INT nIndex = rand() % field_737C.GetCount();
+            POSITION pos = field_737C.GetHeadPosition();
+            while (pos != NULL && nIndex != 0) {
+                nIndex--;
+                field_737C.GetNext(pos);
+            }
+
+            CGameSpriteSoundEntry& entry = field_737C.GetAt(pos);
+            field_7410 = entry.field_0;
+            field_7414 = entry.field_4;
+
+            return;
+        }
+
+        SHORT nSounds = GetNumSounds(33, 3);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 33;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(13, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 7: {
+        SHORT nSounds = GetNumSounds(36, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 36;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(13, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 8: {
+        SHORT nSounds = GetNumSounds(13, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 13;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(13, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 9: {
+        if (field_7100 == 0) {
+            bNonPositional = TRUE;
+
+            // Selection barks are rationed by an option: always at 3, one time
+            // in five at 2, never otherwise -- unless the caller overrides it.
+            BOOL bPlay = FALSE;
+            DWORD nFrequency = pGame->GetOptions()->m_nSelectionSoundsFrequency;
+            if (nFrequency == 2) {
+                if (rand() % 5 == 0) {
+                    bPlay = TRUE;
+                }
+            } else if (nFrequency == 3) {
+                bPlay = TRUE;
+            }
+
+            if (!overrideOption && !bPlay) {
+                return;
+            }
+
+            if (field_710C < 9) {
+                // Rotate through the selection barks rather than picking at
+                // random, so the same one does not come up twice in a row.
+                SHORT nSounds = GetNumSounds(15, 7);
+                INT nIndex = nSounds < 1 ? 0 : field_710A % nSounds;
+                nSlot = nIndex + 15;
+                g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+                if (nChannel == 13) {
+                    strRes.cSound.SetChannel(6, reinterpret_cast<DWORD>(m_pArea));
+                } else {
+                    strRes.cSound.SetChannel(nChannel, 0);
+                }
+
+                field_710A++;
+                field_710C++;
+            } else {
+                // Nine selections in, the creature starts answering back.
+                nSlot = field_710E + 29;
+                g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+                if (nChannel == 13) {
+                    strRes.cSound.SetChannel(6, reinterpret_cast<DWORD>(m_pArea));
+                } else {
+                    strRes.cSound.SetChannel(nChannel, 0);
+                }
+
+                field_710E++;
+
+                SHORT nSounds = GetNumSounds(29, 4);
+                if (nSounds <= field_710E) {
+                    field_710E = 0;
+                    field_710C = 0;
+                }
+
+                field_710A = 0;
+            }
+
+            break;
+        }
+
+        if (field_73D0.IsEmpty()) {
+            return;
+        }
+
+        CSound cSecondary;
+
+        INT nIndex = rand() % field_73D0.GetCount();
+        POSITION pos = field_73D0.GetHeadPosition();
+        while (pos != NULL && nIndex != 0) {
+            nIndex--;
+            field_73D0.GetNext(pos);
+        }
+
+        CGameSpriteSoundEntry& entry = field_73D0.GetAt(pos);
+
+        cSecondary.SetResRef(CResRef(entry.field_0), TRUE, TRUE);
+        cSecondary.m_nPitchVariance = 5;
+        cSecondary.m_nVolumeVariance = 20;
+        cSecondary.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        if (!cSecondary.GetLooping()) {
+            cSecondary.SetFireForget(TRUE);
+        }
+
+        cSecondary.Play(m_pos.x, m_pos.y, 0, FALSE);
+
+        return;
+    }
+
+    case 10: {
+        bNonPositional = TRUE;
+
+        SHORT nSounds = GetNumSounds(15, 7);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 15;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(6, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 11: {
+        // Order acknowledgements are rationed like selections, but the "one
+        // time in five" slot is instead "only the first order after a select".
+        BOOL bPlay = FALSE;
+        DWORD nFrequency = pGame->GetOptions()->m_nCommandSoundsFrequency;
+        if (nFrequency == 2) {
+            if (m_firstActionSound != 0) {
+                bPlay = TRUE;
+            }
+        } else if (nFrequency == 3) {
+            bPlay = TRUE;
+        }
+
+        if (!overrideOption && !bPlay) {
+            return;
+        }
+
+        SHORT nSounds = GetNumSounds(22, 7);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 22;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        m_firstActionSound = 0;
+
+        break;
+    }
+
+    case 12: {
+        bNonPositional = TRUE;
+
+        SHORT nSounds = GetNumSounds(29, 4);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 29;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+
+        // The binary sets the area channel first and then overwrites it; the
+        // first call has no effect but is part of the function.
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+        if (nChannel == 13) {
+            strRes.cSound.SetChannel(6, reinterpret_cast<DWORD>(m_pArea));
+        } else {
+            strRes.cSound.SetChannel(nChannel, 0);
+        }
+
+        break;
+    }
+
+    case 13: {
+        SHORT nSounds = GetNumSounds(38, 2);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 38;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 14:
+    case 16: {
+        // The binary reaches case 14 by jumping into case 16's body, so the
+        // two share everything but the pool size and the deadzone.
+        SHORT nCount = 2;
+
+        if (soundID == 14) {
+            if (m_attackSoundDeadzone > 0) {
+                return;
+            }
+
+            // Armed before the pool is consulted, so an empty pool still
+            // silences the creature for the same stretch.
+            m_attackSoundDeadzone = ATTACK_SOUND_DEADZONE;
+            nCount = 4;
+        }
+
+        SHORT nSounds = GetNumSounds(40, nCount);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 40;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    case 15: {
+        SHORT nSounds = GetNumSounds(44, 20);
+        if (nSounds == 0) {
+            return;
+        }
+
+        INT nIndex = rand() % nSounds;
+        nSlot = nIndex + 44;
+        g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[nSlot], strRes);
+        strRes.cSound.SetChannel(nChannel, reinterpret_cast<DWORD>(m_pArea));
+
+        break;
+    }
+
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+        // __LINE__: 6997
+        UTIL_ASSERT(FALSE);
+        return;
+    }
+
+    COLORREF nameColor = CVidPalette::RANGE_COLORS[m_baseStats.m_colors[CVIDPALETTE_RANGE_MAIN_CLOTH]];
+    BOOL show = pGame->GetOptions()->m_bSubtitles != FALSE;
+
+    strRes.szText.TrimLeft();
+
+    if (m_secondarySounds != "") {
+        // A creature with its own soundset can override both the line and the
+        // sample the switch just picked.
+        if (show) {
+            CString sSoundSet(reinterpret_cast<const char*>(field_725A));
+            STRREF strSpeech = pGame->GetRuleTables().GetSpeechStringRef(sSoundSet, nSlot);
+            if (strSpeech != -1) {
+                STR_RES resSpeech;
+                g_pBaldurChitin->GetTlkTable().Fetch(strSpeech, resSpeech);
+
+                if (resSpeech.szText.GetLength() == 0) {
+                    strRes.szText = "";
+                } else {
+                    strRes.szText = resSpeech.szText;
+                }
+            }
+        }
+
+        CString sSoundName;
+        CString sSoundSetName;
+        LONG nNumber = pGame->GetRuleTables().GetCustomSound(sSoundName, static_cast<BYTE>(nSlot));
+        m_secondarySounds.CopyToString(sSoundSetName);
+        sSoundName.TrimLeft();
+        sSoundName.TrimRight();
+        sSoundName = sSoundSetName + sSoundName;
+
+        // Unlike VerbalConstant, a numbered custom sound is only taken when the
+        // WAV actually exists, so a gap in the soundset keeps the stock sample.
+        if (nNumber == 0
+            || g_pChitin->cDimm.m_cKeyTable.FindKey(CResRef(sSoundName), 4, TRUE) != NULL) {
+            strRes.cSound.SetResRef(CResRef(sSoundName), TRUE, TRUE);
+        }
+    }
+
+    if (m_typeAI.GetEnemyAlly() == CAIObjectType::EA_PC) {
+        if (strRes.cSound.GetRes() != NULL) {
+            if (!strRes.cSound.GetLooping()) {
+                strRes.cSound.SetFireForget(TRUE);
+            }
+
+            if (strRes.cSound.Play(FALSE) && showCircle) {
+                m_talkingCounter = min(strRes.cSound.GetPlayTime() / 66, STANDARD_VERBAL_CONSTANT_LENGTH);
+            }
+        }
+    } else {
+        if (strRes.cSound.GetRes() != NULL) {
+            if (!strRes.cSound.GetLooping()) {
+                strRes.cSound.SetFireForget(TRUE);
+            }
+
+            // Non-party voices go through the sprite's own channel so a
+            // creature never talks over itself.  The binary spells the block
+            // out three times, once per positioning case; the three differ
+            // only in the last two calls.
+            if (!m_sndVoice.IsSoundPlaying()
+                || m_sndVoice.GetResRef() != strRes.cSound.GetResRef()) {
+                m_sndVoice.Stop();
+                m_sndVoice.SetResRef(strRes.cSound.GetResRef(), TRUE, TRUE);
+
+                if (strRes.cSound.m_nArea != 0 && !bNonPositional) {
+                    m_sndVoice.SetChannel(strRes.cSound.m_nChannel, reinterpret_cast<DWORD>(m_pArea));
+                    if (m_sndVoice.Play(m_pos.x, m_pos.y, 0, FALSE) && showCircle) {
+                        m_talkingCounter = min(strRes.cSound.GetPlayTime() / 66, STANDARD_VERBAL_CONSTANT_LENGTH);
+                    }
+                } else {
+                    m_sndVoice.SetChannel(strRes.cSound.m_nChannel, 0);
+                    if (m_sndVoice.Play(FALSE) && showCircle) {
+                        m_talkingCounter = min(strRes.cSound.GetPlayTime() / 66, STANDARD_VERBAL_CONSTANT_LENGTH);
+                    }
+                }
+            }
+        }
+    }
+
+    if (strRes.szText != "" && showText && show) {
+        g_pBaldurChitin->GetScreenWorld()->DisplayText(m_sName,
+            strRes.szText,
+            nameColor,
+            nameColor,
+            -1,
+            FALSE);
+    }
 }
 
 // 0x702900
@@ -4549,8 +5094,8 @@ void CGameSprite::Render(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
                 }
             }
 
-            if (m_baseStats.field_2F9 > 0 && transparency < m_baseStats.field_2F9) {
-                transparency = m_baseStats.field_2F9;
+            if (m_baseStats.m_minTransparency > 0 && transparency < m_baseStats.m_minTransparency) {
+                transparency = m_baseStats.m_minTransparency;
             }
 
             if (m_derivedStats.m_nMirrorImages > 0) {
@@ -4984,7 +5529,7 @@ void CGameSprite::RenderMarkers(CVidMode* pVidMode, INT nSurface)
     if (m_pArea->m_visibility.IsTileExplored(m_pArea->m_visibility.PointToTile(pt))
         && (m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_CONTROLCUTOFF
             || (m_derivedStats.m_generalState & STATE_INVISIBLE) == 0
-            || (m_baseStats.m_critSectService & 0x1) != 0)
+            || (m_baseStats.m_visible & 0x1) != 0)
         && m_baseStats.m_bStealthMode != 1) {
         DWORD level = g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nGuiFeedbackLevel;
         if (g_pBaldurChitin->GetScreenWorld()->field_14A) {
@@ -8078,7 +8623,7 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
     m_bInUnmarshal = FALSE;
 
     if (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nNightmareMode == TRUE
-        && (m_baseStats.field_2FB & 0x1) == 0
+        && (m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) == 0
         && a4 == NULL) {
         BOOL bIncreaseStats = FALSE;
         if (m_type == 2) {
@@ -8118,11 +8663,11 @@ void CGameSprite::Unmarshal(BYTE* pCreature, LONG creatureSize, WORD facing, int
             m_baseStats.m_CONBase += 10;
             m_baseStats.m_CHRBase += 10;
             m_baseStats.field_252 += 10;
-            m_baseStats.field_2FB |= 0x1;
+            m_baseStats.m_specFlags |= CRE_SPECFLAG_NIGHTMARE_BOOST;
         }
     }
 
-    m_baseStats.m_critSectService &= ~0x1;
+    m_baseStats.m_visible &= ~0x1;
     m_dialog = offsets->m_dialog;
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
@@ -8344,8 +8889,11 @@ void CGameSprite::RenderMirrorImage(INT placement, CRect& rFX, CRect& rGCBounds,
     SHORT searchSquareCode;
     CPoint pos;
 
+    // The offset is applied to the local copy only -- the binary reads m_pos.y
+    // and never writes it back, so a `+=` here would walk the sprite across the
+    // map one placement offset per rendered frame.
     pos.x = m_pos.x + mirrorImagePlacementX[placement];
-    pos.y = m_pos.y += mirrorImagePlacementY[placement];
+    pos.y = m_pos.y + mirrorImagePlacementY[placement];
     pos.y += m_pArea->GetHeightOffset(pos, m_listType);
 
     m_animation.CalculateGCBoundsRect(rGCBounds,
@@ -8356,16 +8904,25 @@ void CGameSprite::RenderMirrorImage(INT placement, CRect& rFX, CRect& rGCBounds,
         rFX.Height());
 
     if (!IsRectEmpty(rViewRect & rGCBounds)) {
-        mirrorPos.x = max(pos.x, m_pArea->GetInfinity()->nAreaX - 1) / CPathSearch::GRID_SQUARE_SIZEX;
-        mirrorPos.y = max(pos.y, m_pArea->GetInfinity()->nAreaY - 1) / CPathSearch::GRID_SQUARE_SIZEY;
+        // Three coordinate spaces, which the binary keeps in three separate
+        // stack slots: the world position, that position clamped into the area,
+        // and the clamped one divided down into search squares.  Only the
+        // search-map lookup wants squares; the visibility map divides by its
+        // own tile size, and the renderer wants the world position.
+        CPoint clampedPos(min(max(pos.x, 0), m_pArea->GetInfinity()->nAreaX - 1),
+            min(max(pos.y, 0), m_pArea->GetInfinity()->nAreaY - 1));
+
+        mirrorPos.x = clampedPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+        mirrorPos.y = clampedPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+
         if ((pSearch->GetLOSCost(mirrorPos, m_terrainTable, searchSquareCode, FALSE) != CPathSearch::COST_IMPASSABLE
                 || searchSquareCode == 14)
-            && pVisibility->IsTileExplored(pVisibility->PointToTile(mirrorPos))) {
+            && pVisibility->IsTileExplored(pVisibility->PointToTile(clampedPos))) {
             m_animation.Render(m_pArea->GetInfinity(),
                 pVidMode,
                 nSurface,
                 rFX,
-                mirrorPos,
+                pos,
                 ptReference,
                 dwRenderFlags | 0x2,
                 rgbTint,
@@ -8713,6 +9270,368 @@ CGameButtonList* CGameSprite::GetSongsButtonList()
         g_pBaldurChitin->GetObjectGame()->GetMasterSongLookup().Get(entry->m_nID).GetResRef(resRef);
 
         buttons->AddTail(IcewindMisc::CreateButtonData(resRef));
+    }
+
+    return buttons;
+}
+
+// Build the special-abilities picker list: the innate spells first, then the
+// shapeshift forms.  Feeds SetState(0x6A/0x6B) through
+// CInfButtonArray::BuildPickerList kind 4.
+//
+// 0x715BD0
+CGameButtonList* CGameSprite::GetInnateSpellsButtonList()
+{
+    CGameButtonList* pButtons = new CGameButtonList();
+    SPELL_ABILITY* pBestAbility = NULL;
+
+    for (UINT nIndex = 0; nIndex < m_innateSpells.m_List.size(); nIndex++) {
+        CGameSpriteSpellListEntry* pEntry = m_innateSpells.Get(nIndex);
+
+        if ((pEntry->m_nShared & 1) != 0
+            || pEntry->m_nMax == 0
+            || pEntry->m_nCurrent == 0) {
+            continue;
+        }
+
+        UINT nSpellId = pEntry->m_nID;
+        const CResRef& spellResRef = g_pBaldurChitin->GetObjectGame()->m_innateSpells.Get(nSpellId);
+
+        CSpell cSpell;
+        cSpell.SetResRef(spellResRef, TRUE, TRUE);
+        if (cSpell.Demand() != NULL) {
+            // Bardsong is driven by the song bar, never by this picker.
+            if (cSpell.pRes != NULL && spellResRef != SPIN285) {
+                SHORT nCasterLevel = GetCasterLevel(&cSpell, 0, 0);
+                if (nCasterLevel < 1) {
+                    nCasterLevel = 1;
+                }
+
+                for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+                    if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+                        break;
+                    }
+
+                    // FIXME: Calls `GetAbility` one more time.
+                    pBestAbility = cSpell.GetAbility(nAbility);
+                }
+
+                if (pBestAbility != NULL && pBestAbility->quickSlotType == 4) {
+                    CButtonData* pButton = new CButtonData();
+
+                    pButton->m_icon = CString(pBestAbility->quickSlotIcon);
+                    pButton->m_name = cSpell.GetGenericName();
+                    pButton->m_abilityId.m_itemType = 1;
+                    pButton->m_abilityId.m_res = spellResRef;
+                    pButton->m_abilityId.m_targetType = pBestAbility->actionType;
+                    pButton->m_abilityId.m_strDescription = cSpell.GetGenericName();
+
+                    CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+                    pButton->m_bDisabled = static_cast<BOOLEAN>(stats.m_disabledSpellTypes[2]);
+
+                    pButton->m_count = static_cast<SHORT>(pEntry->m_nCurrent);
+                    if (pButton->m_count < 1) {
+                        pButton->m_bDisabled = TRUE;
+                    }
+
+                    // The five feat-driven modal abilities take their count
+                    // from the feat rank instead of the innate use count, and
+                    // grey out entirely when the feat is missing.
+                    if (pButton->m_abilityId.m_res == SPIN275) {
+                        pButton->m_count = HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)
+                            ? static_cast<SHORT>(m_nFeatRanks[1])
+                            : static_cast<SHORT>(0);
+                        if (!HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    } else if (pButton->m_abilityId.m_res == SPIN276) {
+                        pButton->m_count = HasFeat(CGAMESPRITE_FEAT_EXPERTISE)
+                            ? static_cast<SHORT>(m_nFeatRanks[0])
+                            : static_cast<SHORT>(0);
+                        if (!HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    } else if (pButton->m_abilityId.m_res == SPIN277) {
+                        pButton->m_bDisplayCount = FALSE;
+                        pButton->m_count = 0;
+                        if (!HasFeat(CGAMESPRITE_FEAT_ARTERIAL_STRIKE)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    } else if (pButton->m_abilityId.m_res == SPIN278) {
+                        pButton->m_bDisplayCount = FALSE;
+                        pButton->m_count = 0;
+                        if (!HasFeat(CGAMESPRITE_FEAT_HAMSTRING)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    } else if (pButton->m_abilityId.m_res == SPIN279) {
+                        pButton->m_bDisplayCount = FALSE;
+                        pButton->m_count = 0;
+                        if (!HasFeat(CGAMESPRITE_FEAT_RAPID_SHOT)) {
+                            pButton->m_bDisabled = TRUE;
+                        }
+                    }
+
+                    pButtons->AddTail(pButton);
+                }
+            }
+
+            cSpell.Release();
+        }
+    }
+
+    for (UINT nIndex = 0; nIndex < m_shapeshifts.m_List.size(); nIndex++) {
+        CGameSpriteSpellListEntry* pEntry = m_shapeshifts.Get(nIndex);
+
+        if ((pEntry->m_nShared & 1) != 0
+            || pEntry->m_nMax == 0
+            || pEntry->m_nCurrent == 0) {
+            continue;
+        }
+
+        UINT nSpellId = pEntry->m_nID;
+        const CResRef& spellResRef = g_pBaldurChitin->GetObjectGame()->m_shapeshifts.Get(nSpellId);
+
+        CSpell cSpell;
+        cSpell.SetResRef(spellResRef, TRUE, TRUE);
+        if (cSpell.Demand() != NULL) {
+            if (cSpell.pRes != NULL) {
+                SHORT nCasterLevel = GetCasterLevel(&cSpell, 0, 0);
+                if (nCasterLevel < 1) {
+                    nCasterLevel = 1;
+                }
+
+                for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+                    if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+                        break;
+                    }
+
+                    // FIXME: Calls `GetAbility` one more time.
+                    pBestAbility = cSpell.GetAbility(nAbility);
+                }
+
+                if (pBestAbility != NULL && pBestAbility->quickSlotType == 4) {
+                    CButtonData* pButton = new CButtonData();
+
+                    pButton->m_icon = CString(pBestAbility->quickSlotIcon);
+                    pButton->m_name = cSpell.GetGenericName();
+                    pButton->m_abilityId.m_itemType = 1;
+                    pButton->m_abilityId.m_res = spellResRef;
+                    pButton->m_abilityId.m_targetType = pBestAbility->actionType;
+                    pButton->m_abilityId.m_strDescription = cSpell.GetGenericName();
+
+                    CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+                    pButton->m_bDisabled = static_cast<BOOLEAN>(stats.m_disabledSpellTypes[2]);
+
+                    // Every shapeshift but SPIN122 draws on the shared pool of
+                    // shapes rather than on its own use count.
+                    SHORT nCount;
+                    if (spellResRef == SPIN122) {
+                        nCount = static_cast<SHORT>(pEntry->m_nCurrent);
+                    } else {
+                        nCount = static_cast<SHORT>(m_shapeshifts.m_nSharedTotal);
+                    }
+
+                    pButton->m_count = nCount;
+                    pButton->m_bDisplayCount = TRUE;
+                    if (nCount < 1) {
+                        pButton->m_bDisabled = TRUE;
+                    }
+
+                    pButtons->AddTail(pButton);
+                }
+            }
+
+            cSpell.Release();
+        }
+    }
+
+    return pButtons;
+}
+
+// Build the entry list for the Power Attack / Expertise point picker: one
+// button per allowed setting, "Off" first and then one per point.  All of them
+// carry the same spell; only the count and the tooltip string differ.
+//
+// 0x717FC0
+CGameButtonList* CGameSprite::GetFeatPointsButtonList(const CResRef& resRef, UINT nCount)
+{
+    CGameButtonList* pButtons = new CGameButtonList();
+    SPELL_ABILITY* pBestAbility = NULL;
+
+    CSpell cSpell;
+    cSpell.SetResRef(resRef, TRUE, TRUE);
+    if (!cSpell.Demand()) {
+        // FIXME: Leaks pButtons.
+        return NULL;
+    }
+
+    if (cSpell.pRes == NULL) {
+        cSpell.Release();
+
+        // FIXME: Leaks pButtons.
+        return NULL;
+    }
+
+    SHORT nCasterLevel = GetCasterLevel(&cSpell, 0, 0);
+    if (nCasterLevel < 1) {
+        nCasterLevel = 1;
+    }
+
+    for (INT nAbility = 0; nAbility < cSpell.GetAbilityCount(); nAbility++) {
+        if (cSpell.GetAbility(nAbility)->minCasterLevel > nCasterLevel) {
+            break;
+        }
+
+        // FIXME: Calls `GetAbility` one more time.
+        pBestAbility = cSpell.GetAbility(nAbility);
+    }
+
+    if (pBestAbility == NULL || pBestAbility->quickSlotType != 4) {
+        cSpell.Release();
+
+        // FIXME: Leaks pButtons.
+        return NULL;
+    }
+
+    for (UINT nPoints = 0; nPoints < nCount; nPoints++) {
+        CButtonData* pButtonData = new CButtonData();
+
+        pButtonData->m_icon = CString(pBestAbility->quickSlotIcon);
+        pButtonData->m_name = cSpell.GetGenericName();
+        pButtonData->m_abilityId.m_itemType = 1;
+        pButtonData->m_abilityId.m_res = resRef;
+        pButtonData->m_abilityId.m_targetType = pBestAbility->actionType;
+        pButtonData->m_abilityId.m_strDescription = cSpell.GetGenericName();
+
+        CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+        pButtonData->m_bDisabled = static_cast<BOOLEAN>(stats.m_disabledSpellTypes[2]);
+
+        // Strrefs 39831.. are "Off", "1", "2", ...
+        pButtonData->m_abilityId.m_strTooltipDesc = 39831 + nPoints;
+        if (nPoints != 0) {
+            pButtonData->m_count = static_cast<SHORT>(nPoints);
+        }
+
+        pButtons->AddTail(pButtonData);
+    }
+
+    cSpell.Release();
+
+    return pButtons;
+}
+
+// Build the "every usable item in the inventory" list: walks all equipment
+// slots, skipping 0x12..0x2A always and the three quick-item slots 0x0F..0x11
+// when CGameOptions::m_bQuickItemMapping is set.  bStopAtFirst makes it return
+// after the first usable ability, which is how UpdateButtons asks "is anything
+// usable at all".
+//
+// 0x716E80
+CGameButtonList* CGameSprite::GetAllItemUsages(BOOL bStopAtFirst)
+{
+    const CRuleTables& cRule = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+    CGameButtonList* buttons = new CGameButtonList();
+
+    for (INT slotNum = 0; slotNum < 51; slotNum++) {
+        if (slotNum >= 0x12 && slotNum <= 0x2A) {
+            continue;
+        }
+
+        if (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_bQuickItemMapping
+            && slotNum >= 0x0F && slotNum <= 0x11) {
+            continue;
+        }
+
+        CItem* pItem = m_equipment.m_items[slotNum];
+        if (pItem == NULL) {
+            continue;
+        }
+
+        if (slotNum == 43
+            || slotNum == 45
+            || slotNum == 47
+            || slotNum == 49) {
+            if ((pItem->GetFlagsFile() & 0x2) != 0) {
+                if (m_equipment.m_items[slotNum + 1] != NULL) {
+                    continue;
+                }
+            }
+        }
+
+        if (!pItem->Demand()) {
+            continue;
+        }
+
+        for (INT nAbility = 0; nAbility < pItem->GetAbilityCount(); nAbility++) {
+            const ITEM_ABILITY* curAbility = pItem->GetAbility(nAbility);
+
+            if (pItem->GetItemType() == 11) {
+                // A scroll is only usable from the bar when its first effect
+                // is something other than learning the spell.
+                CGameEffect* pEffect = pItem->GetAbilityEffect(nAbility, 0, NULL);
+                if (pEffect != NULL) {
+                    if (pEffect->m_effectID == CGAMEEFFECT_LEARNSPELL) {
+                        // FIXME: Leaks pEffect.
+                        continue;
+                    }
+
+                    delete pEffect;
+                }
+            }
+
+            if (curAbility == NULL || curAbility->quickSlotType != 3) {
+                continue;
+            }
+
+            if ((curAbility->type & 0x100) != 0 && (pItem->m_flags & 0x1) == 0) {
+                continue;
+            }
+
+            if ((curAbility->type & 0x200) != 0 && (pItem->m_flags & 0x1) != 0) {
+                continue;
+            }
+
+            if ((curAbility->type & 0xFF) == 4) {
+                continue;
+            }
+
+            if ((curAbility->type & 0xFF) == 2 && !CheckLauncherType(curAbility, NULL)) {
+                continue;
+            }
+
+            CButtonData* pButtonData = new CButtonData();
+            pButtonData->m_icon = CString(curAbility->quickSlotIcon);
+            pButtonData->m_name = pItem->GetGenericName();
+            pButtonData->m_abilityId.m_itemNum = static_cast<SHORT>(slotNum);
+            pButtonData->m_abilityId.m_itemType = 2;
+            pButtonData->m_abilityId.m_abilityNum = static_cast<SHORT>(nAbility);
+            pButtonData->m_abilityId.m_targetType = curAbility->actionType;
+            pButtonData->m_abilityId.m_strDescription = cRule.GetItemAbilityDescription(pItem->GetResRef(), nAbility);
+            if (pButtonData->m_abilityId.m_strDescription == -1) {
+                pButtonData->m_abilityId.m_strDescription = pItem->GetGenericName();
+            }
+
+            pButtonData->m_count = 0;
+            if (pItem->GetMaxStackable() > 1 || pItem->GetMaxUsageCount(nAbility) != 0) {
+                pButtonData->m_count = pItem->GetUsageCount(nAbility);
+            }
+
+            SHORT launcherSlot;
+            CItem* pLauncher = GetLauncher(curAbility, launcherSlot);
+            if (pLauncher != NULL) {
+                pButtonData->m_launcherIcon = pLauncher->GetItemIcon();
+                pButtonData->m_launcherName = pLauncher->GetGenericName();
+            }
+
+            buttons->AddTail(pButtonData);
+
+            if (bStopAtFirst) {
+                pItem->Release();
+                return buttons;
+            }
+        }
+
+        pItem->Release();
     }
 
     return buttons;
@@ -10062,66 +10981,6 @@ void CGameSprite::UseButtonAction(CButtonData buttonData, BOOLEAN firstCall)
     }
 }
 
-// 0x5886A0
-BOOLEAN CGameSprite::UseSpellAction(const CButtonData* pButtonData, BOOLEAN bUseNow)
-{
-    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
-    if (pGame->m_group.m_memberList.GetCount() == 0) {
-        return FALSE;
-    }
-
-    LONG nLeader = pGame->m_group.GetGroupLeader();
-    CGameSprite* pSprite;
-    BYTE rc;
-    do {
-        rc = pGame->m_cObjectArray.GetDeny(nLeader,
-            CGameObjectArray::THREAD_ASYNCH,
-            reinterpret_cast<CGameObject**>(&pSprite),
-            INFINITE);
-    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-
-    if (rc != CGameObjectArray::SUCCESS) {
-        return FALSE;
-    }
-
-    pSprite->UseButtonAction(*pButtonData, !bUseNow);
-    pGame->m_cObjectArray.ReleaseDeny(nLeader,
-        CGameObjectArray::THREAD_ASYNCH,
-        INFINITE);
-
-    return TRUE;
-}
-
-// 0x588760
-BOOLEAN CGameSprite::UseInnateAction(const CButtonData* pButtonData, BOOLEAN bUseNow)
-{
-    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
-    if (pGame->m_group.m_memberList.GetCount() == 0) {
-        return FALSE;
-    }
-
-    LONG nLeader = pGame->m_group.GetGroupLeader();
-    CGameSprite* pSprite;
-    BYTE rc;
-    do {
-        rc = pGame->m_cObjectArray.GetDeny(nLeader,
-            CGameObjectArray::THREAD_ASYNCH,
-            reinterpret_cast<CGameObject**>(&pSprite),
-            INFINITE);
-    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-
-    if (rc != CGameObjectArray::SUCCESS) {
-        return FALSE;
-    }
-
-    pSprite->UseButtonItem(*pButtonData, !bUseNow);
-    pGame->m_cObjectArray.ReleaseDeny(nLeader,
-        CGameObjectArray::THREAD_ASYNCH,
-        INFINITE);
-
-    return TRUE;
-}
-
 // FIXME: `buttonData` should be reference.
 //
 // 0x71A550
@@ -11035,11 +11894,11 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
         // re-application as CheckModal case 0, but ally-filtered and longer.
         if (HasFeat(CGAMESPRITE_FEAT_LINGERING_SONG) == 1) {
             CInfGame* pLingerGame = g_pBaldurChitin->GetObjectGame();
-            // A silenced singer (derived or base state) cannot sing; the game
-            // flag at +0x43E6 (store/dialog/cutscene gate) also suppresses it.
+            // A silenced singer (derived or base state) cannot sing; a running
+            // cutscene also suppresses it.
             if ((m_derivedStats.m_generalState & STATE_SILENCED) == 0
                 && (m_baseStats.m_generalState & STATE_SILENCED) == 0
-                && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pLingerGame) + 0x43E6) != 1) {
+                && pLingerGame->m_gameSave.m_cutScene != 1) {
                 UTIL_ASSERT(m_nLastSong < pLingerGame->m_songs.m_nCount);
                 CResRef songRes = pLingerGame->m_songs.Get636(m_nLastSong);
 
@@ -11057,7 +11916,7 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
                         GetTerrainTable(), targets, TRUE, FALSE, FALSE);
                     targets.AddTail(reinterpret_cast<LONG*>(m_id));
 
-                    SHORT nEffects = *reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(pAbility) + 0x1E);
+                    SHORT nEffects = static_cast<SHORT>(pAbility->effectCount);
 
                     POSITION pos = targets.GetHeadPosition();
                     while (pos != NULL) {
@@ -11075,8 +11934,8 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
 
                             // SPIN147 (the hostile Siren's Yearning) is meant to
                             // target enemies, so it gets its own pre-filter that
-                            // skips allies, charm-immune sprites, and sprites
-                            // flagged at +0xA10 & 0x40.  But this branch and the
+                            // skips allies, charm-immune sprites, and the deafened
+                            // (who cannot hear it).  But this branch and the
                             // every-other-song branch both fall into the same final
                             // AreAllies gate below (0x71FFCB), which only lets allies
                             // through -- so the enemy pre-filter is dead code and
@@ -11088,7 +11947,7 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
                             if (songRes == "SPIN147"
                                 && (IcewindMisc::AreAllies(this, pAllySprite)
                                     || IcewindMisc::sud_585070(pAllySprite)
-                                    || (*(reinterpret_cast<BYTE*>(pAllySprite) + 0xA10) & 0x40))) {
+                                    || pAllySprite->m_derivedStats.m_spellStates.test(SPLSTATE_DEAFENED))) {
                                 skip = TRUE;
                             }
 
@@ -11100,15 +11959,14 @@ void CGameSprite::SetModalState(BYTE modalState, BOOL bUpdateToolbar)
 
                                 for (SHORT i = 0; i < nEffects; i++) {
                                     CGameEffect* pEff = spell.BuildAbilityEffect(0, i, this, 0, 0, 0);
-                                    *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x7C) = m_pos.x;
-                                    *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x80) = m_pos.y;
+                                    pEff->m_source.x = m_pos.x;
+                                    pEff->m_source.y = m_pos.y;
                                     pEff->m_sourceID = m_id;
                                     IcewindMisc::ApplyDamageModifiers(this, pEff);
                                     // Re-tag a "Duration"-timed song effect to expire
                                     // two rounds out (game time + 200) so the lingering
                                     // buff survives instead of reading as already past.
-                                    if (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) == 0
-                                        && *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) == 7) {
+                                    if (pEff->m_durationType == 0 && pEff->m_duration == 7) {
                                         pEff->m_durationType = 0x1000;
                                         pEff->m_duration =
                                             g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + 200;
@@ -11947,9 +12805,32 @@ void CGameSpriteLastUpdate::Initialize(BOOL bFullUpdateRequired)
 }
 
 // 0x723BF0
-void CGameSprite::SetHideState(BOOLEAN a1, BOOLEAN a2)
+void CGameSprite::SetHideState(BOOLEAN bInvisible, BOOLEAN bLeaveStore)
 {
-    // TODO: Incomplete.
+    // dword_8E752C counts how many party members are currently hidden, so it
+    // only moves on a real transition.
+    if (m_bInvisible == 1 && bInvisible == 0) {
+        // Coming back into view closes the store this station had open, but
+        // only for a character it controls.
+        if (bLeaveStore == TRUE
+            && (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                || g_pChitin->cNetwork.m_idLocalPlayer == m_remotePlayerID)) {
+            g_pBaldurChitin->SelectEngine(g_pBaldurChitin->m_pEngineWorld);
+            g_pBaldurChitin->m_pEngineStore->StopStore();
+        }
+
+        CInfGame::dword_8E752C--;
+    } else if (m_bInvisible == 0 && bInvisible == 1) {
+        CInfGame::dword_8E752C++;
+    }
+
+    if (CInfGame::dword_8E752C < 0) {
+        CInfGame::dword_8E752C = 0;
+    } else if (CInfGame::dword_8E752C > g_pBaldurChitin->GetObjectGame()->m_nCharacters) {
+        CInfGame::dword_8E752C = g_pBaldurChitin->GetObjectGame()->m_nCharacters;
+    }
+
+    m_bInvisible = bInvisible;
 }
 
 // 0x723CC0
@@ -12421,11 +13302,11 @@ void CGameSprite::CheckModal()
     case 0: {  // bard song -- re-apply the song to nearby allies this cycle
         CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 
-        // A silenced singer (derived or base general state) cannot sing; the
-        // game flag at +0x43E6 (store/dialog/cutscene gate) also suppresses it.
+        // A silenced singer (derived or base general state) cannot sing; a
+        // running cutscene also suppresses it.
         if ((m_derivedStats.m_generalState & STATE_SILENCED) == 0
             && (m_baseStats.m_generalState & STATE_SILENCED) == 0
-            && *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x43E6) != 1) {
+            && pGame->m_gameSave.m_cutScene != 1) {
             if (!CheckInvisibility(FALSE)) {
                 // Singing is a visible action: a non-invisible singer re-asserts
                 // visibility this cycle by delivering a FORCEVISIBLE effect (0x88)
@@ -12460,8 +13341,7 @@ void CGameSprite::CheckModal()
                     GetTerrainTable(), targets, TRUE, FALSE, FALSE);
                 targets.AddTail(reinterpret_cast<LONG*>(m_id));
 
-                // SPELL_ABILITY effect count.
-                SHORT nEffects = *reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(pAbility) + 0x1E);
+                SHORT nEffects = static_cast<SHORT>(pAbility->effectCount);
 
                 POSITION pos = targets.GetHeadPosition();
                 while (pos != NULL) {
@@ -12485,21 +13365,15 @@ void CGameSprite::CheckModal()
                         for (SHORT i = 0; i < nEffects; i++) {
                             CGameEffect* pEff = spell.BuildAbilityEffect(0, i, this, 0, 0, 0);
                             // Source the effect at the singer's position and id.
-                            *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x7C) = m_pos.x;
-                            *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x80) = m_pos.y;
+                            pEff->m_source.x = m_pos.x;
+                            pEff->m_source.y = m_pos.y;
                             pEff->m_sourceID = m_id;
                             IcewindMisc::ApplyDamageModifiers(this, pEff);
                             // Re-tag a "Duration"-timed song effect so it expires a
                             // round later (game time + 100), keeping the per-cycle
                             // buff alive instead of letting ResolveEffect treat it
-                            // as already past.  The binary writes the raw effect
-                            // bytes at +0x20/+0x24, but those map to m_duration /
-                            // m_probabilityUpper in our field layout; write through
-                            // the typed members so ResolveEffect / CheckExpiration
-                            // (which read m_durationType / m_duration) see a future
-                            // expiry.
-                            if (*reinterpret_cast<DWORD*>(reinterpret_cast<BYTE*>(pEff) + 0x20) == 0
-                                && *reinterpret_cast<LONG*>(reinterpret_cast<BYTE*>(pEff) + 0x24) == 7) {
+                            // as already past.
+                            if (pEff->m_durationType == 0 && pEff->m_duration == 7) {
                                 pEff->m_durationType = 0x1000;
                                 pEff->m_duration =
                                     g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime + 100;
@@ -12686,19 +13560,19 @@ SHORT CGameSprite::sub_757B40()
         m_bHiding = FALSE;
         FeedBack(0xD, 0, 0, 0, -1, 0, 0);
         m_nStealthGreyOut = 90;
-        *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35F6) = 100;
+        pGame->GetButtonArray()->m_nSelectedButton = 100;
         SetModalState(0, TRUE);
         // If this sprite owns the selected portrait and the mouse is not in a
         // special targeting cursor mode, refresh the action toolbar.
         if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
                 == pGame->GetCharacterPortraitNum(m_id)) {
-            int nCursorState = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35FA);
-            if (nCursorState != 0x66 && nCursorState != 0x65 && nCursorState != 0x68
-                && nCursorState != 0x67 && nCursorState != 0x69 && nCursorState != 0x70
-                && nCursorState != 0x73 && nCursorState != 0x74 && nCursorState != 0x75
-                && nCursorState != 0x76 && nCursorState != 0x77 && nCursorState != 0x78
-                && nCursorState != 0x79 && nCursorState != 0x7A && nCursorState != 0x7B
-                && nCursorState != 0x6A) {
+            int nButtonState = pGame->GetButtonArray()->m_nState;
+            if (nButtonState != 0x66 && nButtonState != 0x65 && nButtonState != 0x68
+                && nButtonState != 0x67 && nButtonState != 0x69 && nButtonState != 0x70
+                && nButtonState != 0x73 && nButtonState != 0x74 && nButtonState != 0x75
+                && nButtonState != 0x76 && nButtonState != 0x77 && nButtonState != 0x78
+                && nButtonState != 0x79 && nButtonState != 0x7A && nButtonState != 0x7B
+                && nButtonState != 0x6A) {
                 pGame->GetButtonArray()->ResetState();
             }
         }
@@ -12810,17 +13684,17 @@ SHORT CGameSprite::sub_757B40()
         m_nModalState = 0;
         FeedBack(0xD, 0, 0, 0, -1, 0, 0);
         m_nStealthGreyOut = 90;
-        *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35F6) = 100;
+        pGame->GetButtonArray()->m_nSelectedButton = 100;
         SetModalState(0, TRUE);
         if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter()
                 == pGame->GetCharacterPortraitNum(m_id)) {
-            int nCursorState = *reinterpret_cast<int*>(reinterpret_cast<BYTE*>(pGame) + 0x35FA);
-            if (nCursorState != 0x66 && nCursorState != 0x65 && nCursorState != 0x68
-                && nCursorState != 0x67 && nCursorState != 0x69 && nCursorState != 0x70
-                && nCursorState != 0x73 && nCursorState != 0x74 && nCursorState != 0x75
-                && nCursorState != 0x76 && nCursorState != 0x77 && nCursorState != 0x78
-                && nCursorState != 0x79 && nCursorState != 0x7A && nCursorState != 0x7B
-                && nCursorState != 0x6A) {
+            int nButtonState = pGame->GetButtonArray()->m_nState;
+            if (nButtonState != 0x66 && nButtonState != 0x65 && nButtonState != 0x68
+                && nButtonState != 0x67 && nButtonState != 0x69 && nButtonState != 0x70
+                && nButtonState != 0x73 && nButtonState != 0x74 && nButtonState != 0x75
+                && nButtonState != 0x76 && nButtonState != 0x77 && nButtonState != 0x78
+                && nButtonState != 0x79 && nButtonState != 0x7A && nButtonState != 0x7B
+                && nButtonState != 0x6A) {
                 pGame->GetButtonArray()->ResetState();
             }
         }
@@ -12932,13 +13806,14 @@ STRREF CGameSprite::GetNameRef()
 // The sprite is hidden iff the observer cannot see invisible
 // (`bSeesInvisible == FALSE`), the sprite carries the regular invisibility
 // state (`m_generalState & STATE_INVISIBLE`), and the sprite has not been
-// re-exposed (`m_baseStats` byte at `+0x2FC` bit 0 clear, i.e. not currently
-// rendered visible to the local player).
+// re-exposed: bit 0 of `m_baseStats.m_visible` is the force-visible
+// flag CGameEffectForceVisible::ApplyEffect sets on an improved-invisible
+// target and CGameEffectInvisible::ApplyEffect clears.
 BOOL CGameSprite::CheckInvisibility(BOOL bSeesInvisible)
 {
     if (bSeesInvisible == FALSE
         && (m_derivedStats.m_generalState & STATE_INVISIBLE) != 0
-        && (*reinterpret_cast<BYTE*>(reinterpret_cast<BYTE*>(&m_baseStats) + 0x2FC) & 0x1) == 0) {
+        && (m_baseStats.m_visible & 0x1) == 0) {
         return FALSE;
     }
     return TRUE;
@@ -13505,7 +14380,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
                 INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
                 INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
                 INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-                if ((m_baseStats.field_2FB & 1) != 0) {
+                if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                     skill += 10;
                 }
                 FeedBack(
@@ -13640,7 +14515,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
                 INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
                 INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
                 INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-                if ((m_baseStats.field_2FB & 1) != 0) {
+                if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                     skill += 10;
                 }
                 FeedBack(
@@ -13698,7 +14573,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
             INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
             INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
             INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-            if ((m_baseStats.field_2FB & 1) != 0) {
+            if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                 skill += 10;
             }
             FeedBack(
@@ -13727,7 +14602,7 @@ SHORT CGameSprite::Spell(CGameAIBase* target)
         INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
         INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
         INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-        if ((m_baseStats.field_2FB & 1) != 0) {
+        if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
             skill += 10;
         }
         FeedBack(
@@ -14241,7 +15116,7 @@ SHORT CGameSprite::SpellPointSequence()
                     INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
                     INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
                     INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-                    if ((m_baseStats.field_2FB & 1) != 0) {
+                    if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                         skill += 10;
                     }
                     FeedBack(
@@ -14312,7 +15187,7 @@ SHORT CGameSprite::SpellPointSequence()
             INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
             INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
             INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-            if ((m_baseStats.field_2FB & 1) != 0) {
+            if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
                 skill += 10;
             }
             FeedBack(
@@ -14341,7 +15216,7 @@ SHORT CGameSprite::SpellPointSequence()
         INT featBonus = GetFeatValue(CGAMESPRITE_FEAT_COMBAT_CASTING) != 0 ? 4 : 0;
         INT roll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
         INT skill = m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_CONCENTRATION];
-        if ((m_baseStats.field_2FB & 1) != 0) {
+        if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
             skill += 10;
         }
         FeedBack(
@@ -16515,7 +17390,7 @@ BOOL CGameSprite::ProcessEffectList()
                 }
             }
 
-            // 0x72EC3A: re-derive party-ally membership from the allegiance.  A
+            // Re-derive party-ally membership from the allegiance, at 0x72EC3A.  A
             // controlled sprite (or one at EA 7) that the game is not already
             // tracking as an ally or a familiar, and that holds no portrait slot,
             // is enrolled in the ally list; a sprite at or past GOODCUTOFF is
@@ -16947,11 +17822,8 @@ BOOLEAN CGameSprite::DoAIUpdate(BOOLEAN active, LONG counter)
                 if (nEnemyAlly < 0xC8 && nEnemyAlly > 0x0F
                     && pGame->GetCharacterPortraitNum(m_id) == -1) {
                     BOOL bVisible = TRUE;
-                    // 0x8CF6D8 = g_pChitin; the byte at +0x1032 is the dev "draw-all
-                    // / disable-cull" toggle (0 in normal play).  CChitin's layout
-                    // there is #guess, so read the offset directly instead of
-                    // modelling a member at an uncertain location.
-                    if (*(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032) != 1) {
+                    // Skipped once a network session is established.
+                    if (g_pChitin->cNetwork.m_bConnectionEstablished != 1) {
                         LONG heightOffset = m_pArea->GetHeightOffset(m_pos, m_listType);
                         CRect rFx;
                         CPoint ptReference;
@@ -17113,12 +17985,183 @@ void CGameSprite::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL i
     }
 }
 
+// Morale deltas the trigger sweep applies, as bytes: the arithmetic is done in
+// a BYTE, so a subtraction that underflows wraps high and is then pulled up to
+// the ceiling by the clamp rather than down to zero.  That is the binary's
+// behaviour, not an accident of this port.
+static const BYTE MORALE_DELTA_ALLY_DIED = 0xFF;    // -1  (0x85BC76)
+static const BYTE MORALE_DELTA_ENEMY_DIED = 0x02;   // +2  (0x85BC78)
+static const BYTE MORALE_DELTA_WOUNDED = 0xFE;      // -2  (0x85BC7A)
+static const BYTE MORALE_DELTA_KILLED = 0x03;       // +3  (0x85BC7C)
+
+static const BYTE MORALE_CEILING = 20;
+
+// NOTE: Uninline.  The binary repeats this clamp after every morale change.
+static BYTE Iwd2ClampMorale(BYTE nMorale)
+{
+    return nMorale > MORALE_CEILING - 1 ? MORALE_CEILING : nMorale;
+}
+
 // 0x728580 (vtable 0xAC)
-// TODO(vtable-stub): recover CGameSprite::ApplyTriggers -- per-trigger-opcode
-// switch; the binary calls CGameAIBase::ApplyTriggers first.
 void CGameSprite::ApplyTriggers()
 {
     CGameAIBase::ApplyTriggers();
+
+    POSITION pos = m_pendingTriggers.GetHeadPosition();
+
+    CAIObjectType type;
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 543
+    UTIL_ASSERT(pGame != NULL);
+
+    while (pos != NULL) {
+        CAITrigger* pTrigger = m_pendingTriggers.GetNext(pos);
+
+        // Bit 1 marks a trigger this sweep has already consumed; the list
+        // itself is drained elsewhere.
+        if ((pTrigger->m_flags & 2) != 0) {
+            continue;
+        }
+
+        pTrigger->m_flags |= 2;
+
+        switch (pTrigger->m_triggerID) {
+        case CAITRIGGER_ATTACKEDBY: {
+            m_dialogWait = 0;
+            m_dialogWaitTarget = -1;
+
+            if ((m_derivedStats.m_generalState & STATE_CHARMED) != 0) {
+                CGameObject* pAttacker = ResolveActionTarget(pTrigger->m_triggerCause,
+                    CGameObject::TYPE_SPRITE);
+
+                if (pAttacker != NULL) {
+                    // A charmed creature attacked by another good-aligned one
+                    // turns on it, unless it is a party member.
+                    if (m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF
+                        && pAttacker->m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF
+                        && pGame->GetCharacterPortraitNum(m_id) == -1) {
+                        Enemy();
+                        m_equipedEffectList.RemoveAllOfType(this, 5, 0, -1);
+                        m_timedEffectList.RemoveAllOfType(this, 5, 0, -1);
+                    }
+
+                    pGame->GetObjectArray()->ReleaseShare(pAttacker->m_id,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                }
+            }
+
+            break;
+        }
+
+        case CAITRIGGER_HITBY: {
+            m_dialogWait = 0;
+            m_dialogWaitTarget = -1;
+
+            if (m_derivedStats.m_nMaxHitPoints != 0) {
+                LONG nHitPoints = m_baseStats.m_hitPoints;
+                LONG nMaxHitPoints = m_derivedStats.m_nMaxHitPoints;
+                LONG nPercent = nHitPoints * 100 / nMaxHitPoints;
+                LONG nPreviousPercent = field_7110 * 100 / nMaxHitPoints;
+
+                // Morale drops once on crossing the half mark and again on
+                // crossing the quarter mark, never twice for the same wound.
+                if (nPercent < 50 && nPreviousPercent > 49) {
+                    m_baseStats.m_morale = Iwd2ClampMorale(
+                        static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_WOUNDED));
+
+                    if (nPercent < 25 && nPreviousPercent > 24) {
+                        m_baseStats.m_morale = Iwd2ClampMorale(
+                            static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_WOUNDED));
+                    }
+
+                    field_7110 = nHitPoints;
+                } else if (nPercent < 25 && nPreviousPercent > 24) {
+                    m_baseStats.m_morale = Iwd2ClampMorale(
+                        static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_WOUNDED));
+                }
+            }
+
+            break;
+        }
+
+        case CAITRIGGER_DIED: {
+            type.Set(pTrigger->m_triggerCause);
+
+            if (m_typeAI.OfType(type, FALSE, FALSE)) {
+                // One of my own kind fell.
+                m_baseStats.m_morale = Iwd2ClampMorale(
+                    static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_ALLY_DIED));
+            } else if (m_typeAI.m_nEnemyAlly == CAIObjectType::EA_PC
+                && type.m_nEnemyAlly == CAIObjectType::EA_PC) {
+                m_baseStats.m_morale = Iwd2ClampMorale(
+                    static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_ALLY_DIED));
+            } else if (m_typeAI.IsEnemyOf(type)) {
+                m_baseStats.m_morale = Iwd2ClampMorale(
+                    static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_ENEMY_DIED));
+            }
+
+            break;
+        }
+
+        case CAITRIGGER_KILLED: {
+            m_baseStats.m_morale = Iwd2ClampMorale(
+                static_cast<BYTE>(m_baseStats.m_morale + MORALE_DELTA_KILLED));
+
+            if (m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
+                if (pTrigger->m_triggerCause.m_nClass == CAIObjectType::C_INNOCENT) {
+                    pGame->ChangeReputation(CInfGame::KILL_INNOCENT);
+                }
+
+                if (pTrigger->m_triggerCause.m_nClass == CAIObjectType::C_FLAMINGFIST) {
+                    pGame->ChangeReputation(CInfGame::KILL_FIST);
+                }
+
+                LONG nVictimId = pTrigger->m_triggerCause.m_nInstance;
+                CGameSprite* pVictim;
+                BYTE rc = pGame->GetObjectArray()->GetShare(nVictimId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pVictim),
+                    INFINITE);
+
+                if (rc == CGameObjectArray::SUCCESS) {
+                    if (strcmp(pVictim->m_baseStats.m_tertiaryDeathVariable, "Kill_Innocent") == 0) {
+                        pGame->ChangeReputation(CInfGame::KILL_INNOCENT);
+                    }
+
+                    // Only non-party kills award XP, and only for a victim
+                    // that was actually hostile.
+                    if (pGame->GetCharacterPortraitNum(nVictimId) < 0
+                        && pVictim->m_typeAI.m_nEnemyAlly > CAIObjectType::EA_EVILCUTOFF) {
+                        pVictim->m_derivedStats.m_nXPValue = pGame->ShareXP(
+                            pVictim->m_baseStats.field_252, TRUE, TRUE);
+                    }
+
+                    m_cGameStats.RecordKill(pVictim);
+
+                    pGame->GetObjectArray()->ReleaseShare(nVictimId,
+                        CGameObjectArray::THREAD_ASYNCH,
+                        INFINITE);
+                } else if (rc == CGameObjectArray::DELETED
+                    && pGame->GetCharacterPortraitNum(nVictimId) < 0) {
+                    // The victim is already gone, so the award rides on the
+                    // trigger itself.
+                    LONG nXP = pTrigger->m_specificID;
+                    if (pTrigger->m_triggerCause.m_nEnemyAlly < CAIObjectType::EA_EVILCUTOFF) {
+                        nXP = 0;
+                    }
+
+                    pGame->ShareXP(nXP, TRUE, FALSE);
+                }
+            }
+
+            break;
+        }
+        }
+    }
 }
 
 // 0x734550
@@ -19279,7 +20322,7 @@ BOOL CGameSprite::RollToHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, 
             nUnusedFlags = 0;
             nAttacksPerRound = m_derivedStats.m_nNumberOfAttacks;
         }
-        if (m_baseStats.field_2FB & 1) {
+        if (m_baseStats.m_specFlags & 1) {
             nBaseTHAC0 += 15;
             nAttacksPerRound += 3;
         }
@@ -19417,7 +20460,7 @@ BOOL CGameSprite::RollToHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, 
         SHORT nRacialAmmoBonus = 0;
         BOOL bCritConfirmed = FALSE;
         if (20 <= nRacialAmmoBonus + nCritThreshold + nRoll
-            && (pTarget->m_baseStats.field_2FB & 2) == 0) {
+            && (pTarget->m_baseStats.m_specFlags & 2) == 0) {
             SHORT nCritRoll = static_cast<SHORT>(CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1);
             FeedBack(0x28, nCritRoll, bCritConfirmed, nEffectiveTHAC0, -1, bOffHand, nAttackNumber);
             bCritConfirmed = (nAC <= nEffectiveTHAC0 + nCritRoll);
@@ -19591,7 +20634,7 @@ CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWea
         if (curAttack->type != 2
             && m_baseStats.m_rogueLevel != 0
             && !pTarget->m_derivedStats.m_spellStates[SPLSTATE_SNEAK_ATTACK_IMMUNITY]
-            && (pTarget->m_baseStats.field_2FB & 2) == 0) {
+            && (pTarget->m_baseStats.m_specFlags & 2) == 0) {
             BOOL bTargetFlatFooted = (pTarget->m_derivedStats.m_generalState & STATE_HELPLESS) != 0;
             if (!bTargetFlatFooted) {
                 UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
@@ -20569,6 +21612,7 @@ movementCheck:
 // 0x728F80 (partial)
 SHORT CGameSprite::ExecuteAction()
 {
+
     // ActionOverride (id 1) is a queue marker -- dequeue and dispatch the real
     // action this tick, same as the base dispatcher.
     if (m_curAction.m_actionID == 1) {
@@ -20850,6 +21894,22 @@ SHORT CGameSprite::ExecuteAction()
         }
         m_posStart = pt;
         return ACTION_DONE;
+    }
+
+    // 0x72A546 (jumptable case 0x96). StartStore(S:Store*,O:Target*): resolve
+    // the targeted sprite, hand it to StartStore as the customer and release
+    // the share afterwards. Without this branch a dialog's StartStore action
+    // is dequeued and dropped, so the store screen never opens.
+    if (m_curAction.m_actionID == 150) {
+        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
+        SHORT actionReturn = StartStore(static_cast<CGameSprite*>(pObj));
+        if (pObj != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                pObj->m_id,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        return actionReturn;
     }
 
     // 0x7296AE (ExecuteAction jumptable case 0x17). RemoveTraps(O:Trap*): resolve
@@ -22195,11 +23255,11 @@ SHORT CGameSprite::RemoveTraps(CGameAIBase* pTarget)
     CMessage* message = new CMessageSetForceActionPick(TRUE, m_id, pTarget->GetId());
     g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
-    // 0x8CF6D8 = g_pChitin; the bytes at +0x1032/+0x1033 are dev toggles (off in
-    // normal play).  When both are set the trap may be reached from farther away.
+    // A multiplayer client (session established, not hosting) searches twice
+    // as far; the host and single player use the tighter range.
     int searchRange = 0x20;
-    if (*(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1032) != 1
-        || *(reinterpret_cast<const BYTE*>(g_pChitin) + 0x1033) != 0) {
+    if (g_pChitin->cNetwork.m_bConnectionEstablished != 1
+        || g_pChitin->cNetwork.m_bIsHost != 0) {
         searchRange = 0x10;
     }
 
@@ -22409,6 +23469,72 @@ SHORT CGameSprite::Turn()
 SHORT CGameSprite::EquipMostDamagingMelee()
 {
     return ACTION_ERROR;
+}
+
+// 0x75E630
+SHORT CGameSprite::StartStore(CGameSprite* pTarget)
+{
+    if (pTarget == NULL) {
+        return ACTION_ERROR;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+    if (g_pChitin->cNetwork.m_nServiceProvider != CNetwork::SERV_PROV_NULL) {
+        // In multiplayer the customer is whoever the dialog is running for,
+        // not the object the action targeted.
+        LONG nCustomerId = g_pBaldurChitin->m_pEngineWorld->m_internalLoadedDialog.m_characterIndex;
+
+        CGameObject* pCustomer;
+
+        BYTE rc;
+        do {
+            rc = pGame->GetObjectArray()->GetShare(nCustomerId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pCustomer,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            if (pGame->GetCharacterPortraitNum(nCustomerId) == -1) {
+                g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(-1,
+                    7489, // "Familiars can not enter stores."
+                    0xFF,
+                    0xFF,
+                    -1,
+                    CGameObjectArray::INVALID_INDEX,
+                    CGameObjectArray::INVALID_INDEX);
+            } else {
+                g_pBaldurChitin->GetScreenWorld()->StartStore(m_liveTypeAI,
+                    pCustomer->GetAIType(),
+                    CResRef(m_curAction.GetString1()),
+                    TRUE);
+            }
+
+            pGame->GetObjectArray()->ReleaseShare(nCustomerId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            return ACTION_DONE;
+        }
+    }
+
+    if (pGame->GetCharacterPortraitNum(pTarget->m_id) == -1) {
+        g_pBaldurChitin->GetBaldurMessage()->DisplayTextRef(-1,
+            7489, // "Familiars can not enter stores."
+            0xFF,
+            0xFF,
+            -1,
+            CGameObjectArray::INVALID_INDEX,
+            CGameObjectArray::INVALID_INDEX);
+    } else {
+        g_pBaldurChitin->GetScreenWorld()->StartStore(m_liveTypeAI,
+            pTarget->GetLiveAIType(),
+            CResRef(m_curAction.GetString1()),
+            TRUE);
+    }
+
+    return ACTION_DONE;
 }
 
 // 0x75E880

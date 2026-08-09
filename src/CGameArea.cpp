@@ -3744,7 +3744,7 @@ void CGameArea::OnActionButtonDown(const CPoint& pt)
         }
 
         if (m_pGame->GetState() == 0) {
-            if (m_pGame->GetButtonArray()->m_nStateStackDepth != 0) {
+            if (!m_pGame->GetButtonArray()->m_stateStack.empty()) {
                 m_pGame->GetButtonArray()->SetSelectedButton(100);
                 m_pGame->GetButtonArray()->ResetState();
             }

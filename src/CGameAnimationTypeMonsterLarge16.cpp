@@ -821,3 +821,19 @@ SHORT CGameAnimationTypeMonsterLarge16::SetSequence(SHORT nSequence)
 
     return nSequence;
 }
+
+// 0x49FC40
+BOOL CGameAnimationTypeMonsterLarge16::GetPathSmooth()
+{
+    return TRUE;
+}
+
+// 0x6C2D70
+BOOLEAN CGameAnimationTypeMonsterLarge16::GetCurrentSequenceAndFrame(SHORT& nSequence, SHORT& nFrame)
+{
+    // Folded with the Ankheg/Quadrant/Character copies at 0x6C2D70: the binary
+    // writes through both parameters, which is why they are references.
+    nSequence = m_currentVidCell->m_nCurrentSequence;
+    nFrame = m_currentVidCell->m_nCurrentFrame;
+    return TRUE;
+}

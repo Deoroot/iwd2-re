@@ -3,6 +3,8 @@
 
 #include "CVidCell.h"
 
+#include <deque>
+
 class CButtonData;
 class CGameButtonList;
 class CGameSprite;
@@ -26,10 +28,19 @@ class CGameSprite;
 //   0x78  quick-item picker (from customize)
 //   0x79  quick-weapon picker (right-click weapon slot)
 //
-// Sub-menu / picker entries always pop back to 0x72 on empty / unknown
-// click (the Ghidra original uses a state stack via m_nStateStackDepth +
-// FUN_00589ff0; we hardcode SetState(0x72, 0) since customize entry only
-// comes from 0x72).
+// Sub-menu and picker navigation runs on a state stack: SetState with a2 == 1
+// pushes the state it replaces, and PopState walks back -- one level, or all
+// the way to the bar the sequence started from.
+
+// Picker-list kinds accepted by CInfButtonArray::BuildPickerList.  SetState
+// (0x589110) picks one per picker state; the value doubles as the buttonType
+// handed to CGameSprite::GetItemUsages for the two item-backed kinds.
+#define CINFBUTTONARRAY_PICKER_QUICK_WEAPON 1
+#define CINFBUTTONARRAY_PICKER_SPELL 2
+#define CINFBUTTONARRAY_PICKER_QUICK_ITEM 3
+#define CINFBUTTONARRAY_PICKER_INNATE 4
+#define CINFBUTTONARRAY_PICKER_INTERNAL 5
+#define CINFBUTTONARRAY_PICKER_SONG 6
 
 #pragma pack(push, 2)
 
@@ -61,14 +72,24 @@ public:
 
     static void GetSelectedQuickWeaponData(CButtonData& cButtonData);
     static BYTE GetSelectedModalMode();
+    static void ReadyQuickSlotByMode(SHORT nButton, INT nMode);
+    static void CustomizeQuickSlot(const CButtonData* pButtonData, BYTE nButton, INT nMode);
+    static BOOLEAN UseItemAction(const CButtonData* pButtonData, BOOL bUseNow);
+    static BOOLEAN UseSpellAction(const CButtonData* pButtonData, BOOL bUseNow);
+    static BOOLEAN UseInnateAction(const CButtonData* pButtonData, BOOL bUseNow);
     BYTE GetButtonId(INT buttonType);
-    BOOL UseSongAction(const CButtonData* pButtonData, CGameSprite* pCaster);
+    BOOL UseSongAction(const CButtonData* pButtonData, BOOL bUseNow);
     BOOL ResetState();
     void UpdateState();
     BOOL SetState(INT nState, int a2);
+    void PopState(int a2, char a3);
     void UpdateButtons();
     BOOL RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
     BOOL RenderButtonOverlay(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
+    BOOL CheckActivation(LONG nButtonType);
+    void DispatchActionBarClick(INT nButtonType, CGameSprite* pSprite);
+    INT GetNextPickerPage(CGameButtonList* pButtonList);
+    INT GetPreviousPickerPage(CGameButtonList* pButtonList);
     void SetCustomButtonTypes(const INT* pButtonList);
     void SetQuickWeaponSlot(BYTE nSlot);
     void OnLButtonPressed(int buttonID);
@@ -85,11 +106,13 @@ public:
     /* 17C2 */ CVidCell field_17C2;
     /* 189C */ CVidCell field_189C;
     /* 1976 */ INT m_nCustomizeSlot;
-    /* 197A */ INT m_nPickerPage;
+    /* 197A */ INT m_nListStartIndex;
     /* 197E */ INT m_nSelectedButton;
     /* 1982 */ int m_nState;
-    /* 1986 */ BYTE field_1986[0x2C];
-    /* 19B2 */ int m_nStateStackDepth;
+    // The binary keeps this deque at 0x1986 with its size at 0x19B2, so every
+    // offset below is the binary's, not this build's: MSVC's deque is not the
+    // same size now as it was then.
+    /* 1986 */ std::deque<INT> m_stateStack;
     /* 19B6 */ INT m_customButtonTypes[9];
     /* 19DA */ BYTE m_nCurrentSelectedSpellClass;
     /* 19DC */ INT m_nCurrentSelectedSpellLevel;
@@ -97,7 +120,9 @@ public:
     /* 19E8 */ BYTE m_nQuickWeaponSlot;
 
     void ClearPickerList();
-    void RebuildPickerList();
+    static CGameButtonList* BuildPickerList(INT nSlot, INT nListType, const BYTE& nClass,
+        DWORD nSpecialization, BOOL a5);
+    CGameButtonList* BuildFeatPointsPickerList(const CResRef& resRef);
 };
 
 #pragma pack(pop)

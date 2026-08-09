@@ -1,0 +1,17 @@
+# Prove the function keys drive the action bar.
+#
+# F1..F12 are the bar's twelve slots: OnKeyDown's own switch turns the key into
+# a slot index (key - VK_F1) and clicks it, right-clicking instead when shift is
+# held. So F12 is slot 11, which on the world bar is Special Abilities (0x0A) --
+# the same click the innate-picker scenario makes with the mouse.
+#
+# waitgo first: vm.sh only attaches the crash guard after the save loads.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 1
+sleep 30
+bar
+key 123
+sleep 30
+bar
