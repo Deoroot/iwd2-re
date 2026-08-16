@@ -25308,8 +25308,13 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
                 && m_baseStats.m_skills[CGAMESPRITE_SKILL_CONCENTRATION] >= 4;
         }
     case CGAMESPRITE_FEAT_MERCANTILE_BACKGROUND:
-        // TODO: Incomplete.
-        return FALSE;
+        // Humans, gray dwarves and deep gnomes. Unlike the other regional
+        // feats there is no level restriction here (0x76369e).
+        return m_typeAI.m_nRace == CAIOBJECTTYPE_R_HUMAN
+            || (m_typeAI.m_nRace == CAIOBJECTTYPE_R_DWARF
+                && m_typeAI.m_nSubRace == CAIOBJECTTYPE_SUBRACE_DWARF_GRAY)
+            || (m_typeAI.m_nRace == CAIOBJECTTYPE_R_GNOME
+                && m_typeAI.m_nSubRace == CAIOBJECTTYPE_SUBRACE_GNOME_DEEP);
     case CGAMESPRITE_FEAT_POWER_ATTACK:
         return nSTR >= 13;
     case CGAMESPRITE_FEAT_RESIST_POISON: {
@@ -25350,9 +25355,37 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
     case CGAMESPRITE_FEAT_SIMPLE_QUARTERSTAFF:
     case CGAMESPRITE_FEAT_SIMPLE_SMALLBLADE:
         return GetFeatValue(nFeatNumber) != 3 || m_baseStats.m_fighterLevel >= 4;
-    case CGAMESPRITE_FEAT_SNAKE_BLOOD:
-        // TODO: Incomplete.
-        return FALSE;
+    case CGAMESPRITE_FEAT_SNAKE_BLOOD: {
+        // Tieflings are humans with a subrace, but the check at 0x7637ae only
+        // tests the RACE -- any human passes it. Preserved as found.
+        if (m_typeAI.m_nRace != CAIOBJECTTYPE_R_HUMAN) {
+            return FALSE;
+        }
+
+        // First level only, exactly as CGAMESPRITE_FEAT_RESIST_POISON above:
+        // the levels of the classes named by the mask must total 1.
+        DWORD nClassMask = GetAIType().m_nClassMask & 0xFFF;
+        if (nClassMask == 0) {
+            return FALSE;
+        }
+
+        INT nTotalLevel = 0;
+        DWORD nClassBit = 1;
+        for (INT nClass = 0; nClass < CAIOBJECT_CLASS_MAX; nClass++) {
+            // The mask is masked to 12 bits above, so this never fires.
+            if (nClassBit > 0xFFF) {
+                break;
+            }
+
+            if ((nClassBit & nClassMask) != 0) {
+                nTotalLevel += m_baseStats.m_classLevels[nClass];
+            }
+
+            nClassBit <<= 1;
+        }
+
+        return nTotalLevel == 1;
+    }
     case CGAMESPRITE_FEAT_STUNNING_FIST:
         return (nDEX >= 13 && nWIS >= 13 && m_baseStats.m_attackBase >= 8)
             || m_baseStats.m_monkLevel > 0;
