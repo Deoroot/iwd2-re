@@ -2279,6 +2279,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
 
             BOOL bFeatPointPicker = FALSE;
             BOOL bModalFeatToggled = FALSE;
+            BOOL bFeatPointsConfirmed = FALSE;
             if (pEntry != NULL) {
                 // NOTE: unrecovered -- in state 0x67 the binary first demands
                 // the CSpell, builds a specialization mask and gates the whole
@@ -2378,6 +2379,46 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                             g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
                             bModalFeatToggled = TRUE;
                         }
+                    } else if (m_nState == 0x7B) {
+                        // CONFIRM in the feat-point picker (0x59296b-0x592aad),
+                        // the other half of the bFeatPointPicker branch above.
+                        // BuildFeatPointsPickerList gave every entry the number
+                        // of attack-bonus points it stands for, in m_count, so
+                        // the click writes that straight into the feat rank and
+                        // posts the modal effect that carries it.
+                        WORD effectID = 0;
+                        if (pEntry->m_abilityId.m_res == CGameSprite::SPIN275
+                            && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+                            effectID = ICEWIND_CGAMEEFFECT_FEATPOWERATTACK;
+                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK,
+                                pEntry->m_count);
+                        } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
+                            && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
+                            effectID = ICEWIND_CGAMEEFFECT_FEATEXPERTISE;
+                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_EXPERTISE,
+                                pEntry->m_count);
+                        }
+
+                        // "Off" is the zero-point entry: it also drops the
+                        // stashed ability, so the next open of the picker has
+                        // nothing to rebuild from.
+                        if (pEntry->m_count == 0) {
+                            m_currentAbilityResRef = CResRef();
+                        }
+
+                        // Faithful: neither resref matching leaves effectID at
+                        // the 0 the binary zeroes edi to (0x592982) and still
+                        // posts the effect.
+                        ITEM_EFFECT effect;
+                        CGameEffect::ClearItemEffect(&effect, effectID);
+                        effect.durationType = 1;
+
+                        CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                            pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                        CMessage* pMsg = new CMessageAddEffect(pEffect,
+                            pSprite->GetId(), pSprite->GetId());
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                        bFeatPointsConfirmed = TRUE;
                     }
 
                     // A greyed-out cell can still be bound to a quick slot, but
@@ -2386,7 +2427,7 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     // flag that only the unrecovered tails read (0x59182f for
                     // this arm, 0x5924f0 for the innate one).
                     BOOL bInnateArm = (m_nState == 0x6A || m_nState == 0x6B);
-                    if (!bFeatPointPicker && !bModalFeatToggled
+                    if (!bFeatPointPicker && !bModalFeatToggled && !bFeatPointsConfirmed
                         && (bInnateArm || !m_buttonArray[buttonID].m_bGreyOut)) {
                         switch (m_nState) {
                         case 0x66:
@@ -2420,6 +2461,18 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
 
             if (bFeatPointPicker) {
                 SetState(0x7B, 1);
+                return;
+            }
+
+            if (bFeatPointsConfirmed) {
+                // The confirm falls into this arm's shared tail (0x592aae),
+                // which drops the picker list rather than pushing another
+                // state -- the points are spent, so there is nothing to
+                // come back to.
+                ClearPickerList();
+                PopState(0, 0);
+                SetSelectedButton(100);
+                UpdateButtons();
                 return;
             }
 

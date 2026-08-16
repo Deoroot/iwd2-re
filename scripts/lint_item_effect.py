@@ -619,6 +619,14 @@ def audit_count_mismatch(bin_sites, src_sites, header, path, verbose):
     # function: the ids that DO resolve still identify unrecovered blocks.
     unresolved = [b for b in bin_sites if b.effect_id is None]
     unresolved_src = [s for s in src_sites if s[3] is None]
+    # A SOURCE site whose id is a variable is exactly what the recovery of a BINARY
+    # site whose id is in a register looks like -- neither side folds to a constant,
+    # so pair them off and report only the surplus. Without this the tool can never
+    # go quiet on a real recovery: 0x592A0B holds 0x1C5/0x1C6 in edi and the source
+    # holds them in a local, and reporting both is reporting the same site twice.
+    paired = min(len(unresolved), len(unresolved_src))
+    unresolved = unresolved[paired:]
+    unresolved_src = unresolved_src[paired:]
     unrecovered = sorted(set(b_ids) - set(s_ids) - {None})
     orphaned = sorted(set(s_ids) - set(b_ids) - {None})
     if unrecovered or orphaned or unresolved or unresolved_src:
