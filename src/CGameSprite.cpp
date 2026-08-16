@@ -25225,6 +25225,7 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
         return m_derivedStats.HasClassMask(CLASSMASK_WIZARD | CLASSMASK_SORCERER | CLASSMASK_BARD)
             || m_derivedStats.HasClassMask(CLASSMASK_RANGER | CLASSMASK_PALADIN | CLASSMASK_DRUID | CLASSMASK_CLERIC);
     case CGAMESPRITE_FEAT_CRIPPLING_STRIKE:
+    case CGAMESPRITE_FEAT_SLIPPERY_MIND:
         return m_baseStats.m_rogueLevel >= 10;
     case CGAMESPRITE_FEAT_DEFLECT_ARROWS:
     case CGAMESPRITE_FEAT_DODGE:
@@ -25309,6 +25310,40 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
     case CGAMESPRITE_FEAT_MERCANTILE_BACKGROUND:
         // TODO: Incomplete.
         return FALSE;
+    case CGAMESPRITE_FEAT_POWER_ATTACK:
+        return nSTR >= 13;
+    case CGAMESPRITE_FEAT_RESIST_POISON: {
+        // Gray dwarves and half-orcs only, and only at first level: the class
+        // mask names every class the character has, and the levels of just
+        // those must add up to 1.
+        if (!((m_typeAI.m_nRace == CAIOBJECTTYPE_R_DWARF
+                  && m_typeAI.m_nSubRace == CAIOBJECTTYPE_SUBRACE_DWARF_GRAY)
+                || m_typeAI.m_nRace == CAIOBJECTTYPE_R_HALF_ORC)) {
+            return FALSE;
+        }
+
+        DWORD nClassMask = GetAIType().m_nClassMask & 0xFFF;
+        if (nClassMask == 0) {
+            return FALSE;
+        }
+
+        INT nTotalLevel = 0;
+        DWORD nClassBit = 1;
+        for (INT nClass = 0; nClass < CAIOBJECT_CLASS_MAX; nClass++) {
+            // The mask is masked to 12 bits above, so this never fires.
+            if (nClassBit > 0xFFF) {
+                break;
+            }
+
+            if ((nClassBit & nClassMask) != 0) {
+                nTotalLevel += m_baseStats.m_classLevels[nClass];
+            }
+
+            nClassBit <<= 1;
+        }
+
+        return nTotalLevel == 1;
+    }
     case CGAMESPRITE_FEAT_SIMPLE_CROSSBOW:
     case CGAMESPRITE_FEAT_SIMPLE_MACE:
     case CGAMESPRITE_FEAT_SIMPLE_MISSILE:
