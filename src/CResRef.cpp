@@ -105,7 +105,7 @@ BOOL CResRef::operator!=(const char* pName) const
     return FALSE;
 }
 
-// NOTE: Inlined.
+// 0x40F940
 BOOL CResRef::operator==(const CResRef& cResRef) const
 {
     return memcmp(m_resRef, cResRef.GetResRef(), RESREF_SIZE) == 0;

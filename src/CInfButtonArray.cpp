@@ -81,13 +81,14 @@ CInfButtonArray::CInfButtonArray()
     m_nListStartIndex = 0;
 }
 
-// NOTE: Convenience.
+// 0x587BD0
 void CInfButtonArray::ClearPickerList()
 {
     if (g_pButtonArrayPickerList != NULL) {
         while (!g_pButtonArrayPickerList->IsEmpty()) {
             delete g_pButtonArrayPickerList->RemoveHead();
         }
+        g_pButtonArrayPickerList->RemoveAll();
         delete g_pButtonArrayPickerList;
         g_pButtonArrayPickerList = NULL;
     }

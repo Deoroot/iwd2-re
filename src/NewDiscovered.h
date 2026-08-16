@@ -2,6 +2,23 @@
 // 1146 functions
 // Group by address proximity to determine which source file they belong to
 
+// === 0x400000 range ===
+// CPtrList::GetNext(POSITION&): `*pos = pos->pNext; return &pos->data` -- the
+// node's data sits at +8, and `this` is never touched (0x409800).
+void GetNext(); // 0x409800
+
+// === 0x450000 range ===
+// The CPtrList inline accessors, emitted as a pair: m_nCount is at +0xC and
+// m_pNodeHead at +4, the same two slots CPtrList::FindIndex (0x7FB6C0) walks.
+void GetCount(); // 0x45B200
+void GetHeadPosition(); // 0x45B210
+
+// === 0x510000 range ===
+// CPoint::CPoint(int, int): stores both stack args and returns `this`.  Called
+// as `push -1; push -1; lea ecx, ...; call` wherever the code builds
+// CPoint(-1, -1) for CGameEffect::DecodeEffect (e.g. 0x592A29).
+void CPoint(); // 0x51DE20
+
 // === 0x520000 range ===
 void FUN_0052e940(); // 0x52E940
 void FUN_0052e9f0(); // 0x52E9F0
@@ -937,7 +954,7 @@ void AddTail(); // 0x7FB5E6
 void FUN_007fb61a(); // 0x7FB61A
 void FUN_007fb63f(); // 0x7FB63F
 void FUN_007fb689(); // 0x7FB689
-void FUN_007fb6c0(); // 0x7FB6C0
+void FindIndex(); // 0x7FB6C0
 void FUN_007fb6e6(); // 0x7FB6E6
 void FUN_007fb71b(); // 0x7FB71B
 void FUN_007fb7a8(); // 0x7FB7A8
@@ -968,7 +985,7 @@ void FUN_007fbdf0(); // 0x7FBDF0
 void FUN_007fbe0c(); // 0x7FBE0C
 void FUN_007fbe35(); // 0x7FBE35
 void AddTail(); // 0x7FBE4E
-void FUN_007fbe77(); // 0x7FBE77
+void RemoveHead(); // 0x7FBE77
 void FUN_007fbef7(); // 0x7FBEF7
 void FUN_007fbf0e(); // 0x7FBF0E
 void FUN_007fbf2a(); // 0x7FBF2A
