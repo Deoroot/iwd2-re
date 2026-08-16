@@ -23,6 +23,7 @@ Paths: `/home/wills/iwd2-re/...` = host; `C:\iwd2-re\...`, `C:\GOG Games\...` = 
 | BG2 name carry-over (class layout, methods+vft slots, members, globals) | `python3 scripts/bg2_find.py NAME` / `CClass::` / `CClass::sub` — never grep the PDB dumps |
 | PE bytes / dwords / strings / disasm / vtable / ptr-scan / crash dump | `.venv-reagent/bin/python scripts/sym.py bytes\|u32\|str\|disasm\|findptr\|vtable\|addr2fn\|crash` |
 | Who touches field +0xNNN (byte-pattern → containing fns) | `scripts/sym.py scan <hexbytes>` (little-endian displacement, e.g. `38560000` = `[reg+0x5638]`) |
+| **The small mechanical questions a disasm dump raises — IN ONE CALL** | `scripts/sym.py whatis TOK...` — mixes `0xADDR` (section/value/containing fn/src constant), `CClass+0xNNN` (member path, recursing into embedded classes), `vtable:0xADDR` (owning class), `data:0xADDR`. **Batch every unknown from a dump into one invocation**; calling it per token wastes the point of it |
 | Callers/callees graph, blast radius, exec flows, review diff | graph MCP: `query_graph` (callers_of/callees_of/file_summary), `get_impact_radius`, `get_affected_flows`, `detect_changes` |
 | GemRB lookup / cross-repo | same graph tools + `repo_root="/home/wills/iwd2-re/refs/gemrb"`; `cross_repo_search_tool` |
 | Anything VM (build/run/logs/processes/files/frida) | `scripts/vm.sh` (below) |

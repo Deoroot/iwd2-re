@@ -14,6 +14,19 @@
   sym.py addr2fn 0xADDR                containing function (address_map bisect) + src file:line
   sym.py crash  dump.dmp [N] [--loose]  minidump: exception + symbolicated stack scan (--loose for our-build dumps)
   sym.py exe                           show resolved binary + md5 + canonical verdict
+  sym.py whatis TOKEN...               resolve MANY mixed tokens at once (batch this, don't
+                                       call it once per question). Token forms:
+                                         0xADDR         section, u32/WORD value, CONTAINING
+                                                        fn (ghidra) + nearest recovered name,
+                                                        both with their START address, and
+                                                        the src `// 0xADDR` constant
+                                         CClass+0xNNN   member path, RECURSING into embedded
+                                                        classes (CGameSprite+0x966 ->
+                                                        m_derivedStats.m_nLevel)
+                                         vtable:0xADDR  owning class + the slots that name it
+                                         data:0xADDR    bytes, dword interpretations, and every
+                                                        src mention of the address
+                                       `--data` applies the data view to every bare address.
 
 EXE: the CANONICAL pristine IWD2.exe Ghidra imported (md5 25cb3d8a), vendored at
 REPO/.bin/iwd2.exe. The host game install is IWD2EE-modified (patched .data
@@ -348,6 +361,256 @@ def cmd_crash(path, frames=12, loose=False):
             print(f"  0x{sa:08x}: 0x{v:08x}  {nm}")
 
 
+# ---------------------------------------------------------------- whatis
+
+GHIDRA_INDEX = os.path.join(REPO, ".ghidra-exports", "_index.json")
+SRC_DIR = os.path.join(REPO, "src")
+MARKER_RE = re.compile(r"^\s*//\s*(0x[0-9A-Fa-f]{5,8})\s*$")
+LITERAL_RE = re.compile(r"0x([0-9A-Fa-f]{5,8})\b")
+DEFINE_RE = re.compile(r"^\s*#define\s+(\w+)\s+\(?(0x[0-9A-Fa-f]+|\d+)\)?\s*$", re.M)
+
+_gfuncs = None
+_src_scan = None
+
+
+def ghidra_funcs():
+    """Sorted (start, name) for EVERY Ghidra function -- recovered or not. This is the
+    only source that gives real function BOUNDS; address_map holds recovered names
+    only, so its 'nearest preceding' can sit in a completely different function."""
+    global _gfuncs
+    if _gfuncs is None:
+        try:
+            d = json.load(open(GHIDRA_INDEX))
+            _gfuncs = sorted((int(k, 16), v.get("name", "?")) for k, v in d.items())
+        except Exception:
+            _gfuncs = []
+    return _gfuncs
+
+
+def containing_fn(va):
+    """(start, name) of the Ghidra function containing va, or None."""
+    fns = ghidra_funcs()
+    if not fns:
+        return None
+    i = bisect.bisect_right(fns, (va, "\xff")) - 1
+    return fns[i] if i >= 0 else None
+
+
+def src_scan():
+    """(markers, mentions) over src/: `// 0xADDR` recovery markers -> the line they
+    annotate, and every literal 0xADDR anywhere -> where it is written."""
+    global _src_scan
+    if _src_scan is None:
+        markers, mentions = {}, {}
+        for root, _dirs, files in os.walk(SRC_DIR):
+            for f in sorted(files):
+                if not f.endswith((".cpp", ".h")):
+                    continue
+                p = os.path.join(root, f)
+                rel = os.path.relpath(p, REPO).replace("\\", "/")
+                try:
+                    lines = open(p, errors="replace").read().splitlines()
+                except OSError:
+                    continue
+                for i, ln in enumerate(lines):
+                    m = MARKER_RE.match(ln)
+                    if m:
+                        for j in range(i + 1, min(i + 4, len(lines))):
+                            nxt = lines[j].strip()
+                            if nxt and not nxt.startswith("//"):
+                                markers.setdefault(int(m.group(1), 16),
+                                                   (f"{rel}:{j + 1}", nxt[:100]))
+                                break
+                    for lm in LITERAL_RE.finditer(ln):
+                        mentions.setdefault(int(lm.group(1), 16), []).append(
+                            (f"{rel}:{i + 1}", ln.strip()[:100]))
+        _src_scan = (markers, mentions)
+    return _src_scan
+
+
+def section_of(va):
+    for sec in pe().sections:
+        name = sec.Name.rstrip(b"\0").decode("latin-1")
+        start = image_base() + sec.VirtualAddress
+        if start <= va < start + max(sec.Misc_VirtualSize, sec.SizeOfRawData):
+            return name, va < start + sec.SizeOfRawData
+    return "?", False
+
+
+def safe_read(va, n):
+    try:
+        d = read(va, n)
+    except Exception:
+        return b""
+    return d
+
+
+def define_named(value, hint_file):
+    """A `#define NAME <value>` in the header next to *hint_file* -- how a WORD in an
+    id table gets a name when no constant carries the address itself."""
+    if not hint_file:
+        return None
+    hdr = os.path.join(REPO, os.path.splitext(hint_file.split(":")[0])[0] + ".h")
+    if not os.path.exists(hdr):
+        return None
+    for m in DEFINE_RE.finditer(open(hdr, errors="replace").read()):
+        if int(m.group(2), 0) == value:
+            return f"{m.group(1)}  ({os.path.relpath(hdr, REPO)})"
+    return None
+
+
+def whatis_addr(va):
+    markers, mentions = src_scan()
+    sec, has_raw = section_of(va)
+    print(f"== 0x{va:08X}")
+    print(f"   section  {sec}" + ("" if has_raw else "   (no raw data -- zero-filled)"))
+    d = safe_read(va, 4)
+    if len(d) == 4:
+        (u32,) = struct.unpack("<I", d)
+        (w,) = struct.unpack("<H", d[:2])
+        print(f"   value    u32 0x{u32:08X} ({u32})   WORD 0x{w:04X} ({w})"
+              + (f"   -> {addr2name(u32)}" if image_base() <= u32 < image_end()
+                 and addr2name(u32) else ""))
+    cf = containing_fn(va)
+    if cf and sec.startswith(".text"):
+        print(f"   fn       {cf[1]:<40} start 0x{cf[0]:08X}  +0x{va - cf[0]:X}   [ghidra bounds]")
+    nm = addr2name(va)
+    if nm:
+        base = nm.split("+")[0]
+        start = next((a for a, n in names() if n == base), None)
+        loc = src_loc(base)
+        flag = ""
+        if cf and start is not None and start != cf[0]:
+            flag = "   <-- NEAREST PRECEDING NAME, a DIFFERENT function"
+        print(f"   name     {base:<40} start 0x{start:08X}  +0x{va - start:X}"
+              f"{'  ' + loc if loc else ''}{flag}")
+    if va in markers:
+        loc, text = markers[va]
+        print(f"   src      {text}   {loc}   [exact // marker]")
+    else:
+        prev = max((a for a in markers if a < va and va - a < 0x400), default=None)
+        if prev is not None:
+            loc, text = markers[prev]
+            print(f"   src      nearest marker 0x{prev:08X} (-0x{va - prev:X}): {text}   {loc}")
+            if len(d) == 4:
+                hit = define_named(w, loc)
+                if hit:
+                    print(f"   value=   {hit}")
+    for loc, text in mentions.get(va, [])[:3]:
+        print(f"   mention  {loc}: {text}")
+
+
+def whatis_member(cls, off):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import class_layout
+    print(f"== {cls}+0x{off:X}")
+    print(f"   {class_layout.describe(cls, off)}")
+
+
+def _bases_of(cls):
+    """Transitive base classes, from the src headers (empty if the class is unknown)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import class_layout
+    except Exception:
+        return set()
+    idx = class_layout.class_index()
+    out = set()
+    todo = list(idx[cls].bases) if cls in idx else []
+    while todo:
+        b = todo.pop()
+        if b in out:
+            continue
+        out.add(b)
+        if b in idx:
+            todo += idx[b].bases
+    return out
+
+
+def whatis_vtable(va, slots=8):
+    """Owning class of a vtable: the class named by the most slots, exact hits first.
+
+    Two things fool a plain majority vote and both are handled here. Slot 0 is a
+    scalar-deleting dtor address_map does not know, so it resolves to whatever function
+    happens to precede it; and /OPT:ICF folds identical one-line stubs, so an unrelated
+    class (CWarp in CGameEffectDeath's vtable) can tie on exact hits. The tiebreak is
+    inheritance: a candidate DERIVED from another candidate is the real owner, because
+    the slots it does not override are exactly its base's.
+    """
+    data = safe_read(va, 4 * slots)
+    if len(data) < 8:
+        print(f"== vtable:0x{va:08X}\n   no data at this address")
+        return
+    score, rows = {}, []
+    for i in range(len(data) // 4):
+        (v,) = struct.unpack_from("<I", data, 4 * i)
+        exact = addr2name(v, exact_only=True)
+        nm = exact or addr2name(v)
+        rows.append((i, v, nm, bool(exact)))
+        if nm and "::" in nm:
+            cls = nm.split("::")[0]
+            score[cls] = score.get(cls, 0) + (2 if exact else 1)
+    print(f"== vtable:0x{va:08X}")
+    if score:
+        rank = {c: score[c] + (2 if _bases_of(c) & set(score) else 0) for c in score}
+        best = max(rank, key=lambda c: (rank[c], score[c], c))
+        others = sorted((c for c in score if c != best), key=lambda c: -rank[c])[:3]
+        loc = src_loc(f"{best}::{best}") or ""
+        print(f"   class    {best}   (rank {rank[best]}, slots {score[best]}"
+              + ("; over " + ", ".join(f"{c}={rank[c]}" for c in others) if others else "")
+              + ")" + (f"   ctor {loc.replace(chr(92), '/')}" if loc else ""))
+    for i, v, nm, exact in rows:
+        mark = "" if exact else "   (unnamed fn -- nearest preceding name)" if nm else ""
+        print(f"   [{i}] +0x{4 * i:02X}  0x{v:08X}  {nm or '?'}{mark}")
+
+
+def whatis_data(va):
+    markers, mentions = src_scan()
+    sec, has_raw = section_of(va)
+    print(f"== data:0x{va:08X}   section {sec}"
+          + ("" if has_raw else "   (no raw data -- zero-filled at load)"))
+    d = safe_read(va, 32)
+    if not d:
+        print("   bytes    <none in the image>")
+    else:
+        asc = "".join(chr(b) if chr(b) in string.printable[:-5] else "." for b in d[:16])
+        print(f"   bytes    {' '.join(f'{b:02x}' for b in d[:16])}  {asc}")
+        for i in range(min(4, len(d) // 4)):
+            (v,) = struct.unpack_from("<I", d, 4 * i)
+            note = ""
+            if image_base() <= v < image_end():
+                s, _ = section_of(v)
+                note = f"  -> {addr2name(v) or s}"
+            elif v == 0xFFFFFFFF:
+                note = "  (-1)"
+            print(f"   +0x{4 * i:02X}     0x{v:08X}{note}")
+        if all(b == 0 for b in d):
+            print("   note     all-zero -- a shared empty sentinel (CResRef/CString style)")
+    n = len(find_pointers(va, limit=200))
+    print(f"   refs     {n}{'+ (cap)' if n >= 200 else ''} pointer(s) to it in the image")
+    if va in markers:
+        loc, text = markers[va]
+        print(f"   src      {text}   {loc}   [exact // marker]")
+    for loc, text in mentions.get(va, [])[:4]:
+        print(f"   mention  {loc}: {text}")
+
+
+def cmd_whatis(tokens, data_view=False):
+    for tok in tokens:
+        if tok.lower().startswith("vtable:"):
+            whatis_vtable(parse_addr(tok.split(":", 1)[1]))
+        elif tok.lower().startswith("data:"):
+            whatis_data(parse_addr(tok.split(":", 1)[1]))
+        elif "+" in tok:
+            cls, _, off = tok.partition("+")
+            whatis_member(cls.strip(), int(off, 16))
+        elif tok.lower().startswith("0x"):
+            (whatis_data if data_view else whatis_addr)(parse_addr(tok))
+        else:
+            print(f"== {tok}\n   unrecognised token (want 0xADDR | CClass+0xNNN | "
+                  f"vtable:0xADDR | data:0xADDR)")
+
+
 def cmd_exe():
     import hashlib
     path = resolve_exe(EXE)
@@ -404,6 +667,11 @@ def main():
             cmd_vtable(parse_addr(rest[0]), int(rest[1]) if len(rest) > 1 else 16)
         elif cmd == "addr2fn":
             cmd_addr2fn(parse_addr(rest[0]))
+        elif cmd == "whatis":
+            toks = [a for a in rest if a != "--data"]
+            if not toks:
+                sys.exit("whatis: give at least one token (see --help)")
+            cmd_whatis(toks, data_view="--data" in rest)
         elif cmd == "exe":
             cmd_exe()
         elif cmd == "crash":
