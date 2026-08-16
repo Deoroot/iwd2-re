@@ -30,14 +30,28 @@ Verdicts, most actionable first:
   OUT-OF-RANGE  a source case value outside the table
   NO-SWITCH-IN-SOURCE / TABLE COUNT / UNMATCHED-SOURCE-SWITCH -- structural
 
+ONE table and ONE switch is the only shape where the pairing is a fact. With
+several of either, the value-overlap match is a guess, and a wrong guess prints
+a wall of MISSING/DEFAULT about correct code -- so those functions report
+AMBIGUOUS-PAIRING and nothing else unless `--multi` asks for the diff. INCOMPLETE
+still fires there: it needs no pairing to be true.
+
 False-positive classes handled, each one paid for at least once:
 
   * MSVC CLONES a block to resolve a later branch early, so two targets can hold
     instruction-identical bodies (AEGIS_OF_RIME vs the other three bard-song
     feats). Merging those cases in source is CORRECT, and CLONE says so.
+  * A clone's blocks are not byte-identical: each carries its own MSVC EH state
+    index (`mov dword ptr [esp + 0xNN], <n>` inside a `new`+ctor region), so
+    CGameSprite::SetMonkAbilities' cases 13/14 vs 15 differ by one constant while
+    both construct "00MFIST6". That store is collapsed; string and vtable
+    POINTERS are NOT, or a genuinely different resref would pass as a clone.
   * A naive name filter breaks on a constant sharing a prefix with a `_MAX_`
     ceiling `#define` (MAXIMIZED_ATTACKS read as missing while it was present).
     Values, never names, are what gets compared here.
+  * The offset fold below must strictly IMPROVE the match, not merely be
+    possible: any sparse switch over a wide table admits a shift, and a loose
+    test moved GetSndWalk -- correct as written -- onto four bogus MISSING lines.
   * A NORMALIZED switch expression -- `switch (m_nModalState - 1)` with cases
     0..3 against a binary table of 1..4 -- reads term-by-term as every case both
     MISSING and OUT-OF-RANGE. The constant offset is detected and folded in.
@@ -49,6 +63,7 @@ Usage:
   jumptable_audit.py 0x763200                 # audit one recovered function
   jumptable_audit.py CGameSprite::CheckModal  # by name
   jumptable_audit.py --sweep                  # every recovered fn with a jump table
+  jumptable_audit.py --sweep --multi          # ... including the guessed pairings
   jumptable_audit.py 0x763200 --prefix CGAMESPRITE_FEAT_   # name the values
 
 Exit 0 = nothing actionable, 1 = at least one finding, 2 = could not resolve.
@@ -338,21 +353,41 @@ def source_switches(name, defines):
 # ----------------------------------------------------------------- clone check
 
 
-def identical_bodies(a, b, span=0x60):
-    """True when two case targets hold instruction-identical code (MSVC clone)."""
-    la = disasm_lines(a, 24)
-    lb = disasm_lines(b, 24)
+# `mov dword ptr [esp + 0xNN], <imm>` right inside a `new`+ctor block is MSVC's
+# EH state index, one distinct value per block, reset to -1 when the region ends.
+# It is bookkeeping, not behaviour: CGameSprite::SetMonkAbilities emits one block
+# per state, so cases 13/14 and case 15 differ ONLY in that constant while both
+# construct "00MFIST6". Collapse it, or every such pair reads as a real SPLIT.
+EH_STATE = re.compile(r"^(mov dword ptr \[esp \+ 0x[0-9a-f]+\], )(?:0x[0-9a-f]{1,2}|\d{1,3})$")
+BRANCH_TARGET = re.compile(r"0x[0-9a-f]+$")
+
+
+def identical_bodies(a, b, span=24):
+    """True when two case targets hold the same code up to bookkeeping (MSVC clone).
+
+    Normalizes JUMP targets and the EH state constant -- and nothing else. An
+    earlier version normalized every 6-8 digit hex operand, which also erased
+    string and vtable POINTERS: two arms constructing different resrefs would
+    have compared equal and been dismissed as a clone. `call` operands stay
+    verbatim for the same reason; a clone calls the same callee anyway."""
+    la = disasm_lines(a, span)
+    lb = disasm_lines(b, span)
     if not la or not lb:
         return False
-    # Compare mnemonics with branch targets normalized away.
+
     def norm(lines):
         out = []
         for _va, text in lines:
-            text = re.sub(r"0x[0-9a-f]{6,8}", "<a>", text)
+            mnemonic = text.split(" ")[0]
+            if mnemonic.startswith("j"):
+                text = BRANCH_TARGET.sub("<t>", text)
+            else:
+                text = EH_STATE.sub(r"\1<ehstate>", text)
             out.append(text)
-            if text.split(" ")[0] in ("ret", "jmp"):
+            if mnemonic in ("ret", "jmp"):
                 break
         return out
+
     na, nb = norm(la), norm(lb)
     return len(na) > 1 and na == nb
 
@@ -360,7 +395,7 @@ def identical_bodies(a, b, span=0x60):
 # ---------------------------------------------------------------------- report
 
 
-def audit(target, prefix=None, show_clones=True):
+def audit(target, prefix=None, show_clones=True, multi=False):
     import subprocess
     va, name = None, None
     if target.lower().startswith("0x"):
@@ -390,11 +425,41 @@ def audit(target, prefix=None, show_clones=True):
     if switches is None:
         print(f"   source: NOT PARSED ({err})")
         return 2
+
+    # One table and one switch is the only shape where the pairing is a FACT.
+    # With several of either, matching by value overlap is a guess, and a wrong
+    # guess prints a wall of MISSING/DEFAULT about code that is fine. Say so
+    # rather than burying the real findings; --multi opts back in.
+    confident = len(infos) == 1 and len(switches) == 1
     if len(infos) != len(switches):
         print(f"   TABLE COUNT: {len(infos)} jump table(s) in the binary vs "
               f"{len(switches)} switch(es) in source"
               + ("   [the extra table(s) are most likely inside an inlined callee]"
                  if len(infos) > len(switches) else ""))
+    if not confident and not multi:
+        print("   AMBIGUOUS-PAIRING - more than one table or switch here; rerun with "
+              "--multi to see the per-table diff")
+        # INCOMPLETE survives an ambiguous pairing: "this source case is a
+        # `// TODO: Incomplete.` stub and SOME binary table sends its value at a
+        # non-default arm" needs no pairing to be true.
+        rc = 0
+        for info in infos:
+            table, default = read_tables(info)
+            if table is None:
+                continue
+            for sw in switches:
+                for labels, line, stub in sw:
+                    if not stub:
+                        continue
+                    hit = [v for _t, v in labels
+                           if v is not None and table.get(v) not in (None, default)]
+                    if hit:
+                        print(f"   INCOMPLETE   {', '.join(str(v) for v in hit)} "
+                              f"@{table[hit[0]]:#x}")
+                        print(f"                source case is a `// TODO: Incomplete.` stub "
+                              f"but the binary has a body, src line {line}")
+                        rc = 1
+        return rc
 
     # Pair each binary table with the source switch whose value set overlaps it
     # most. Position is NOT a safe pairing key: MSVC reorders, and an inlined
@@ -464,11 +529,18 @@ def audit_one(name, info, table, default, groups, defines, prefix, show_clones):
     # with cases 0..3 against a binary table of 1..4 (CGameSprite::CheckModal).
     # That is a faithful rewrite, not a gap, but term-by-term it reads as every
     # case MISSING plus every case OUT-OF-RANGE. Detect the constant and fold it.
-    shift = 0
+    # Fold only when it strictly IMPROVES the match. A weaker test ("the shifted
+    # values all exist in the table") fires on any sparse switch whose table
+    # spans a wide range, and shifted GetSndWalk -- which is correct as written
+    # -- into four bogus MISSING lines.
+    def landed(vals):
+        return sum(1 for v in vals if table.get(v) not in (None, default))
+
     if src_values and table and set(src_values) != set(table):
         k = min(table) - min(src_values)
-        if k != 0 and {v + k for v in src_values} <= set(table):
-            shift = k
+        if (k != 0
+                and {v + k for v in src_values} <= set(table)
+                and landed(v + k for v in src_values) > landed(src_values)):
             src_values = {v + k: gi for v, gi in src_values.items()}
             groups = [([(t, v + k if v is not None else None) for t, v in labels], line, stub)
                       for labels, line, stub in groups]
@@ -510,7 +582,8 @@ def audit_one(name, info, table, default, groups, defines, prefix, show_clones):
             clones = show_clones and all(identical_bodies(ts[0], t) for t in ts[1:])
             findings.append(("CLONE" if clones else "SPLIT", None,
                              [val for _t, val in labels if val is not None],
-                             ("MSVC emitted the block once per arm; merging in source is correct"
+                             ("MSVC emitted the block once per arm -- identical up to jump targets and "
+                              "the EH state index; merging in source is correct"
                               if clones else
                               "source merges cases the binary sends to different bodies")
                              + f" [{', '.join(hex(t) for t in ts)}] src line {line}"))
@@ -526,7 +599,7 @@ def audit_one(name, info, table, default, groups, defines, prefix, show_clones):
                     for k, _t, _v, _w in findings) else 0
 
 
-def sweep(prefix=None):
+def sweep(prefix=None, multi=False):
     """Every recovered function (a `// 0xADDR` marker in src/) whose body holds a table."""
     markers, _mentions = sym.src_scan()
     candidates = []
@@ -543,7 +616,7 @@ def sweep(prefix=None):
     hits = 0
     for name in candidates:
         try:
-            hits += audit(name, prefix=prefix) or 0
+            hits += audit(name, prefix=prefix, multi=multi) or 0
         except Exception as e:
             print(f"== {name}\n   HARNESS ERROR {e!r}")
     return hits
@@ -556,12 +629,15 @@ def main():
     ap.add_argument("--sweep", action="store_true", help="audit every recovered fn with a table")
     ap.add_argument("--prefix", help="name case values from #defines with this prefix")
     ap.add_argument("--no-clones", action="store_true", help="do not byte-compare split arms")
+    ap.add_argument("--multi", action="store_true",
+                    help="also diff functions where table<->switch pairing is a guess")
     args = ap.parse_args()
     if args.sweep:
-        return 0 if sweep(args.prefix) == 0 else 1
+        return 0 if sweep(args.prefix, args.multi) == 0 else 1
     if not args.target:
         ap.error("give an address/name or --sweep")
-    return audit(args.target, prefix=args.prefix, show_clones=not args.no_clones)
+    return audit(args.target, prefix=args.prefix, show_clones=not args.no_clones,
+                 multi=args.multi)
 
 
 if __name__ == "__main__":
