@@ -58,6 +58,19 @@ False-positive classes handled, each one paid for at least once:
   * The default arm is taken from the `ja`, never from the most common target:
     CheckFeatPrerequisites' shared `return TRUE` body has 20 arms and the real
     default has none.
+  * Ghidra's function end is the next function GHIDRA HAS DEFINED, so every
+    UNDEFINED function in between falls inside the extent -- with its jump
+    table. CGameEffectBaseAttackBonus::ApplyEffect is 0x40 bytes of `dec`/`je`
+    compare chain and owns no table at all, yet its extent reached 0x4b31b4,
+    a table belonging to an unrelated SEH function 0x320 bytes further on,
+    whose seven arms read as four MISSING cases against the wrong source body.
+    Bounding cannot fix this; a table now counts only when control flow reaches
+    its `jmp` from the entry (`reachable_from`).
+  * A `case` group ends at the switch's CLOSING BRACE, not at the end of the
+    function. Scanning on past it let the last group of the last switch absorb
+    the whole tail, so CScreenCreateChar::UpdateCharacterStats' SORCERER/WIZARD
+    arm inherited a `// TODO: Incomplete (base skills).` written 46 lines below
+    the switch and reported INCOMPLETE against a table that matched exactly.
 
 Usage:
   jumptable_audit.py 0x763200                 # audit one recovered function
@@ -186,13 +199,88 @@ def fn_end(start):
     Bounding the scan is not optional: without it a 400-instruction sweep runs
     off the end of a short function and finds the NEXT function's jump table,
     which then diffs against the wrong source body. That produced 545 bogus
-    'MISSING' functions on the first whole-repo run."""
+    'MISSING' functions on the first whole-repo run.
+
+    This is an UPPER bound only, and a loose one: it is the next function GHIDRA
+    HAS DEFINED, so every undefined function in between falls inside it. Real
+    containment is decided by `reachable_from` below."""
     fns = sym.ghidra_funcs()
     if not fns:
         return start + 0x4000
     import bisect
     i = bisect.bisect_right(fns, (start, "\xff"))
     return fns[i][0] if i < len(fns) else start + 0x4000
+
+
+TERMINATOR = re.compile(r"^(ret|retf|iret|int3|ud2|jmp|hlt)\b")
+DIRECT_BRANCH = re.compile(r"^(jmp|j[a-z]{1,3}|loopn?e?|loop)\s+(0x[0-9a-f]+)$")
+
+
+def reachable_from(start, end, lines):
+    """The subset of `lines` control flow can actually reach from `start`.
+
+    Ghidra's end is the next DEFINED function, so when the functions in between
+    were never defined -- common in this project -- a short function's extent
+    swallows several unrelated ones. `CGameEffectBaseAttackBonus::ApplyEffect`
+    is 0x40 bytes of `dec eax`/`je` compare chain with no table at all, yet its
+    Ghidra extent reaches 0x4b31b4, an unrelated SEH function's table, whose
+    seven arms then read as four MISSING cases against the wrong source body.
+    Bounding by the next defined function cannot catch that; reachability can.
+
+    Falling off the end of the linear sweep is also handled: a branch into a
+    region capstone desynced on (embedded data) is re-disassembled from the
+    target, so real code after a jump table is not silently lost."""
+    import bisect
+    by_va = dict(lines)
+    order = sorted(by_va)               # kept sorted alongside `by_va`
+
+    def resync(va):
+        """Disassemble from `va` when the linear sweep desynced past it."""
+        more = [l for l in disasm_lines(va, 256) if l[0] < end]
+        if not more or more[0][0] != va:
+            return False
+        for a, t in more:
+            if a not in by_va:
+                by_va[a] = t
+                bisect.insort(order, a)
+        return True
+
+    seen = set()
+    work = [start]
+    tables = set()
+    while work:
+        va = work.pop()
+        while start <= va < end and va not in seen:
+            if va not in by_va and not resync(va):
+                break
+            text = by_va[va]
+            seen.add(va)
+            mb = DIRECT_BRANCH.match(text)
+            if mb:
+                work.append(int(mb.group(2), 16))
+            else:
+                mt = JMP_TBL.search(text)
+                if mt:
+                    tables.add(int(mt.group(2), 16))
+            if TERMINATOR.match(text):
+                break
+            i = bisect.bisect_right(order, va)
+            if i >= len(order):
+                break
+            va = order[i]
+        # An arm body is reachable only through its table, so once the linear
+        # walk stalls, feed the discovered tables' targets back in -- otherwise a
+        # switch nested inside a case arm reads as unreachable.
+        if not work and tables:
+            for tbl in tables:
+                for i in range(1024):
+                    t = int.from_bytes(sym.read(tbl + 4 * i, 4), "little")
+                    if not (start <= t < end):
+                        break
+                    if t not in seen:
+                        work.append(t)
+            tables = set()
+    return seen
 
 
 def find_switch(start, limit=None):
@@ -211,10 +299,16 @@ def find_switches(start, limit=None):
     # One instruction per 2 bytes is a safe upper bound for x86.
     span = min(max(end - start, 32), 0x8000)
     lines = [l for l in disasm_lines(start, limit or span // 2 + 8) if l[0] < end]
+    reach = reachable_from(start, end, lines)
     out = []
     for i, (va, text) in enumerate(lines):
         m = JMP_TBL.search(text)
         if not m:
+            continue
+        # Ghidra's end runs to the next DEFINED function, so an undefined one in
+        # between lands inside this extent with its table. Only dispatches
+        # control flow actually reaches from the entry belong to this function.
+        if va not in reach:
             continue
         info = {"jmp_va": va, "jump_table": int(m.group(2), 16), "index_table": None,
                 "bias": 0, "count": None, "default": None}
@@ -288,12 +382,28 @@ def read_tables(info):
 # ------------------------------------------------------- source side: the cases
 
 
+def _uncomment(code):
+    """Drop comments and literals so brace counting cannot be fooled by them."""
+    code = re.sub(r"//.*$", "", code)
+    code = re.sub(r"/\*.*?\*/", "", code)
+    code = re.sub(r"'(?:\\.|[^'])*'", "''", code)
+    code = re.sub(r'"(?:\\.|[^"])*"', '""', code)
+    return code
+
+
 def source_switches(name, defines):
     """[(labels, first_line, is_stub)] - one entry per source `case` group.
 
     `is_stub` marks a group whose body is a `// TODO: Incomplete.` placeholder.
     Those are the arms this audit would otherwise be blind to: the case EXISTS,
-    so it is not MISSING, but the binary has a real body behind it."""
+    so it is not MISSING, but the binary has a real body behind it.
+
+    A switch ends at its closing brace, tracked by brace depth. Without that the
+    LAST case group of the LAST switch stays open to the end of the function and
+    absorbs every line after it -- which is how an unrelated
+    `// TODO: Incomplete (base skills).` in the tail of
+    CScreenCreateChar::UpdateCharacterStats marked its SORCERER/WIZARD arm a stub
+    while the binary's table matched the source exactly."""
     import subprocess
     r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "src_find.py"),
                         name, "--body"], capture_output=True, text=True)
@@ -306,7 +416,7 @@ def source_switches(name, defines):
     pending_line = None
     in_body = False
     stub = False
-    seen_switch = False
+    depth = None           # None = outside a switch; int = brace depth within one
 
     def close_group():
         nonlocal pending, pending_line, in_body, stub
@@ -314,22 +424,30 @@ def source_switches(name, defines):
             groups.append((pending, pending_line, stub))
         pending, pending_line, in_body, stub = [], None, False, False
 
+    def close_switch():
+        nonlocal groups, depth
+        close_group()
+        if groups:
+            switches.append(groups)
+            groups = []
+        depth = None
+
     for line in body.splitlines():
         m = re.match(r"^\s*(\d+)\t(.*)$", line)
         if not m:
             continue
         lineno, code = int(m.group(1)), m.group(2)
-        if re.search(r"\bswitch\s*\(", code):
-            # A second `switch` starts a second table's worth of cases. Keeping
-            # them in one flat list is what made every case of switch #2 read as
-            # MISSING from switch #1.
-            close_group()
-            if groups:
-                switches.append(groups)
-                groups = []
-            seen_switch = True
+        bare = _uncomment(code)
+        # A second `switch` starts a second table's worth of cases. Keeping them
+        # in one flat list is what made every case of switch #2 read as MISSING
+        # from switch #1. This test comes FIRST and is NOT gated on brace depth:
+        # gating it cost CRuleTables::GetRaceString's eight switches, which
+        # collapsed into one the moment a closing brace went unseen.
+        if re.search(r"\bswitch\s*\(", bare):
+            close_switch()
+            depth = bare.count("{") - bare.count("}")
             continue
-        if not seen_switch:
+        if depth is None:
             continue
         mc = re.match(r"^\s*case\s+(.+?)\s*:\s*(.*)$", code)
         if mc:
@@ -338,15 +456,17 @@ def source_switches(name, defines):
             if pending_line is None:
                 pending_line = lineno
             pending.append((mc.group(1).strip(), resolve_label(mc.group(1), defines)))
-            if not mc.group(2).strip():
-                continue
-        if pending:
+            tail = mc.group(2).strip()
+        else:
+            tail = code
+        if pending and tail:
             in_body = True
             if "TODO: Incomplete" in code:
                 stub = True
-    close_group()
-    if groups:
-        switches.append(groups)
+        was, depth = depth, depth + bare.count("{") - bare.count("}")
+        if was > 0 and depth <= 0:
+            close_switch()
+    close_switch()
     return switches, None
 
 
@@ -369,7 +489,17 @@ def identical_bodies(a, b, span=24):
     earlier version normalized every 6-8 digit hex operand, which also erased
     string and vtable POINTERS: two arms constructing different resrefs would
     have compared equal and been dismissed as a clone. `call` operands stay
-    verbatim for the same reason; a clone calls the same callee anyway."""
+    verbatim for the same reason; a clone calls the same callee anyway.
+
+    Deliberately STRUCTURAL, so it under-reports: cloned blocks are register
+    -allocated independently, and the difference is not always a consistent
+    renaming. ReadyCursor's cases 5/6 do the same three things in the same order
+    yet one reuses `ecx` as its own source where the other reads `eax`, so no
+    alpha-renaming makes them equal. Those come out SPLIT and a human has to read
+    the two bodies. Loosening this to ignore registers outright WOULD collapse
+    them -- and would also collapse an operand-order swap, the exact defect class
+    lint_twin_symmetry.py exists to catch. Under-reporting is the safe direction:
+    a SPLIT costs a manual read, a wrong CLONE hides a bug."""
     la = disasm_lines(a, span)
     lb = disasm_lines(b, span)
     if not la or not lb:
