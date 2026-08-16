@@ -138,6 +138,15 @@ def define_map():
     return out
 
 
+# The old resolver did `ord(expr.strip("'").lstrip("\\"))`, which reads EVERY C
+# escape as the letter after the backslash: '\r' came out 114 ('r') instead of
+# 13, '\\' came out 0 instead of 92, '\0' came out 48. In CTlkTable::ParseStr
+# that shifted the whole switch by 13 and turned four correctly recovered cases
+# into three MISSING plus a DEFAULT and two OUT-OF-RANGE.
+C_ESCAPES = {"0": 0, "a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12,
+             "r": 13, "e": 27, '"': 34, "'": 39, "?": 63, "\\": 92}
+
+
 def resolve_label(expr, defines):
     """Evaluate a case label: a literal, a #define, or a simple arithmetic mix."""
     expr = expr.strip()
@@ -148,8 +157,16 @@ def resolve_label(expr, defines):
     if expr in defines:
         return defines[expr]
     # Allow `FOO + 1`, `FOO - 1`, and character literals.
-    if re.fullmatch(r"'\\?.'", expr):
-        return ord(expr.strip("'").lstrip("\\") or "\0")
+    m = re.fullmatch(r"'\\x([0-9a-fA-F]{1,2})'", expr)
+    if m:
+        return int(m.group(1), 16)
+    m = re.fullmatch(r"'\\([0-7]{1,3})'", expr)
+    if m:
+        return int(m.group(1), 8)
+    m = re.fullmatch(r"'(\\.|[^'\\])'", expr)
+    if m:
+        body = m.group(1)
+        return C_ESCAPES.get(body[1]) if body.startswith("\\") else ord(body)
     tokens = re.findall(r"[A-Za-z_]\w*", expr)
     if tokens and all(t in defines for t in tokens):
         safe = re.sub(r"[A-Za-z_]\w*", lambda m: str(defines[m.group(0)]), expr)
