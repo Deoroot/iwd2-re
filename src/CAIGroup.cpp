@@ -1178,7 +1178,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
 
         if (rc == CGameObjectArray::SUCCESS) {
             if (pSprite->m_derivedStats.m_nEncumberance == 2) {
-                pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+                pSprite->FeedBack(CGameSprite::FEEDBACK_TOOHEAVY_STOPPED, TRUE, 0, 0, -1, 0, 0);
             } else {
                 CAIAction* moveAction = new CAIAction(CAIAction::MOVETOPOINT, target, 0, -1);
                 actions.AddTail(moveAction);
@@ -1214,7 +1214,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
         return;
     }
 
-    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
 
     CPoint* offsets = NULL;
     SHORT* faces = NULL;
@@ -1289,13 +1289,13 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
                 // 0x46A3D0
                 BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
                 POINT targetGrid = { gridTargetX, gridTargetY };
-                BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                BOOL passable = pSprite->GetArea()->AdjustTarget(
                     CPoint(leaderGridX, leaderGridY), &targetGrid, personalSpace, 10);
                 if (!passable) {
                     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
-                    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+                    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
                     if (offsets != NULL) {
                         delete[] offsets;
                     }
@@ -1341,7 +1341,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
             // 0x46A3D0
             BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
             POINT destGrid = { memberDestGridX, memberDestGridY };
-            BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+            BOOL passable = pSprite->GetArea()->AdjustTarget(
                 CPoint(spriteGridX, spriteGridY), &destGrid, personalSpace, 10);
             if (passable) {
                 memberDest.x = memberOffsetX + target.x;
@@ -1353,7 +1353,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
         }
 
         if (pSprite->m_derivedStats.m_nEncumberance == 2) {
-            pSprite->PlaySoundA(CGameSprite::SOUND_SELECT_ACTION, TRUE, FALSE, FALSE);
+            pSprite->FeedBack(CGameSprite::FEEDBACK_TOOHEAVY_STOPPED, TRUE, 0, 0, -1, 0, 0);
         } else {
             moveAction->m_dest = memberDest;
 
@@ -1412,7 +1412,7 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
         delete[] faces;
     }
 
-    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
 }
 
 // 0x407280
@@ -1470,7 +1470,7 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
         return;
     }
 
-    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
 
     CPoint* offsets = NULL;
     SHORT* faces = NULL;
@@ -1545,13 +1545,13 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
                 // 0x46A3D0
                 BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
                 POINT targetGrid = { gridTargetX, gridTargetY };
-                BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                BOOL passable = pSprite->GetArea()->AdjustTarget(
                     CPoint(leaderGridX, leaderGridY), &targetGrid, personalSpace, 10);
                 if (!passable) {
                     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(memberId,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
-                    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+                    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
                     if (offsets != NULL) {
                         delete[] offsets;
                     }
@@ -1594,7 +1594,7 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
             // 0x46A3D0
             BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
             POINT destGrid = { memberDestGridX, memberDestGridY };
-            BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+            BOOL passable = pSprite->GetArea()->AdjustTarget(
                 CPoint(spriteGridX, spriteGridY), &destGrid, personalSpace, 10);
             if (passable) {
                 memberDest.x = memberOffsetX + target.x;
@@ -1641,7 +1641,7 @@ void CAIGroup::GroupProtectPoint(CPoint target, SHORT formationType, CPoint curs
         delete[] faces;
     }
 
-    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
 }
 
 // 0x407FC0
@@ -1688,10 +1688,10 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
         return;
     }
 
-    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+    RemoveFromSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
 
     if (m_memberList.GetHeadPosition() == NULL) {
-        AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+        AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
         return;
     }
 
@@ -1760,13 +1760,13 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
                     // 0x46A3D0
                     BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
                     POINT targetGrid = { gridTargetX, gridTargetY };
-                    BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                    BOOL passable = pSprite->GetArea()->AdjustTarget(
                         CPoint(leaderGridX, leaderGridY), &targetGrid, personalSpace, 10);
                     if (!passable) {
                         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(memberId,
                             CGameObjectArray::THREAD_ASYNCH,
                             INFINITE);
-                        AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+                        AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
                         if (offsets != NULL) {
                             delete[] offsets;
                         }
@@ -1821,7 +1821,7 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
                 // 0x46A3D0
                 BYTE personalSpace = pSprite->GetAnimation()->GetPersonalSpace();
                 POINT destGrid = { memberDestGridX, memberDestGridY };
-                BOOL passable = g_pBaldurChitin->GetObjectGame()->GetArea(0)->AdjustTarget(
+                BOOL passable = pSprite->GetArea()->AdjustTarget(
                     CPoint(spriteGridX, spriteGridY), &destGrid, personalSpace, 10);
                 if (passable) {
                     pSprite->m_targetPoint.x = target.x + memberOffsetX;
@@ -1842,7 +1842,7 @@ void CAIGroup::GroupDrawMove(CPoint target, SHORT formationType, CPoint cursor)
         }
     }
 
-    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetArea(0)->m_search);
+    AddToSearch(&g_pBaldurChitin->GetObjectGame()->GetVisibleArea()->m_search);
 
     if (offsets != NULL) {
         delete[] offsets;
