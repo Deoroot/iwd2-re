@@ -2677,6 +2677,10 @@ void CScreenWorld::CancelPopup()
     case -1:
     case 0:
     case 7:
+    case 17:
+    case 19:
+    case 21:
+    case 22:
         break;
     case 6:
         StopCommand();
@@ -2685,14 +2689,6 @@ void CScreenWorld::CancelPopup()
     case 8:
         StopContainer();
         m_nPopupState = -1;
-        break;
-    case 15:
-    case 17:
-        StopDeath();
-        m_nPopupState = -1;
-        break;
-    case 19:
-    case 21:
         break;
     default:
         // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
@@ -3768,13 +3764,13 @@ void CScreenWorld::CancelEngine()
         StopContainer();
         m_nPopupState = -1;
         break;
-    case 15:
     case 17:
         StopDeath();
         m_nPopupState = -1;
         break;
     case 19:
     case 21:
+    case 22:
         break;
     default:
         // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenWorld.cpp
