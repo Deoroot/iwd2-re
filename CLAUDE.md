@@ -15,6 +15,7 @@ Paths: `/home/wills/iwd2-re/...` = host; `C:\iwd2-re\...`, `C:\GOG Games\...` = 
 
 | Want | Tool |
 |------|------|
+| **Which session was the last one / where did it leave off** | `git tag -l 's[0-9]*' --sort=-v:refname \| head -1`, then `docs/sessions.md` (top row). Several sessions share a day, so the date does NOT identify one — the `sNN` tag does. **End every session by tagging and adding its row** |
 | **Verify a recovered fn (the whole sequence, one verdict)** | `scripts/arc.py verify 0xADDR` — see "arc" below. Don't run the 9 steps by hand |
 | **What to work on next** | `scripts/arc.py targets` (= `scripts/next_targets.py`); tracked top-40 in `docs/next-targets.md` |
 | **Drive/inspect the UI yourself (menus, action bar, ground)** | `scripts/vm.sh smoke <slot> <secs> --ui scripts/scenarios/<s>.txt` — see "AutoUI" below. Don't hand-drive or ask the user first |
