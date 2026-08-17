@@ -8,8 +8,11 @@ One command, no reading required:
 ```bash
 git tag -l 's[0-9]*' --sort=-v:refname | head -1     # -> the latest session tag
 git log --oneline s28..s29                           # -> everything session 29 did
-git rev-parse s29                                    # -> its final commit
+git rev-parse 's29^{commit}'                         # -> its final commit
 ```
+
+Note the `^{commit}`: these are ANNOTATED tags, so a bare `git rev-parse s29`
+returns the tag object's sha, not the commit's, and will not match `HEAD`.
 
 There is deliberately no commit column below: the tag *is* the commit, and a
 column holding it could only ever be one commit stale — the row naming a hash
