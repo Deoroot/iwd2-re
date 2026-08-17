@@ -16,7 +16,7 @@ file, which carries the full detail; this table is only the index.
 
 | # | tag | date | HEAD at end | pushed | headline |
 |---|-----|------|-------------|--------|----------|
-| 29 | `s29` | 2026-08-16 | `4ee2341a` | no | The sweep's only INCOMPLETE was the tool's own bug, not a second Power Attack. Three more false-positive classes fixed (case-group brace scoping, Ghidra's end vs *undefined* functions, C escape literals). One real finding: `CGameAnimationTypeMonster::SetSequence` sequences 8–13 hit the `default:` assert — recovered — plus an `m_currentVidCellWeaponBase` member swap it exposed. First live proofs of `CGameDoor::CompressTime` (5 of 6 doors, sub-hour delta closed none) and `CheckModal` case 0 (bard song). Sweep 522/28 → 515/24. |
+| 29 | `s29` | 2026-08-16 | `35c1630d` | no | The sweep's only INCOMPLETE was the tool's own bug, not a second Power Attack. Three more false-positive classes fixed (case-group brace scoping, Ghidra's end vs *undefined* functions, C escape literals). One real finding: `CGameAnimationTypeMonster::SetSequence` sequences 8–13 hit the `default:` assert — recovered — plus an `m_currentVidCellWeaponBase` member swap it exposed. First live proofs of `CGameDoor::CompressTime` (5 of 6 doors, sub-hour delta closed none) and `CheckModal` case 0 (bard song). Sweep 522/28 → 515/24. |
 | 28 | `s28` | 2026-08-16 | `e1144974` | yes | `CheckFeatPrerequisites` COMPLETE (MERCANTILE_BACKGROUND, SNAKE_BLOOD were the last two stubs). New tools `jumptable_audit.py` (seven false-positive classes) and `save_party.py`. Both ported SUMMON blocks runtime-proven with a sprite census. |
 
 Sessions before 28 are not numbered here — their record lives in the
