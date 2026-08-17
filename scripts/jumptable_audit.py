@@ -27,14 +27,30 @@ Verdicts, most actionable first:
   DEFAULT       source has a case the binary sends to the default arm
   SPLIT         source merges cases the binary gives different bodies
   CLONE         same, but the bodies are instruction-identical: MERGING IS CORRECT
-  OUT-OF-RANGE  a source case value outside the table
+  OUT-OF-RANGE  a source case outside the table that the binary never compares
+                against either -- so no compare chain handles it
   NO-SWITCH-IN-SOURCE / TABLE COUNT / UNMATCHED-SOURCE-SWITCH -- structural
+  UNPAIRED-TABLE / no-table-for-switch -- structural, and NOT findings: one is
+                an inlined callee's table, the other a switch small or sparse
+                enough that MSVC emitted a compare chain instead of a table
 
-ONE table and ONE switch is the only shape where the pairing is a fact. With
-several of either, the value-overlap match is a guess, and a wrong guess prints
-a wall of MISSING/DEFAULT about correct code -- so those functions report
-AMBIGUOUS-PAIRING and nothing else unless `--multi` asks for the diff. INCOMPLETE
-still fires there: it needs no pairing to be true.
+More than ten MISSING arms on one table collapse into a single line. A source
+switch reaching 18 of 160 arms is an UNRECOVERED switch, not a list of gaps, and
+printing all 145 buries every other function in the sweep.
+
+A wrong pairing prints a wall of MISSING/DEFAULT about correct code, so step 5
+only diffs a pairing it can DERIVE (see `pair_tables`):
+
+  unique  the table's best switch beats every other switch, and no other table
+          wants that switch as much -- a fact, not a guess
+  forced  one table and one switch are left over, so the pairing is decided by
+          elimination even at zero overlap (a fully normalized switch)
+  order   the overlap TIED, broken by order of appearance -- a guess, and only
+          offered under `--multi`
+
+Anything still unresolved reports AMBIGUOUS-PAIRING and nothing else unless
+`--multi` asks for the diff. INCOMPLETE still fires there: it needs no pairing
+to be true.
 
 False-positive classes handled, each one paid for at least once:
 
@@ -71,6 +87,30 @@ False-positive classes handled, each one paid for at least once:
     the whole tail, so CScreenCreateChar::UpdateCharacterStats' SORCERER/WIZARD
     arm inherited a `// TODO: Incomplete (base skills).` written 46 lines below
     the switch and reported INCOMPLETE against a table that matched exactly.
+  * A NESTED switch's closing brace is not its parent's. One relative depth
+    counter ended both, dropping every parent case written below the nested
+    one: CGameSprite::SetCursor's `case 3` sits under the icon-index switch
+    nested in `case 2`, so the state table's fourth arm read as MISSING. The
+    open switches are a STACK now, and CRuleTables::GetRaceString -- eight
+    sequential switches, the reason the `switch (` test must stay ungated --
+    still parses, because a switch is popped by depth, not by the next one.
+  * An immediate is SIGNED. A downward bias is `add eax, 0xffffb2ca`, and
+    reading that unsigned put CGameAIBase::EvaluateStatusTrigger's first case
+    at -4294950902, whereupon the offset fold "corrected" it by 0x100000001.
+  * A ONE-CASE switch can always be folded somewhere useful, so its fold is
+    evidence of nothing: CScreenCharacter::UpdatePopupPanel's lone case shifted
+    +57 onto a 54-slot table and made 19 arms read MISSING.
+  * A case value outside the table is not a missing case: MSVC peels the values
+    that fall outside the table's contiguous range into a compare chain around
+    it. CScreenWorld::CancelPopup's table covers 0..8 while a chain handles -1,
+    17, 19, 21 and 22 -- five OUT-OF-RANGE lines about cases the binary
+    demonstrably tests for, and 53 such lines across the sweep.
+  * An INLINED callee's table is not a hole in the caller. The source marks each
+    one `// NOTE: Uninline.`, so the table is diffed against the callee's own
+    recovery; without that, every screen's SummonPopup/DismissPopup wrapper read
+    as NO-SWITCH-IN-SOURCE, and CScreenWorld::StartDeath -- which holds the
+    inlined CancelPopup's table AND an unrelated switch of its own -- paired the
+    two and printed three MISSING arms about two correct functions.
 
 Usage:
   jumptable_audit.py 0x763200                 # audit one recovered function
@@ -195,6 +235,18 @@ BIAS_DEC = re.compile(r"dec (\w+)$")
 MOV_REG = re.compile(r"mov (\w+), (\w+)$")
 
 REG32 = {"eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"}
+
+
+def imm32(text):
+    """A capstone immediate as the SIGNED 32-bit value the CPU works with.
+
+    A switch biased downwards is `add eax, 0xffffb2ca`, and reading that
+    unsigned put CGameAIBase::EvaluateStatusTrigger's first case at
+    -4294950902. The offset fold then "corrected" it by 0x100000001 and the
+    audit printed 145 MISSING lines about a function whose table it had never
+    located."""
+    v = int(text, 0)
+    return v - 0x100000000 if v >= 0x80000000 else v
 
 
 def disasm_lines(start, count):
@@ -349,21 +401,21 @@ def find_switches(start, limit=None):
                 continue
             mc = CMP_IMM.match(back)
             if mc and mc.group(1) == key and info["count"] is None:
-                info["count"] = int(mc.group(2), 0) + 1
+                info["count"] = imm32(mc.group(2)) + 1
                 continue
             if info["bias"]:
                 continue
             mb = BIAS_LEA.match(back)
             if mb and mb.group(1) == key:
-                info["bias"] = int(mb.group(3), 0) * (-1 if mb.group(2) == "-" else 1)
+                info["bias"] = imm32(mb.group(3)) * (-1 if mb.group(2) == "-" else 1)
                 break
             ms = BIAS_SUB.match(back)
             if ms and ms.group(1) == key:
-                info["bias"] = -int(ms.group(2), 0)
+                info["bias"] = -imm32(ms.group(2))
                 break
             ma = BIAS_ADD.match(back)
             if ma and ma.group(1) == key:
-                info["bias"] = int(ma.group(2), 0)
+                info["bias"] = imm32(ma.group(2))
                 break
             md = BIAS_DEC.match(back)
             if md and md.group(1) == key:
@@ -375,6 +427,41 @@ def find_switches(start, limit=None):
                 key = mm.group(2)
         out.append(info)
     return out
+
+
+CMP_ANY = re.compile(r"^cmp \w+, (-?(?:0x[0-9a-f]+|\d+))$")
+_CMP_CACHE = {}
+
+
+def compare_immediates(start):
+    """Every value the function compares against outside its jump table.
+
+    A switch is not only its table: MSVC peels the values that sit outside the
+    table's contiguous range into a compare chain around it. CScreenWorld::
+    CancelPopup's table covers 0..8 and a chain handles -1, 17, 19, 21 and 22 --
+    all five of which read as OUT-OF-RANGE, "source case outside the table",
+    about cases the binary demonstrably tests for. Fifty-three of the sweep's
+    lines were that.
+
+    Any `cmp` immediate counts, so an unrelated comparison can silence a case
+    that really is missing. That is the safe direction, and the same one
+    `identical_bodies` takes: a suppressed line costs a missed finding, an
+    unsuppressed one costs trust in every other line."""
+    if start not in _CMP_CACHE:
+        end = fn_end(start)
+        span = min(max(end - start, 32), 0x8000)
+        out = set()
+        for va, text in disasm_lines(start, span // 2 + 8):
+            if va >= end:
+                break
+            m = CMP_ANY.match(text)
+            if m:
+                imm = int(m.group(1), 0)
+                out.add(imm)
+                if imm >= 0x80000000:      # `cmp eax, 0xffffffff` is `case -1`
+                    out.add(imm - 0x100000000)
+        _CMP_CACHE[start] = out
+    return _CMP_CACHE[start]
 
 
 def read_tables(info):
@@ -408,6 +495,79 @@ def _uncomment(code):
     return code
 
 
+_BODY_CACHE = {}
+
+
+def src_body(name):
+    """The recovered source of one function, or None if src_find cannot place it.
+
+    Cached because the sweep asks for the same callee once per function that
+    inlined it -- CUIManager::KillCapture is marked `Uninline` in a dozen
+    screens."""
+    if name not in _BODY_CACHE:
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "src_find.py"),
+                            name, "--body"], capture_output=True, text=True)
+        _BODY_CACHE[name] = r.stdout if r.returncode == 0 else None
+    return _BODY_CACHE[name]
+
+
+UNINLINE_MARK = re.compile(r"^\s*//\s*NOTE:\s*Uninline\b")
+CALL_NAME = re.compile(r"([A-Za-z_]\w*)\s*\(")
+NOT_A_CALL = {"if", "for", "while", "switch", "return", "sizeof", "static_cast",
+              "reinterpret_cast", "const_cast", "dynamic_cast", "UTIL_ASSERT"}
+
+
+def inlined_switches(name, defines):
+    """[(callee, switch)] for every switch the source says MSVC inlined into us.
+
+    A callee's jump table sits inside the caller's extent with no `switch` in the
+    caller's source to pair it against, which is how every screen's
+    SummonPopup/DismissPopup wrapper reads as NO-SWITCH-IN-SOURCE -- 43 of them
+    the moment the pairing improved enough to diff those functions at all. This
+    codebase already marks each one `// NOTE: Uninline.` on the line above the
+    call, so the table can be diffed against the callee's OWN recovery instead.
+
+    Every identifier before a `(` on the marked line is offered as a candidate,
+    chains included: the pairing accepts a candidate only when its case values
+    match the table, so a wrong guess costs nothing. Resolution prefers
+    OurClass::callee -- a bare `DismissPopup` has fifteen definitions and
+    src_find just picks one."""
+    body = src_body(name)
+    if body is None:
+        return []
+    owner = name.split("::")[0] if "::" in name else None
+    wanted, marked = [], False
+    for line in body.splitlines():
+        m = re.match(r"^\s*(\d+)\t(.*)$", line)
+        if not m:
+            continue
+        code = m.group(2)
+        if UNINLINE_MARK.match(code):
+            marked = True
+            continue
+        if marked and code.strip():
+            marked = False
+            for cand in CALL_NAME.findall(_uncomment(code)):
+                if cand not in NOT_A_CALL and cand not in wanted:
+                    wanted.append(cand)
+    out = []
+    for cand in wanted:
+        for full in ([f"{owner}::{cand}"] if owner else []) + [cand]:
+            if full == name:
+                continue
+            body = src_body(full)
+            # src_find falls back to "# N matches, showing ..." on an ambiguous
+            # bare name; that pick is arbitrary, so refuse it.
+            if body is None or body.startswith("# "):
+                continue
+            sws, _err = source_switches(full, defines)
+            if sws:
+                out.extend((full, sw) for sw in sws)
+            break
+    return out
+
+
 def source_switches(name, defines):
     """[(labels, first_line, is_stub)] - one entry per source `case` group.
 
@@ -421,33 +581,17 @@ def source_switches(name, defines):
     `// TODO: Incomplete (base skills).` in the tail of
     CScreenCreateChar::UpdateCharacterStats marked its SORCERER/WIZARD arm a stub
     while the binary's table matched the source exactly."""
-    import subprocess
-    r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "src_find.py"),
-                        name, "--body"], capture_output=True, text=True)
-    if r.returncode != 0:
-        return None, r.stderr.strip()
-    body = r.stdout
+    body = src_body(name)
+    if body is None:
+        return None, "src_find could not place this function"
     switches = []          # [[group, ...], ...] - one list per `switch` statement
-    groups = []
-    pending = []
-    pending_line = None
-    in_body = False
-    stub = False
-    depth = None           # None = outside a switch; int = brace depth within one
+    stack = []             # the switches currently open, innermost last
+    depth = 0              # absolute brace depth in the function body
 
-    def close_group():
-        nonlocal pending, pending_line, in_body, stub
-        if pending:
-            groups.append((pending, pending_line, stub))
-        pending, pending_line, in_body, stub = [], None, False, False
-
-    def close_switch():
-        nonlocal groups, depth
-        close_group()
-        if groups:
-            switches.append(groups)
-            groups = []
-        depth = None
+    def close_group(ctx):
+        if ctx["pending"]:
+            ctx["groups"].append((ctx["pending"], ctx["line"], ctx["stub"]))
+        ctx["pending"], ctx["line"], ctx["body"], ctx["stub"] = [], None, False, False
 
     for line in body.splitlines():
         m = re.match(r"^\s*(\d+)\t(.*)$", line)
@@ -455,35 +599,55 @@ def source_switches(name, defines):
             continue
         lineno, code = int(m.group(1)), m.group(2)
         bare = _uncomment(code)
+        delta = bare.count("{") - bare.count("}")
         # A second `switch` starts a second table's worth of cases. Keeping them
         # in one flat list is what made every case of switch #2 read as MISSING
         # from switch #1. This test comes FIRST and is NOT gated on brace depth:
         # gating it cost CRuleTables::GetRaceString's eight switches, which
         # collapsed into one the moment a closing brace went unseen.
         if re.search(r"\bswitch\s*\(", bare):
-            close_switch()
-            depth = bare.count("{") - bare.count("}")
+            if stack:
+                close_group(stack[-1])
+            stack.append({"groups": [], "pending": [], "line": None, "body": False,
+                          "stub": False, "exit": depth})
+            depth += delta
             continue
-        if depth is None:
-            continue
-        mc = re.match(r"^\s*case\s+(.+?)\s*:\s*(.*)$", code)
-        if mc:
-            if in_body:  # a new label after a body closes the previous group
-                close_group()
-            if pending_line is None:
-                pending_line = lineno
-            pending.append((mc.group(1).strip(), resolve_label(mc.group(1), defines)))
-            tail = mc.group(2).strip()
-        else:
-            tail = code
-        if pending and tail:
-            in_body = True
-            if "TODO: Incomplete" in code:
-                stub = True
-        was, depth = depth, depth + bare.count("{") - bare.count("}")
-        if was > 0 and depth <= 0:
-            close_switch()
-    close_switch()
+        if stack:
+            ctx = stack[-1]
+            mc = re.match(r"^\s*case\s+(.+?)\s*:\s*(.*)$", code)
+            if mc:
+                if ctx["body"]:  # a new label after a body closes the previous group
+                    close_group(ctx)
+                if ctx["line"] is None:
+                    ctx["line"] = lineno
+                ctx["pending"].append((mc.group(1).strip(),
+                                       resolve_label(mc.group(1), defines)))
+                tail = mc.group(2).strip()
+            else:
+                tail = code
+            if ctx["pending"] and tail:
+                ctx["body"] = True
+                if "TODO: Incomplete" in code:
+                    ctx["stub"] = True
+        depth += delta
+        # A switch ends at ITS OWN closing brace. Tracking one relative depth
+        # instead of a stack meant a NESTED switch's closing brace ended the
+        # parent too, and every parent case written after it was dropped:
+        # CGameSprite::SetCursor's `case 3` sits below the icon-index switch
+        # nested in `case 2`, so the state table's fourth arm read as MISSING.
+        while stack and depth <= stack[-1]["exit"]:
+            ctx = stack.pop()
+            close_group(ctx)
+            if ctx["groups"]:
+                switches.append(ctx["groups"])
+    while stack:
+        ctx = stack.pop()
+        close_group(ctx)
+        if ctx["groups"]:
+            switches.append(ctx["groups"])
+    # A switch is appended when it CLOSES, so an inner one lands before its
+    # parent; the order tie-break and every "at src line" need source order.
+    switches.sort(key=lambda sw: sw[0][1])
     return switches, None
 
 
@@ -539,6 +703,120 @@ def identical_bodies(a, b, span=24):
     return len(na) > 1 and na == nb
 
 
+# --------------------------------------------------------------------- pairing
+
+
+def fold_shift(src_values, table, default):
+    """The constant a NORMALIZED source switch is offset by, or 0.
+
+    `switch (m_nModalState - 1)` with cases 0..3 against a binary table of 1..4
+    (CGameSprite::CheckModal) is a faithful rewrite, but term-by-term it reads as
+    every case both MISSING and OUT-OF-RANGE.
+
+    The fold must strictly IMPROVE the match, not merely be possible: any sparse
+    switch over a wide table admits SOME shift, and the loose test ("the shifted
+    values all exist in the table") moved GetSndWalk -- correct as written --
+    onto four bogus MISSING lines."""
+    # One value can always be shifted onto something useful, so a single-case
+    # switch has no evidence to offer: CScreenCharacter::UpdatePopupPanel's
+    # lone case folded +57 onto a 54-slot table and made 19 arms read MISSING.
+    if len(src_values) < 2 or not table or set(src_values) == set(table):
+        return 0
+    k = min(table) - min(src_values)
+    if k == 0 or not {v + k for v in src_values} <= set(table):
+        return 0
+
+    def landed(vals):
+        return sum(1 for v in vals if table.get(v) not in (None, default))
+
+    return k if landed(v + k for v in src_values) > landed(src_values) else 0
+
+
+def values_of(sw):
+    """The resolved case values of one source switch."""
+    return {v for labels, _l, _s in sw for _t, v in labels if v is not None}
+
+
+def coverage(table, default, values):
+    """(real arms covered, table slots covered) for one source switch.
+
+    Slot overlap alone cannot separate two candidate switches whose cases are
+    all small integers, which every switch over a state or a type id is:
+    CScreenWorld::StartDeath's own `switch (field_10F0)` overlaps the inlined
+    CancelPopup's table on two slots, and so does CancelPopup itself. Counting
+    the slots that reach a REAL ARM rather than the default separates them 4 to
+    1, because the cases that matter are the ones with a body.
+
+    Fold-aware on purpose: a normalized switch has ZERO raw overlap with the
+    table it belongs to, and scoring it zero leaves the right pairing looking
+    like no pairing at all. `fold_shift`'s strict test is what keeps that from
+    inventing an overlap."""
+    def score(vs):
+        return (sum(1 for v in vs if table.get(v) not in (None, default)),
+                len(set(vs) & set(table)))
+
+    best = score(values)
+    k = fold_shift(values, table, default)
+    return max(best, score({v + k for v in values})) if k else best
+
+
+def pair_score(table, default, values):
+    """How many of this table's slots a source switch's case values account for."""
+    return coverage(table, default, values)[1]
+
+
+def pair_tables(tables, switches, allow_order=False):
+    """({table index: switch index}, {table index: rule}, determined).
+
+    Position is NOT a safe pairing key: MSVC reorders, and a table belonging to
+    an inlined callee can land between two of ours. So the value overlap decides,
+    and it decides only when it is UNAMBIGUOUS -- a table takes a switch when
+    that switch beats every other switch for it AND no rival table wants the same
+    switch as much. Each such claim shrinks both pools, so the next round can
+    resolve pairings the first could not; that elimination is what promotes most
+    multi-switch functions out of AMBIGUOUS-PAIRING.
+
+    `order` is the last resort and the only guess here: when the overlap ties,
+    tables in ADDRESS order are zipped against switches in SOURCE order. It fires
+    only under `--multi`, only when both sides have the same number left, and
+    only when every one of those tables overlaps something -- a table matching
+    nothing is an inlined callee's, and ordering it against a real switch would
+    print that switch's every case as MISSING."""
+    vals = [values_of(sw) for sw in switches]
+    score = [[pair_score(tbl, dflt, v) for v in vals] for _info, tbl, dflt in tables]
+    assign, rule = {}, {}
+    free_t, free_s = set(range(len(tables))), set(range(len(switches)))
+
+    progress = True
+    while progress:
+        progress = False
+        for ti in sorted(free_t):
+            cand = sorted(((score[ti][si], si) for si in free_s if score[ti][si] > 0),
+                          reverse=True)
+            if not cand or (len(cand) > 1 and cand[0][0] == cand[1][0]):
+                continue                                  # this table cannot choose
+            top, si = cand[0]
+            if any(score[tj][si] >= top for tj in free_t if tj != ti):
+                continue                                  # a rival wants it as much
+            assign[ti], rule[ti] = si, "unique"
+            free_t.discard(ti)
+            free_s.discard(si)
+            progress = True
+
+    if len(free_t) == 1 and len(free_s) == 1:
+        ti, si = free_t.pop(), free_s.pop()
+        assign[ti], rule[ti] = si, "forced"
+
+    determined = not (free_t and free_s)
+    if allow_order and free_t and len(free_t) == len(free_s) and all(
+            any(score[ti][sj] > 0 for sj in free_s) for ti in free_t):
+        for ti, si in zip(sorted(free_t), sorted(free_s)):
+            assign[ti], rule[ti] = si, "order"
+        free_t.clear()
+        free_s.clear()
+    return assign, rule, determined
+
+
 # ---------------------------------------------------------------------- report
 
 
@@ -573,27 +851,31 @@ def audit(target, prefix=None, show_clones=True, multi=False):
         print(f"   source: NOT PARSED ({err})")
         return 2
 
-    # One table and one switch is the only shape where the pairing is a FACT.
-    # With several of either, matching by value overlap is a guess, and a wrong
-    # guess prints a wall of MISSING/DEFAULT about code that is fine. Say so
-    # rather than burying the real findings; --multi opts back in.
-    confident = len(infos) == 1 and len(switches) == 1
     if len(infos) != len(switches):
         print(f"   TABLE COUNT: {len(infos)} jump table(s) in the binary vs "
               f"{len(switches)} switch(es) in source"
               + ("   [the extra table(s) are most likely inside an inlined callee]"
                  if len(infos) > len(switches) else ""))
-    if not confident and not multi:
-        print("   AMBIGUOUS-PAIRING - more than one table or switch here; rerun with "
-              "--multi to see the per-table diff")
+
+    tables = []
+    for info in infos:
+        table, default = read_tables(info)
+        if table is not None:
+            tables.append((info, table, default))
+        else:
+            print(f"   jump table {info['jump_table']:#x}: bounds not recovered, skipped")
+
+    assign, rule, determined = pair_tables(tables, switches, allow_order=multi)
+    if not determined and not multi:
+        unpaired = [ti for ti in range(len(tables)) if ti not in assign]
+        print(f"   AMBIGUOUS-PAIRING - {len(unpaired)} of {len(tables)} table(s) match no "
+              f"one source switch better than another; rerun with --multi to see the "
+              f"per-table diff")
         # INCOMPLETE survives an ambiguous pairing: "this source case is a
         # `// TODO: Incomplete.` stub and SOME binary table sends its value at a
         # non-default arm" needs no pairing to be true.
         rc = 0
-        for info in infos:
-            table, default = read_tables(info)
-            if table is None:
-                continue
+        for _info, table, default in tables:
             for sw in switches:
                 for labels, line, stub in sw:
                     if not stub:
@@ -608,44 +890,65 @@ def audit(target, prefix=None, show_clones=True, multi=False):
                         rc = 1
         return rc
 
-    # Pair each binary table with the source switch whose value set overlaps it
-    # most. Position is NOT a safe pairing key: MSVC reorders, and an inlined
-    # callee can drop a table between two of ours.
-    tables = []
-    for info in infos:
-        table, default = read_tables(info)
-        if table is not None:
-            tables.append((info, table, default))
-        else:
-            print(f"   jump table {info['jump_table']:#x}: bounds not recovered, skipped")
-
-    def values_of(sw):
-        return {v for labels, _l, _s in sw for _t, v in labels if v is not None}
-
-    used = set()
     rc = 0
-    for info, table, default in tables:
-        best, best_score = None, -1
-        for si, sw in enumerate(switches):
-            if si in used:
+    inlined = None
+    for ti, (info, table, default) in enumerate(tables):
+        si = assign.get(ti)
+        # A source switch of OUR OWN can win the pairing and still be the wrong
+        # answer: CScreenWorld::StartDeath holds the inlined CancelPopup's table
+        # plus a `switch (field_10F0)` MSVC turned into a compare chain, and
+        # pairing those two printed three MISSING arms and a DEFAULT about two
+        # functions that are both correct. So whenever our own switch leaves
+        # real arms unexplained, the callees the source marks inlined get to
+        # compete for the table -- and it is self-validating, since a wrong
+        # candidate explains no arm at all.
+        own = coverage(table, default, values_of(switches[si])) if si is not None else (0, 0)
+        if own[0] < sum(1 for t in table.values() if t != default):
+            if inlined is None:
+                inlined = inlined_switches(name, defines)
+            best = max(((coverage(table, default, values_of(sw))[0], c, sw)
+                        for c, sw in inlined), default=(0, None, None),
+                       key=lambda x: x[0])
+            if best[0] > own[0]:
+                print(f"   table {info['jump_table']:#x} is the INLINED {best[1]}'s "
+                      f"(the source marks it `// NOTE: Uninline.`); diffed against "
+                      f"that function's own recovery")
+                assign.pop(ti, None)      # let the displaced switch be reported
+                rc = max(rc, audit_one(best[1], va, info, table, default, best[2],
+                                       defines, prefix, show_clones))
                 continue
-            score = len(values_of(sw) & set(table))
-            if score > best_score:
-                best, best_score = si, score
-        if best is not None and best_score > 0:
-            used.add(best)
-        rc = max(rc, audit_one(name, info, table, default,
-                               switches[best] if best is not None and best_score > 0 else [],
+        if si is None and len(tables) > 1:
+            # One of several tables matching no source switch is the ordinary
+            # shape of an inlined callee's table, not a gap in our source. Only
+            # a function whose ONLY table has no switch behind it is a finding,
+            # and audit_one reports that one as NO-SWITCH-IN-SOURCE.
+            arms = len(set(table.values()) - {default})
+            print(f"   UNPAIRED-TABLE {info['jump_table']:#x} - {arms} arms, no source "
+                  f"switch claims its values [most likely an inlined callee]")
+            continue
+        if si is not None and len(tables) + len(switches) > 2:
+            print(f"   paired: table {info['jump_table']:#x} <-> source switch at line "
+                  f"{switches[si][0][1]} ({rule[ti]})")
+        rc = max(rc, audit_one(name, va, info, table, default,
+                               switches[si] if si is not None else [],
                                defines, prefix, show_clones))
     for si, sw in enumerate(switches):
-        if si not in used and values_of(sw):
-            print(f"   UNMATCHED-SOURCE-SWITCH at src line "
-                  f"{sw[0][1]} - {len(values_of(sw))} case values with no binary table")
+        if si in assign.values() or not values_of(sw):
+            continue
+        # MSVC emits a compare chain, not a table, for a switch that is small or
+        # sparse, so "no table for this switch" is only news when the switch is
+        # big and dense enough that a table was the certain choice.
+        vals = values_of(sw)
+        dense = len(vals) >= 4 and len(vals) * 2 > max(vals) - min(vals) + 1
+        print(f"   {'UNMATCHED-SOURCE-SWITCH' if dense else 'no-table-for-switch'} at src "
+              f"line {sw[0][1]} - {len(vals)} case values with no binary table"
+              + ("" if dense else " [small or sparse: MSVC emits a compare chain]"))
+        if dense:
             rc = max(rc, 1)
     return rc
 
 
-def audit_one(name, info, table, default, groups, defines, prefix, show_clones):
+def audit_one(name, fn_va, info, table, default, groups, defines, prefix, show_clones):
     by_target = {}
     for value, t in sorted(table.items()):
         by_target.setdefault(t, []).append(value)
@@ -672,27 +975,15 @@ def audit_one(name, info, table, default, groups, defines, prefix, show_clones):
     print(f"   source: {len(groups)} case groups, {len(src_values)} values"
           + (f", {len(unresolved)} labels unresolved" if unresolved else ""))
 
-    # A source switch may normalize its expression -- `switch (m_nModalState - 1)`
-    # with cases 0..3 against a binary table of 1..4 (CGameSprite::CheckModal).
-    # That is a faithful rewrite, not a gap, but term-by-term it reads as every
-    # case MISSING plus every case OUT-OF-RANGE. Detect the constant and fold it.
-    # Fold only when it strictly IMPROVES the match. A weaker test ("the shifted
-    # values all exist in the table") fires on any sparse switch whose table
-    # spans a wide range, and shifted GetSndWalk -- which is correct as written
-    # -- into four bogus MISSING lines.
-    def landed(vals):
-        return sum(1 for v in vals if table.get(v) not in (None, default))
-
-    if src_values and table and set(src_values) != set(table):
-        k = min(table) - min(src_values)
-        if (k != 0
-                and {v + k for v in src_values} <= set(table)
-                and landed(v + k for v in src_values) > landed(src_values)):
-            src_values = {v + k: gi for v, gi in src_values.items()}
-            groups = [([(t, v + k if v is not None else None) for t, v in labels], line, stub)
-                      for labels, line, stub in groups]
-            print(f"   NOTE: source case values are offset by {-k:+d} from the binary's "
-                  f"(a normalized switch expression); compared after folding it in")
+    # A source switch may normalize its expression (see `fold_shift`, which the
+    # pairing consults with the same rule, so the two cannot disagree).
+    k = fold_shift(set(src_values), table, default)
+    if k:
+        src_values = {v + k: gi for v, gi in src_values.items()}
+        groups = [([(t, v + k if v is not None else None) for t, v in labels], line, stub)
+                  for labels, line, stub in groups]
+        print(f"   NOTE: source case values are offset by {-k:+d} from the binary's "
+              f"(a normalized switch expression); compared after folding it in")
 
     findings = []
     if not src_values:
@@ -707,10 +998,14 @@ def audit_one(name, info, table, default, groups, defines, prefix, show_clones):
         if missing:
             findings.append(("MISSING", t, missing,
                              f"binary arm at {t:#x} has no source case"))
+    outside = compare_immediates(fn_va)
     for v, gi in sorted(src_values.items()):
         if v not in table:
+            if v in outside:
+                continue          # the binary peeled this case into a compare chain
             findings.append(("OUT-OF-RANGE", None, [v],
-                             f"source case is outside the table's {info['count']} slots"))
+                             f"source case is outside the table's {info['count']} slots "
+                             f"and the function never compares against it"))
         elif table[v] == default:
             findings.append(("DEFAULT", None, [v],
                              "source has a case where the binary falls to the default arm"))
@@ -734,6 +1029,19 @@ def audit_one(name, info, table, default, groups, defines, prefix, show_clones):
                               if clones else
                               "source merges cases the binary sends to different bodies")
                              + f" [{', '.join(hex(t) for t in ts)}] src line {line}"))
+
+    # A source switch that reaches a handful of a big table's arms is not a list
+    # of gaps, it is a switch nobody has recovered yet -- CGameAIBase::
+    # EvaluateStatusTrigger covers 18 of 160 trigger ids and printed 145 MISSING
+    # lines, which buries every other function in the sweep. Say the one fact.
+    gaps = [f for f in findings if f[0] == "MISSING"]
+    if len(gaps) > 10:
+        values = sorted(v for _k, _t, vs, _w in gaps for v in vs)
+        findings = [("MISSING", None, values[:6],
+                     f"+{len(values) - 6} more values: the source switch reaches "
+                     f"{len(real) - len(gaps)} of {len(real)} arms, so this is an "
+                     f"UNRECOVERED switch rather than a list of gaps")] \
+            + [f for f in findings if f[0] != "MISSING"]
 
     if not findings:
         print("   CLEAN - every binary arm has a source case and vice versa")
