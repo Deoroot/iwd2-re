@@ -1960,6 +1960,7 @@ void CScreenInventory::OnCancelButtonClick()
     case 7:
     case 8:
     case 9:
+    case 50:
         DismissPopup();
         break;
     case 4:
@@ -3614,6 +3615,10 @@ BOOL CScreenInventory::SwapWithAppearance()
     case 6:
     case 73:
         slotId = 12;
+        break;
+    case 7:
+    case 72:
+        slotId = 13;
         break;
     case 10:
         slotId = FindFreePersonalSlot(22, 23, 1, TRUE);

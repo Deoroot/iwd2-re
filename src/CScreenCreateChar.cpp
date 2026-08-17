@@ -5447,6 +5447,12 @@ void CScreenCreateChar::OnCancelButtonClick()
             DismissPopup(pSprite);
             SummonPopup(55, pSprite);
             break;
+        case 11:
+            // Its own arm in the table (0x6173E5), even though it does exactly
+            // what the default does: the two differ only in which register
+            // holds `pSprite` before they join the same call tail.
+            DismissPopup(pSprite);
+            break;
         case 12:
         case 52:
             if (1) {
