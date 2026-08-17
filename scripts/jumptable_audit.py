@@ -111,6 +111,18 @@ False-positive classes handled, each one paid for at least once:
     as NO-SWITCH-IN-SOURCE, and CScreenWorld::StartDeath -- which holds the
     inlined CancelPopup's table AND an unrelated switch of its own -- paired the
     two and printed three MISSING arms about two correct functions.
+  * Capstone PRINTS a small negative immediate signed: `add eax, -9`, not
+    `add eax, 0xfffffff7`. The bias patterns only accepted an unsigned literal,
+    so every `add`-biased switch lost its bias and reported base 0 -- while the
+    `lea eax, [esi - 9]` spelling of the SAME bias was folded correctly. Every
+    VK-code keyboard switch is biased this way (the table starts at VK_TAB = 9),
+    so CScreenLoad, CScreenMultiPlayer and CScreenWorldMap's OnKeyDown each
+    printed their whole VK switch as MISSING -- CScreenLoad's six arms are the
+    six navigation keys paired with their numpad twins, all of them present in
+    the source, and the give-away was that CScreenStore::OnKeyDown, whose only
+    difference is the `lea` spelling, audited its identical switch cleanly.
+    Note this is NOT the signed-immediate entry above: that one is about
+    READING a wide immediate, this one is about MATCHING how it is spelled.
 
 Usage:
   jumptable_audit.py 0x763200                 # audit one recovered function
@@ -175,7 +187,41 @@ def define_map():
                 m = define.match(line.rstrip()) or const.match(line)
                 if m:
                     out.setdefault(m.group(1), int(m.group(2), 0))
+    for name, value in WINUSER_VK.items():
+        out.setdefault(name, value)
     return out
+
+
+# The one family of case constants this codebase does NOT define: VK_* comes
+# from the Windows SDK's winuser.h, which is not in `src/`. Every screen's
+# OnKeyDown switches on virtual-key codes, so leaving them unresolved read as
+# the whole switch MISSING -- CScreenStore::OnKeyDown reported "5 labels
+# unresolved" and five MISSING arms for a function with no gap in it at all.
+# Seeded after the walk, so anything `src/` defines still wins.
+WINUSER_VK = {
+    "VK_LBUTTON": 0x01, "VK_RBUTTON": 0x02, "VK_CANCEL": 0x03, "VK_MBUTTON": 0x04,
+    "VK_BACK": 0x08, "VK_TAB": 0x09, "VK_CLEAR": 0x0C, "VK_RETURN": 0x0D,
+    "VK_SHIFT": 0x10, "VK_CONTROL": 0x11, "VK_MENU": 0x12, "VK_PAUSE": 0x13,
+    "VK_CAPITAL": 0x14, "VK_ESCAPE": 0x1B, "VK_SPACE": 0x20, "VK_PRIOR": 0x21,
+    "VK_NEXT": 0x22, "VK_END": 0x23, "VK_HOME": 0x24, "VK_LEFT": 0x25,
+    "VK_UP": 0x26, "VK_RIGHT": 0x27, "VK_DOWN": 0x28, "VK_SELECT": 0x29,
+    "VK_PRINT": 0x2A, "VK_EXECUTE": 0x2B, "VK_SNAPSHOT": 0x2C, "VK_INSERT": 0x2D,
+    "VK_DELETE": 0x2E, "VK_HELP": 0x2F,
+    "VK_NUMPAD0": 0x60, "VK_NUMPAD1": 0x61, "VK_NUMPAD2": 0x62, "VK_NUMPAD3": 0x63,
+    "VK_NUMPAD4": 0x64, "VK_NUMPAD5": 0x65, "VK_NUMPAD6": 0x66, "VK_NUMPAD7": 0x67,
+    "VK_NUMPAD8": 0x68, "VK_NUMPAD9": 0x69,
+    "VK_MULTIPLY": 0x6A, "VK_ADD": 0x6B, "VK_SEPARATOR": 0x6C, "VK_SUBTRACT": 0x6D,
+    "VK_DECIMAL": 0x6E, "VK_DIVIDE": 0x6F,
+    "VK_F1": 0x70, "VK_F2": 0x71, "VK_F3": 0x72, "VK_F4": 0x73, "VK_F5": 0x74,
+    "VK_F6": 0x75, "VK_F7": 0x76, "VK_F8": 0x77, "VK_F9": 0x78, "VK_F10": 0x79,
+    "VK_F11": 0x7A, "VK_F12": 0x7B,
+    "VK_NUMLOCK": 0x90, "VK_SCROLL": 0x91,
+    "VK_OEM_1": 0xBA, "VK_OEM_PLUS": 0xBB, "VK_OEM_COMMA": 0xBC,
+    "VK_OEM_MINUS": 0xBD, "VK_OEM_PERIOD": 0xBE, "VK_OEM_2": 0xBF, "VK_OEM_3": 0xC0,
+    "VK_OEM_4": 0xDB, "VK_OEM_5": 0xDC, "VK_OEM_6": 0xDD, "VK_OEM_7": 0xDE,
+    "VK_OEM_8": 0xDF,
+    "VK_PROCESSKEY": 0xE5,
+}
 
 
 # The old resolver did `ord(expr.strip("'").lstrip("\\"))`, which reads EVERY C
@@ -229,8 +275,12 @@ IDX_TBL = re.compile(r"mov\s+\w+, byte ptr \[(\w+) \+ (0x[0-9a-f]+)\]")
 # turned CItem::Equip's cases 1..4 into "-68..-65" on the first sweep.
 CMP_IMM = re.compile(r"cmp (\w+), (0x[0-9a-f]+|\d+)$")
 BIAS_LEA = re.compile(r"lea (\w+), \[\w+ ([-+]) (0x[0-9a-f]+|\d+)\]$")
-BIAS_SUB = re.compile(r"sub (\w+), (0x[0-9a-f]+|\d+)$")
-BIAS_ADD = re.compile(r"add (\w+), (0x[0-9a-f]+|\d+)$")
+# The sign matters in the PATTERN, not just in `imm32`: capstone prints a small
+# negative immediate as `add eax, -9`, so an unsigned-only literal here silently
+# dropped the bias of every VK-code switch (base VK_TAB = 9) and read its whole
+# table as MISSING.
+BIAS_SUB = re.compile(r"sub (\w+), (-?(?:0x[0-9a-f]+|\d+))$")
+BIAS_ADD = re.compile(r"add (\w+), (-?(?:0x[0-9a-f]+|\d+))$")
 BIAS_DEC = re.compile(r"dec (\w+)$")
 MOV_REG = re.compile(r"mov (\w+), (\w+)$")
 
