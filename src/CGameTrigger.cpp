@@ -973,6 +973,7 @@ void CGameTrigger::SetCursor(LONG nToolTip)
             switch (pGame->GetIconIndex()) {
             case 12:
             case 18:
+            case 20:
             case 40:
             case 255:
                 CGameObject::SetCursor(nToolTip);

@@ -948,6 +948,9 @@ void CGameDoor::SetCursor(LONG nToolTip)
             case 255:
                 CGameObject::SetCursor(nToolTip);
                 break;
+            case 20:
+                g_pBaldurChitin->GetObjectCursor()->SetCursor(pGame->GetIconIndex(), FALSE);
+                break;
             case 36:
                 if (1) {
                     INT nNewCursor;
