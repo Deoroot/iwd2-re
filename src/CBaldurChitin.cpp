@@ -6,6 +6,8 @@
 #include "CInfGame.h"
 #include "CInfinity.h"
 #include "CResArea.h"
+#include "CResBinary.h"
+#include "CResBIO.h"
 #include "CResCHR.h"
 #include "CResCRE.h"
 #include "CResDLG.h"
@@ -796,6 +798,12 @@ CRes* CBaldurChitin::AllocResObject(int nType)
         return new CResText();
     case 1018:
         return new CResCHR();
+    case 1019:
+        return new CResBinary();
+    case 1020:
+        return new CResBinary();
+    case 1022:
+        return new CResBIO();
     case 2050:
         return new CResINI();
     default:
