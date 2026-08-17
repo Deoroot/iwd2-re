@@ -232,6 +232,13 @@ WINUSER_VK = {
 C_ESCAPES = {"0": 0, "a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12,
              "r": 13, "e": 27, '"': 34, "'": 39, "?": 63, "\\": 92}
 
+# The label ends at a colon that is not part of `::`. A plain `(.+?)\s*:` stops
+# at the FIRST colon, so `case CMessage::SEND:` resolved the label `CMessage`,
+# which is not a constant -- five of CMessage's comm-type cases read as
+# unresolved for that reason alone. Group 2 is the rest of the line, so the
+# caller can go round again for the next label on it.
+CASE_LABEL = re.compile(r"^\s*case\s+((?:[^:]|::)+?)\s*:(?!:)\s*(.*)$")
+
 
 def resolve_label(expr, defines):
     """Evaluate a case label: a literal, a #define, or a simple arithmetic mix."""
@@ -562,6 +569,33 @@ def src_body(name):
     return _BODY_CACHE[name]
 
 
+_OVERLOAD_CACHE = {}
+
+
+def src_overloads(bare):
+    """Every `Class::bare` the source defines, for an ambiguous bare call name.
+
+    An inlined callee is named at the CALL site, where it is usually reached
+    through some other object -- `pInventory->UpdatePopupPanel(...)` inside a
+    CUIControlButton. Neither `OurClass::UpdatePopupPanel` nor the bare name
+    resolves: the bare one has six definitions and src_find's pick among them is
+    arbitrary, so it was refused and the table stayed unattributed. Offering all
+    six instead costs nothing, because a candidate is only accepted when its
+    case values match the table."""
+    if bare not in _OVERLOAD_CACHE:
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "src_find.py"), bare],
+                           capture_output=True, text=True)
+        names = []
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                m = re.match(r"^([A-Za-z_]\w*::" + re.escape(bare) + r")\s", line)
+                if m and m.group(1) not in names:
+                    names.append(m.group(1))
+        _OVERLOAD_CACHE[bare] = names
+    return _OVERLOAD_CACHE[bare]
+
+
 UNINLINE_MARK = re.compile(r"^\s*//\s*NOTE:\s*Uninline\b")
 CALL_NAME = re.compile(r"([A-Za-z_]\w*)\s*\(")
 NOT_A_CALL = {"if", "for", "while", "switch", "return", "sizeof", "static_cast",
@@ -603,18 +637,20 @@ def inlined_switches(name, defines):
                     wanted.append(cand)
     out = []
     for cand in wanted:
-        for full in ([f"{owner}::{cand}"] if owner else []) + [cand]:
+        # `OurClass::cand` first, then the bare name, then -- if that is
+        # ambiguous -- every class that defines it.
+        for full in ([f"{owner}::{cand}"] if owner else []) + [cand] + src_overloads(cand):
             if full == name:
                 continue
             body = src_body(full)
             # src_find falls back to "# N matches, showing ..." on an ambiguous
-            # bare name; that pick is arbitrary, so refuse it.
+            # bare name; that pick is arbitrary, so refuse it and try the
+            # qualified spellings src_overloads found instead.
             if body is None or body.startswith("# "):
                 continue
             sws, _err = source_switches(full, defines)
             if sws:
                 out.extend((full, sw) for sw in sws)
-            break
     return out
 
 
@@ -664,17 +700,26 @@ def source_switches(name, defines):
             continue
         if stack:
             ctx = stack[-1]
-            mc = re.match(r"^\s*case\s+(.+?)\s*:\s*(.*)$", code)
-            if mc:
+            # LOOP, because a line may carry several labels: CScreenWorld.cpp
+            # writes `case 0: case 1: case 2: case 3: case 4:` on one line, and
+            # taking only the first left the other four looking absent while the
+            # rest of the line counted as a BODY, which closed the group so the
+            # next line's labels became a group of their own. Two 10-value
+            # container-slot groups came out as three one-value ones, and eleven
+            # of the fourteen case values read MISSING.
+            tail = code
+            while True:
+                mc = CASE_LABEL.match(tail)
+                if not mc:
+                    break
                 if ctx["body"]:  # a new label after a body closes the previous group
                     close_group(ctx)
                 if ctx["line"] is None:
                     ctx["line"] = lineno
                 ctx["pending"].append((mc.group(1).strip(),
                                        resolve_label(mc.group(1), defines)))
-                tail = mc.group(2).strip()
-            else:
-                tail = code
+                tail = mc.group(2)
+            tail = tail.strip()
             if ctx["pending"] and tail:
                 ctx["body"] = True
                 if "TODO: Incomplete" in code:

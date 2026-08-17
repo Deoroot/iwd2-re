@@ -6702,6 +6702,7 @@ void CUIControlButtonInventoryAbilitiesAbility::OnLButtonClick(CPoint pt)
 
     pInventory->m_nCurrentAbility = v1;
 
+    // NOTE: Uninline.
     pInventory->UpdatePopupPanel(m_pPanel->m_nID);
 
     renderLock.Unlock();
