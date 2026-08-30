@@ -1153,6 +1153,51 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return nCharacters < trigger.GetSpecifics();
     }
 
+    case CAITRIGGER_TIME: {
+        // 0x454F6E: the world clock's hour, a BYTE the binary zero-extends
+        // (and ebx, 0xFF at 0x454F8F) before comparing.
+        LONG nHour = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->GetCurrentHour();
+        return nHour == trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_TIMEGT: {
+        // 0x454FA8.
+        LONG nHour = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->GetCurrentHour();
+        return nHour > trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_TIMELT: {
+        // 0x454FE2.
+        LONG nHour = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->GetCurrentHour();
+        return nHour < trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_RANDOMNUM: {
+        // 0x45659C: RandomNum(I:Range,I:Value) -- a per-object die roll, not a
+        // fresh random number.  The engine keeps `m_randValue` and this folds
+        // it into 1..Range with a SIGNED idiv remainder plus one (0x4565AE).
+        // Note the operands: the RANGE is GetSpecifics and the value tested
+        // against is GetInt1, i.e. the reverse of the comparison families.
+        LONG nRoll = m_randValue % trigger.GetSpecifics() + 1;
+        return nRoll == trigger.GetInt1();
+    }
+
+    case CAITRIGGER_RANDOMNUMGT: {
+        // 0x4565CA.
+        LONG nRoll = m_randValue % trigger.GetSpecifics() + 1;
+        return nRoll > trigger.GetInt1();
+    }
+
+    case CAITRIGGER_RANDOMNUMLT: {
+        // 0x4565F8.
+        LONG nRoll = m_randValue % trigger.GetSpecifics() + 1;
+        return nRoll < trigger.GetInt1();
+    }
+
+    case CAITRIGGER_ISHEARTOFFURYMODEON:
+        // 0x45894A: the option is handed back verbatim, not normalised to 0/1.
+        return g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nNightmareMode;
+
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
         // uses to notice the party.  On a fresh sighting it records the object
