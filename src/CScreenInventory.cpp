@@ -580,6 +580,9 @@ void CScreenInventory::OnKeyDown(SHORT nKeysFlags)
                             case 4:
                                 g_pBaldurChitin->GetActiveEngine()->OnLeftPanelButtonClick(7);
                                 break;
+                            case 5:
+                                g_pBaldurChitin->GetActiveEngine()->OnLeftPanelButtonClick(4);
+                                break;
                             case 6:
                                 g_pBaldurChitin->GetActiveEngine()->OnLeftPanelButtonClick(9);
                                 break;
@@ -5386,37 +5389,58 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
         return TRUE;
     }
 
-    // Empty-slot fallback.  Per Ghidra CUIControlButtonInventorySlot::Render
-    // (0x62DDE0): equipment slots (helmet/armor/ammo/etc.) and quick-weapon
-    // slots have a per-slot STON* placeholder set up in a switch case before
-    // falling through to RenderIcon.  Quick items (5/6/7) and the inventory
-    // grid (30-45/73-80) explicitly `goto LAB_0062dff4` instead and have no
-    // fallback — empty stays transparent so the panel BG shows through.
+    // Empty-slot fallback.  The binary fuses the per-slot placeholder switch
+    // with the inlined MapButtonIdToItemInfo dispatch into ONE table (jump
+    // table at 0x62E6C4, index table at 0x62E704, 104 values from 5), and
+    // every arm sets TWO things: the STON* placeholder icon, and the STRREF
+    // naming the empty slot.  Equipment and quick-weapon slots get both;
+    // quick items (5/6/7), the personal grid (30-45/73-80) and the ground
+    // pile (68-72/81) set only the strref, so an empty one stays transparent
+    // and the panel BG shows through.
+    //
+    // When a real item IS present the strref is overwritten with that item's
+    // own description -- which is exactly what MapButtonIdToItemInfo hands
+    // back in `description`.  So assigning here, under the empty-icon test,
+    // reaches the same value the binary holds at its single exit on both
+    // paths, without having to un-fuse the switch.
     if (cResIcon == "") {
         CResRef cStone;
         switch (m_nID) {
+        case 5: case 6: case 7:           // quick items
+            description = 12012; break;   // "Quick Item"
         case 11:                          // armor
-            cStone = CResRef("STONARM"); break;
+            description = 11997; cStone = CResRef("STONARM"); break;
         case 12:                          // gauntlets
-            cStone = CResRef("STONGLET"); break;
+            description = 11998; cStone = CResRef("STONGLET"); break;
         case 13:                          // helmet
-            cStone = CResRef("STONHELM"); break;
+            description = 11999; cStone = CResRef("STONHELM"); break;
         case 14:                          // amulet
-            cStone = CResRef("STONAMUL"); break;
+            description = 12000; cStone = CResRef("STONAMUL"); break;
         case 15: case 16: case 17:        // ammo / quiver
-            cStone = CResRef("STONQUIV"); break;
+            description = 12009; cStone = CResRef("STONQUIV"); break;
         case 21:                          // belt
-            cStone = CResRef("STONBELT"); break;
-        case 22: case 23:                 // rings
-            cStone = CResRef("STONRING"); break;
+            description = 12001; cStone = CResRef("STONBELT"); break;
+        case 22:                          // left ring
+            description = 12002; cStone = CResRef("STONRING"); break;
+        case 23:                          // right ring
+            description = 12003; cStone = CResRef("STONRING"); break;
         case 24:                          // cloak
-            cStone = CResRef("STONCLOK"); break;
+            description = 12004; cStone = CResRef("STONCLOK"); break;
         case 25:                          // boots
-            cStone = CResRef("STONBOOT"); break;
+            description = 12005; cStone = CResRef("STONBOOT"); break;
+        case 30: case 31: case 32: case 33: case 34: case 35: case 36:
+        case 37: case 38: case 39: case 40: case 41: case 42: case 43:
+        case 44: case 45:
+        case 73: case 74: case 75: case 76: case 77: case 78: case 79:
+        case 80:                          // personal inventory grid
+            description = 12013; break;   // "Personal Item"
+        case 68: case 69: case 70: case 71: case 72:
+        case 81:                          // ground pile
+            description = 12011; break;   // "Ground Item"
         case 101: case 103: case 105: case 107:
-            cStone = CResRef("STONWEAP"); break;
+            description = 12010; cStone = CResRef("STONWEAP"); break;
         case 102: case 104: case 106: case 108:
-            cStone = CResRef("STONSHIL"); break;
+            description = 12010; cStone = CResRef("STONSHIL"); break;
         }
         if (cStone != "") {
             CRect rControlFrameSt(m_pPanel->m_ptOrigin + m_ptOrigin, m_size);
@@ -5435,6 +5459,8 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
                 FALSE,
                 0);
         }
+
+        SetToolTipStrRef(description, -1, -1);
         return TRUE;
     }
 
@@ -5535,7 +5561,10 @@ BOOL CUIControlButtonInventorySlot::Render(BOOL bForce)
     // CUIControlButtonInventorySlot::TimerAsynchronousUpdate (0x62D4B0) sets
     // and CUIControlButton::Render draws -- not here.
 
-    SetToolTipStrRef(-1, -1, -1);
+    // The single exit at 0x62E693 pushes -1, -1 and the strref slot the switch
+    // above filled, i.e. SetToolTipStrRef(description, -1, -1).  Only the
+    // quick-weapon-past-count early-out at 0x62DF66 pushes three -1s.
+    SetToolTipStrRef(description, -1, -1);
     return TRUE;
 }
 
