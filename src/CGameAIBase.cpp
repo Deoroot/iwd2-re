@@ -1599,6 +1599,180 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return m_pArea->GetHeader()->m_areaType & (trigger.GetSpecifics() & 0xFFFF);
     }
 
+    case CAITRIGGER_HASWEAPONEQUIPED: {
+        // 0x456712: HasWeaponEquiped(O:Object*) -- true whenever the selected
+        // weapon slot is anything OTHER than the fist slot, so an empty-handed
+        // creature is the only false case.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = pSprite->GetEquipment()->m_selectedWeapon
+            != CGameSpriteEquipment::SLOT_FIST;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CHECKDOORFLAGS: {
+        // 0x45A3AD: CheckDoorFlags(O:Object*,I:Flags*) -- a mask test against
+        // the door's own flag word.  GetObjectWithType filters to TYPE_DOOR,
+        // so a cause naming anything else simply fails.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_DOOR,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = cause.GetSpecifics()
+            & static_cast<CGameDoor*>(pObject)->GetFlags();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_ISROTATION: {
+        // 0x45A702: IsRotation(O:Object*,I:Rotation*) -- the sprite's facing.
+        // GetDirection returns a SHORT and the binary sign-extends it
+        // (movsx esi, ax at 0x45A73E) before the comparison.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_SPRITE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = static_cast<CGameSprite*>(pObject)->GetDirection()
+            == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_ISFACINGSAVEDROTATION: {
+        // 0x45A752: the sprite's facing against its OWN saved facing, with
+        // nothing from the trigger entering the comparison.  The saved value
+        // is a BYTE and the direction a SHORT, and the binary compares them
+        // 16 bits wide (sub si, ax at 0x45A79A), not 32.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_SPRITE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+        BOOL bHolds = static_cast<WORD>(pSprite->GetBaseStats()->m_savedLocationFacing)
+            == static_cast<WORD>(pSprite->GetDirection());
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_SETLASTMARKEDOBJECT: {
+        // 0x45A8A0: not a predicate at all -- it STORES the resolved object
+        // as the caller's marked type and always returns TRUE.  A cause that
+        // resolves to nobody stores NOONE rather than leaving the slot alone.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            SetAIType342(CAIObjectType::NOONE);
+            return TRUE;
+        }
+
+        SetAIType342(pObject->GetAIType());
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return TRUE;
+    }
+
+    case CAITRIGGER_SETSPELLTARGET: {
+        // 0x45A8E9: the same shape as SetLastMarkedObject, into the other
+        // slot -- SetAIType3BA rather than SetAIType342.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            SetAIType3BA(CAIObjectType::NOONE);
+            return TRUE;
+        }
+
+        SetAIType3BA(pObject->GetAIType());
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return TRUE;
+    }
+
+    case CAITRIGGER_ISPATHCRITICALOBJECT: {
+        // 0x45A932: bit 13 of the CRE flags, the same base-stats word
+        // FallenPaladin reads bit 9 of.  Note it resolves with GetObject and
+        // not GetObjectWithType, so nothing checks the object really is a
+        // sprite before GetBaseStats is called on it.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = (static_cast<CGameSprite*>(pObject)->GetBaseStats()->m_flags
+            >> 13) & 1;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_INTRAP: {
+        // 0x45A5AC: InTrap(O:Object*) is asked OF the trap region and not of
+        // the creature -- when the caller is not itself a TYPE_TRIGGER the
+        // cause is never even resolved.  Two things here are the binary's, not
+        // a slip: GetObject's second argument is TYPE_SPRITE where the
+        // parameter is a BOOL checkBackList, and the no-object result is -2,
+        // not FALSE.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = NULL;
+        if (GetObjectType() == CGameObject::TYPE_TRIGGER) {
+            pObject = cause.GetCause().GetObject(this, CGameObject::TYPE_SPRITE);
+        }
+
+        if (pObject == NULL) {
+            return -2;
+        }
+
+        BOOL bHolds = static_cast<CGameTrigger*>(this)->IsOverActivate(pObject->GetPos());
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
