@@ -32,6 +32,7 @@
 #include "CUtil.h"
 #include "CVariableHash.h"
 #include "FileFormat.h"
+#include "Icewind586B70.h"
 
 // 0x8485C4
 const SHORT CGameAIBase::ACTION_DONE = -1;
@@ -1460,6 +1461,106 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
     // team-allegiance bits written by SetTeamBit (0x729A3C).
     case CAITRIGGER_ISTEAMBITON:
         return trigger.GetSpecifics() & GetAICounter58C();
+
+    case CAITRIGGER_SUMMONINGLIMIT: {
+        // 0x4589FA: SummoningLimit(O:Object*,I:Num*).  The object is resolved
+        // only so the trigger can fail when it names nobody -- the count that
+        // is compared is the GLOBAL summon tally, with nothing about the
+        // resolved sprite entering it.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = Icewind586B70::Instance()->GetCount() == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_SUMMONINGLIMITGT: {
+        // 0x458A3F, comparison tail shared at 0x4569DD.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = Icewind586B70::Instance()->GetCount() > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_SUMMONINGLIMITLT: {
+        // 0x458A72.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = Icewind586B70::Instance()->GetCount() < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_NUMCREATURE: {
+        // 0x455237: NumCreature(S:Object*,I:Num*) -- how many objects matching
+        // the trigger's object spec stand inside the CALLER'S visual range.
+        // Nothing in the trigger supplies the radius, and the search is the
+        // line-of-sight one over the VISIBLE terrain table.  This arm never
+        // decodes, so it reads `trigger` rather than a cause copy.
+        CTypedPtrList<CPtrList, LONG*> targets;
+        m_pArea->GetAllInRange(m_pos,
+            trigger.GetCause(),
+            GetVisualRange(),
+            GetVisibleTerrainTable(),
+            targets,
+            TRUE,
+            FALSE);
+
+        return targets.GetCount() == trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMCREATUREGT: {
+        // 0x455293.
+        CTypedPtrList<CPtrList, LONG*> targets;
+        m_pArea->GetAllInRange(m_pos,
+            trigger.GetCause(),
+            GetVisualRange(),
+            GetVisibleTerrainTable(),
+            targets,
+            TRUE,
+            FALSE);
+
+        return targets.GetCount() > trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMCREATURELT: {
+        // 0x4552EF.
+        CTypedPtrList<CPtrList, LONG*> targets;
+        m_pArea->GetAllInRange(m_pos,
+            trigger.GetCause(),
+            GetVisualRange(),
+            GetVisibleTerrainTable(),
+            targets,
+            TRUE,
+            FALSE);
+
+        return targets.GetCount() < trigger.GetSpecifics();
+    }
 
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
