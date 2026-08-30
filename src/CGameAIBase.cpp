@@ -1283,8 +1283,8 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         // of the identity family: they decode the WHOLE trigger and read
         // through an accessor on GetCause(), where Alignment/General/Gender
         // decode only the cause and touch the field directly.  Both shapes are
-        // in the binary, so neither is a tidy-up of the other.  The tail at
-        // 0x454F87 is shared with Time.
+        // in the binary, so neither is a tidy-up of the other.  Both join a
+        // tail at 0x454F87 that Time also uses.
         CAITrigger cause(trigger);
         cause.Decode(this);
 
