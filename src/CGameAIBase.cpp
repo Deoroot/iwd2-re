@@ -1040,6 +1040,119 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_REPUTATION: {
+        // 0x45497D: a party member answers with the PARTY reputation, anyone
+        // else with the creature's own byte at base stats +0x3C.  The game
+        // object is fetched twice, once per branch.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nReputation;
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId()) != -1) {
+            nReputation = g_pBaldurChitin->GetObjectGame()->GetReputation();
+        } else {
+            nReputation = pSprite->GetBaseStats()->m_reputation;
+        }
+
+        BOOL bHolds = nReputation == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_REPUTATIONGT: {
+        // 0x4549FD, sharing HPGT's tail at 0x4540F0 on the party branch.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nReputation;
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId()) != -1) {
+            nReputation = g_pBaldurChitin->GetObjectGame()->GetReputation();
+        } else {
+            nReputation = pSprite->GetBaseStats()->m_reputation;
+        }
+
+        BOOL bHolds = nReputation > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_REPUTATIONLT: {
+        // 0x454A6E.  Unlike its siblings this arm inlines both comparisons,
+        // one per branch (0x454AD2 and 0x454AF7), instead of joining a tail.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nReputation;
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId()) != -1) {
+            nReputation = g_pBaldurChitin->GetObjectGame()->GetReputation();
+        } else {
+            nReputation = pSprite->GetBaseStats()->m_reputation;
+        }
+
+        BOOL bHolds = nReputation < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_PARTYGOLD:
+        // 0x456626: the purse in the save block.  It is an UNSIGNED DWORD, and
+        // the ordered arms are sbb/neg pairs (0x456674, 0x45669D), so all
+        // three comparisons are unsigned -- which the natural DWORD-vs-LONG
+        // expression already gives.  No sprite is resolved here, so nothing is
+        // shared and nothing is released.
+        return g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_nPartyGold
+            == static_cast<DWORD>(trigger.GetSpecifics());
+
+    case CAITRIGGER_PARTYGOLDGT:
+        // 0x456654.
+        return g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_nPartyGold
+            > static_cast<DWORD>(trigger.GetSpecifics());
+
+    case CAITRIGGER_PARTYGOLDLT:
+        // 0x45667D.
+        return g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_nPartyGold
+            < static_cast<DWORD>(trigger.GetSpecifics());
+
+    case CAITRIGGER_NUMINPARTY: {
+        // 0x456803: the live party size, sign-extended from a SHORT and
+        // compared signed -- the opposite of PartyGold above.
+        LONG nCharacters = g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        return nCharacters == trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMINPARTYGT: {
+        // 0x45682D.  Its tail at 0x45683F is the one HappinessGT jumps into.
+        LONG nCharacters = g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        return nCharacters > trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMINPARTYLT: {
+        // 0x456859.
+        LONG nCharacters = g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        return nCharacters < trigger.GetSpecifics();
+    }
+
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
         // uses to notice the party.  On a fresh sighting it records the object
