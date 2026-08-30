@@ -1773,6 +1773,99 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_NUMCREATURELESSPARTY: {
+        // 0x4550F2, an id TRIGGER.IDS does not name -- the label is
+        // descriptive.  It is NumCreature's search verbatim, with the WHOLE
+        // party size subtracted from the count afterwards, whether or not any
+        // party member was actually in range.
+        CTypedPtrList<CPtrList, LONG*> targets;
+        m_pArea->GetAllInRange(m_pos,
+            trigger.GetCause(),
+            GetVisualRange(),
+            GetVisibleTerrainTable(),
+            targets,
+            TRUE,
+            FALSE);
+
+        LONG nCount = targets.GetCount()
+            - g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        return nCount == trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMCREATURELESSPARTYLT: {
+        // 0x455151.  Like the battle-song triple, this one runs
+        // equal / LESS / greater, so the LT body is the middle one.
+        CTypedPtrList<CPtrList, LONG*> targets;
+        m_pArea->GetAllInRange(m_pos,
+            trigger.GetCause(),
+            GetVisualRange(),
+            GetVisibleTerrainTable(),
+            targets,
+            TRUE,
+            FALSE);
+
+        LONG nCount = targets.GetCount()
+            - g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        return nCount < trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMCREATURELESSPARTYGT: {
+        // 0x4551C4.
+        CTypedPtrList<CPtrList, LONG*> targets;
+        m_pArea->GetAllInRange(m_pos,
+            trigger.GetCause(),
+            GetVisualRange(),
+            GetVisibleTerrainTable(),
+            targets,
+            TRUE,
+            FALSE);
+
+        LONG nCount = targets.GetCount()
+            - g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        return nCount > trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_TIMERACTIVE: {
+        // 0x4586DA: TimerActive(I:ID*) walks the caller's OWN timer list.
+        // There is no early out -- the whole list is walked even once a match
+        // has set the result.
+        BOOL bHolds = FALSE;
+        POSITION pos = m_timers.GetHeadPosition();
+        while (pos != NULL) {
+            CGameTimer* pTimer = m_timers.GetNext(pos);
+            if (pTimer != NULL && pTimer->GetId() == trigger.GetSpecifics()) {
+                bHolds = TRUE;
+            }
+        }
+        return bHolds;
+    }
+
+    case CAITRIGGER_ISSCRIPTNAME: {
+        // 0x45395C: IsScriptName(S:Name*,O:Object*).  Only the CAUSE is
+        // decoded here -- CAIObjectType::Decode, not CAITrigger::Decode -- and
+        // it is filtered to TYPE_AIBASE.  The name is built as a fixed
+        // 32-character CString from the object's m_scriptName, and unlike the
+        // area-name arm at 0x45739B this one tests the comparison for ZERO, so
+        // it holds when the two names MATCH.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+
+        CGameObject* pObject = cause.m_triggerCause.GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        CString sName(static_cast<CGameAIBase*>(pObject)->GetScriptName(),
+            SCRIPTNAME_SIZE);
+        BOOL bHolds = sName.CompareNoCase(cause.GetString1()) == 0;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
