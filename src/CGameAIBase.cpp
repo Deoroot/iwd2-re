@@ -2062,6 +2062,39 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         }
         return FALSE;
 
+    case CAITRIGGER_NUMDEAD: {
+        // 0x456885: NumDead(S:Name*,I:Num*) counts nothing -- it reads a GLOBAL
+        // variable the engine maintains.  Mind the order of the concatenation:
+        // the PREFIX comes first (arg1 of the operator+ at 0x45689C), so the
+        // name looked up is "_DEAD<Name>", and it is then cut to 32 characters.
+        // A variable that is not there reads as zero rather than failing -- the
+        // binary's own miss path at 0x456932 compares GetSpecifics with zero.
+        CString sName = DEAD_GLOBAL_PREFIX + trigger.GetString1();
+        CVariable* pVar = g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(
+            sName.Left(32));
+        LONG nValue = pVar != NULL ? pVar->GetIntValue() : 0;
+        return nValue == trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMDEADGT: {
+        // 0x456947, the whole lookup repeated -- the binary does not share it.
+        CString sName = DEAD_GLOBAL_PREFIX + trigger.GetString1();
+        CVariable* pVar = g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(
+            sName.Left(32));
+        LONG nValue = pVar != NULL ? pVar->GetIntValue() : 0;
+        return nValue > trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMDEADLT: {
+        // 0x456A0D, comparison tail at 0x456AA3 -- the same one
+        // BattleSongCounterLT lands on.
+        CString sName = DEAD_GLOBAL_PREFIX + trigger.GetString1();
+        CVariable* pVar = g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(
+            sName.Left(32));
+        LONG nValue = pVar != NULL ? pVar->GetIntValue() : 0;
+        return nValue < trigger.GetSpecifics();
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
