@@ -2151,7 +2151,175 @@ void CScreenCharacter::UpdateInformationPanel()
 // 0x5DB200
 void CScreenCharacter::UpdateRecordsPanel(CGameSprite* pSprite)
 {
-    // TODO: Incomplete.
+    CResRef resRef;
+
+    // NOTE: The binary reuses one CString for the time and then the favourite
+    // spell -- three CString locals live here, not four.
+    CString sText;
+    CString sFavouriteWeaponName;
+
+    DWORD nPartyChapterKillsXPValue;
+    DWORD nPartyChapterKillsNumber;
+    DWORD nPartyGameKillsXPValue;
+    DWORD nPartyGameKillsNumber;
+    GetPartyInformation(nPartyChapterKillsXPValue,
+        nPartyChapterKillsNumber,
+        nPartyGameKillsXPValue,
+        nPartyGameKillsNumber);
+
+    ULONG nCurrentTimeWithParty;
+    pSprite->m_cGameStats.GetTimeWithParty(nCurrentTimeWithParty);
+
+    STRREF strStrongestKill;
+    pSprite->m_cGameStats.GetStrongestKill(strStrongestKill);
+
+    CUIPanel* pPanel = m_cUIManager.GetPanel(4);
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 3857
+    UTIL_ASSERT(pPanel != NULL);
+
+    if (pSprite->m_baseStats.m_name == -1) {
+        UpdateLabel(pPanel,
+            0x10000000,
+            "%s",
+            (LPCSTR)pSprite->GetName());
+    } else {
+        UpdateLabel(pPanel,
+            0x10000000,
+            "%s",
+            (LPCSTR)FetchString(pSprite->m_baseStats.m_name));
+    }
+
+    CString sClass;
+    g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassStringLower(
+        pSprite->m_startTypeAI.m_nClass,
+        pSprite->m_baseStats.m_specialization,
+        pSprite->m_baseStats.m_flags,
+        sClass,
+        1);
+
+    UpdateLabel(pPanel,
+        0x10000018,
+        "%s",
+        (LPCSTR)sClass);
+
+    UpdateLabel(pPanel,
+        0x10000005,
+        "%s",
+        (LPCSTR)FetchString(strStrongestKill));
+
+    CTimerWorld::GetCurrentTimeString(nCurrentTimeWithParty, 16043, sText);
+
+    UpdateLabel(pPanel,
+        0x10000006,
+        "%s",
+        (LPCSTR)sText);
+
+    pSprite->m_cGameStats.GetFavouriteSpell(resRef);
+    if (resRef != "") {
+        CSpell cSpell;
+        cSpell.SetResRef(resRef, TRUE, TRUE);
+
+        cSpell.Demand();
+        if (cSpell.GetRes() != NULL) {
+            sText = FetchString(cSpell.GetGenericName());
+        } else {
+            sText = "Bad spell resref";
+        }
+    } else {
+        sText = "";
+    }
+
+    UpdateLabel(pPanel,
+        0x10000007,
+        "%s",
+        (LPCSTR)sText);
+
+    sFavouriteWeaponName = "";
+
+    pSprite->m_cGameStats.GetFavouriteWeapon(resRef);
+    if (resRef != "") {
+        CItem cWeapon(resRef, 0, 0, 0, 0, 0);
+
+        if (cWeapon.GetRes() != NULL) {
+            STRREF strType;
+            switch (cWeapon.GetItemType()) {
+            case 5:
+                strType = 10476; // "Bow and <WEAPONNAME>"
+                break;
+            case 14:
+                strType = 10478; // "Sling and <WEAPONNAME>"
+                break;
+            case 31:
+                strType = 10477; // "Crossbow and <WEAPONNAME>"
+                break;
+            default:
+                strType = 10479; // "<WEAPONNAME>"
+                break;
+            }
+
+            g_pBaldurChitin->GetTlkTable().SetToken(TOKEN_WEAPONNAME,
+                FetchString(cWeapon.GetGenericName()));
+
+            sFavouriteWeaponName = FetchString(strType);
+        }
+    }
+
+    UpdateLabel(pPanel,
+        0x10000008,
+        "%s",
+        (LPCSTR)sFavouriteWeaponName);
+
+    UpdateLabel(pPanel,
+        0x10000011,
+        "%d",
+        pSprite->m_cGameStats.m_nChapterKillsXPValue);
+    UpdateLabel(pPanel,
+        0x10000012,
+        "%d",
+        pSprite->m_cGameStats.m_nChapterKillsNumber);
+    UpdateLabel(pPanel,
+        0x10000015,
+        "%d",
+        pSprite->m_cGameStats.m_nGameKillsXPValue);
+    UpdateLabel(pPanel,
+        0x10000016,
+        "%d",
+        pSprite->m_cGameStats.m_nGameKillsNumber);
+
+    UpdateLabel(pPanel,
+        0x1000000F,
+        "%d%%",
+        nPartyChapterKillsXPValue != 0
+            ? 100 * pSprite->m_cGameStats.m_nChapterKillsXPValue / nPartyChapterKillsXPValue
+            : 0);
+    UpdateLabel(pPanel,
+        0x10000010,
+        "%d%%",
+        nPartyChapterKillsNumber != 0
+            ? 100 * pSprite->m_cGameStats.m_nChapterKillsNumber / nPartyChapterKillsNumber
+            : 0);
+    UpdateLabel(pPanel,
+        0x10000013,
+        "%d%%",
+        nPartyGameKillsXPValue != 0
+            ? 100 * pSprite->m_cGameStats.m_nGameKillsXPValue / nPartyGameKillsXPValue
+            : 0);
+    UpdateLabel(pPanel,
+        0x10000014,
+        "%d%%",
+        nPartyGameKillsNumber != 0
+            ? 100 * pSprite->m_cGameStats.m_nGameKillsNumber / nPartyGameKillsNumber
+            : 0);
+
+    CUIControlButton* pDone = static_cast<CUIControlButton*>(pPanel->GetControl(24));
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfScreenCharacter.cpp
+    // __LINE__: 3975
+    UTIL_ASSERT(pDone != NULL);
+
+    pDone->SetEnabled(IsDoneButtonClickable(pSprite));
 }
 
 // 0x66A540
