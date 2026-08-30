@@ -1054,10 +1054,33 @@ def audit(target, prefix=None, show_clones=True, multi=False):
         if own[0] < sum(1 for t in table.values() if t != default):
             if inlined is None:
                 inlined = inlined_switches(name, defines)
-            best = max(((coverage(table, default, values_of(sw))[0], c, sw)
-                        for c, sw in inlined), default=(0, None, None),
-                       key=lambda x: x[0])
-            if best[0] > own[0]:
+            # Coverage alone cannot pick between NAMESAKES. Three classes
+            # define a bare `UpdatePopupPanel`, and an offset fold lifts the
+            # wrong ones to the same arm count as the right one. What separates
+            # them is that the RIGHT callee contradicts the table nowhere: no
+            # case the binary sends to its default, no case outside the table,
+            # and no real arm left unclaimed. Rank on that first.
+            def fit(sw, table=table, default=default):
+                arms = {t for t in table.values() if t != default}
+                vs = set(values_of(sw))
+                k = fold_shift(vs, table, default)
+                best_fit = None
+                for cand in (vs, {v + k for v in vs} if k else None):
+                    if cand is None:
+                        continue
+                    claimed = {table[v] for v in cand
+                               if v in table and table[v] != default}
+                    wrong = (sum(1 for v in cand if v not in table)
+                             + sum(1 for v in cand if table.get(v) == default)
+                             + len(arms - claimed))
+                    score = (-wrong, len(claimed))
+                    if best_fit is None or score > best_fit:
+                        best_fit = score
+                return best_fit
+
+            best = max(((fit(sw), c, sw) for c, sw in inlined),
+                       default=((-1 << 30, 0), None, None), key=lambda x: x[0])
+            if best[0][1] > own[0]:
                 print(f"   table {info['jump_table']:#x} is the INLINED {best[1]}'s "
                       f"(the source marks it `// NOTE: Uninline.`); diffed against "
                       f"that function's own recovery")
