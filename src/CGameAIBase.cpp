@@ -2021,6 +2021,47 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_TIMEOFDAY:
+        // 0x45501C: TimeOfDay(I:Time*TIMEODAY) dispatches AGAIN, through a
+        // SECOND jump table at 0x45B1B4 with four entries.  Its bound is
+        // UNSIGNED (ja at 0x455028), so a negative value falls to the shared
+        // FALSE alongside everything above 3.  The world timer is re-fetched
+        // inside each arm rather than hoisted.
+        switch (trigger.GetSpecifics()) {
+        case 0:
+            return g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsDay();
+        case 1:
+            return g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsDusk();
+        case 2:
+            return g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsNight();
+        case 3:
+            return g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->IsDawn();
+        default:
+            return FALSE;
+        }
+
+    case CAITRIGGER_DIFFICULTY:
+        // 0x45884A: Difficulty(I:Difficulty*,I:Comparison*) also dispatches a
+        // second time, but on a dec/je CHAIN and not a table -- and on
+        // GetInt1, which here carries the COMPARISON, not the value.  Anything
+        // but 1/2/3 is false.  The stored level is a DWORD yet the binary
+        // compares it SIGNED (setg/setl at 0x458887 and 0x4588B5), so the cast
+        // below is deliberate.
+        if (trigger.GetInt1() == 1) {
+            return static_cast<LONG>(
+                       g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nDifficultyLevel)
+                == trigger.GetSpecifics();
+        } else if (trigger.GetInt1() == 2) {
+            return static_cast<LONG>(
+                       g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nDifficultyLevel)
+                < trigger.GetSpecifics();
+        } else if (trigger.GetInt1() == 3) {
+            return static_cast<LONG>(
+                       g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nDifficultyLevel)
+                > trigger.GetSpecifics();
+        }
+        return FALSE;
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
