@@ -2095,6 +2095,192 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return nValue < trigger.GetSpecifics();
     }
 
+    case CAITRIGGER_NUMITEMS: {
+        // 0x456EAB: NumItems(S:ResRef*,I:Num*).  The cause resolves to a
+        // TYPE_AIBASE object and is then asked in two different ways: a sprite
+        // counts through its personal inventory by CString name, a container
+        // by CResRef -- the SAME script string, handed over as two types.
+        // Anything else is simply false, and the share is released either way.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            bHolds = static_cast<CGameSprite*>(pObject)->CountItemPersonal(cause.GetString1())
+                == cause.GetSpecifics();
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            bHolds = static_cast<CGameContainer*>(pObject)->CountItem(CResRef(cause.GetString1()))
+                == cause.GetSpecifics();
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_NUMITEMSGT: {
+        // 0x456F54.  The count is sign-extended from a SHORT before the
+        // comparison, so a container holding more than 0x7FFF of something
+        // would answer with a negative -- the binary does not guard it.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            bHolds = static_cast<CGameSprite*>(pObject)->CountItemPersonal(cause.GetString1())
+                > cause.GetSpecifics();
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            bHolds = static_cast<CGameContainer*>(pObject)->CountItem(CResRef(cause.GetString1()))
+                > cause.GetSpecifics();
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_NUMITEMSLT: {
+        // 0x456FFE.  A normal equal / greater / less triple, unlike the
+        // battle-song and party-subtracting ones.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            bHolds = static_cast<CGameSprite*>(pObject)->CountItemPersonal(cause.GetString1())
+                < cause.GetSpecifics();
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            bHolds = static_cast<CGameContainer*>(pObject)->CountItem(CResRef(cause.GetString1()))
+                < cause.GetSpecifics();
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_NUMITEMSPARTY: {
+        // 0x4570DA: NumItemsParty(S:ResRef*,I:Num*).  There is no container
+        // case here -- every party member is a sprite -- and no cause to
+        // resolve, so the trigger is read undecoded.  The share is taken with
+        // a retry on SHARED/DENIED, and a member that cannot be shared at all
+        // aborts the WHOLE trigger as false, dropping the running total.
+        // Each release names the character id, not the sprite's own id.
+        LONG nTotal = 0;
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            nTotal += pSprite->CountItemPersonal(trigger.GetString1());
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        return nTotal == trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMITEMSPARTYGT: {
+        // 0x4571C5.
+        LONG nTotal = 0;
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            nTotal += pSprite->CountItemPersonal(trigger.GetString1());
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        return nTotal > trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_NUMITEMSPARTYLT: {
+        // 0x4572B0.
+        LONG nTotal = 0;
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            nTotal += pSprite->CountItemPersonal(trigger.GetString1());
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        return nTotal < trigger.GetSpecifics();
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
