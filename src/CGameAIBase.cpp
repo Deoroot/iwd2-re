@@ -925,6 +925,121 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_MORALE: {
+        // 0x45475E: morale is a BYTE in the base stats, and the binary
+        // compares BYTES -- it truncates the trigger's value into BL and
+        // issues `cmp cl, bl` (0x45479C).  A trigger value above 255 therefore
+        // wraps here rather than never matching.  GetSpecifics is called
+        // BEFORE the stats block, which is why the value is a local.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BYTE nMorale = static_cast<BYTE>(cause.GetSpecifics());
+        BOOL bHolds = pSprite->GetBaseStats()->m_morale == nMorale;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_MORALEGT: {
+        // 0x4547A8: `cmp bl, [eax+0x264]` then sbb/neg, i.e. an UNSIGNED byte
+        // comparison, not the signed one a LONG compare would give.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BYTE nMorale = static_cast<BYTE>(cause.GetSpecifics());
+        BOOL bHolds = pSprite->GetBaseStats()->m_morale > nMorale;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_MORALELT: {
+        // 0x4547ED: the same compare with the operands the other way round.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BYTE nMorale = static_cast<BYTE>(cause.GetSpecifics());
+        BOOL bHolds = pSprite->GetBaseStats()->m_morale < nMorale;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HAPPINESS: {
+        // 0x456754: unlike morale this goes through CGameSprite::GetHappiness,
+        // which returns a SHORT the binary sign-extends (movsx at 0x456781)
+        // before a full 32-bit compare.  The call precedes GetSpecifics.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nHappiness = pSprite->GetHappiness();
+        BOOL bHolds = nHappiness == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HAPPINESSGT: {
+        // 0x456795, tail at 0x45683F.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nHappiness = pSprite->GetHappiness();
+        BOOL bHolds = nHappiness > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HAPPINESSLT: {
+        // 0x4567C0.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nHappiness = pSprite->GetHappiness();
+        BOOL bHolds = nHappiness < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
         // uses to notice the party.  On a fresh sighting it records the object
