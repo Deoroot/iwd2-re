@@ -123,6 +123,19 @@ False-positive classes handled, each one paid for at least once:
     difference is the `lea` spelling, audited its identical switch cleanly.
     Note this is NOT the signed-immediate entry above: that one is about
     READING a wide immediate, this one is about MATCHING how it is spelled.
+  * A RELOADED index register carries no bias. The walk back from the `jmp`
+    matched any `sub`/`add`/`lea` naming the key register, however far above --
+    including arithmetic on a completely different value that happened to use
+    the same register and was then overwritten. CGameAnimationTypeMonster
+    IcewindNew::GetSndWalk guards on the animation id with
+    `sub eax, 0xf100` / `je` / `sub eax, 0x10` / `je`, THEN reloads
+    `movsx eax, word ptr [esp + 0xc]` and switches on that with no bias at all.
+    Read as a bias, the 0x10 moved a base-0 table to base 16 and printed
+    ELEVEN findings -- five MISSING, five DEFAULT and a SPLIT -- about a
+    function whose seven arms match the source string for string. The walk now
+    stops at any instruction that writes the key register (sub-registers
+    included, so `mov ax, ...` counts) and is not itself a bias or a
+    register-to-register move.
 
 Usage:
   jumptable_audit.py 0x763200                 # audit one recovered function
@@ -292,6 +305,21 @@ BIAS_DEC = re.compile(r"dec (\w+)$")
 MOV_REG = re.compile(r"mov (\w+), (\w+)$")
 
 REG32 = {"eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp"}
+
+# Sub-register writes count: `mov ax, ...` redefines eax for our purposes.
+SUBREGS = {
+    "eax": {"eax", "ax", "al", "ah"}, "ebx": {"ebx", "bx", "bl", "bh"},
+    "ecx": {"ecx", "cx", "cl", "ch"}, "edx": {"edx", "dx", "dl", "dh"},
+    "esi": {"esi", "si"}, "edi": {"edi", "di"},
+    "ebp": {"ebp", "bp"}, "esp": {"esp", "sp"},
+}
+
+# Instructions that READ their first operand without writing it. Everything
+# else that names the key register as its destination ENDS the backwards walk:
+# arithmetic above such a write belongs to a different value that merely shared
+# the register.
+NON_WRITING = {"cmp", "test", "push", "jmp", "call", "ret", "nop", "hlt"}
+WRITE_DEST = re.compile(r"^(\w+)\s+(\w+)")
 
 
 def imm32(text):
@@ -482,6 +510,13 @@ def find_switches(start, limit=None):
             mm = MOV_REG.match(back)
             if mm and mm.group(1) == key and mm.group(2) in REG32:
                 key = mm.group(2)
+                continue
+            # Any OTHER write to the key register ends the walk. See the
+            # "reloaded index register" entry in the false-positive list.
+            mw = WRITE_DEST.match(back)
+            if (mw and mw.group(1) not in NON_WRITING
+                    and mw.group(2) in SUBREGS.get(key, {key})):
+                break
         out.append(info)
     return out
 
