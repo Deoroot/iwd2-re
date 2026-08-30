@@ -287,7 +287,20 @@ void CUIControlEdit::OnKeyDown(SHORT nKey)
             }
 
             if (g_pChitin->field_1A0) {
-                // TODO: Incomplete.
+                if (CUtil::IsDBCSTrailByte(m_sText, m_nCursorIndex)) {
+                    m_nCursorIndex--;
+                    if (m_nCursorIndex < m_nVisibleIndex) {
+                        m_nVisibleIndex = m_nCursorIndex;
+                    }
+
+                    if (g_pChitin->field_1A0 && IsDBCSLeadByte(m_sText[m_nCursorIndex])) {
+                        m_sText = m_sText.Left(m_nCursorIndex) + m_sText.Right(m_sText.GetLength() - m_nCursorIndex - 2);
+                    } else {
+                        m_sText = m_sText.Left(m_nCursorIndex) + m_sText.Right(m_sText.GetLength() - m_nCursorIndex - 1);
+                    }
+                } else {
+                    m_sText = m_sText.Left(m_nCursorIndex) + m_sText.Right(m_sText.GetLength() - m_nCursorIndex - 1);
+                }
             } else {
                 m_sText = m_sText.Left(m_nCursorIndex) + m_sText.Right(m_sText.GetLength() - m_nCursorIndex - 1);
             }
@@ -298,7 +311,10 @@ void CUIControlEdit::OnKeyDown(SHORT nKey)
     case VK_RETURN:
         field_872 = 1;
         if (m_sText != field_874[0]) {
-            // TODO: Incomplete.
+            for (unsigned char index = field_873 - 1; index != 0; index--) {
+                field_874[index] = field_874[index - 1];
+            }
+
             field_874[0] = m_sText;
         }
 
@@ -308,6 +324,15 @@ void CUIControlEdit::OnKeyDown(SHORT nKey)
             // NOTE: Uninline.
             m_pPanel->m_pManager->KillCapture();
         }
+
+        InvalidateRect();
+        break;
+    case VK_ESCAPE:
+        m_sText = m_sOriginalText;
+        field_872 = 1;
+
+        // NOTE: Uninline.
+        m_pPanel->m_pManager->KillCapture();
 
         InvalidateRect();
         break;
@@ -345,7 +370,12 @@ void CUIControlEdit::OnKeyDown(SHORT nKey)
             }
 
             if (g_pChitin->field_1A0) {
-                // TODO: Incomplete.
+                if (CUtil::IsDBCSTrailByte(m_sText, m_nCursorIndex)) {
+                    m_nCursorIndex--;
+                    if (m_nCursorIndex < m_nVisibleIndex) {
+                        m_nVisibleIndex = m_nCursorIndex;
+                    }
+                }
             }
 
             InvalidateRect();
