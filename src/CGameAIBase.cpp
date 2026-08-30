@@ -1944,6 +1944,83 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_OPENSTATE: {
+        // 0x456B8D: OpenState(O:Object*,I:Open*) -- the value is not compared,
+        // only tested for zero, so any non-zero asks "open" and zero asks
+        // "closed".  A cause that resolves to something other than a door is
+        // false, but the share is still released.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_DOOR) {
+            CGameDoor* pDoor = static_cast<CGameDoor*>(pObject);
+            if (cause.GetSpecifics() != 0) {
+                bHolds = pDoor->IsOpen();
+            } else {
+                bHolds = pDoor->IsOpen() == 0;
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_SEQUENCE: {
+        // 0x458967: Sequence(O:Object*,I:Sequence*) answers for two kinds of
+        // object, and NOT the same way.  A sprite's GetSequence is a SHORT the
+        // binary sign-extends (movsx at 0x4589BB); a static's vid-cell
+        // sequence id is a WORD it zero-extends (0x4589DC).  Anything else is
+        // false.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        BYTE nType = pObject->GetObjectType();
+        if (nType == CGameObject::TYPE_STATIC) {
+            CVidCell* pVidCell = static_cast<CGameStatic*>(pObject)->GetVidCell();
+            bHolds = pVidCell->GetCurrentSequenceId() == cause.GetSpecifics();
+        } else if (nType == CGameObject::TYPE_SPRITE) {
+            LONG nSequence = cause.GetSpecifics();
+            bHolds = static_cast<CGameSprite*>(pObject)->GetSequence() == nSequence;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_ISANIMATIONID: {
+        // 0x45AB5A: the sprite's animation id, a WORD the binary zero-extends
+        // before the comparison.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = pSprite->GetAnimation()->GetAnimationId() == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
