@@ -251,13 +251,17 @@ void DumpTree(CWarp* pEngine, int nStep)
 
             Emit("{\"step\":%d,\"op\":\"control\",\"panel\":%lu,\"id\":%lu,"
                  "\"x\":%ld,\"y\":%ld,\"cx\":%ld,\"cy\":%ld,"
-                 "\"type\":%d,\"active\":%d,\"enabled\":%d}",
+                 "\"type\":%d,\"active\":%d,\"enabled\":%d,\"tip\":%ld}",
                 nStep, pPanel->m_nID, pControl->m_nID,
                 pControl->m_ptOrigin.x, pControl->m_ptOrigin.y,
                 pControl->m_size.cx, pControl->m_size.cy,
                 pControl->m_nControlType,
                 pControl->m_bActive != 0 ? 1 : 0,
-                pControl->m_bEnabled != 0 ? 1 : 0);
+                pControl->m_bEnabled != 0 ? 1 : 0,
+                // The strref the control would show on hover, -1 for none.
+                // A tooltip is state, not pixels, so this is the only way a
+                // scenario can prove one without reading the screen.
+                static_cast<LONG>(pControl->m_nToolTipStrRef));
         }
     }
 }
