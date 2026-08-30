@@ -1562,6 +1562,43 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return targets.GetCount() < trigger.GetSpecifics();
     }
 
+    case CAITRIGGER_AREANAMEDIFFERS: {
+        // 0x45739B, an id TRIGGER.IDS does not name -- the label above is
+        // descriptive, from what this body does.  It compares String1 with the
+        // current area's resref through CString::CompareNoCase and returns
+        // THAT value, so the trigger holds exactly when the two names DIFFER.
+        // Reproduced as the binary has it; the id is unnamed, so no compiled
+        // script can emit it.
+        CString sName = trigger.GetString1();
+        CString sArea = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+        return sName.CompareNoCase(sArea);
+    }
+
+    case CAITRIGGER_BATTLESONGCOUNTER: {
+        // 0x4573DA, also unnamed in TRIGGER.IDS: the area's bard-song battle
+        // counter against the trigger's value.
+        return m_pArea->GetBattleSongCounter() == trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_BATTLESONGCOUNTERLT: {
+        // 0x4573F9, comparison tail shared at 0x456AA3.  Mind the order of
+        // this triple: it runs equal / LESS / greater, not the equal / GT / LT
+        // every other family in this switch uses.
+        return m_pArea->GetBattleSongCounter() < trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_BATTLESONGCOUNTERGT: {
+        // 0x457406, comparison tail shared at 0x459A21.
+        return m_pArea->GetBattleSongCounter() > trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_AREATYPE: {
+        // 0x457415, unnamed in TRIGGER.IDS: a mask test of the area header's
+        // type word against the trigger's value, both narrowed to 16 bits
+        // (and eax, 0xFFFF at 0x45742C) before the AND.
+        return m_pArea->GetHeader()->m_areaType & (trigger.GetSpecifics() & 0xFFFF);
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }

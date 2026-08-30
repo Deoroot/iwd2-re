@@ -132,6 +132,17 @@
 #define CAITRIGGER_NUMITEMSPARTYGT 0x407B
 #define CAITRIGGER_NUMITEMSPARTYLT 0x407C
 #define CAITRIGGER_ISOVERME 0x407D
+
+// TRIGGER.IDS names nothing between 0x407D and 0x4089, but the engine's own
+// dispatch table has bodies for these.  The names below are DESCRIPTIVE, taken
+// from what each body does, and are NOT from the IDS -- no compiled script can
+// emit them.
+#define CAITRIGGER_AREANAMEDIFFERS 0x407E
+#define CAITRIGGER_BATTLESONGCOUNTER 0x4083
+#define CAITRIGGER_BATTLESONGCOUNTERLT 0x4084
+#define CAITRIGGER_BATTLESONGCOUNTERGT 0x4085
+#define CAITRIGGER_AREATYPE 0x4086
+
 #define CAITRIGGER_OR 0x4089
 #define CAITRIGGER_LEVEL 0x4094
 #define CAITRIGGER_LEVELGT 0x4095
