@@ -242,7 +242,11 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
     case CAITRIGGER_TRUE:
         return TRUE;
 
+    // 0x45AB39 is a bare `xor esi, esi`, and the table sends BOTH of these to
+    // it: `HasInnateAbility` is not merely unrecovered, it is hard-wired FALSE
+    // in IWD2's engine.
     case CAITRIGGER_FALSE:
+    case CAITRIGGER_HASINNATEABILITY:
         return FALSE;
 
     case CAITRIGGER_GLOBAL:
@@ -1300,6 +1304,121 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         BYTE nSpecific = cause.GetCause().GetSpecific();
         return nSpecific == cause.GetSpecifics();
     }
+
+    case CAITRIGGER_STATECHECK: {
+        // 0x45537D: a mask test against the DERIVED general state, so it sees
+        // the effects a creature is currently under, not its stored flags.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = (cause.GetSpecifics() & pSprite->GetDerivedStats()->m_generalState) != 0;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_NOTSTATECHECK: {
+        // 0x4553C0: byte for byte the same arm, ending `inc` where StateCheck
+        // ends `neg` -- so it is NONE of the bits, not "not all of them".
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = (cause.GetSpecifics() & pSprite->GetDerivedStats()->m_generalState) == 0;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_AREARESTDISABLED:
+        // 0x453948: the area header's "cannot rest" flag, bit 1.  This arm
+        // does check the area pointer first.
+        if (m_pArea == NULL) {
+            return FALSE;
+        }
+        return (m_pArea->m_header.m_flags & 2) != 0;
+
+    case CAITRIGGER_ISEXTENDEDNIGHT:
+        // 0x45A608: bit 6 of the header's area TYPE.  Unlike AreaRestDisabled
+        // directly above, this arm does NOT null-check `m_pArea` -- it loads
+        // the pointer and calls straight through (0x45A608, 0x45A60B).  Kept
+        // faithful; the value is also handed back unnormalised, as 0 or 0x40.
+        return m_pArea->GetHeader()->m_areaType & 0x40;
+
+    case CAITRIGGER_ISCREATUREHIDDENINSHADOWS: {
+        // 0x45A3F9: the target's live hiding state, which is a different
+        // question from CreatureHidden's stored stealth-mode flag.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_SPRITE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = static_cast<CGameSprite*>(pObject)->GetHiding();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_FALLENPALADIN: {
+        // 0x45AAE9.  Two gates, and the first one is a surprise: the class
+        // mask is tested against 7 (0x45AB33), which is
+        // BARBARIAN|BARD|CLERIC -- NOT the paladin bit.  Those bit values are
+        // not a guess: the binary's own GetSorcererWizardLevel masks 0x600 and
+        // GetBardMonkRogueLevel masks 0x122, which pins the assignment.  Only
+        // then does it test the CRE "fallen paladin" flag, bit 9 of the base
+        // stats' flags.  Reproduced as the bytes read it; if this is an engine
+        // bug it is the original's, and matching it is the point.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_SPRITE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            if ((pSprite->GetDerivedStats()->m_classMask
+                    & (CLASSMASK_BARBARIAN | CLASSMASK_BARD | CLASSMASK_CLERIC))
+                != 0) {
+                bHolds = (pSprite->GetBaseStats()->m_flags & 0x200) != 0;
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_DELAY:
+        // 0x4550C9: a STAGGERED periodic trigger, not a countdown.  The
+        // object's tick counter is taken modulo the requested period and the
+        // remainder compared with `field_550`, which the constructor seeds to
+        // `rand() % 120` -- so each creature fires in its own slice of the
+        // window instead of the whole area firing on the same tick.  The
+        // comparison is `setle` (0x4550E8), i.e. inclusive.
+        return field_54C % trigger.GetSpecifics() <= field_550;
 
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
