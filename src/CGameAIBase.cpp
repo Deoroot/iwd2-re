@@ -1198,6 +1198,109 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         // 0x45894A: the option is handed back verbatim, not normalised to 0/1.
         return g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nNightmareMode;
 
+    case CAITRIGGER_ALIGNMENT: {
+        // 0x453BDE: the ALIGNMEN.IDS half-masks -- 1/2/3 on the good-evil axis
+        // and 0x10/0x20/0x30 on the law-chaos one -- are tested as BITS; every
+        // other value is an exact match.  MSVC emitted the six as a compare
+        // chain at 0x453BEC, and the mask branch ANDs BYTES (0x453C24).
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+
+        LONG nAlignment = cause.m_specificID;
+        if (nAlignment == 1 || nAlignment == 2 || nAlignment == 3
+            || nAlignment == 0x10 || nAlignment == 0x20 || nAlignment == 0x30) {
+            return (cause.m_triggerCause.m_nAlignment & static_cast<BYTE>(nAlignment)) != 0;
+        }
+
+        return cause.m_triggerCause.m_nAlignment == nAlignment;
+    }
+
+    case CAITRIGGER_CLASS: {
+        // 0x453C59: not a comparison at all -- the id goes to
+        // CAIObjectType::IsClassValid, which is what resolves CLASS.IDS' group
+        // entries, and its BOOL is returned verbatim.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+        return cause.m_triggerCause.IsClassValid(static_cast<BYTE>(cause.m_specificID));
+    }
+
+    case CAITRIGGER_GENERAL: {
+        // 0x453CC4: the decoded cause's GENERAL.IDS byte, zero-extended.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+        return cause.m_triggerCause.m_nGeneral == cause.m_specificID;
+    }
+
+    case CAITRIGGER_GENDER: {
+        // 0x453C78: the same shape on the GENDER.IDS byte.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+        return cause.m_triggerCause.m_nGender == cause.m_specificID;
+    }
+
+    case CAITRIGGER_SUBRACE: {
+        // 0x453B54: SubRace packs TWO ids into m_specificID -- the race in the
+        // high word (an ARITHMETIC shift at 0x453B68) and the subrace in the
+        // low one -- and both have to match.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+
+        if (cause.m_triggerCause.m_nRace != (cause.m_specificID >> 16)) {
+            return FALSE;
+        }
+
+        if (cause.m_triggerCause.m_nSubRace != (cause.m_specificID & 0xFFFF)) {
+            return FALSE;
+        }
+
+        return TRUE;
+    }
+
+    case CAITRIGGER_KIT: {
+        // 0x453B95: the one arm of this family that resolves an object.  The
+        // trigger's value is both the mask AND the expected result, so every
+        // requested specialization bit must be set, not merely one of them.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+
+        CGameObject* pObject = cause.m_triggerCause.GetObjectWithType(this,
+            CGameObject::TYPE_SPRITE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        DWORD nKit = static_cast<CGameSprite*>(pObject)->GetSpecialization();
+        BOOL bHolds = (nKit & cause.m_specificID) == static_cast<DWORD>(cause.m_specificID);
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_RACE: {
+        // 0x454832.  Race and Specifics are shaped differently from the rest
+        // of the identity family: they decode the WHOLE trigger and read
+        // through an accessor on GetCause(), where Alignment/General/Gender
+        // decode only the cause and touch the field directly.  Both shapes are
+        // in the binary, so neither is a tidy-up of the other.  The tail at
+        // 0x454F87 is shared with Time.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        BYTE nRace = cause.GetCause().GetRace();
+        return nRace == cause.GetSpecifics();
+    }
+
+    case CAITRIGGER_SPECIFICS: {
+        // 0x454F52, joining the same tail at 0x454F87.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        BYTE nSpecific = cause.GetCause().GetSpecific();
+        return nSpecific == cause.GetSpecifics();
+    }
+
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
         // uses to notice the party.  On a fresh sighting it records the object
