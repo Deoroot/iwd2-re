@@ -3091,6 +3091,89 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_PCINSTORE: {
+        // 0x45AC09: PCInStore() takes no cause and no value.  It is the ONLY
+        // party walk in this switch that does not retry a busy share -- a
+        // share it cannot take trips UTIL_ASSERT(FALSE) and the trigger
+        // answers -2, as InTrap and ChargeCount do.  It is also the only one
+        // that caches the game pointer instead of re-reading it per call.
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+        for (SHORT nPortrait = 0; nPortrait < pGame->GetNumCharacters(); nPortrait++) {
+            LONG nCharacterId = pGame->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+            if (rc != CGameObjectArray::SUCCESS) {
+                UTIL_ASSERT(FALSE);
+                return -2;
+            }
+
+            BOOL bInStore = pSprite->GetHideState() != 0;
+            pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bInStore) {
+                return TRUE;
+            }
+        }
+
+        return FALSE;
+    }
+
+    case CAITRIGGER_ANYPCONMAP: {
+        // 0x45A26F: holds when any LIVING party member stands in the same area
+        // as this object.  A member whose share cannot be taken is skipped and
+        // so is a dead one, and the character id is re-read from the portrait
+        // slot at every single use -- for the share, for the release on the
+        // dead path and for the release on the live one.  Only the member
+        // count is cached.
+        LONG nCharacters = g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+
+        for (LONG nPortrait = 0; nPortrait < nCharacters; nPortrait++) {
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+                    g_pBaldurChitin->GetObjectGame()->GetCharacterId(
+                        static_cast<SHORT>(nPortrait)),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            if ((pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) != 0) {
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    g_pBaldurChitin->GetObjectGame()->GetCharacterId(
+                        static_cast<SHORT>(nPortrait)),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+                continue;
+            }
+
+            BOOL bSameArea = pSprite->GetArea() == GetArea();
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                g_pBaldurChitin->GetObjectGame()->GetCharacterId(
+                    static_cast<SHORT>(nPortrait)),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bSameArea) {
+                return TRUE;
+            }
+        }
+
+        return FALSE;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
