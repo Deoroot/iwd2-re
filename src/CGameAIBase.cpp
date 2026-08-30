@@ -529,6 +529,176 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_HP: {
+        // 0x45431C: base hit points exactly equal to the trigger's value.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = pSprite->GetBaseStats()->m_hitPoints == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HPLT: {
+        // 0x454390, tail shared at 0x4543BD with HPPercentLT: base hit points
+        // strictly less than the trigger's value.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = pSprite->GetBaseStats()->m_hitPoints < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HPPERCENT: {
+        // 0x4543D4: base hit points as a whole percent of the DERIVED maximum.
+        // The binary scales by 100 before the divide (lea/lea/shl at 0x454405),
+        // so this truncates once, not twice.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nPercent = 100 * pSprite->GetBaseStats()->m_hitPoints
+            / pSprite->GetDerivedStats()->m_nMaxHitPoints;
+        BOOL bHolds = nPercent == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HPPERCENTLT: {
+        // 0x454433, joining HPLT's tail at 0x4543BD.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nPercent = 100 * pSprite->GetBaseStats()->m_hitPoints
+            / pSprite->GetDerivedStats()->m_nMaxHitPoints;
+        BOOL bHolds = nPercent < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HPPERCENTGT: {
+        // 0x454482.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nPercent = 100 * pSprite->GetBaseStats()->m_hitPoints
+            / pSprite->GetDerivedStats()->m_nMaxHitPoints;
+        BOOL bHolds = nPercent > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HPLOST: {
+        // 0x4544E3: derived maximum minus BASE current, i.e. damage taken.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLost = pSprite->GetDerivedStats()->m_nMaxHitPoints
+            - pSprite->GetBaseStats()->m_hitPoints;
+        BOOL bHolds = nLost == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HPLOSTGT: {
+        // 0x454534.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLost = pSprite->GetDerivedStats()->m_nMaxHitPoints
+            - pSprite->GetBaseStats()->m_hitPoints;
+        BOOL bHolds = nLost > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HPLOSTLT: {
+        // 0x454587, tail shared at 0x4551AB.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLost = pSprite->GetDerivedStats()->m_nMaxHitPoints
+            - pSprite->GetBaseStats()->m_hitPoints;
+        BOOL bHolds = nLost < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_ISCREATUREAREAFLAG: {
+        // 0x4545C6: mask test against the base stats' creature flags.  Note
+        // the operand order -- the binary reads GetSpecifics BEFORE the stats
+        // block (0x4545E8 then 0x4545F3).
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = (cause.GetSpecifics() & pSprite->GetBaseStats()->m_flags) != 0;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
         // uses to notice the party.  On a fresh sighting it records the object
