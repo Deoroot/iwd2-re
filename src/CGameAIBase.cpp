@@ -702,8 +702,8 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
     case CAITRIGGER_CHECKSTAT: {
         // 0x455402: CheckStat(O:Object*,I:Value,I:StatID*Stats) -- an arbitrary
         // derived stat addressed by STATS.IDS offset.  GetInt1 carries the
-        // stat id and is evaluated BEFORE GetDerivedStats (0x455428 then
-        // 0x455432), which is exactly the argument-then-object order.
+        // stat id and is evaluated BEFORE GetDerivedStats -- the two calls
+        // sit at 0x455428 and 0x455432, i.e. argument-then-object order.
         CAITrigger cause(trigger);
         CGameSprite* pSprite = NULL;
         ResolveTriggerSprite(cause, &pSprite);
