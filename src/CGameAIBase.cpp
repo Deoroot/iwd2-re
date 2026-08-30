@@ -699,6 +699,232 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_CHECKSTAT: {
+        // 0x455402: CheckStat(O:Object*,I:Value,I:StatID*Stats) -- an arbitrary
+        // derived stat addressed by STATS.IDS offset.  GetInt1 carries the
+        // stat id and is evaluated BEFORE GetDerivedStats (0x455428 then
+        // 0x455432), which is exactly the argument-then-object order.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nStat = pSprite->GetDerivedStats()->GetAtOffset(static_cast<SHORT>(cause.GetInt1()));
+        BOOL bHolds = nStat == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CHECKSTATGT: {
+        // 0x455455, tail shared at 0x459A21 by every GT arm of this family.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nStat = pSprite->GetDerivedStats()->GetAtOffset(static_cast<SHORT>(cause.GetInt1()));
+        BOOL bHolds = nStat > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CHECKSTATLT: {
+        // 0x455498, tail shared at 0x456AA3 by every LT arm of this family.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nStat = pSprite->GetDerivedStats()->GetAtOffset(static_cast<SHORT>(cause.GetInt1()));
+        BOOL bHolds = nStat < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CHECKSKILL: {
+        // 0x455EDD: a direct index into the derived skill array rather than a
+        // stat offset.  The load is `movsx` (0x455F13), so the skill reads
+        // SIGNED -- m_nSkills is declared BYTE but the engine stores it as a
+        // signed char, which CDerivedStats::Clamp already assumes.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nSkill = static_cast<CHAR>(pSprite->GetDerivedStats()->m_nSkills[cause.GetInt1()]);
+        BOOL bHolds = nSkill == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CHECKSKILLGT: {
+        // 0x455F32.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nSkill = static_cast<CHAR>(pSprite->GetDerivedStats()->m_nSkills[cause.GetInt1()]);
+        BOOL bHolds = nSkill > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CHECKSKILLLT: {
+        // 0x455F75, joining the LT tail one instruction later than the others
+        // (0x456AA5) because the value is already in place.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nSkill = static_cast<CHAR>(pSprite->GetDerivedStats()->m_nSkills[cause.GetInt1()]);
+        BOOL bHolds = nSkill < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_LEVELINCLASS: {
+        // 0x455FB8: LevelInClass(O:Object*,I:Level,I:Class*Class) -- the level
+        // in ONE class, GetInt1 naming it.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = pSprite->GetDerivedStats()->GetClassLevel(cause.GetInt1());
+        BOOL bHolds = nLevel == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_LEVELINCLASSGT: {
+        // 0x45600B.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = pSprite->GetDerivedStats()->GetClassLevel(cause.GetInt1());
+        BOOL bHolds = nLevel > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_LEVELINCLASSLT: {
+        // 0x45604E.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = pSprite->GetDerivedStats()->GetClassLevel(cause.GetInt1());
+        BOOL bHolds = nLevel < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_LEVEL: {
+        // 0x457A98: the TOTAL character level -- GetClassMaskLevel over every
+        // class bit (0xFFF, pushed at 0x457ABC), not GetClassLevel.  This arm
+        // ignores GetInt1 entirely.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = pSprite->GetDerivedStats()->GetClassMaskLevel(0xFFF);
+        BOOL bHolds = nLevel == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_LEVELGT: {
+        // 0x457AE4.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = pSprite->GetDerivedStats()->GetClassMaskLevel(0xFFF);
+        BOOL bHolds = nLevel > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_LEVELLT: {
+        // 0x457B20.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = pSprite->GetDerivedStats()->GetClassMaskLevel(0xFFF);
+        BOOL bHolds = nLevel < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     case CAITRIGGER_SEE: {
         // 0x454B03: See(O:Object*) -- the trigger every hostile creature script
         // uses to notice the party.  On a fresh sighting it records the object
