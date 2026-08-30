@@ -8,6 +8,7 @@
 #include "CAITrigger.h"
 #include "CBaldurChitin.h"
 #include "CBaldurProjector.h"
+#include "CGameAnimationType.h"
 #include "CGameArea.h"
 #include "CGameContainer.h"
 #include "CGameDoor.h"
@@ -2975,6 +2976,116 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
 
         BOOL bHolds = nReaction < cause.GetSpecifics();
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_FRAME: {
+        // 0x45A7A8: Frame(O:Object*,I:Frame1*,I:Frame2*).  The two bounds are
+        // SORTED rather than assumed in order, so Frame(x,5,2) and Frame(x,2,5)
+        // ask the same question, and both are re-read from the trigger for
+        // each of the two comparisons.  A static is asked for its vid cell's
+        // frame id, a sprite for its animation type's current frame; the vid
+        // cell's WORD is SIGN-extended on the way in, the way Sequence's is.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nHigh = max(cause.GetSpecifics(), cause.GetInt1());
+        LONG nLow = min(cause.GetSpecifics(), cause.GetInt1());
+
+        BOOL bHolds = FALSE;
+        BYTE nType = pObject->GetObjectType();
+        if (nType == CGameObject::TYPE_STATIC) {
+            SHORT nFrame
+                = static_cast<CGameStatic*>(pObject)->GetVidCell()->GetCurrentFrameId();
+            bHolds = nFrame <= nHigh && nFrame >= nLow;
+        } else if (nType == CGameObject::TYPE_SPRITE) {
+            SHORT nFrame = static_cast<CGameSprite*>(pObject)
+                               ->GetAnimation()
+                               ->m_animation->GetCurrentFrame();
+            bHolds = nFrame <= nHigh && nFrame >= nLow;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_ONISLAND: {
+        // 0x458618: an AREA-SPECIFIC test with the island's outline hard-wired
+        // as three x/y steps.  Nothing in the trigger names an area, so it only
+        // means anything on the one map it was written for.  Its default is
+        // TRUE, not FALSE: an unresolved cause answers TRUE, and so does a
+        // creature that is dead -- tested twice, once in the CRE's own stored
+        // state and once in the derived state, the SAME STATE_DEAD bit in both.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return TRUE;
+        }
+
+        BOOL bHolds = TRUE;
+        if ((pSprite->GetBaseStats()->m_generalState & STATE_DEAD) == 0
+            && (pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0) {
+            LONG x = pSprite->GetPos().x;
+            LONG y = pSprite->GetPos().y;
+
+            if (x > 0x403 || y < 0x69 || y > 0x24E) {
+                bHolds = FALSE;
+            } else if (x < 0x2B4 && y < 0x24E) {
+                bHolds = TRUE;
+            } else if (x < 0x3FA && y < 0x1CB) {
+                bHolds = TRUE;
+            } else if (x >= 0x403 || y >= 0x12D) {
+                bHolds = FALSE;
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CURRENTAREAIS: {
+        // 0x453AAA: the area is not compared by NAME at all.  Its res ref is
+        // scanned for the first DIGIT and the number starting there is what is
+        // compared, so AR1000 answers 1000 and any map whose name ends in the
+        // same number answers with it.  Only the cause's OBJECT is decoded,
+        // not the whole trigger, and the value is read straight out of
+        // m_specificID rather than through GetSpecifics.
+        CAITrigger cause(trigger);
+        cause.m_triggerCause.Decode(this);
+
+        CGameObject* pObject = cause.m_triggerCause.GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->m_pArea != NULL) {
+            CString sArea;
+            pObject->m_pArea->m_resRef.CopyToString(sArea);
+
+            int nDigit = sArea.FindOneOf("1234567890");
+            if (nDigit >= 0) {
+                bHolds = atoi(static_cast<LPCTSTR>(sArea) + nDigit)
+                    == cause.m_specificID;
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
         return bHolds;
