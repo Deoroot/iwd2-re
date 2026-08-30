@@ -2914,6 +2914,72 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return pHash->FindKey(sName) != NULL;
     }
 
+    case CAITRIGGER_REACTION: {
+        // 0x4554D9: Reaction(O:Object*,I:Value*).  This is the one trigger in
+        // the switch with a SIDE EFFECT -- it posts the score it just computed
+        // to the sprite's feedback channel before answering -- so a script
+        // asking the question changes what the player sees.  The score is a
+        // BYTE and is widened unsigned for the comparison.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BYTE nReaction = GetReaction(pSprite);
+        pSprite->FeedBack(CGameSprite::FEEDBACK_29, nReaction, 0, 0, -1, 0, 0);
+
+        BOOL bHolds = nReaction == cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_REACTIONGT: {
+        // 0x45554C.  The feedback fires here too, so all three arms of the
+        // triple announce the reaction whichever way they answer.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BYTE nReaction = GetReaction(pSprite);
+        pSprite->FeedBack(CGameSprite::FEEDBACK_29, nReaction, 0, 0, -1, 0, 0);
+
+        BOOL bHolds = nReaction > cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_REACTIONLT: {
+        // 0x4555C1.  A normal equal / greater / less triple, reaction on the
+        // left.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BYTE nReaction = GetReaction(pSprite);
+        pSprite->FeedBack(CGameSprite::FEEDBACK_29, nReaction, 0, 0, -1, 0, 0);
+
+        BOOL bHolds = nReaction < cause.GetSpecifics();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
@@ -4570,6 +4636,54 @@ void CGameAIBase::SetScript(SHORT level, CAIScript* script)
         m_movementScript = script;
         break;
     }
+}
+
+// 0x45D560 - the NPC reaction score: this creature's stored roll plus two
+// table modifiers, one for the other creature's charisma and one for its
+// reputation.  A PC is not asked for its own reputation -- the party's is used,
+// scaled down by REPUTATION_MULTIPLIER -- and both table reads are the
+// C2DArray bounds check with y folded to zero, so an out-of-range index falls
+// to the table's default cell rather than failing.  The whole sum is BYTE
+// arithmetic and wraps.
+BYTE CGameAIBase::GetReaction(CGameSprite* pSprite)
+{
+    BYTE nRoll = m_reactionRoll;
+    SHORT nCharisma = pSprite->m_derivedStats.m_nCHR;
+
+    SHORT nReputation;
+    if (pSprite->GetAIType().m_nEnemyAlly == CAIObjectType::EA_PC) {
+        nReputation = g_pBaldurChitin->GetObjectGame()->m_nReputation
+            / CInfGame::REPUTATION_MULTIPLIER;
+    } else {
+        nReputation = pSprite->m_derivedStats.m_nReputation;
+    }
+
+    BYTE nCharismaMod = static_cast<BYTE>(atol(
+        g_pBaldurChitin->GetObjectGame()->GetRuleTables().m_tReactionModCharisma.GetAt(
+            CPoint(nCharisma - 1, 0))));
+    BYTE nReputationMod = static_cast<BYTE>(atol(
+        g_pBaldurChitin->GetObjectGame()->GetRuleTables().m_tReactionModReputation.GetAt(
+            CPoint(nReputation - 1, 0))));
+
+    BYTE nReaction = nRoll + nReputationMod + nCharismaMod;
+
+    // The hated-race penalty reaches PAST the end of CGameAIBase -- it hands
+    // IsHatedRace this object's own base stats, which only a sprite has -- so
+    // the type test above it is load-bearing, not decoration.
+    if (GetObjectType() == CGameObject::TYPE_SPRITE) {
+        if ((pSprite->GetAIType().m_nClassMask & CLASSMASK_RANGER) != 0) {
+            if (g_pBaldurChitin->GetObjectGame()->GetRuleTables().IsHatedRace(
+                    pSprite->GetAIType(),
+                    static_cast<CGameSprite*>(this)->m_baseStats)) {
+                if (nReaction < 4) {
+                    return 0;
+                }
+                nReaction -= 4;
+            }
+        }
+    }
+
+    return nReaction;
 }
 
 // 0x45D6A0

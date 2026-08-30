@@ -118,6 +118,7 @@ public:
     CGameObject* ResolveActionTarget(BYTE nObjectType);
     CGameObject* ResolveActionTarget(const CAIObjectType& type, BYTE nObjectType);
     void SpellIdToResRef(int spellId, CString& outResRef);
+    BYTE GetReaction(CGameSprite* pSprite);
     SHORT ForceSpellAction(CGameObject* target);
     SHORT ForceSpellPointAction();
     void PutItemGround(CItem* pItem);
