@@ -2521,6 +2521,247 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_CHECKPARTYLEVEL: {
+        // 0x458740: CheckPartyLevel(I:Level*) holds when EVERY member is at
+        // least the given level, which the binary works out by keeping the
+        // minimum, seeded at 0xFF, and testing it once at the end.  The level
+        // it minimises is CDerivedStats::m_nLevel, the single stored byte --
+        // NOT the GetClassMaskLevel sum its two neighbours below use -- and
+        // the comparison is unsigned, so the 0xFF seed reads as 255.  A member
+        // whose share cannot be taken aborts the whole trigger.
+        BYTE nMinLevel = 0xFF;
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            nMinLevel = min(nMinLevel, pSprite->GetDerivedStats()->m_nLevel);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        return trigger.GetSpecifics() <= nMinLevel;
+    }
+
+    case CAITRIGGER_PARTYLEVELVS: {
+        // 0x459061: PartyLevelVS(O:Object*,I:Level*) is misleadingly named --
+        // the trigger's own value is never read.  It averages the party's
+        // total character level and compares that against the LEVEL OF THE
+        // RESOLVED OBJECT, which is why the cause is decoded here but no
+        // specifics are.  The two sides are not measured the same way: the
+        // party is summed from the stored level byte CheckPartyLevel uses,
+        // the object is asked for GetAtOffset(STAT_CLASSLEVELSUM).  An object
+        // that is not a sprite counts as level zero, and the divisor is
+        // re-read from the game, so an empty party would divide by zero --
+        // the binary does not guard it.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = 0;
+        LONG nTotal = 0;
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            nTotal += pSprite->GetDerivedStats()->m_nLevel;
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        LONG nAverage
+            = nTotal / g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            nLevel = static_cast<CGameSprite*>(pObject)->GetDerivedStats()->GetAtOffset(
+                STAT_CLASSLEVELSUM);
+        }
+
+        return nAverage == nLevel;
+    }
+
+    case CAITRIGGER_PARTYLEVELVSGT: {
+        // 0x4591B6.  The party average is the LEFT operand throughout the
+        // triple, so this asks whether the party out-levels the object.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = 0;
+        LONG nTotal = 0;
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            nTotal += pSprite->GetDerivedStats()->m_nLevel;
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        LONG nAverage
+            = nTotal / g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            nLevel = static_cast<CGameSprite*>(pObject)->GetDerivedStats()->GetAtOffset(
+                STAT_CLASSLEVELSUM);
+        }
+
+        return nAverage > nLevel;
+    }
+
+    case CAITRIGGER_PARTYLEVELVSLT: {
+        // 0x45930B.  A normal equal / greater / less triple.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nLevel = 0;
+        LONG nTotal = 0;
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            nTotal += pSprite->GetDerivedStats()->m_nLevel;
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        LONG nAverage
+            = nTotal / g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            nLevel = static_cast<CGameSprite*>(pObject)->GetDerivedStats()->GetAtOffset(
+                STAT_CLASSLEVELSUM);
+        }
+
+        return nAverage < nLevel;
+    }
+
+    case CAITRIGGER_CHECKPARTYAVERAGELEVEL: {
+        // 0x4598DE: the same average as PartyLevelVS, but summed from
+        // GetClassMaskLevel(0xFFF) rather than the stored level byte, and
+        // compared against the trigger instead of an object.  Like ChargeCount
+        // it is a triple folded into one opcode -- GetInt1 picks the operator,
+        // 1 equal, 2 less, 3 greater -- and it is re-read from the trigger for
+        // each of the three tests.  Anything else is false.
+        LONG nTotal = 0;
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            nTotal += pSprite->GetDerivedStats()->GetClassMaskLevel(0xFFF);
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
+        LONG nAverage
+            = nTotal / g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+        if (trigger.GetInt1() == 1) {
+            return nAverage == trigger.GetSpecifics();
+        }
+        if (trigger.GetInt1() == 2) {
+            return nAverage < trigger.GetSpecifics();
+        }
+        if (trigger.GetInt1() == 3) {
+            return nAverage > trigger.GetSpecifics();
+        }
+        return FALSE;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
