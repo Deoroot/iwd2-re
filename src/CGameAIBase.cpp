@@ -2281,6 +2281,246 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return nTotal < trigger.GetSpecifics();
     }
 
+    case CAITRIGGER_HASITEM: {
+        // 0x4560F8: HasItem(S:ResRef*,O:Object*).  A sprite is searched twice
+        // -- its personal inventory first and then its bags -- so the short
+        // circuit is the binary's own, and a container is asked for a slot
+        // instead.  Both searches answer -1 when nothing matches.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            bHolds = pSprite->FindItemPersonal(cause.GetString1(), 0, FALSE) != -1
+                || pSprite->FindItemBags(cause.GetString1(), 0, FALSE) != -1;
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            bHolds = static_cast<CGameContainer*>(pObject)->FindItemSlot(
+                         CResRef(cause.GetString1()))
+                != -1;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CONTAINS: {
+        // 0x456AD3: Contains(O:Object*,S:ResRef*) asks a CONTAINER only, and
+        // it does not use FindItemSlot the way HasItem does -- it walks the
+        // slots itself and compares each item's own res ref, re-reading the
+        // slot count on every turn of the loop.  The cause is resolved with
+        // GetObject, so nothing checks the object's type before the cast.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            CGameContainer* pContainer = static_cast<CGameContainer*>(pObject);
+            for (SHORT nSlot = 0; nSlot < pContainer->GetNumItems(); nSlot++) {
+                CItem* pItem = pContainer->GetItem(nSlot);
+                if (pItem != NULL && pItem->cResRef == cause.GetString1()) {
+                    bHolds = TRUE;
+                    break;
+                }
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HASITEMINSLOT: {
+        // 0x45A647: HasItemInSlot(S:ResRef*,I:Slot*).  Unlike its neighbours
+        // this one asks GetObjectWithType for a TYPE_SPRITE outright, so a
+        // door or container named as the cause never resolves at all.  The
+        // slot is bounded ABOVE only, so a negative index still indexes; and
+        // an EMPTY slot is not simply false -- it answers the trigger asking
+        // for the empty name, which is how a script tests "nothing equipped
+        // here".  The index is re-read from the trigger for each of its
+        // three uses.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_SPRITE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (cause.GetSpecifics() < CScreenInventory::PERSONAL_INVENTORY_SIZE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            if (pSprite->GetEquipment()->m_items[cause.GetSpecifics()] != NULL) {
+                bHolds = pSprite->GetEquipment()->m_items[cause.GetSpecifics()]->cResRef
+                    == cause.GetString1();
+            } else {
+                bHolds = cause.GetString1() == "";
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_CHARGECOUNT: {
+        // 0x45A437: ChargeCount(O:Object*,S:Item*,I:Ability*,I:Value*,
+        // I:Comparison*).  GetInt2 picks the operator -- 1 equal, 2 less,
+        // 3 greater -- and anything else is false, so this is a triple folded
+        // into one arm rather than three opcodes.  A container resolves but is
+        // never searched, and a cause that resolves to NOTHING answers -2, not
+        // FALSE, exactly as InTrap does.  The two type tests are the only ones
+        // in this function written as bare immediates (0x11 / 0x31) instead of
+        // loads of CGameObject's named constants.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return -2;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            SHORT nSlot = pSprite->FindItemPersonal(cause.GetString1(), 0, FALSE);
+            if (nSlot != -1) {
+                CItem* pItem = pSprite->GetEquipment()->m_items[nSlot];
+                if (pItem != NULL) {
+                    WORD nCharges = pItem->GetUsageCount(cause.GetSpecifics());
+                    if (cause.GetInt2() == 1) {
+                        bHolds = nCharges == cause.GetInt1();
+                    } else if (cause.GetInt2() == 2) {
+                        bHolds = nCharges < cause.GetInt1();
+                    } else if (cause.GetInt2() == 3) {
+                        bHolds = nCharges > cause.GetInt1();
+                    }
+                }
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_PARTYHASITEM: {
+        // 0x455B3C: HasItem's search run over the whole party, with no cause
+        // to resolve, so the trigger is read undecoded and the string is
+        // re-read from it on every probe.  The first member holding the item
+        // ends the loop; a member whose share cannot be taken aborts the whole
+        // trigger as false rather than being skipped, and the share is
+        // released on the way out of the successful case too.
+        for (SHORT nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId
+                = g_pBaldurChitin->GetObjectGame()->GetCharacterId(nPortrait);
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            BOOL bHolds = pSprite->FindItemPersonal(trigger.GetString1(), 0, FALSE) != -1
+                || pSprite->FindItemBags(trigger.GetString1(), 0, FALSE) != -1;
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bHolds) {
+                return TRUE;
+            }
+        }
+
+        return FALSE;
+    }
+
+    case CAITRIGGER_ITEMISIDENTIFIED: {
+        // 0x459D5A: the same party walk, but three things differ from
+        // PartyHasItem beside it.  The name is copied out of the trigger ONCE
+        // into a local rather than re-read per probe; the member count is
+        // read once and cached as the loop bound; and a member whose share
+        // cannot be taken is SKIPPED, not fatal.  The loop stops at the first
+        // member carrying the item whether or not it turned out to be
+        // identified, so a second copy further down the party is never seen.
+        // Bit 0 of CItem::m_flags is the identified flag.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CString sName = cause.GetString1();
+        LONG nCharacters = g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+
+        BOOL bHolds = FALSE;
+        for (LONG nPortrait = 0; nPortrait < nCharacters; nPortrait++) {
+            LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetCharacterId(
+                static_cast<SHORT>(nPortrait));
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            SHORT nSlot = pSprite->FindItemPersonal(sName, 0, FALSE);
+            if (nSlot == -1) {
+                nSlot = pSprite->FindItemBags(sName, 0, FALSE);
+            }
+
+            if (nSlot != -1) {
+                CItem* pItem = pSprite->GetEquipment()->m_items[nSlot];
+                if (pItem != NULL && (pItem->m_flags & 1) != 0) {
+                    bHolds = TRUE;
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (nSlot != -1) {
+                break;
+            }
+        }
+
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
