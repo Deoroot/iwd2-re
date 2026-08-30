@@ -2762,6 +2762,158 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return FALSE;
     }
 
+    case CAITRIGGER_GLOBALTIMEREXACT: {
+        // 0x455636: GlobalTimerExact(S:Name*,S:Area*).  The four timer arms
+        // each carry their own copy of this scope walk -- the compiler shared
+        // none of it -- and it is NOT the walk the Global family above uses:
+        // the scope arrives in String2 rather than as a prefix of String1, it
+        // is upper-cased and then cut to SIX characters, and that six-character
+        // key is what MYAREA overwrites and what GetArea is finally asked for.
+        // LOCALS tests the object type for equality with TYPE_SPRITE, where
+        // Global masks it; and nothing null-checks m_pArea before MYAREA reads
+        // its header, where Global does.
+        CString sScope = trigger.GetString2();
+        sScope.MakeUpper();
+        CString sArea = sScope.Left(6);
+        CString sName = trigger.GetString1();
+
+        CVariableHash* pHash;
+        if (sArea == "GLOBAL") {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sArea == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
+            }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else {
+            if (sArea == "MYAREA") {
+                sArea = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sArea);
+            if (pArea == NULL) {
+                return FALSE;
+            }
+            pHash = pArea->GetVariables();
+        }
+
+        CVariable* pVar = pHash->FindKey(sName);
+        if (pVar == NULL) {
+            return FALSE;
+        }
+
+        return pVar->GetIntValue()
+            == g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime;
+    }
+
+    case CAITRIGGER_GLOBALTIMEREXPIRED: {
+        // 0x4557E1.  A timer whose variable does not exist reads as EXPIRED --
+        // this is the one arm of the four that answers TRUE on a miss.  The
+        // comparison is unsigned, the stored deadline against the world clock.
+        CString sScope = trigger.GetString2();
+        sScope.MakeUpper();
+        CString sArea = sScope.Left(6);
+        CString sName = trigger.GetString1();
+
+        CVariableHash* pHash;
+        if (sArea == "GLOBAL") {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sArea == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
+            }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else {
+            if (sArea == "MYAREA") {
+                sArea = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sArea);
+            if (pArea == NULL) {
+                return FALSE;
+            }
+            pHash = pArea->GetVariables();
+        }
+
+        CVariable* pVar = pHash->FindKey(sName);
+        if (pVar == NULL) {
+            return TRUE;
+        }
+
+        return static_cast<ULONG>(pVar->GetIntValue())
+            < g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime;
+    }
+
+    case CAITRIGGER_GLOBALTIMERNOTEXPIRED: {
+        // 0x455989.  Not the negation of GlobalTimerExpired: both use a STRICT
+        // comparison, just from opposite sides, so a timer standing exactly at
+        // the current time is neither expired nor not-expired.  A missing
+        // variable is false here where it is true there.
+        CString sScope = trigger.GetString2();
+        sScope.MakeUpper();
+        CString sArea = sScope.Left(6);
+        CString sName = trigger.GetString1();
+
+        CVariableHash* pHash;
+        if (sArea == "GLOBAL") {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sArea == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
+            }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else {
+            if (sArea == "MYAREA") {
+                sArea = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sArea);
+            if (pArea == NULL) {
+                return FALSE;
+            }
+            pHash = pArea->GetVariables();
+        }
+
+        CVariable* pVar = pHash->FindKey(sName);
+        if (pVar == NULL) {
+            return FALSE;
+        }
+
+        return g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime
+            < static_cast<ULONG>(pVar->GetIntValue());
+    }
+
+    case CAITRIGGER_GLOBALTIMERSTARTED: {
+        // 0x455CD1.  The world clock is never read: the trigger holds when the
+        // variable simply EXISTS, whatever deadline it carries.
+        CString sScope = trigger.GetString2();
+        sScope.MakeUpper();
+        CString sArea = sScope.Left(6);
+        CString sName = trigger.GetString1();
+
+        CVariableHash* pHash;
+        if (sArea == "GLOBAL") {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sArea == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
+            }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else {
+            if (sArea == "MYAREA") {
+                sArea = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sArea);
+            if (pArea == NULL) {
+                return FALSE;
+            }
+            pHash = pArea->GetVariables();
+        }
+
+        return pHash->FindKey(sName) != NULL;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
