@@ -167,11 +167,19 @@ def define_map():
     Headers use `#define`, but a fair number of switches label their cases with
     file-scope `const BYTE NAME = N;` declared in the .cpp (CItem's
     ITEM_ANIMATION_*) or with an enumerator. Missing either just makes every
-    case in that switch unresolvable, which reads as a wall of MISSING."""
+    case in that switch unresolvable, which reads as a wall of MISSING.
+
+    A class-scope constant is spelled `const BYTE CClass::NAME = OTHER_NAME;`
+    in the .cpp -- a QUALIFIED name whose value is another constant, not a
+    literal. Both halves have to be accepted: CAIObjectType's C_BARBARIAN..
+    C_WIZARD are written that way, and leaving them unresolved cost that
+    switch its pairing and printed nine MISSING arms about eleven cases the
+    source already had."""
     out = {}
+    aliases = {}
     define = re.compile(r"^#define\s+([A-Za-z_]\w*)\s+(-?(?:0[xX][0-9a-fA-F]+|\d+))\s*(?://.*)?$")
-    const = re.compile(r"^\s*(?:static\s+)?const\s+\w+\s+([A-Za-z_]\w*)\s*=\s*"
-                       r"(-?(?:0[xX][0-9a-fA-F]+|\d+))\s*;")
+    const = re.compile(r"^\s*(?:static\s+)?const\s+\w+\s+(?:\w+::)?([A-Za-z_]\w*)\s*=\s*"
+                       r"(-?(?:0[xX][0-9a-fA-F]+|\d+)|[A-Za-z_]\w*)\s*;")
     enumerator = re.compile(r"^\s*([A-Z_]\w*)\s*(?:=\s*(-?(?:0[xX][0-9a-fA-F]+|\d+))\s*)?,?\s*(?://.*)?$")
     for root, _dirs, files in os.walk(SRC):
         for fn in sorted(files):
@@ -199,7 +207,17 @@ def define_map():
                     continue
                 m = define.match(line.rstrip()) or const.match(line)
                 if m:
-                    out.setdefault(m.group(1), int(m.group(2), 0))
+                    text = m.group(2)
+                    if text[0].isdigit() or text[0] == "-":
+                        out.setdefault(m.group(1), int(text, 0))
+                    else:
+                        aliases.setdefault(m.group(1), text)
+    # Now that every literal is known, resolve the constants defined AS another
+    # constant. Iterated, because such a definition can chain.
+    for _pass in range(4):
+        for name, target in aliases.items():
+            if name not in out and target in out:
+                out[name] = out[target]
     for name, value in WINUSER_VK.items():
         out.setdefault(name, value)
     return out

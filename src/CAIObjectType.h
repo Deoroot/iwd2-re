@@ -221,6 +221,16 @@
 #define CAIOBJECTTYPE_C_ROGUE 9
 #define CAIOBJECTTYPE_C_SORCERER 10
 #define CAIOBJECTTYPE_C_WIZARD 11
+// CLASS.IDS' group ids: a script asking for one of these matches ANY class in
+// the group, which CAIObjectType::OfType tests as a multi-bit m_nClassMask.
+#define CAIOBJECTTYPE_C_BARD_ALL 202
+#define CAIOBJECTTYPE_C_CLERIC_ALL 203
+#define CAIOBJECTTYPE_C_DRUID_ALL 204
+#define CAIOBJECTTYPE_C_FIGHTER_ALL 205
+#define CAIOBJECTTYPE_C_PALADIN_ALL 206
+#define CAIOBJECTTYPE_C_RANGER_ALL 207
+#define CAIOBJECTTYPE_C_THIEF_ALL 208
+#define CAIOBJECTTYPE_C_MAGE_ALL 209
 // Engine-inherited classes IWD2 keeps but omits from CLASS.IDS; both are read
 // by CGameSprite::ApplyTriggers to pick a reputation penalty.
 #define CAIOBJECTTYPE_C_INNOCENT 155

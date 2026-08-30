@@ -860,6 +860,48 @@ BOOL CAIObjectType::OfType(const CAIObjectType& type, BOOL bCheckForNonSprites, 
                 return FALSE;
             }
             break;
+        case CAIOBJECTTYPE_C_BARD_ALL:
+            if ((m_nClassMask & CLASSMASK_BARD) == 0) {
+                return FALSE;
+            }
+            break;
+        case CAIOBJECTTYPE_C_CLERIC_ALL:
+            if ((m_nClassMask & CLASSMASK_CLERIC) == 0) {
+                return FALSE;
+            }
+            break;
+        case CAIOBJECTTYPE_C_DRUID_ALL:
+            if ((m_nClassMask & CLASSMASK_DRUID) == 0) {
+                return FALSE;
+            }
+            break;
+        case CAIOBJECTTYPE_C_FIGHTER_ALL:
+            if ((m_nClassMask
+                    & (CLASSMASK_BARBARIAN | CLASSMASK_FIGHTER | CLASSMASK_MONK))
+                == 0) {
+                return FALSE;
+            }
+            break;
+        case CAIOBJECTTYPE_C_PALADIN_ALL:
+            if ((m_nClassMask & CLASSMASK_PALADIN) == 0) {
+                return FALSE;
+            }
+            break;
+        case CAIOBJECTTYPE_C_RANGER_ALL:
+            if ((m_nClassMask & CLASSMASK_RANGER) == 0) {
+                return FALSE;
+            }
+            break;
+        case CAIOBJECTTYPE_C_THIEF_ALL:
+            if ((m_nClassMask & CLASSMASK_ROGUE) == 0) {
+                return FALSE;
+            }
+            break;
+        case CAIOBJECTTYPE_C_MAGE_ALL:
+            if ((m_nClassMask & (CLASSMASK_SORCERER | CLASSMASK_WIZARD)) == 0) {
+                return FALSE;
+            }
+            break;
         }
     }
 
