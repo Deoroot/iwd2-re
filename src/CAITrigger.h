@@ -138,6 +138,7 @@
 // from what each body does, and are NOT from the IDS -- no compiled script can
 // emit them.
 #define CAITRIGGER_AREANAMEDIFFERS 0x407E
+#define CAITRIGGER_HASITEMPERSONAL 0x407F
 #define CAITRIGGER_NUMCREATURELESSPARTY 0x4080
 #define CAITRIGGER_NUMCREATURELESSPARTYLT 0x4081
 #define CAITRIGGER_NUMCREATURELESSPARTYGT 0x4082
@@ -165,6 +166,9 @@
 #define CAITRIGGER_NEARLOCATION 0x40A9
 #define CAITRIGGER_CHECKPARTYLEVEL 0x40AA
 #define CAITRIGGER_DIFFICULTY 0x40AB
+// 0x40AC has no TRIGGER.IDS name either; the dispatch table sends it to
+// CheckSpellState's body, so the descriptive label below says what it does.
+#define CAITRIGGER_SPELLSTATE 0x40AC
 #define CAITRIGGER_CHECKSPELLSTATE 0x40AD
 #define CAITRIGGER_ISHEARTOFFURYMODEON 0x40AE
 #define CAITRIGGER_SEQUENCE 0x40AF

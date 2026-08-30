@@ -10345,7 +10345,9 @@ CVidBitmap* CInfGame::GetMasterBitmap()
     return &m_rgbMasterBitmap;
 }
 
-// NOTE: Inlined.
+// 0x45B610, and also inlined at its other call sites.  Note the bound: the
+// literal party capacity, not m_nCharacters the way GetCharacterId next to it
+// does it.
 LONG CInfGame::GetFixedOrderCharacterId(SHORT nSlot)
 {
     if (nSlot < 6) {

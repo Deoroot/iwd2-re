@@ -1866,6 +1866,84 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_SPELLSTATE:
+    case CAITRIGGER_CHECKSPELLSTATE: {
+        // 0x4588ED: one body for two opcodes -- the table sends 0x40AC, which
+        // TRIGGER.IDS does not name, to CheckSpellState's arm.  The test is a
+        // plain lookup in the derived stats' 256-bit spell-state set.  The
+        // index is read BEFORE the stats pointer, so it is kept in a local
+        // rather than written inline where the order would be unspecified.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        LONG nState = cause.GetSpecifics();
+        BOOL bHolds = pSprite->GetDerivedStats()->m_spellStates[nState];
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_HASITEMPERSONAL: {
+        // 0x45608F, another id TRIGGER.IDS does not name -- descriptive label.
+        // It resolves a TYPE_AIBASE object but only searches when that object
+        // turns out to be a sprite, so a door or container named as the cause
+        // is simply false.  FindItemPersonal answers -1 when nothing matches.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this,
+            CGameObject::TYPE_AIBASE,
+            FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            bHolds = static_cast<CGameSprite*>(pObject)->FindItemPersonal(cause.GetString1(),
+                0,
+                FALSE)
+                != -1;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_ISPLAYERNUMBER: {
+        // 0x455E5D: IsPlayerNumber(O:Object*,I:Slot*).  The slot is one-based,
+        // and the binary re-reads it from the trigger for each of the three
+        // tests rather than keeping it.  The lookup is the FIXED-order party
+        // array, not the portrait order GetCharacterId walks.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        if (cause.GetSpecifics() >= 1 && cause.GetSpecifics() <= 6) {
+            LONG nId = g_pBaldurChitin->GetObjectGame()->GetFixedOrderCharacterId(
+                static_cast<SHORT>(cause.GetSpecifics() - 1));
+            bHolds = nId == pObject->GetId();
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
