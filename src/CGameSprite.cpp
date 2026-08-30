@@ -3925,7 +3925,9 @@ void CGameSprite::OnActionButton(const CPoint& pt)
                 }
                 break;
             case 20:
-            case -1:
+            case 255:
+                // GetIconIndex() returns a BYTE, so the "no icon" sentinel
+                // reaches this switch as 255, never as -1.
                 pGame->UseMagicOnObject(m_id);
 
                 pGame->SetState(0);
