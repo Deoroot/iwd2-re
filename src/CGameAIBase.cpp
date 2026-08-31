@@ -3174,6 +3174,156 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return FALSE;
     }
 
+    case CAITRIGGER_LOS: {
+        // 0x45460D: LOS(O:Object*,I:Range*) -- Range with a line-of-sight test
+        // bolted on.  Unlike Range it resolves the cause with
+        // GetObjectTypeChecked, and the explored-terrain flag it hands CheckLOS
+        // is the TARGET's Orderable() state, so a party-controlled sprite is
+        // only visible across terrain the caller has already explored.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectTypeChecked(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bCheckIfExplored = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            bCheckIfExplored = static_cast<CGameSprite*>(pObject)->Orderable(FALSE);
+        }
+
+        CPoint ptTarget = pObject->GetPos();
+        CPoint gridTarget(ptTarget.x / CPathSearch::GRID_SQUARE_SIZEX,
+            ptTarget.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+        CPoint ptSelf = GetPos();
+        CPoint gridSelf(ptSelf.x / CPathSearch::GRID_SQUARE_SIZEX,
+            ptSelf.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+        LONG nDistSq = (gridTarget.x - gridSelf.x) * (gridTarget.x - gridSelf.x)
+            + (gridTarget.y - gridSelf.y) * (gridTarget.y - gridSelf.y);
+        LONG nRangeSq = (cause.GetSpecifics() + 1) * (cause.GetSpecifics() + 1);
+
+        BOOL bHolds = FALSE;
+        if (nDistSq <= nRangeSq
+            && m_pArea->CheckLOS(pObject->GetPos(), GetPos(), GetVisibleTerrainTable(),
+                static_cast<BOOLEAN>(bCheckIfExplored))) {
+            // The type recorded here carries nothing but the object type, and
+            // the engine drops that into the enemy-ally slot; every other
+            // field of the temporary stays blank.
+            SetAIType342(CAIObjectType(pObject->GetObjectType(), 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            bHolds = TRUE;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_DETECT: {
+        // 0x454C17: Detect(O:Object*) -- notice a creature whether or not it is
+        // visible.  The arm splits on whether the decoded cause names a
+        // specific instance, and the two halves share almost nothing.
+        //
+        // With NO instance the engine searches the area for the type instead of
+        // resolving an object: from the caller's own id via GetNearest when the
+        // caller sits on the front object list, otherwise outward from the
+        // caller's position via FindObjectNear.  Nothing is shared, nothing is
+        // released, the remembered type is an ANONYMOUS one carrying only the
+        // found id, and the posted message carries the TRIGGER's cause type.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        if (cause.GetCause().GetInstance() == -1) {
+            LONG nObjectId;
+            if (GetVertListType() == CGameObject::LIST_FRONT) {
+                nObjectId = m_pArea->GetNearest(m_id, cause.GetCause(), GetVisualRange(),
+                    GetVisibleTerrainTable(), TRUE, TRUE, FALSE, 0, FALSE);
+            } else {
+                nObjectId = m_pArea->FindObjectNear(m_pos.x, m_pos.y, cause.GetCause(),
+                    GetVisualRange(), GetVisibleTerrainTable(), TRUE, TRUE, FALSE, FALSE);
+            }
+
+            if (nObjectId == CGameObjectArray::INVALID_INDEX) {
+                return FALSE;
+            }
+
+            // Detecting a party member reveals the detector, exactly as See
+            // does -- m_canBeSeen is the countdown CGameSprite::AIUpdate ticks
+            // back down to zero.
+            if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(nObjectId) != -1) {
+                m_canBeSeen = 4 * (VISIBLE_DELAY + 1);
+            }
+
+            if (m_lSeen.GetInstance() == nObjectId) {
+                return TRUE;
+            }
+
+            CAIObjectType typeSeen(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+            typeSeen.SetInstance(nObjectId);
+            m_lSeen.Set(typeSeen);
+
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageSetLastObject(cause.GetCause(), CAITRIGGER_SEE, m_id, m_id),
+                FALSE);
+            return TRUE;
+        }
+
+        // With an instance the object is resolved with the plain GetObject and
+        // range-checked against the SQUARE of GetVisualRange() -- the trigger's
+        // own range parameter never enters.
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        CPoint ptTarget = pObject->GetPos();
+        CPoint gridTarget(ptTarget.x / CPathSearch::GRID_SQUARE_SIZEX,
+            ptTarget.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+        CPoint ptSelf = GetPos();
+        CPoint gridSelf(ptSelf.x / CPathSearch::GRID_SQUARE_SIZEX,
+            ptSelf.y / CPathSearch::GRID_SQUARE_SIZEY);
+
+        LONG nDistSq = (gridTarget.x - gridSelf.x) * (gridTarget.x - gridSelf.x)
+            + (gridTarget.y - gridSelf.y) * (gridTarget.y - gridSelf.y);
+
+        BOOL bCheckIfExplored = FALSE;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            bCheckIfExplored = static_cast<CGameSprite*>(pObject)->Orderable(FALSE);
+        }
+
+        LONG nRangeSq = GetVisualRange() * GetVisualRange();
+
+        BOOL bHolds = FALSE;
+        if (nDistSq <= nRangeSq
+            && m_pArea->CheckLOS(pObject->GetPos(), GetPos(), GetVisibleTerrainTable(),
+                static_cast<BOOLEAN>(bCheckIfExplored))) {
+            bHolds = TRUE;
+        }
+
+        // A sighting only counts while both stand in the caller's own area.
+        bHolds = bHolds && pObject->GetArea() == m_pArea;
+
+        if (bHolds && !m_lSeen.Equal(pObject->GetAIType())) {
+            if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pObject->GetId()) != -1) {
+                m_canBeSeen = 4 * (VISIBLE_DELAY + 1);
+            }
+
+            m_lSeen.Set(pObject->GetAIType());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageSetLastObject(pObject->GetAIType(), CAITRIGGER_SEE, m_id, m_id),
+                FALSE);
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
