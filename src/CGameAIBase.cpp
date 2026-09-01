@@ -4057,6 +4057,120 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_HELPEX: {
+        // 0x458318: HelpEX(I:Field*) -- what the creature that last called for
+        // help has in common with us, one field at a time.  Specifics is
+        // one-based and selects the field through a jump table at 0x45B1C4;
+        // anything outside 1..7 is FALSE.
+        //
+        // Every arm ends by WIPING that field of m_lHelp back to 0xFF, so the
+        // same field cannot answer twice for the same call.  Class is the odd
+        // one out: it is a class MASK, so the arm ANDs the two together and
+        // hands the result straight back instead of comparing them.
+        CAITrigger cause(trigger);
+        CGameSprite* pSprite = NULL;
+        ResolveTriggerSprite(cause, &pSprite);
+
+        if (pSprite == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = FALSE;
+        switch (cause.GetSpecifics()) {
+        case 1:
+            bHolds = pSprite->GetAIType().GetEnemyAlly() == m_lHelp.GetEnemyAlly();
+            m_lHelp.SetEnemyAlly(0xFF);
+            break;
+        case 2:
+            bHolds = pSprite->GetAIType().GetGeneral() == m_lHelp.GetGeneral();
+            m_lHelp.SetGeneral(0xFF);
+            break;
+        case 3:
+            bHolds = pSprite->GetAIType().GetRace() == m_lHelp.GetRace();
+            m_lHelp.SetRace(0xFF);
+            break;
+        case 4:
+            bHolds = pSprite->GetAIType().GetClass() & m_lHelp.GetClass();
+            m_lHelp.SetClass(0xFF);
+            break;
+        case 5:
+            bHolds = pSprite->GetAIType().GetSpecific() == m_lHelp.GetSpecific();
+            m_lHelp.SetSpecific(0xFF);
+            break;
+        case 6:
+            bHolds = pSprite->GetAIType().GetGender() == m_lHelp.GetGender();
+            m_lHelp.SetGender(0xFF);
+            break;
+        case 7:
+            bHolds = pSprite->GetAIType().GetAlignment() == m_lHelp.GetAlignment();
+            m_lHelp.SetAlignment(0xFF);
+            break;
+        default:
+            break;
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pSprite->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_ANYPCSEESENEMY: {
+        // 0x45A96F: holds when any party member can see an enemy.  Nothing of
+        // the trigger is read at all -- not the cause, not Specifics -- and
+        // nothing is decoded against THIS object: the search type is a bare
+        // "any enemy" built here, and it is re-Decoded with each party member
+        // as the caller so the enemy it resolves is that member's, not ours.
+        // CanSee is likewise asked of the MEMBER.
+        //
+        // The scan stops at the first member who sees one.  A member whose
+        // share cannot be taken is skipped, and the member id is read once per
+        // iteration and reused for the release.
+        CAIObjectType typeEnemy(CAIObjectType::EA_ENEMY, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+
+        BOOL bHolds = FALSE;
+        for (LONG nPortrait = 0;
+             nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+             nPortrait++) {
+            LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetCharacterId(
+                static_cast<SHORT>(nPortrait));
+
+            CGameSprite* pSprite;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nCharacterId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            typeEnemy.Decode(pSprite);
+
+            CGameObject* pEnemy = typeEnemy.GetObjectWithType(pSprite, CGameObject::TYPE_SPRITE, FALSE);
+            if (pEnemy != NULL) {
+                bHolds = pSprite->CanSee(pEnemy, FALSE);
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pEnemy->GetId(),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bHolds == TRUE) {
+                break;
+            }
+        }
+
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
