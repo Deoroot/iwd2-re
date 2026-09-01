@@ -4171,6 +4171,103 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_NUMCREATURESLTMYLEVEL:
+    case CAITRIGGER_NUMCREATURESATMYLEVEL:
+    case CAITRIGGER_NUMCREATURESGTMYLEVEL: {
+        // 0x459B45 -- ONE body, three opcodes.  The dispatch table sends all
+        // three here and the arm re-reads the trigger id at the end to pick
+        // its comparison (the binary loads the three ids from .rdata at
+        // 0x847EE2/4/6 through an accessor at 0x452B80, where this file reads
+        // the member directly).
+        //
+        // What gets compared depends on SPECIFICS, which is the surprise: with
+        // a zero it is the NUMBER of creatures found, and with anything else
+        // the sum of their LEVELS.  Either way the other side is the caller's
+        // own level, and an empty search answers FALSE before either is
+        // computed.
+        //
+        // Only a sprite standing in an area answers at all, and the search
+        // itself is the front-list walk Detect uses -- GetCloseObjects from
+        // our own vertical-list position when we are on the front list, and
+        // GetAllInRange from our position otherwise.
+        if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+            return FALSE;
+        }
+        if (m_pArea == NULL) {
+            return FALSE;
+        }
+
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CTypedPtrList<CPtrList, LONG*> targets;
+        if (GetVertListType() == CGameObject::LIST_FRONT) {
+            if (GetVertListPos() != NULL) {
+                m_pArea->GetCloseObjects(GetVertListPos(),
+                    GetPos(),
+                    cause.GetCause(),
+                    GetVisualRange(),
+                    GetVisibleTerrainTable(),
+                    targets,
+                    TRUE,
+                    FALSE);
+            }
+        } else {
+            m_pArea->GetAllInRange(GetPos(),
+                cause.GetCause(),
+                GetVisualRange(),
+                GetVisibleTerrainTable(),
+                targets,
+                TRUE,
+                FALSE);
+        }
+
+        LONG nTotal = targets.GetCount();
+        if (nTotal <= 0) {
+            return FALSE;
+        }
+
+        LONG nMyLevel = static_cast<CGameSprite*>(this)->GetLevel();
+
+        if (cause.GetSpecifics() != 0) {
+            nTotal = 0;
+
+            CGameSprite* pSprite = NULL;
+            POSITION pos = targets.GetHeadPosition();
+            while (pos != NULL) {
+                LONG nId = reinterpret_cast<LONG>(targets.GetNext(pos));
+
+                // No retry here: a busy creature is simply left out of the sum.
+                BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+                if (rc != CGameObjectArray::SUCCESS) {
+                    continue;
+                }
+
+                if (pSprite->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                    nTotal += pSprite->GetLevel();
+                }
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+            }
+        }
+
+        if (cause.m_triggerID == CAITRIGGER_NUMCREATURESLTMYLEVEL && nTotal < nMyLevel) {
+            return TRUE;
+        }
+        if (cause.m_triggerID == CAITRIGGER_NUMCREATURESATMYLEVEL && nTotal == nMyLevel) {
+            return TRUE;
+        }
+        if (cause.m_triggerID != CAITRIGGER_NUMCREATURESGTMYLEVEL) {
+            return FALSE;
+        }
+        return nTotal > nMyLevel;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
