@@ -3666,6 +3666,26 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return (pVar->GetIntValue() ^ nMask) != 0;
     }
 
+    case CAITRIGGER_NEARBYDIALOG: {
+        // 0x459A38: is there a creature close enough whose dialog file is the
+        // one named?  Specifics carries the range, and a range of ZERO means
+        // "anywhere in the area" -- the larger of the viewport's two area
+        // dimensions.  The binary reaches that through GetArea()->GetInfinity()
+        // a fresh time for each of the four reads, and it goes through
+        // GetArea() here while handing the search m_pArea directly.
+        LONG nRange = trigger.GetSpecifics();
+        if (nRange == 0) {
+            if (GetArea()->GetInfinity()->nAreaX > GetArea()->GetInfinity()->nAreaY) {
+                nRange = GetArea()->GetInfinity()->nAreaX;
+            } else {
+                nRange = GetArea()->GetInfinity()->nAreaY;
+            }
+        }
+
+        return m_pArea->GetNearestDialogMatch(m_id, CResRef(trigger.GetString1()), nRange)
+            != CGameObjectArray::INVALID_INDEX;
+    }
+
     case CAITRIGGER_CHECKAREADIFFLEVEL: {
         // 0x459AD7: the area's stored AVERAGE party level against the two
         // party levels the area was authored for.  Specifics picks the band --

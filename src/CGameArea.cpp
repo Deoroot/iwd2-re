@@ -928,6 +928,170 @@ LONG CGameArea::GetNearest(LONG startObject, const CAIObjectType& type, SHORT ra
     return nBestId;
 }
 
+// 0x46C460
+LONG CGameArea::GetNearestDialogMatch(LONG startObject, CResRef file, LONG range)
+{
+    LONG nBestDist = range * range + 1;
+    LONG nBestId = CGameObjectArray::INVALID_INDEX;
+
+    // NOTE: Built and filled in, but never read afterwards.
+    CAIObjectType callerType(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+
+    CGameSprite* pObject;
+    if (m_pGame->GetObjectArray()->GetShare(startObject,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pObject),
+            INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        return CGameObjectArray::INVALID_INDEX;
+    }
+
+    callerType.Set(pObject->GetAIType());
+
+    BOOL bOnFrontList = pObject->GetVertListType() == CGameObject::LIST_FRONT;
+
+    CPoint posStart = pObject->GetPos();
+    LONG nStartX = posStart.x;
+    LONG nStartYPersp = (posStart.y * 4) / 3;
+
+    POSITION posVert = pObject->GetVertListPos();
+
+    m_pGame->GetObjectArray()->ReleaseShare(startObject, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+    POSITION posBack;
+    POSITION posFwd;
+    if (bOnFrontList) {
+        posBack = posVert;
+        m_lVertSort.GetPrev(posBack);
+        posFwd = posVert;
+        m_lVertSort.GetNext(posFwd);
+    } else {
+        posFwd = m_lVertSort.GetHeadPosition();
+        posBack = NULL;
+    }
+
+    // The front vert list is y-sorted, so scanning outwards from the searcher's
+    // own node lets each direction stop as soon as its perspective-y distance
+    // alone reaches the best squared distance. One node backward, then one
+    // node forward, until both directions are spent.
+    while (posBack != NULL || posFwd != NULL) {
+        if (posBack != NULL) {
+            LONG nCandidateId = reinterpret_cast<LONG>(m_lVertSort.GetPrev(posBack));
+
+            if (m_pGame->GetObjectArray()->GetShare(nCandidateId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pObject),
+                    INFINITE)
+                != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            if (pObject->GetObjectType() != CGameObject::TYPE_SPRITE) {
+                m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                continue;
+            }
+
+            if (pObject->m_active
+                && pObject->m_activeAI
+                && pObject->m_activeImprisonment
+                && pObject->GetVertListPos() != NULL) {
+                CPoint posCand = pObject->GetPos();
+                LONG dy = nStartYPersp - (posCand.y * 4) / 3;
+                LONG nDistSq = dy * dy;
+                if (nDistSq < nBestDist) {
+                    if (pObject->m_dialog == file || pObject->field_56E4 == file) {
+                        nDistSq += (nStartX - posCand.x) * (nStartX - posCand.x);
+                        if (nDistSq < nBestDist) {
+                            nBestDist = nDistSq;
+                            nBestId = nCandidateId;
+                        }
+                    }
+                } else {
+                    posBack = NULL;
+                }
+            }
+
+            m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+
+        if (posFwd != NULL) {
+            LONG nCandidateId = reinterpret_cast<LONG>(m_lVertSort.GetNext(posFwd));
+
+            if (m_pGame->GetObjectArray()->GetShare(nCandidateId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pObject),
+                    INFINITE)
+                != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                if (pObject->m_active
+                    && pObject->m_activeAI
+                    && pObject->m_activeImprisonment
+                    && pObject->GetVertListPos() != NULL) {
+                    CPoint posCand = pObject->GetPos();
+                    LONG dy = nStartYPersp - (posCand.y * 4) / 3;
+                    LONG nDistSq = dy * dy;
+                    if (nDistSq < nBestDist) {
+                        if (pObject->m_dialog == file || pObject->field_56E4 == file) {
+                            nDistSq += (nStartX - posCand.x) * (nStartX - posCand.x);
+                            if (nDistSq < nBestDist) {
+                                nBestDist = nDistSq;
+                                nBestId = nCandidateId;
+                            }
+                        }
+                    } else {
+                        posFwd = NULL;
+                    }
+                }
+            }
+
+            m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+
+    // The back list is walked from its head, and it does not test
+    // `m_activeImprisonment` or order its tests the way the front list does.
+    POSITION pos = m_lVertSortBack.GetHeadPosition();
+    while (pos != NULL) {
+        LONG nCandidateId = reinterpret_cast<LONG>(m_lVertSortBack.GetNext(pos));
+
+        if (m_pGame->GetObjectArray()->GetShare(nCandidateId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pObject),
+                INFINITE)
+            != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            if (pObject->GetVertListPos() != NULL) {
+                CPoint posCand = pObject->GetPos();
+                LONG dy = nStartYPersp - (posCand.y * 4) / 3;
+                LONG nDistSq = dy * dy;
+                if (nDistSq < nBestDist) {
+                    if (pObject->m_active && pObject->m_activeAI) {
+                        if (pObject->m_dialog == file || pObject->field_56E4 == file) {
+                            nDistSq += (nStartX - posCand.x) * (nStartX - posCand.x);
+                            if (nDistSq < nBestDist) {
+                                nBestDist = nDistSq;
+                                nBestId = nCandidateId;
+                            }
+                        }
+                    }
+                } else {
+                    pos = NULL;
+                }
+            }
+        }
+
+        m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    return nBestId;
+}
+
 // 0x46CD20
 void CGameArea::GetCloseObjects(POSITION posStart, const CPoint& center, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOL lineOfSight, BOOL checkForNonSprites)
 {
