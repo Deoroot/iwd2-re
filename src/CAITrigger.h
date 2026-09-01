@@ -148,6 +148,12 @@
 #define CAITRIGGER_AREATYPE 0x4086
 
 #define CAITRIGGER_OR 0x4089
+
+// 0x4090 has no TRIGGER.IDS name either -- the label below is DESCRIPTIVE,
+// taken from what the body at 0x457438 does: it asks whether the FIXED-ORDER
+// party slot named in Specifics holds a living member.
+#define CAITRIGGER_INPARTYSLOT 0x4090
+
 #define CAITRIGGER_LEVEL 0x4094
 #define CAITRIGGER_LEVELGT 0x4095
 #define CAITRIGGER_LEVELLT 0x4096

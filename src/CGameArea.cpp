@@ -2997,14 +2997,14 @@ void CGameArea::Unmarshal(BYTE* pArea, LONG areaSize, const CString& sName, BOOL
     CVariable creatureName;
     BYTE creatureDifficultyStage;
     LONG nAveragePartyLevel = m_pGame->GetAveragePartyLevel();
-    BYTE nMinimumPartyLevel = static_cast<BYTE>(m_header.field_4C & 0xFF);
-    BYTE nMaximumPartyLevel = static_cast<BYTE>((m_header.field_4C >> 8) & 0xFF);
+    BYTE nMinimumPartyLevel = m_header.m_nMinimumPartyLevel;
+    BYTE nMaximumPartyLevel = m_header.m_nMaximumPartyLevel;
     if (nAveragePartyLevel < nMaximumPartyLevel) {
         creatureDifficultyStage = static_cast<BYTE>((nMinimumPartyLevel <= nAveragePartyLevel) + 1);
     } else {
         creatureDifficultyStage = 3;
     }
-    m_header.field_4C = (m_header.field_4C & 0xFF00FFFF) | ((nAveragePartyLevel & 0xFF) << 16);
+    m_header.m_nAveragePartyLevel = static_cast<BYTE>(nAveragePartyLevel);
 
     BYTE creatureDifficultyMask;
     if (creatureDifficultyStage < 3) {

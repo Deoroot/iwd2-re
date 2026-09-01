@@ -47,11 +47,27 @@ public:
     WORD m_fogProbability;
     WORD m_lightningProbability;
     WORD m_windSpeed;
-    DWORD field_4C;
+    // The engine reads the first three of these as separate BYTEs, never as a
+    // dword: byte loads at 0x4734BD/0x4734D8 and a byte store at 0x4735EE in
+    // CGameArea::Unmarshal, and three more byte loads at 0x459B09 in
+    // CheckAreaDiffLevel.  The first two are the ascending party levels the
+    // area was authored for; the third is the party's average level, stamped
+    // into the header every time the area is unmarshalled.
+    BYTE m_nMinimumPartyLevel;
+    BYTE m_nMaximumPartyLevel;
+    BYTE m_nAveragePartyLevel;
+    BYTE field_4F;
     DWORD field_50;
     DWORD field_54;
     DWORD field_58;
 };
+
+static_assert(offsetof(CAreaFileHeader, m_nMinimumPartyLevel) == 0x4C,
+    "splitting field_4C must not move the party-level bytes");
+static_assert(offsetof(CAreaFileHeader, m_nAveragePartyLevel) == 0x4E,
+    "splitting field_4C must not move the party-level bytes");
+static_assert(sizeof(CAreaFileHeader) == 0x5C,
+    "CAreaFileHeader must match the on-disk area header");
 
 class CAreaSoundsAndMusic {
 public:

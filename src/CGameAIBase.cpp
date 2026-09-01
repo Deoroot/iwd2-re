@@ -3666,6 +3666,113 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return (pVar->GetIntValue() ^ nMask) != 0;
     }
 
+    case CAITRIGGER_CHECKAREADIFFLEVEL: {
+        // 0x459AD7: the area's stored AVERAGE party level against the two
+        // party levels the area was authored for.  Specifics picks the band --
+        // 1 under the minimum, 2 between the two, 3 at or over the maximum --
+        // and anything outside 1..3 answers FALSE.  What it reads is a
+        // SNAPSHOT: CGameArea::Unmarshal (0x4735EE) stamps the average into
+        // the header when the area loads, so a party that has levelled since
+        // then still reads at the old value.
+        //
+        // The three tests are written out the way the binary orders them
+        // rather than as a clean three-way chain, because with a header whose
+        // maximum sits below its minimum the two differ.
+        if (m_pArea == NULL) {
+            return FALSE;
+        }
+
+        LONG nBand = trigger.GetSpecifics();
+        if (nBand < 1 || nBand > 3) {
+            return FALSE;
+        }
+
+        CAreaFileHeader* pHeader = m_pArea->GetHeader();
+        BYTE nAverage = pHeader->m_nAveragePartyLevel;
+        BYTE nMinimum = pHeader->m_nMinimumPartyLevel;
+        BYTE nMaximum = pHeader->m_nMaximumPartyLevel;
+
+        BOOL bHolds = FALSE;
+        if (nAverage < nMinimum && nBand == 1) {
+            bHolds = TRUE;
+        }
+
+        if (nAverage < nMaximum) {
+            if (nAverage >= nMinimum && nBand == 2) {
+                bHolds = TRUE;
+            }
+            return bHolds;
+        }
+
+        if (nBand != 3) {
+            return bHolds;
+        }
+        return TRUE;
+    }
+
+    case CAITRIGGER_INPARTYSLOT: {
+        // 0x457438: no TRIGGER.IDS name, so the label is descriptive.  It asks
+        // whether the FIXED-ORDER party slot named in Specifics holds a living
+        // member, and which way round it looks depends on the cause:
+        //
+        //  - with an INSTANCE it looks that object's own fixed-order slot up
+        //    and compares it to Specifics.  Nothing is asked of the share
+        //    afterwards, exactly as InParty's named branch does;
+        //  - without one it pulls whoever sits in that slot and matches them
+        //    against the cause BY TYPE, and that share IS checked.
+        //
+        // Unlike IsPlayerNumber (0x455E5D), which reads the same fixed-order
+        // array, the slot is used RAW here: no one-based adjustment and no
+        // 1..6 range check.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        if (cause.GetCause().GetInstance() != -1) {
+            if (g_pBaldurChitin->GetObjectGame()->GetFixedOrderCharacterPortraitNum(
+                    cause.GetCause().GetInstance())
+                != cause.GetSpecifics()) {
+                return FALSE;
+            }
+
+            CGameSprite* pSprite;
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+                cause.GetCause().GetInstance(),
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+
+            BOOL bAlive = (pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0;
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                cause.GetCause().GetInstance(),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            return bAlive;
+        }
+
+        LONG nSlot = cause.GetSpecifics();
+
+        CGameSprite* pSprite;
+        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+            g_pBaldurChitin->GetObjectGame()->GetFixedOrderCharacterId(static_cast<SHORT>(nSlot)),
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            return FALSE;
+        }
+
+        BOOL bMatch = pSprite->GetAIType().OfType(cause.GetCause(), FALSE, FALSE)
+            && (pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0;
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            g_pBaldurChitin->GetObjectGame()->GetFixedOrderCharacterId(static_cast<SHORT>(nSlot)),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bMatch;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
