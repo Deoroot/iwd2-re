@@ -3324,6 +3324,182 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bHolds;
     }
 
+    case CAITRIGGER_ISOVERME: {
+        // 0x456C17: IsOverMe(O:Object*) -- a trigger REGION asking whether the
+        // object stands inside it.  Any other object type answers FALSE before
+        // the cause is even decoded, which is what makes the cast to
+        // CGameTrigger below safe: slot 0xB8 is IsOverActivate only there.
+        //
+        // The object is found the same two ways Detect finds one, but the
+        // remembered type is m_lTrigger rather than m_lSeen and the posted
+        // message carries NO trigger id at all.
+        if (GetObjectType() != CGameObject::TYPE_TRIGGER) {
+            return FALSE;
+        }
+
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        if (cause.GetCause().GetInstance() == -1) {
+            LONG nObjectId;
+            if (GetVertListType() == CGameObject::LIST_FRONT) {
+                nObjectId = m_pArea->GetNearest(m_id, cause.GetCause(), GetVisualRange(),
+                    GetVisibleTerrainTable(), TRUE, TRUE, FALSE, 0, FALSE);
+            } else {
+                nObjectId = m_pArea->FindObjectNear(m_pos.x, m_pos.y, cause.GetCause(),
+                    GetVisualRange(), GetVisibleTerrainTable(), TRUE, TRUE, FALSE, FALSE);
+            }
+
+            if (nObjectId == CGameObjectArray::INVALID_INDEX) {
+                return FALSE;
+            }
+
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nObjectId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                return FALSE;
+            }
+
+            BOOL bHolds = static_cast<CGameTrigger*>(this)->IsOverActivate(pObject->GetPos());
+            if (bHolds) {
+                m_lTrigger.Set(pObject->GetAIType());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageSetLastObject(pObject->GetAIType(), CAITRIGGER_NO_TRIGGER, m_id, m_id),
+                    FALSE);
+            }
+
+            // Released by the SEARCH id, not by pObject->GetId().
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nObjectId,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+            return bHolds;
+        }
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        BOOL bHolds = static_cast<CGameTrigger*>(this)->IsOverActivate(pObject->GetPos());
+        if (bHolds) {
+            m_lTrigger.Set(pObject->GetAIType());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageSetLastObject(pObject->GetAIType(), CAITRIGGER_NO_TRIGGER, m_id, m_id),
+                FALSE);
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_INPARTY: {
+        // 0x4561CD: InParty(O:Object*) -- holds when the object is a LIVING
+        // party member.  Three searches, tried in this order:
+        //
+        //  - a cause naming an INSTANCE is looked up by portrait, and if it
+        //    has one the answer is settled there and then -- alive TRUE, dead
+        //    FALSE.  A named object with no portrait falls through;
+        //  - otherwise every portrait slot is matched by type;
+        //  - either miss ends in the character OVERFLOW list, the ids parked
+        //    outside the portraits.
+        //
+        // Neither share here retries a busy object -- anything but SUCCESS is
+        // skipped -- and the named branch does not even LOOK at the share's
+        // return code.  The cause's instance is re-decoded at every use; only
+        // the overflow array reference is cached.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        if (cause.GetCause().GetInstance() != -1) {
+            if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(
+                    cause.GetCause().GetInstance())
+                != -1) {
+                CGameSprite* pSprite;
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+                    cause.GetCause().GetInstance(),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+
+                BOOL bAlive = (pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0;
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    cause.GetCause().GetInstance(),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+                return bAlive;
+            }
+        } else {
+            for (LONG nPortrait = 0;
+                 nPortrait < g_pBaldurChitin->GetObjectGame()->GetNumCharacters();
+                 nPortrait++) {
+                CGameSprite* pSprite;
+                BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+                    g_pBaldurChitin->GetObjectGame()->GetCharacterId(
+                        static_cast<SHORT>(nPortrait)),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    reinterpret_cast<CGameObject**>(&pSprite),
+                    INFINITE);
+
+                if (rc != CGameObjectArray::SUCCESS) {
+                    continue;
+                }
+
+                BOOL bMatch = pSprite->GetAIType().OfType(cause.GetCause(), FALSE, FALSE)
+                    && (pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0;
+
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    g_pBaldurChitin->GetObjectGame()->GetCharacterId(
+                        static_cast<SHORT>(nPortrait)),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+
+                if (bMatch) {
+                    return TRUE;
+                }
+            }
+        }
+
+        CTypedPtrArray<CPtrArray, int*>& overflow =
+            g_pBaldurChitin->GetObjectGame()->GetCharacterOverflow();
+
+        for (LONG nOverflow = 0; nOverflow < overflow.GetSize(); nOverflow++) {
+            CGameSprite* pSprite;
+            BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
+                reinterpret_cast<LONG>(overflow[nOverflow]),
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            BOOL bMatch = pSprite->GetAIType().OfType(cause.GetCause(), FALSE, FALSE)
+                && (pSprite->GetDerivedStats()->m_generalState & STATE_DEAD) == 0;
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                reinterpret_cast<LONG>(overflow[nOverflow]),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+
+            if (bMatch) {
+                return TRUE;
+            }
+        }
+
+        return FALSE;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
