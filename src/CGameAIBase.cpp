@@ -259,42 +259,105 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
     case CAITRIGGER_HASINNATEABILITY:
         return FALSE;
 
-    case CAITRIGGER_GLOBAL:
-    case CAITRIGGER_GLOBALGT:
-    case CAITRIGGER_GLOBALLT: {
-        CString sScope;
-        CString sName;
-        SplitScriptVariableName(trigger.GetString1(), sScope, sName);
-        LONG nTriggerValue = trigger.GetSpecifics();
-        CVariableHash* pHash = NULL;
+    // The three Global comparisons are three separate bodies in the binary
+    // (0x453CE8, 0x453EF9, 0x45411E) and not one body with the comparator
+    // chosen at the end: each carries its own copy of the scope walk, exactly
+    // as the four GlobalTimer arms below do. They differ in nothing but the
+    // comparison, so the triplication is kept rather than folded.
+    case CAITRIGGER_GLOBAL: {
+        CString sCombined = trigger.GetString1();
+        sCombined.MakeUpper();
+        CString sScope = sCombined.Left(6);
+        CString sName = sCombined.Right(sCombined.GetLength() - 6);
 
-        if (sScope == CString("GLOBAL")) {
+        CVariableHash* pHash;
+        if (sScope == "GLOBAL") {
             pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
-        } else if (sScope == CString("LOCALS")) {
-            if ((GetObjectType() & CGameObject::TYPE_SPRITE) != 0) {
-                pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else if (sScope == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
             }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
         } else {
-            CString sAreaName = sScope;
-            if (sScope == CString("MYAREA") && m_pArea != NULL) {
-                sAreaName = CResRef(reinterpret_cast<BYTE*>(m_pArea->m_header.m_areaName)).GetResRefStr();
+            // Nothing null-checks m_pArea: GetHeader is an identity thunk and
+            // CString::operator=(LPCTSTR) turns the null into an empty scope,
+            // which GetArea then fails to find.
+            if (sScope == "MYAREA") {
+                sScope = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
             }
-            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sAreaName);
-            if (pArea != NULL) {
-                pHash = pArea->GetVariables();
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sScope);
+            if (pArea == NULL) {
+                return FALSE;
             }
+            pHash = pArea->GetVariables();
         }
 
-        CVariable* pVar = pHash != NULL ? pHash->FindKey(sName) : NULL;
-        LONG nValue = pVar != NULL ? pVar->m_intValue : 0;
+        CVariable* pVar = pHash->FindKey(sName);
+        LONG nValue = pVar != NULL ? pVar->GetIntValue() : 0;
+        return nValue == trigger.GetSpecifics();
+    }
 
-        if (trigger.m_triggerID == CAITRIGGER_GLOBAL) {
-            return nValue == nTriggerValue;
+    case CAITRIGGER_GLOBALGT: {
+        CString sCombined = trigger.GetString1();
+        sCombined.MakeUpper();
+        CString sScope = sCombined.Left(6);
+        CString sName = sCombined.Right(sCombined.GetLength() - 6);
+
+        CVariableHash* pHash;
+        if (sScope == "GLOBAL") {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sScope == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
+            }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else {
+            if (sScope == "MYAREA") {
+                sScope = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sScope);
+            if (pArea == NULL) {
+                return FALSE;
+            }
+            pHash = pArea->GetVariables();
         }
-        if (trigger.m_triggerID == CAITRIGGER_GLOBALGT) {
-            return nValue > nTriggerValue;
+
+        CVariable* pVar = pHash->FindKey(sName);
+        LONG nValue = pVar != NULL ? pVar->GetIntValue() : 0;
+        return nValue > trigger.GetSpecifics();
+    }
+
+    case CAITRIGGER_GLOBALLT: {
+        CString sCombined = trigger.GetString1();
+        sCombined.MakeUpper();
+        CString sScope = sCombined.Left(6);
+        CString sName = sCombined.Right(sCombined.GetLength() - 6);
+
+        CVariableHash* pHash;
+        if (sScope == "GLOBAL") {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sScope == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
+            }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else {
+            if (sScope == "MYAREA") {
+                sScope = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sScope);
+            if (pArea == NULL) {
+                return FALSE;
+            }
+            pHash = pArea->GetVariables();
         }
-        return nValue < nTriggerValue;
+
+        CVariable* pVar = pHash->FindKey(sName);
+        LONG nValue = pVar != NULL ? pVar->GetIntValue() : 0;
+        return nValue < trigger.GetSpecifics();
     }
 
     case CAITRIGGER_ENTIREPARTYONMAP: {
