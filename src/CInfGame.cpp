@@ -8325,6 +8325,276 @@ void CInfGame::ChangeReputation(SHORT eventCode)
     ReputationAdjustment(static_cast<SHORT>(repMod), FALSE);
 }
 
+// The classes GetCharacterCriteria breaks a level tie on: mask 0xD1.
+static const DWORD CRITERIA_WARRIOR_CLASSES =
+    CLASSMASK_BARBARIAN | CLASSMASK_FIGHTER | CLASSMASK_PALADIN | CLASSMASK_RANGER;
+
+// 0x5BDFE0
+LONG CInfGame::GetCharacterCriteria(SHORT criteria)
+{
+    // Seven arms behind one jump table at 0x5BE820, all of them the same walk
+    // over the portrait-ordered party: share a member, skip it if it is dead,
+    // score it, keep the best id.  A share that never succeeds is skipped
+    // without a release, and the id is re-derived through GetCharacterId at
+    // every use rather than held in a local.
+    LONG nBestId = CGameObjectArray::INVALID_INDEX;
+    DWORD nBestWarriorLevel = 0;
+
+    switch (criteria) {
+    case CINFGAME_CRITERIA_WEAKEST: {
+        SHORT nBestLevel = 0x7FFF;
+        for (SHORT slot = 0; slot < m_nCharacters; slot++) {
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(GetCharacterId(slot),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            CGameSprite* sprite = static_cast<CGameSprite*>(pObject);
+            if ((sprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+                SHORT nLevel = sprite->m_derivedStats.m_nLevel;
+                if (nLevel < nBestLevel) {
+                    nBestId = GetCharacterId(slot);
+                    nBestLevel = nLevel;
+                    nBestWarriorLevel = sprite->m_derivedStats.GetClassMaskLevel(CRITERIA_WARRIOR_CLASSES);
+                } else if (nLevel == nBestLevel) {
+                    // Ties go to the character with the fewest warrior levels.
+                    DWORD nWarriorLevel = sprite->m_derivedStats.GetClassMaskLevel(CRITERIA_WARRIOR_CLASSES);
+                    if (nWarriorLevel < nBestWarriorLevel) {
+                        nBestId = GetCharacterId(slot);
+                        nBestLevel = sprite->m_derivedStats.m_nLevel;
+                        nBestWarriorLevel = nWarriorLevel;
+                    }
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(GetCharacterId(slot),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        break;
+    }
+
+    case CINFGAME_CRITERIA_STRONGEST: {
+        SHORT nBestLevel = 0;
+        for (SHORT slot = 0; slot < m_nCharacters; slot++) {
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(GetCharacterId(slot),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            CGameSprite* sprite = static_cast<CGameSprite*>(pObject);
+            if ((sprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+                SHORT nLevel = sprite->m_derivedStats.m_nLevel;
+                if (nLevel > nBestLevel) {
+                    nBestId = GetCharacterId(slot);
+                    nBestLevel = nLevel;
+                    nBestWarriorLevel = sprite->m_derivedStats.GetClassMaskLevel(CRITERIA_WARRIOR_CLASSES);
+                } else if (nLevel == nBestLevel) {
+                    DWORD nWarriorLevel = sprite->m_derivedStats.GetClassMaskLevel(CRITERIA_WARRIOR_CLASSES);
+                    if (nWarriorLevel > nBestWarriorLevel) {
+                        nBestId = GetCharacterId(slot);
+                        nBestLevel = sprite->m_derivedStats.m_nLevel;
+                        nBestWarriorLevel = nWarriorLevel;
+                    }
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(GetCharacterId(slot),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        break;
+    }
+
+    case CINFGAME_CRITERIA_STRONGEST_MALE: {
+        SHORT nBestLevel = 0;
+        for (SHORT slot = 0; slot < m_nCharacters; slot++) {
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(GetCharacterId(slot),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            CGameSprite* sprite = static_cast<CGameSprite*>(pObject);
+            if ((sprite->m_derivedStats.m_generalState & STATE_DEAD) == 0
+                && sprite->GetAIType().m_nGender == CAIObjectType::SEX_MALE) {
+                SHORT nLevel = sprite->m_derivedStats.m_nLevel;
+                if (nLevel > nBestLevel) {
+                    nBestId = GetCharacterId(slot);
+                    nBestLevel = nLevel;
+                    nBestWarriorLevel = sprite->m_derivedStats.GetClassMaskLevel(CRITERIA_WARRIOR_CLASSES);
+                } else if (nLevel == nBestLevel) {
+                    DWORD nWarriorLevel = sprite->m_derivedStats.GetClassMaskLevel(CRITERIA_WARRIOR_CLASSES);
+                    if (nWarriorLevel > nBestWarriorLevel) {
+                        nBestId = GetCharacterId(slot);
+                        nBestLevel = sprite->m_derivedStats.m_nLevel;
+                        nBestWarriorLevel = nWarriorLevel;
+                    }
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(GetCharacterId(slot),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        break;
+    }
+
+    case CINFGAME_CRITERIA_MOST_DAMAGED: {
+        // No warrior-level tie-break on the damage and armour arms.
+        SHORT nBestDamage = 0;
+        for (SHORT slot = 0; slot < m_nCharacters; slot++) {
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(GetCharacterId(slot),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            CGameSprite* sprite = static_cast<CGameSprite*>(pObject);
+            if ((sprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+                INT nDamage = sprite->m_derivedStats.m_nMaxHitPoints - sprite->m_baseStats.m_hitPoints;
+                if (nDamage > nBestDamage) {
+                    nBestId = GetCharacterId(slot);
+                    nBestDamage = static_cast<SHORT>(sprite->m_derivedStats.m_nMaxHitPoints - sprite->m_baseStats.m_hitPoints);
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(GetCharacterId(slot),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        break;
+    }
+
+    case CINFGAME_CRITERIA_LEAST_DAMAGED: {
+        SHORT nBestDamage = 0x7FFF;
+        for (SHORT slot = 0; slot < m_nCharacters; slot++) {
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(GetCharacterId(slot),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            CGameSprite* sprite = static_cast<CGameSprite*>(pObject);
+            if ((sprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+                INT nDamage = sprite->m_derivedStats.m_nMaxHitPoints - sprite->m_baseStats.m_hitPoints;
+                if (nDamage < nBestDamage) {
+                    nBestId = GetCharacterId(slot);
+                    nBestDamage = static_cast<SHORT>(sprite->m_derivedStats.m_nMaxHitPoints - sprite->m_baseStats.m_hitPoints);
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(GetCharacterId(slot),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        break;
+    }
+
+    case CINFGAME_CRITERIA_WORST_AC: {
+        // AC counts down, so the worst armour class is the highest number.
+        SHORT nBestAC = -20;
+        for (SHORT slot = 0; slot < m_nCharacters; slot++) {
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(GetCharacterId(slot),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            CGameSprite* sprite = static_cast<CGameSprite*>(pObject);
+            if ((sprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+                if (sprite->GetAC() > nBestAC) {
+                    nBestId = GetCharacterId(slot);
+                    nBestAC = static_cast<SHORT>(sprite->GetAC());
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(GetCharacterId(slot),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        break;
+    }
+
+    case CINFGAME_CRITERIA_BEST_AC: {
+        SHORT nBestAC = 20;
+        for (SHORT slot = 0; slot < m_nCharacters; slot++) {
+            CGameObject* pObject;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(GetCharacterId(slot),
+                    CGameObjectArray::THREAD_ASYNCH,
+                    &pObject,
+                    INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+            if (rc != CGameObjectArray::SUCCESS) {
+                continue;
+            }
+
+            CGameSprite* sprite = static_cast<CGameSprite*>(pObject);
+            if ((sprite->m_derivedStats.m_generalState & STATE_DEAD) == 0) {
+                if (sprite->GetAC() < nBestAC) {
+                    nBestId = GetCharacterId(slot);
+                    nBestAC = static_cast<SHORT>(sprite->GetAC());
+                }
+            }
+
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(GetCharacterId(slot),
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+        break;
+    }
+    }
+
+    return nBestId;
+}
+
 // 0x5BF4B0
 void CInfGame::AddDisposableItem(CItem* pItem)
 {

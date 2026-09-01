@@ -29,6 +29,16 @@
 // Seen in `CRuleTables::GetStartPoint` assertion.
 #define CINFGAME_MAXCHARACTERS 6
 
+// GetCharacterCriteria selectors; the seven arms of its jump table at
+// 0x5BE820, in table order.
+#define CINFGAME_CRITERIA_WEAKEST 1
+#define CINFGAME_CRITERIA_STRONGEST 2
+#define CINFGAME_CRITERIA_MOST_DAMAGED 3
+#define CINFGAME_CRITERIA_LEAST_DAMAGED 4
+#define CINFGAME_CRITERIA_STRONGEST_MALE 5
+#define CINFGAME_CRITERIA_WORST_AC 6
+#define CINFGAME_CRITERIA_BEST_AC 7
+
 // Seen in `CScreenOptions::OnKeyDown` assertion.
 #define CINFGAME_KEYMAP_SIZE 372
 
@@ -318,6 +328,7 @@ public:
     void SetCurrentChapter(INT nChapter);
     CInfButtonArray* GetButtonArray();
     LONG GetCharacterId(SHORT nPortrait);
+    LONG GetCharacterCriteria(SHORT criteria);
     CTimerWorld* GetWorldTimer();
     SHORT GetNumCharacters();
     CGameObjectArray* GetObjectArray();

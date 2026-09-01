@@ -100,6 +100,21 @@ LONG SearchArea(CGameAIBase* caller, const CAIObjectType& type, BOOL findFarthes
         includeAll);
 }
 
+// The shared body at 0x40C444 behind the seven party-criteria arms: seven
+// entry points that differ in nothing but the selector they push.
+BOOL ResolveCriteria(CAIObjectType& type, CGameAIBase* caller, CGameObject*& pObject, SHORT criteria)
+{
+    type.Set(CAIObjectType::ANYONE);
+
+    LONG nCriteriaId = g_pBaldurChitin->GetObjectGame()->GetCharacterCriteria(criteria);
+    type.SetInstance(nCriteriaId);
+    if (nCriteriaId == CGameObjectArray::INVALID_INDEX) {
+        return FALSE;
+    }
+
+    return ResolveType(type, caller, pObject, FALSE);
+}
+
 }
 
 // 0x847C34
@@ -1012,14 +1027,11 @@ void CAIObjectType::Set(const CAIObjectType& type)
 // 0x40B880
 void CAIObjectType::Decode(CGameAIBase* caller)
 {
-    // NOTE: fifteen of the thirty-two OBJECT.IDS arms are left unimplemented
-    // because they need a callee that is not recovered yet: WeakestOf, StrongestOf,
-    // MostDamagedOf, LeastDamagedOf, StrongestOfMale, WorstAC and BestAC all
-    // pick a party member through 0x5BDFE0, and Nearest,
+    // NOTE: nineteen of the thirty-two OBJECT.IDS arms have a body. Nearest,
     // SecondNearestEnemyOf..TenthNearestEnemyOf and
-    // SecondNearest..TenthNearest run an Nth-nearest search through
-    // 0x46BAD0 / 0x46DDC0. Those ids are listed explicitly below and left
-    // alone rather than guessed.
+    // SecondNearest..TenthNearest do not: they run an Nth-nearest search
+    // through 0x46BAD0 / 0x46DDC0, neither of which is recovered. Those ids
+    // are listed explicitly below and left alone rather than guessed.
 
     CGameObject* pObject = NULL;
     CAIObjectType type(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
@@ -1432,15 +1444,59 @@ void CAIObjectType::Decode(CGameAIBase* caller)
             Set(NOONE);
             return;
 
+        case 4: // WeakestOf
+            if (!ResolveCriteria(type, caller, pObject, CINFGAME_CRITERIA_WEAKEST)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 5: // StrongestOf
+            if (!ResolveCriteria(type, caller, pObject, CINFGAME_CRITERIA_STRONGEST)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 6: // MostDamagedOf
+            if (!ResolveCriteria(type, caller, pObject, CINFGAME_CRITERIA_MOST_DAMAGED)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 7: // LeastDamagedOf
+            if (!ResolveCriteria(type, caller, pObject, CINFGAME_CRITERIA_LEAST_DAMAGED)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 28: // StrongestOfMale
+            if (!ResolveCriteria(type, caller, pObject, CINFGAME_CRITERIA_STRONGEST_MALE)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 47: // WorstAC
+            if (!ResolveCriteria(type, caller, pObject, CINFGAME_CRITERIA_WORST_AC)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 48: // BestAC
+            if (!ResolveCriteria(type, caller, pObject, CINFGAME_CRITERIA_BEST_AC)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
         // Unrecovered, see the note at the top of the function. Listed so a
         // later session can see exactly which ids are outstanding instead of
         // finding them folded into the default arm.
-        case 4: // WeakestOf
-        case 5: // StrongestOf
-        case 6: // MostDamagedOf
-        case 7: // LeastDamagedOf
         case 14: // Nearest
-        case 28: // StrongestOfMale
         case 29: // SecondNearestEnemyOf
         case 30: // ThirdNearestEnemyOf
         case 31: // FourthNearestEnemyOf
@@ -1459,8 +1515,6 @@ void CAIObjectType::Decode(CGameAIBase* caller)
         case 44: // EighthNearest
         case 45: // NinthNearest
         case 46: // TenthNearest
-        case 47: // WorstAC
-        case 48: // BestAC
             break;
 
         default:
