@@ -1,5 +1,7 @@
 #include "CGameAIBase.h"
 
+#include <math.h>
+
 #include "C2DArray.h"
 #include "CAIConditionResponse.h"
 #include "CAIResponse.h"
@@ -64,6 +66,12 @@ const CString CGameAIBase::DEAD_GLOBAL_PREFIX("_DEAD");
 
 // 0x8D1810
 CAIAction CGameAIBase::m_aiAction;
+
+// 0x45B300
+static int GetDistanceSquared(int x1, int y1, int x2, int y2)
+{
+    return (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+}
 
 static void SplitScriptVariableName(const CString& sCombined, CString& sScope, CString& sName)
 {
@@ -3860,6 +3868,78 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
         return bMatch;
+    }
+
+    case CAITRIGGER_OBJECTINLINE: {
+        // 0x4576DD: no TRIGGER.IDS name, so the label is DESCRIPTIVE.  It asks
+        // whether the object the CAUSE names stands on the line from here to
+        // the object String1 names -- no farther off than that object, no
+        // farther from it than it is from here, and within a narrow angle
+        // measured at this creature with the law of cosines.
+        //
+        // The angle test is where the original slipped.  The radians-to-degrees
+        // conversion is written `angle * 360 / 2 * PI`; with no parentheses
+        // round the `2 * PI` that evaluates as `angle * 180 * PI`, not
+        // `angle * 180 / PI`.  So the 30 it is compared against is not 30
+        // degrees -- the cone the test really admits is about three degrees
+        // wide.  Reproduced exactly as the binary computes it, down to the
+        // truncated 3.1415926535 the binary stores at 0x847B70.
+        //
+        // The three lengths are squared, gated while still squared, and only
+        // then square-rooted -- and the law of cosines squares them straight
+        // back up again.  The binary really does that round trip.
+        CAITrigger cause(trigger);
+
+        CPoint posCause;
+        CPoint posNamed;
+
+        CAIObjectType type(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+        type.SetName(cause.GetString1());
+
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        posCause = pObject->GetPos();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        type.Decode(this);
+
+        pObject = type.GetObject(this, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        posNamed = pObject->GetPos();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        double dDistToCause = GetDistanceSquared(m_pos.x, m_pos.y, posCause.x, posCause.y);
+        double dDistToNamed = GetDistanceSquared(m_pos.x, m_pos.y, posNamed.x, posNamed.y);
+        double dDistBetween = GetDistanceSquared(posCause.x, posCause.y, posNamed.x, posNamed.y);
+
+        if (dDistToCause > dDistToNamed) {
+            return FALSE;
+        }
+        if (dDistBetween > dDistToNamed) {
+            return FALSE;
+        }
+
+        dDistToCause = sqrt(dDistToCause);
+        dDistToNamed = sqrt(dDistToNamed);
+        dDistBetween = sqrt(dDistBetween);
+
+        double dAngle = acos((dDistToNamed * dDistToNamed + dDistToCause * dDistToCause
+                                 - dDistBetween * dDistBetween)
+            / (dDistToNamed * dDistToCause * 2));
+
+        return dAngle * 360 / 2 * 3.1415926535 < 30;
     }
 
     case CAITRIGGER_TOTALITEMCNT: {

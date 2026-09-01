@@ -154,6 +154,12 @@
 // party slot named in Specifics holds a living member.
 #define CAITRIGGER_INPARTYSLOT 0x4090
 
+
+// 0x4092 has no TRIGGER.IDS name either -- the label below is DESCRIPTIVE,
+// taken from what the body at 0x4576DD does: it asks whether the cause's
+// object stands on the line from this creature to the object String1 names.
+#define CAITRIGGER_OBJECTINLINE 0x4092
+
 #define CAITRIGGER_LEVEL 0x4094
 #define CAITRIGGER_LEVELGT 0x4095
 #define CAITRIGGER_LEVELLT 0x4096
