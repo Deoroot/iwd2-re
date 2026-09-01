@@ -3500,6 +3500,172 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return FALSE;
     }
 
+    case CAITRIGGER_BITGLOBAL: {
+        // 0x457B5A: BitGlobal(S:Name*,I:Value*,I:Mode*) -- a bit test on a
+        // script variable, and it splits the variable name a THIRD way.  Not
+        // SplitScriptVariableName's fixed six characters, and not the timer
+        // family's separate String2: String1 is upper-cased whole and cut at
+        // the first COLON.
+        //
+        // The mode gate is a HARD gate.  Anything but mode 1 answers FALSE at
+        // the very first test, so the OR and XOR arms below cannot be reached
+        // -- they are written out because the binary really does test for
+        // them, in that order, once mode 1's AND has already failed.
+        CString sVariable = trigger.GetString1();
+        sVariable.MakeUpper();
+
+        int nColon = sVariable.Find(":");
+        CString sScope = sVariable.Left(nColon);
+        CString sName = sVariable.Right(sVariable.GetLength() - nColon - 1);
+
+        CVariableHash* pHash;
+        if (sScope == "GLOBAL") {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sScope == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
+            }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else {
+            // Like the timer family, and unlike the Global family, nothing
+            // null-checks m_pArea before MYAREA reads its header.
+            if (sScope == "MYAREA") {
+                sScope = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sScope);
+            if (pArea == NULL) {
+                return FALSE;
+            }
+            pHash = pArea->GetVariables();
+        }
+
+        CVariable* pVar = pHash->FindKey(sName);
+        if (pVar == NULL) {
+            // A missing variable reads as zero, so it holds only when the
+            // trigger asks for no bits at all.
+            return trigger.GetSpecifics() == 0;
+        }
+
+        if (trigger.GetInt1() != 1) {
+            return FALSE;
+        }
+        if ((pVar->GetIntValue() & trigger.GetSpecifics()) != 0) {
+            return TRUE;
+        }
+        if (trigger.GetInt1() != 2) {
+            return FALSE;
+        }
+        if ((pVar->GetIntValue() | trigger.GetSpecifics()) != 0) {
+            return TRUE;
+        }
+        if (trigger.GetInt1() != 3) {
+            return FALSE;
+        }
+        return (pVar->GetIntValue() ^ trigger.GetSpecifics()) != 0;
+    }
+
+    case CAITRIGGER_GLOBALBITGLOBAL: {
+        // 0x457DC5: GlobalBitGlobal(S:Name1*,S:Name2*,I:Mode*) -- BitGlobal
+        // with the mask read out of a SECOND script variable instead of an
+        // immediate.  Two differences from BitGlobal beyond that, and neither
+        // is visible in the shape: the mode arrives in SPECIFICS here rather
+        // than Int1, and a String2 that resolves to nothing is not an error at
+        // all -- the mask simply stays zero, whether the scope names no hash,
+        // the caller is no sprite, or the variable does not exist.
+        //
+        // String1 is what can still fail: no hash answers FALSE outright, and
+        // no variable answers "the mode is zero", exactly as BitGlobal does.
+        // The mode gate is the same hard gate -- anything but 1 fails at the
+        // first test.
+        CString sVariable = trigger.GetString1();
+        sVariable.MakeUpper();
+
+        int nColon = sVariable.Find(":");
+        CString sScope1 = sVariable.Left(nColon);
+        CString sName1 = sVariable.Right(sVariable.GetLength() - nColon - 1);
+
+        CString sScope2;
+        CString sName2;
+        LONG nMask = 0;
+
+        sVariable = trigger.GetString2();
+        sVariable.MakeUpper();
+
+        nColon = sVariable.Find(":");
+        sScope2 = sVariable.Left(nColon);
+        sName2 = sVariable.Right(sVariable.GetLength() - nColon - 1);
+
+        if (sScope2 == "GLOBAL") {
+            CVariable* pMask = g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(sName2);
+            if (pMask != NULL) {
+                nMask = pMask->GetIntValue();
+            }
+        } else if (sScope2 == "LOCALS") {
+            if (GetObjectType() == CGameObject::TYPE_SPRITE) {
+                CVariable* pMask =
+                    static_cast<CGameSprite*>(this)->GetLocalVariables()->FindKey(sName2);
+                if (pMask != NULL) {
+                    nMask = pMask->GetIntValue();
+                }
+            }
+        } else {
+            if (sScope2 == "MYAREA") {
+                sScope2 = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sScope2);
+            if (pArea != NULL) {
+                CVariable* pMask = pArea->GetVariables()->FindKey(sName2);
+                if (pMask != NULL) {
+                    nMask = pMask->GetIntValue();
+                }
+            }
+        }
+
+        CVariableHash* pHash;
+        if (sScope1 == "GLOBAL") {
+            pHash = g_pBaldurChitin->GetObjectGame()->GetVariables();
+        } else if (sScope1 == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return FALSE;
+            }
+            pHash = static_cast<CGameSprite*>(this)->GetLocalVariables();
+        } else {
+            if (sScope1 == "MYAREA") {
+                sScope1 = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sScope1);
+            if (pArea == NULL) {
+                return FALSE;
+            }
+            pHash = pArea->GetVariables();
+        }
+
+        CVariable* pVar = pHash->FindKey(sName1);
+        if (pVar == NULL) {
+            return trigger.GetSpecifics() == 0;
+        }
+
+        if (trigger.GetSpecifics() != 1) {
+            return FALSE;
+        }
+        if ((nMask & pVar->GetIntValue()) != 0) {
+            return TRUE;
+        }
+        if (trigger.GetSpecifics() != 2) {
+            return FALSE;
+        }
+        if ((pVar->GetIntValue() | nMask) != 0) {
+            return TRUE;
+        }
+        if (trigger.GetSpecifics() != 3) {
+            return FALSE;
+        }
+        return (pVar->GetIntValue() ^ nMask) != 0;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
