@@ -167,6 +167,11 @@ public:
     /* 00B8 */ DWORD m_notUsed[11];
 };
 
+// GetNthNearest and FindNthObjectNear keep their running top-N in two stack
+// buffers this wide; the binary's frame holds exactly twelve entries each, so
+// an ordinal above eleven would run off the end of them.
+#define CGAMEAREA_NEAREST_SLOTS 12
+
 class CGameArea {
 public:
     CGameArea(BYTE id);
@@ -181,6 +186,7 @@ public:
     BOOL CheckWalkable(const CPoint& start, const CPoint& goal, const BYTE* terrainTable, BYTE personalSpace, BOOLEAN bCheckIfExplored);
     LONG GetGroundPile(const CPoint& ptPos);
     LONG GetNearest(LONG startObject, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, BOOL checkLOS, BOOL seeInvisible, BOOL ignoreSleeping, BYTE nNearest, BOOL ignoreDead);
+    LONG GetNthNearest(LONG startObject, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, BOOL checkLOS, BOOL seeInvisible, BOOL ignoreSleeping, BYTE nNearest, BOOL ignoreDead);
     LONG GetNearestDialogMatch(LONG startObject, CResRef file, LONG range);
     void GetAllInRange(const CPoint& center, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOL lineOfSight, BOOL checkForNonSprites);
     void GetCloseObjects(POSITION posStart, const CPoint& center, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOL lineOfSight, BOOL checkForNonSprites);
@@ -189,6 +195,7 @@ public:
     void GetAllInRangeBack(const CPoint& center, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOL lineOfSight, BOOL ignoreDead, BOOL checkForNonSprites);
     void GetAllInPoly(const CRect& rBounding, CPoint* pPoly, SHORT nPoly, const CAIObjectType& type, const BYTE* terrainTable, CTypedPtrList<CPtrList, LONG*>& targets, BOOLEAN checkBackList);
     LONG FindObjectNear(INT x, INT y, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, BOOL checkLOS, BOOL seeInvisible, BOOL findFarthest, BOOL includeAll);
+    LONG FindNthObjectNear(INT x, INT y, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, BOOL checkLOS, BOOL seeInvisible, BYTE nNearest, BOOL includeAll);
     void ApplyEffect(CGameEffect* pEffect, BOOL bOnlyPC, BOOL bFilterByAlignment, BYTE alignSpecific, CGameObject* pExclude);
     BOOLEAN CanSaveGame(STRREF& strError);
     void AIUpdate();
