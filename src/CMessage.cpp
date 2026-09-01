@@ -1,5 +1,7 @@
 ﻿#include "CMessage.h"
 
+#include <mbstring.h>
+
 #include "CBaldurChitin.h"
 #include "CGameAIBase.h"
 #include "CGameArea.h"
@@ -12285,6 +12287,141 @@ CMessageSpriteDeath::CMessageSpriteDeath(DWORD nDeathType, LONG caller, LONG tar
     : CMessage(caller, target)
 {
     m_nDeathType = nDeathType;
+}
+
+// 0x50A820
+//
+// The multiplayer half of the whole SetGlobal family: the message carries an
+// already-split scope and name, a value and an increment flag, and this
+// applies them to the local stores.
+//
+// It is NOT the trigger's scope walk with the store swapped in.  The scopes
+// are compared with `_mbscmp` against plain literals, not with CString
+// equality; the name is neither upper-cased nor split, because it arrives
+// split; and GLOBAL is not exclusive -- a message naming GLOBAL writes the
+// game store and then falls into the LOCALS-or-area walk as well, so a
+// variable literally called GLOBAL is written twice.  The GLOBAL store even
+// runs when the deny was never granted; everything past it does not, and the
+// deny is only released when it was.
+//
+// Two things the binary does that read like oversights and are reproduced as
+// they stand: nothing null-checks the denied object before MYAREA reads its
+// area pointer, which only works because an area's name sits at offset zero
+// of the area; and the increment flag is tested against 1 exactly, so any
+// other non-zero value overwrites rather than adds.
+void CMessageSetVariable::Run()
+{
+    CGameObject* pObject;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (pObject != NULL && (field_001A & 6) != 0) {
+        // The named-creature form: it drops the creature's entry from one or
+        // both name stores instead of writing a variable at all.
+        if ((field_001A & 2) != 0) {
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(m_sAreaName);
+            if (pArea != NULL) {
+                pArea->GetNamedCreatures()->RemoveKey(m_sGlobalName, TRUE, pObject->GetId());
+            }
+        }
+
+        if ((field_001A & 4) != 0) {
+            g_pBaldurChitin->GetObjectGame()->GetNamedCreatures()->RemoveKey(m_sGlobalName,
+                TRUE,
+                pObject->GetId());
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return;
+    }
+
+    if (_mbscmp(reinterpret_cast<const unsigned char*>(static_cast<const char*>(m_sAreaName)),
+            reinterpret_cast<const unsigned char*>("GLOBAL"))
+        == 0) {
+        CVariable* pVar = g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(m_sGlobalName);
+        if (pVar != NULL) {
+            if (m_bIncrement == 1) {
+                pVar->m_intValue += m_nValue;
+            } else {
+                pVar->m_intValue = m_nValue;
+            }
+        } else {
+            CVariable* pNew = new CVariable;
+            pNew->SetName(m_sGlobalName);
+            pNew->m_intValue = m_nValue;
+            g_pBaldurChitin->GetObjectGame()->GetVariables()->AddKey(*pNew);
+            delete pNew;
+        }
+    }
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    if (_mbscmp(reinterpret_cast<const unsigned char*>(static_cast<const char*>(m_sAreaName)),
+            reinterpret_cast<const unsigned char*>("LOCALS"))
+        == 0) {
+        if (pObject != NULL && pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            // The only branch that copies the name out of the message first;
+            // GLOBAL and the area branch both hand the member straight over.
+            CString sName = m_sGlobalName;
+
+            CVariable* pVar = static_cast<CGameSprite*>(pObject)->GetLocalVariables()->FindKey(sName);
+            if (pVar != NULL) {
+                if (m_bIncrement == 1) {
+                    pVar->m_intValue += m_nValue;
+                } else {
+                    pVar->m_intValue = m_nValue;
+                }
+            } else {
+                CVariable* pNew = new CVariable;
+                pNew->SetName(sName);
+                pNew->m_intValue = m_nValue;
+                static_cast<CGameSprite*>(pObject)->GetLocalVariables()->AddKey(*pNew);
+                delete pNew;
+            }
+        }
+    } else {
+        if (_mbscmp(reinterpret_cast<const unsigned char*>(static_cast<const char*>(m_sAreaName)),
+                reinterpret_cast<const unsigned char*>("MYAREA"))
+            == 0) {
+            m_sAreaName = reinterpret_cast<LPCTSTR>(static_cast<CGameAIBase*>(pObject)->m_pArea);
+        }
+
+        CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(m_sAreaName);
+        if (pArea != NULL) {
+            CVariable* pVar = pArea->GetVariables()->FindKey(m_sGlobalName);
+            if (pVar != NULL) {
+                if (m_bIncrement == 1) {
+                    pVar->m_intValue += m_nValue;
+                } else {
+                    pVar->m_intValue = m_nValue;
+                }
+            } else {
+                CVariable* pNew = new CVariable;
+                pNew->SetName(m_sGlobalName);
+                pNew->m_intValue = m_nValue;
+                pArea->GetVariables()->AddKey(*pNew);
+                delete pNew;
+            }
+        }
+    }
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
 // 0x4088A0
