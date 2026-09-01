@@ -80,6 +80,12 @@ int CVariable::GetIntValue()
     return m_intValue;
 }
 
+// 0x427860
+void CVariable::SetIntValue(int nValue)
+{
+    m_intValue = nValue;
+}
+
 // NOTE: Inlined.
 CVariable& CVariable::operator=(const CVariable& other)
 {

@@ -14,6 +14,7 @@ public:
     CString GetName();
     void SetName(CString sName);
     int GetIntValue();
+    void SetIntValue(int nValue);
 };
 
 static_assert(sizeof(CVariable) == 0x54, "CVariable must match the engine variable layout");

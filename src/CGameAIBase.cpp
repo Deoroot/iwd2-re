@@ -3730,6 +3730,75 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return TRUE;
     }
 
+    case CAITRIGGER_TRIGGERSETGLOBAL: {
+        // 0x459EAF: the only trigger in the switch that WRITES a variable.
+        // The name is split the fixed six-character way -- Left(6) is the
+        // scope, the rest the name -- and NOT at a colon the way BitGlobal
+        // splits it.  The value goes into whichever of the three stores the
+        // scope names, the variable being CREATED when it is missing, and the
+        // change is then broadcast.
+        //
+        // Every store is re-fetched for the AddKey rather than reused from the
+        // FindKey, and every path answers TRUE -- including the two that write
+        // nothing at all, a LOCALS scope on a non-sprite and a scope naming an
+        // area that is not loaded.
+        CString sVariable = trigger.GetString1();
+        sVariable.MakeUpper();
+
+        CString sScope = sVariable.Left(6);
+        CString sName = sVariable.Right(sVariable.GetLength() - 6);
+
+        if (sScope == "GLOBAL") {
+            CVariable* pVar = g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(sName);
+            if (pVar != NULL) {
+                pVar->SetIntValue(trigger.GetSpecifics());
+            } else {
+                CVariable var;
+                var.SetName(sName);
+                var.SetIntValue(trigger.GetSpecifics());
+                g_pBaldurChitin->GetObjectGame()->GetVariables()->AddKey(var);
+            }
+        } else if (sScope == "LOCALS") {
+            if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+                return TRUE;
+            }
+
+            CVariable* pVar = static_cast<CGameSprite*>(this)->GetLocalVariables()->FindKey(sName);
+            if (pVar != NULL) {
+                pVar->SetIntValue(trigger.GetSpecifics());
+            } else {
+                CVariable var;
+                var.SetName(sName);
+                var.SetIntValue(trigger.GetSpecifics());
+                static_cast<CGameSprite*>(this)->GetLocalVariables()->AddKey(var);
+            }
+        } else {
+            if (sScope == "MYAREA") {
+                sScope = reinterpret_cast<LPCTSTR>(m_pArea->GetHeader()->m_areaName);
+            }
+
+            CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(sScope);
+            if (pArea == NULL) {
+                return TRUE;
+            }
+
+            CVariable* pVar = pArea->GetVariables()->FindKey(sName);
+            if (pVar != NULL) {
+                pVar->SetIntValue(trigger.GetSpecifics());
+            } else {
+                CVariable var;
+                var.SetName(sName);
+                var.SetIntValue(trigger.GetSpecifics());
+                pArea->GetVariables()->AddKey(var);
+            }
+        }
+
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(
+            new CMessageSetVariable(sName, sScope, trigger.GetSpecifics(), 0, m_id, m_id, 0),
+            FALSE);
+        return TRUE;
+    }
+
     case CAITRIGGER_INPARTYSLOT: {
         // 0x457438: no TRIGGER.IDS name, so the label is descriptive.  It asks
         // whether the FIXED-ORDER party slot named in Specifics holds a living

@@ -83,6 +83,7 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_PATH;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_TRIGGER;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_SET_VARIABLE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SPRITE_DEATH;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SPRITE_EQUIPMENT;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SPRITE_PETRIFY;
@@ -1193,6 +1194,32 @@ public:
 
     /* 000C */ CAITrigger m_trigger;
 };
+
+// NOTE: `Run` (0x50A820) is NOT recovered yet, so it is not declared here and
+// this class still inherits `CMessage::Run`.  In the binary the vtable slot
+// holds 0x50A820, which re-applies the value to the same three variable scopes
+// this message travels for, and additionally purges the named-creature hashes
+// when bit 1 or bit 2 of `field_001A` is set.
+#pragma pack(push)
+#pragma pack(2)
+class CMessageSetVariable : public CMessage {
+public:
+    CMessageSetVariable(const CString& sGlobalName, const CString& sAreaName, LONG nValue, BYTE bIncrement, LONG caller, LONG target, LONG a7);
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+
+    /* 000C */ CString m_sAreaName;
+    /* 0010 */ CString m_sGlobalName;
+    /* 0014 */ LONG m_nValue;
+    /* 0018 */ BYTE m_bIncrement;
+    /* 001A */ LONG field_001A;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(CMessageSetVariable) == 0x1E, "CMessageSetVariable must match the engine message layout");
 
 class CMessageSpriteDeath : public CMessage {
 public:
