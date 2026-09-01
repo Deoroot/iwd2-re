@@ -1027,7 +1027,7 @@ void CAIObjectType::Set(const CAIObjectType& type)
 // 0x40B880
 void CAIObjectType::Decode(CGameAIBase* caller)
 {
-    // NOTE: nineteen of the thirty-two OBJECT.IDS arms have a body. Nearest,
+    // NOTE: thirty of the thirty-two binary arms have a body. Nearest,
     // SecondNearestEnemyOf..TenthNearestEnemyOf and
     // SecondNearest..TenthNearest do not: they run an Nth-nearest search
     // through 0x46BAD0 / 0x46DDC0, neither of which is recovered. Those ids
