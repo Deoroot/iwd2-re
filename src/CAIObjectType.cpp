@@ -100,6 +100,35 @@ LONG SearchArea(CGameAIBase* caller, const CAIObjectType& type, BOOL findFarthes
         includeAll);
 }
 
+// The same query again for the two Nth-nearest families, inlined at four
+// sites (0x40C0EA and 0x40C137 for the EnemyOf family, 0x40C21A and 0x40C26F
+// for the plain one, the last two of which the first pair jumps into).
+LONG SearchAreaNth(CGameAIBase* caller, const CAIObjectType& type, BYTE nNearest)
+{
+    if (caller->GetVertListType() == CGameObject::LIST_FRONT) {
+        return caller->m_pArea->GetNthNearest(caller->GetId(),
+            type,
+            caller->GetVisualRange(),
+            caller->GetVisibleTerrainTable(),
+            TRUE,
+            caller->GetCanSeeInvisible(),
+            FALSE,
+            nNearest,
+            FALSE);
+    }
+
+    CPoint& pos = caller->GetPos();
+    return caller->m_pArea->FindNthObjectNear(pos.x,
+        pos.y,
+        type,
+        caller->GetVisualRange(),
+        caller->GetVisibleTerrainTable(),
+        TRUE,
+        caller->GetCanSeeInvisible(),
+        nNearest,
+        FALSE);
+}
+
 // The shared body at 0x40C444 behind the seven party-criteria arms: seven
 // entry points that differ in nothing but the selector they push.
 BOOL ResolveCriteria(CAIObjectType& type, CGameAIBase* caller, CGameObject*& pObject, SHORT criteria)
@@ -1027,11 +1056,7 @@ void CAIObjectType::Set(const CAIObjectType& type)
 // 0x40B880
 void CAIObjectType::Decode(CGameAIBase* caller)
 {
-    // NOTE: thirty of the thirty-two binary arms have a body. Nearest,
-    // SecondNearestEnemyOf..TenthNearestEnemyOf and
-    // SecondNearest..TenthNearest do not: they run an Nth-nearest search
-    // through 0x46BAD0 / 0x46DDC0, neither of which is recovered. Those ids
-    // are listed explicitly below and left alone rather than guessed.
+    // NOTE: all thirty-two binary arms have a body.
 
     CGameObject* pObject = NULL;
     CAIObjectType type(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
@@ -1493,10 +1518,6 @@ void CAIObjectType::Decode(CGameAIBase* caller)
             }
             break;
 
-        // Unrecovered, see the note at the top of the function. Listed so a
-        // later session can see exactly which ids are outstanding instead of
-        // finding them folded into the default arm.
-        case 14: // Nearest
         case 29: // SecondNearestEnemyOf
         case 30: // ThirdNearestEnemyOf
         case 31: // FourthNearestEnemyOf
@@ -1506,6 +1527,29 @@ void CAIObjectType::Decode(CGameAIBase* caller)
         case 35: // EigthNearestEnemyOf
         case 36: // NinthNearestEnemyOf
         case 37: // TenthNearestEnemyOf
+            // Same enemy cutoff as NearestEnemyOf, and the same silent give-up
+            // for a neutral working type -- but no side effect on failure: the
+            // CRE flag NearestEnemyOf clears is not touched here.
+            if (type.m_nEnemyAlly <= CAIOBJECTTYPE_EA_GOODCUTOFF) {
+                type.Set(CAIObjectType(CAIOBJECTTYPE_EA_EVILCUTOFF, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            } else if (type.m_nEnemyAlly < CAIOBJECTTYPE_EA_EVILCUTOFF) {
+                ReleaseObject(pObject->GetId());
+                Set(NOONE);
+                return;
+            } else {
+                type.Set(CAIObjectType(CAIOBJECTTYPE_EA_GOODCUTOFF, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            }
+
+            // SecondNearestEnemyOf asks for ordinal 1 and TenthNearestEnemyOf
+            // for ordinal 9, which is what the buffer indexing wants.
+            type.SetInstance(SearchAreaNth(caller, type, static_cast<BYTE>(nSpecialCase - 28)));
+            if (!ResolveType(type, caller, pObject, TRUE)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 14: // Nearest
         case 38: // SecondNearest
         case 39: // ThirdNearest
         case 40: // FourthNearest
@@ -1515,6 +1559,21 @@ void CAIObjectType::Decode(CGameAIBase* caller)
         case 44: // EighthNearest
         case 45: // NinthNearest
         case 46: // TenthNearest
+            // The ordinal is `id - 38` for the named family and zero for
+            // Nearest, and the binary then increments it for both -- so
+            // Nearest and SecondNearest BOTH ask for ordinal 1, i.e. Nearest
+            // resolves to the second nearest whenever there is one. It is a
+            // bug in the original and it is reproduced, not corrected; the
+            // ordinal walk-down inside the search is what stops it hurting
+            // when the area holds a single match.
+            type.SetInstance(-1);
+            type.SetInstance(SearchAreaNth(caller,
+                type,
+                static_cast<BYTE>((nSpecialCase == 14 ? 0 : nSpecialCase - 38) + 1)));
+            if (!ResolveType(type, caller, pObject, TRUE)) {
+                Set(NOONE);
+                return;
+            }
             break;
 
         default:
