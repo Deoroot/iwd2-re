@@ -46,6 +46,7 @@ public:
     void SetDrawPoly(SHORT time);
     SHORT FindItemSlot(const CResRef& res);
     SHORT CountItem(const CResRef& res);
+    SHORT CountItemsExcluding(CString sExclude);
 
     void SetScriptRes(CString scriptRes);
     SHORT GetNumItems();

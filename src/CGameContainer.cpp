@@ -1544,6 +1544,48 @@ SHORT CGameContainer::CountItem(const CResRef& res)
     return nCount;
 }
 
+// FIXME: `sExclude` should be a reference -- the binary destroys the argument
+// itself, so it arrives by value.
+//
+// 0x481C50
+//
+// CountItem's mirror image, and the counter behind the TotalItemCnt triggers:
+// it counts EVERYTHING except one res ref, unpacks bags through
+// CInfGame::GetNumberOfItemsInBag instead of counting them as one, and stops
+// the walk outright at a NULL entry rather than skipping it.  The maximum
+// stack size is read before the exclusion is even tested.
+//
+// No BG2 PDB name -- the label is descriptive.
+SHORT CGameContainer::CountItemsExcluding(CString sExclude)
+{
+    POSITION pos = m_lstItems.GetHeadPosition();
+
+    LONG nCount = 0;
+    while (pos != NULL) {
+        CItem* pItem = m_lstItems.GetNext(pos);
+        if (pItem == NULL) {
+            break;
+        }
+
+        WORD nMaxStackable = pItem->GetMaxStackable();
+        if (pItem->GetResRef() == sExclude) {
+            continue;
+        }
+
+        if (nMaxStackable > 1) {
+            nCount += pItem->GetUsageCount(0);
+        } else if (pItem->GetItemType() == 0x3A) {
+            // 0x3A is the bag item type; its contents are counted one by one.
+            nCount += g_pBaldurChitin->GetObjectGame()->GetNumberOfItemsInBag(pItem->GetResRef(),
+                _T(""));
+        } else {
+            nCount++;
+        }
+    }
+
+    return static_cast<SHORT>(nCount);
+}
+
 // FIXME: `scriptRes` should be reference.
 //
 // 0x45FE90

@@ -3773,6 +3773,290 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
         return bMatch;
     }
 
+    case CAITRIGGER_TOTALITEMCNT: {
+        // 0x458AB9: TotalItemCnt(O:Object*,I:Num*) -- everything the object
+        // carries, counted.  A container hands the whole job to
+        // CGameContainer::CountItemsExcluding with an EMPTY exclusion; a
+        // sprite is walked slot by slot, BACKWARDS, and filters out the two
+        // fist "weapons" every creature carries plus anything whose file
+        // flags say 0x40 out of 0x44.  Stacks count their usage, bags count
+        // their contents, everything else counts one.
+        //
+        // The equipment pointer is asked for once before the walk and thrown
+        // away, then asked for again inside it -- that discarded call is real,
+        // not an artefact.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nCount = 0;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            pSprite->GetEquipment();
+
+            for (LONG nSlot = CGameSpriteEquipment::NUM_SLOT - 1; nSlot >= 0; nSlot--) {
+                CItem* pItem = pSprite->GetEquipment()->m_items[nSlot];
+                if (pItem == NULL) {
+                    continue;
+                }
+
+                CString sName = pItem->GetResRef().GetResRefStr();
+                if (pItem->GetMaxStackable() > 1) {
+                    nCount += pSprite->GetEquipment()->m_items[nSlot]->GetUsageCount(0);
+                } else if (pItem->GetItemType() == 0x3A) {
+                    nCount += g_pBaldurChitin->GetObjectGame()->GetNumberOfItemsInBag(
+                        pItem->GetResRef(), _T(""));
+                } else if (sName != "00FIST" && sName.Left(7) != "00MFIST"
+                    && (pItem->GetFlagsFile() & 0x44) != 0x40) {
+                    nCount++;
+                }
+            }
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            nCount = static_cast<CGameContainer*>(pObject)->CountItemsExcluding(_T(""));
+        }
+
+        BOOL bHolds = nCount == cause.GetSpecifics();
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_TOTALITEMCNTGT: {
+        // 0x458CA1: TotalItemCnt with a greater-than.  Its own body, byte for
+        // byte the arm above apart from the comparison.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nCount = 0;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            pSprite->GetEquipment();
+
+            for (LONG nSlot = CGameSpriteEquipment::NUM_SLOT - 1; nSlot >= 0; nSlot--) {
+                CItem* pItem = pSprite->GetEquipment()->m_items[nSlot];
+                if (pItem == NULL) {
+                    continue;
+                }
+
+                CString sName = pItem->GetResRef().GetResRefStr();
+                if (pItem->GetMaxStackable() > 1) {
+                    nCount += pSprite->GetEquipment()->m_items[nSlot]->GetUsageCount(0);
+                } else if (pItem->GetItemType() == 0x3A) {
+                    nCount += g_pBaldurChitin->GetObjectGame()->GetNumberOfItemsInBag(
+                        pItem->GetResRef(), _T(""));
+                } else if (sName != "00FIST" && sName.Left(7) != "00MFIST"
+                    && (pItem->GetFlagsFile() & 0x44) != 0x40) {
+                    nCount++;
+                }
+            }
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            nCount = static_cast<CGameContainer*>(pObject)->CountItemsExcluding(_T(""));
+        }
+
+        BOOL bHolds = nCount > cause.GetSpecifics();
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_TOTALITEMCNTLT: {
+        // 0x458E81: TotalItemCnt with a less-than.  Again its own body.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nCount = 0;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            pSprite->GetEquipment();
+
+            for (LONG nSlot = CGameSpriteEquipment::NUM_SLOT - 1; nSlot >= 0; nSlot--) {
+                CItem* pItem = pSprite->GetEquipment()->m_items[nSlot];
+                if (pItem == NULL) {
+                    continue;
+                }
+
+                CString sName = pItem->GetResRef().GetResRefStr();
+                if (pItem->GetMaxStackable() > 1) {
+                    nCount += pSprite->GetEquipment()->m_items[nSlot]->GetUsageCount(0);
+                } else if (pItem->GetItemType() == 0x3A) {
+                    nCount += g_pBaldurChitin->GetObjectGame()->GetNumberOfItemsInBag(
+                        pItem->GetResRef(), _T(""));
+                } else if (sName != "00FIST" && sName.Left(7) != "00MFIST"
+                    && (pItem->GetFlagsFile() & 0x44) != 0x40) {
+                    nCount++;
+                }
+            }
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            nCount = static_cast<CGameContainer*>(pObject)->CountItemsExcluding(_T(""));
+        }
+
+        BOOL bHolds = nCount < cause.GetSpecifics();
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_TOTALITEMCNTEXCLUDE: {
+        // 0x459468: the same count with one res ref left out -- and it is NOT
+        // TotalItemCnt plus a filter.  The two fist names and the file-flag
+        // test are gone entirely, so a creature's fists DO count here; the
+        // equipment pointer is re-fetched for every single access instead of
+        // once per slot; and the exclusion reaches only the SPRITE side.  A
+        // container is still counted with an empty exclusion, so this trigger
+        // and its LT twin cannot exclude anything from a container at all.
+        // The GT twin below is the one that passes it through.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nCount = 0;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            pSprite->GetEquipment();
+
+            for (LONG nSlot = CGameSpriteEquipment::NUM_SLOT - 1; nSlot >= 0; nSlot--) {
+                if (pSprite->GetEquipment()->m_items[nSlot] == NULL) {
+                    continue;
+                }
+                if (pSprite->GetEquipment()->m_items[nSlot]->GetResRef() == cause.GetString1()) {
+                    continue;
+                }
+
+                if (pSprite->GetEquipment()->m_items[nSlot]->GetMaxStackable() > 1) {
+                    nCount += pSprite->GetEquipment()->m_items[nSlot]->GetUsageCount(0);
+                } else if (pSprite->GetEquipment()->m_items[nSlot]->GetItemType() == 0x3A) {
+                    nCount += g_pBaldurChitin->GetObjectGame()->GetNumberOfItemsInBag(
+                        pSprite->GetEquipment()->m_items[nSlot]->GetResRef(), cause.GetString1());
+                } else {
+                    nCount++;
+                }
+            }
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            nCount = static_cast<CGameContainer*>(pObject)->CountItemsExcluding(_T(""));
+        }
+
+        BOOL bHolds = nCount == cause.GetSpecifics();
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_TOTALITEMCNTEXCLUDEGT: {
+        // 0x4595E3: the only one of the three that hands the exclusion to the
+        // CONTAINER counter as well (0x45972E copies String1 where its two
+        // siblings push the empty literal).  Same shape, different code.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nCount = 0;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            pSprite->GetEquipment();
+
+            for (LONG nSlot = CGameSpriteEquipment::NUM_SLOT - 1; nSlot >= 0; nSlot--) {
+                if (pSprite->GetEquipment()->m_items[nSlot] == NULL) {
+                    continue;
+                }
+                if (pSprite->GetEquipment()->m_items[nSlot]->GetResRef() == cause.GetString1()) {
+                    continue;
+                }
+
+                if (pSprite->GetEquipment()->m_items[nSlot]->GetMaxStackable() > 1) {
+                    nCount += pSprite->GetEquipment()->m_items[nSlot]->GetUsageCount(0);
+                } else if (pSprite->GetEquipment()->m_items[nSlot]->GetItemType() == 0x3A) {
+                    nCount += g_pBaldurChitin->GetObjectGame()->GetNumberOfItemsInBag(
+                        pSprite->GetEquipment()->m_items[nSlot]->GetResRef(), cause.GetString1());
+                } else {
+                    nCount++;
+                }
+            }
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            nCount = static_cast<CGameContainer*>(pObject)->CountItemsExcluding(cause.GetString1());
+        }
+
+        BOOL bHolds = nCount > cause.GetSpecifics();
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
+    case CAITRIGGER_TOTALITEMCNTEXCLUDELT: {
+        // 0x459763: back to the empty exclusion on the container side.
+        CAITrigger cause(trigger);
+        cause.Decode(this);
+
+        CGameObject* pObject = cause.GetCause().GetObjectWithType(this, CGameObject::TYPE_AIBASE, FALSE);
+        if (pObject == NULL) {
+            return FALSE;
+        }
+
+        LONG nCount = 0;
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+            pSprite->GetEquipment();
+
+            for (LONG nSlot = CGameSpriteEquipment::NUM_SLOT - 1; nSlot >= 0; nSlot--) {
+                if (pSprite->GetEquipment()->m_items[nSlot] == NULL) {
+                    continue;
+                }
+                if (pSprite->GetEquipment()->m_items[nSlot]->GetResRef() == cause.GetString1()) {
+                    continue;
+                }
+
+                if (pSprite->GetEquipment()->m_items[nSlot]->GetMaxStackable() > 1) {
+                    nCount += pSprite->GetEquipment()->m_items[nSlot]->GetUsageCount(0);
+                } else if (pSprite->GetEquipment()->m_items[nSlot]->GetItemType() == 0x3A) {
+                    nCount += g_pBaldurChitin->GetObjectGame()->GetNumberOfItemsInBag(
+                        pSprite->GetEquipment()->m_items[nSlot]->GetResRef(), cause.GetString1());
+                } else {
+                    nCount++;
+                }
+            }
+        } else if (pObject->GetObjectType() == CGameObject::TYPE_CONTAINER) {
+            nCount = static_cast<CGameContainer*>(pObject)->CountItemsExcluding(_T(""));
+        }
+
+        BOOL bHolds = nCount < cause.GetSpecifics();
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        return bHolds;
+    }
+
     default:
         return CGameObject::EvaluateStatusTrigger(trigger);
     }
