@@ -4,18 +4,15 @@
 #include "CBaldurChitin.h"
 #include "CGameAIBase.h"
 #include "CGameArea.h"
+#include "CGameSprite.h"
 #include "CInfGame.h"
 #include "CUtil.h"
 
 namespace {
 
+// The share retry loop Decode inlines at 0x40B9A1, 0x40BAB9 and 0x40C4F5.
 BOOL ShareObject(LONG id, CGameObject*& pObject)
 {
-    pObject = NULL;
-    if (id == CGameObjectArray::INVALID_INDEX) {
-        return FALSE;
-    }
-
     BYTE rc;
     do {
         rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(id,
@@ -24,27 +21,27 @@ BOOL ShareObject(LONG id, CGameObject*& pObject)
             INFINITE);
     } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
-    return rc == CGameObjectArray::SUCCESS && pObject != NULL;
+    return rc == CGameObjectArray::SUCCESS;
 }
 
-void ReleaseObject(CGameObject* pObject)
+// Every release site in Decode is unconditional and hands over the shared
+// object's own id, so there is no null guard here either.
+void ReleaseObject(LONG id)
 {
-    if (pObject != NULL) {
-        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(pObject->GetId(),
-            CGameObjectArray::THREAD_ASYNCH,
-            INFINITE);
-    }
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(id,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
-BOOL IsAIBaseObject(CGameObject* pObject)
+// The tail at 0x40C812: drop the share currently held, look the working type
+// up again and adopt whatever came back. FALSE means the search found
+// nothing; the caller then resolves to NOONE *without* releasing again.
+BOOL ResolveType(CAIObjectType& type, CGameAIBase* caller, CGameObject*& pObject, BOOL checkBackList)
 {
-    return pObject != NULL
-        && (pObject->GetObjectType() & CGameObject::TYPE_AIBASE) != 0;
-}
+    ReleaseObject(pObject->GetId());
 
-BOOL SetTypeFromObject(CAIObjectType& type, CGameObject* pObject)
-{
-    if (!IsAIBaseObject(pObject)) {
+    pObject = type.GetObjectWithType(caller, CGameObject::TYPE_AIBASE, checkBackList);
+    if (pObject == NULL) {
         return FALSE;
     }
 
@@ -53,106 +50,54 @@ BOOL SetTypeFromObject(CAIObjectType& type, CGameObject* pObject)
     return TRUE;
 }
 
-CGameAIBase* AsAIBase(CGameObject* pObject)
+// The tail at 0x40BC9B: ResolveType plus the location filter carried by the
+// object type being decoded. Never searches the back list.
+BOOL ResolveTypeChecked(CAIObjectType& type, const CAIObjectType& self, CGameAIBase* caller, CGameObject*& pObject)
 {
-    if (!IsAIBaseObject(pObject)) {
-        return NULL;
-    }
+    ReleaseObject(pObject->GetId());
 
-    return static_cast<CGameAIBase*>(pObject);
-}
-
-LONG FindNamedCreatureId(CGameAIBase* caller, const CString& name)
-{
-    CVariable* pVar = NULL;
-
-    if (caller->GetArea() != NULL) {
-        pVar = caller->GetArea()->GetNamedCreatures()->FindKey(name);
-    }
-
-    if (pVar == NULL) {
-        pVar = g_pBaldurChitin->GetObjectGame()->GetNamedCreatures()->FindKey(name);
-    }
-
-    if (pVar == NULL) {
-        return CGameObjectArray::INVALID_INDEX;
-    }
-
-    return pVar->GetIntValue();
-}
-
-BOOL ResolveConcreteObject(CAIObjectType& type, CGameAIBase* caller, BOOL checkBackList, CGameObject*& pObject)
-{
-    pObject = type.GetObjectWithType(caller,
-        CGameObject::TYPE_AIBASE,
-        checkBackList);
+    pObject = type.GetObjectWithType(caller, CGameObject::TYPE_AIBASE, FALSE);
     if (pObject == NULL) {
-        type.Set(CAIObjectType::NOONE);
         return FALSE;
     }
 
-    SetTypeFromObject(type, pObject);
+    if (self.IsOver(pObject->GetPos()) != TRUE) {
+        return FALSE;
+    }
+
+    type.Set(pObject->GetAIType());
+    type.SetInstance(pObject->GetId());
     return TRUE;
 }
 
-LONG GetPartyCharacterId(BYTE specialCase)
+// The same area query, inlined at four sites (0x40C2D0 and 0x40C311 for
+// Farthest, 0x40C754 and 0x40C792 for NearestEnemySummoned): run against
+// the front vertical list when the caller is on it, against the whole
+// area otherwise.
+LONG SearchArea(CGameAIBase* caller, const CAIObjectType& type, BOOL findFarthest, BOOL includeAll)
 {
-    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-    switch (specialCase) {
-    case 2:
-        return pGame->GetFixedOrderCharacterId(0);
-    case 21:
-    case 22:
-    case 23:
-    case 24:
-    case 25:
-    case 26:
-        return pGame->GetFixedOrderCharacterId(static_cast<SHORT>(specialCase - 21));
-    case 27:
-        return pGame->GetProtagonist();
-    default:
-        return CGameObjectArray::INVALID_INDEX;
-    }
-}
-
-BOOL ResolveObjectId(CAIObjectType& type, CGameAIBase* caller, LONG id, CGameObject*& pObject)
-{
-    ReleaseObject(pObject);
-    pObject = NULL;
-
-    if (id == CGameObjectArray::INVALID_INDEX) {
-        type.Set(CAIObjectType::NOONE);
-        return FALSE;
+    if (caller->GetVertListType() == CGameObject::LIST_FRONT) {
+        return caller->m_pArea->GetNearest(caller->GetId(),
+            type,
+            caller->GetVisualRange(),
+            caller->GetVisibleTerrainTable(),
+            TRUE,
+            caller->GetCanSeeInvisible(),
+            FALSE,
+            static_cast<BYTE>(findFarthest),
+            includeAll);
     }
 
-    type.Set(CAIObjectType::ANYONE);
-    type.SetInstance(id);
-    return ResolveConcreteObject(type, caller, FALSE, pObject);
-}
-
-BOOL ResolveStoredType(CAIObjectType& type, CGameAIBase* caller, const CAIObjectType& stored, CGameObject*& pObject)
-{
-    ReleaseObject(pObject);
-    pObject = NULL;
-
-    type.Set(stored);
-    return ResolveConcreteObject(type, caller, FALSE, pObject);
-}
-
-BOOL ResolveStoredTypeChecked(CAIObjectType& type, CGameAIBase* caller, const CAIObjectType& stored, const CAIObjectType& original, CGameObject*& pObject)
-{
-    if (!ResolveStoredType(type, caller, stored, pObject)) {
-        return FALSE;
-    }
-
-    if (!original.IsOver(pObject->GetPos())) {
-        ReleaseObject(pObject);
-        pObject = NULL;
-        type.Set(CAIObjectType::NOONE);
-        return FALSE;
-    }
-
-    return TRUE;
+    CPoint& pos = caller->GetPos();
+    return caller->m_pArea->FindObjectNear(pos.x,
+        pos.y,
+        type,
+        caller->GetVisualRange(),
+        caller->GetVisibleTerrainTable(),
+        TRUE,
+        caller->GetCanSeeInvisible(),
+        findFarthest,
+        includeAll);
 }
 
 }
@@ -1067,184 +1012,465 @@ void CAIObjectType::Set(const CAIObjectType& type)
 // 0x40B880
 void CAIObjectType::Decode(CGameAIBase* caller)
 {
-    // TODO: Incomplete. Recovered name resolution, fixed-order party members,
-    // protagonist, and last-object fields needed by recovered script execution.
-    // Ranking and nearest-object selector cases are still deliberately unresolved.
-    if (caller == NULL) {
-        Set(NOONE);
-        return;
-    }
-
-    CAIObjectType original(*this);
-    BYTE specialCase[5];
-    for (int index = 0; index < 5; index++) {
-        specialCase[index] = m_SpecialCase[index];
-    }
+    // NOTE: fifteen of the thirty-two OBJECT.IDS arms are left unimplemented
+    // because they need a callee that is not recovered yet: WeakestOf, StrongestOf,
+    // MostDamagedOf, LeastDamagedOf, StrongestOfMale, WorstAC and BestAC all
+    // pick a party member through 0x5BDFE0, and Nearest,
+    // SecondNearestEnemyOf..TenthNearestEnemyOf and
+    // SecondNearest..TenthNearest run an Nth-nearest search through
+    // 0x46BAD0 / 0x46DDC0. Those ids are listed explicitly below and left
+    // alone rather than guessed.
 
     CGameObject* pObject = NULL;
-    BOOL resolvedByName = FALSE;
-    CAIObjectType resolvedType;
+    CAIObjectType type(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+    BOOL bResolvedByName = FALSE;
 
-    CString name = GetName();
-    if (!name.IsEmpty() && original.m_nInstance == -1) {
-        LONG id = FindNamedCreatureId(caller, name);
-        if (!ShareObject(id, pObject)) {
+    CString sName = GetName();
+    if (sName.Compare(_T("")) != 0 && m_nInstance == -1) {
+        sName.MakeUpper();
+
+        CVariable* pVar = NULL;
+        if (caller->m_pArea != NULL) {
+            pVar = caller->GetArea()->GetNamedCreatures()->FindKey(sName);
+        }
+
+        if (pVar == NULL) {
+            pVar = g_pBaldurChitin->GetObjectGame()->GetNamedCreatures()->FindKey(sName);
+        }
+
+        if (pVar == NULL) {
             Set(NOONE);
             return;
         }
 
-        if (!IsAIBaseObject(pObject) || !original.IsOver(pObject->GetPos())) {
-            ReleaseObject(pObject);
-            Set(NOONE);
-            return;
-        }
+        // A named creature whose variable holds a negative id is not an
+        // error: the special case chain below still runs, just without a
+        // resolved object of its own.
+        LONG nNamedId = pVar->GetIntValue();
+        if (nNamedId >= 0) {
+            bResolvedByName = TRUE;
 
-        SetTypeFromObject(resolvedType, pObject);
-        resolvedByName = TRUE;
+            if (!ShareObject(nNamedId, pObject)) {
+                Set(NOONE);
+                return;
+            }
+
+            if (!IsOver(pObject->GetPos())) {
+                Set(NOONE);
+                return;
+            }
+
+            type.Set(pObject->GetAIType());
+            type.m_sName = sName;
+        }
     }
 
-    if (specialCase[0] == 0) {
-        if (resolvedByName) {
-            Set(resolvedType);
-            ReleaseObject(pObject);
+    if (m_SpecialCase[0] == 0) {
+        if (bResolvedByName) {
+            Set(type);
+            ReleaseObject(pObject->GetId());
         }
         return;
     }
 
-    if (!resolvedByName) {
+    if (!bResolvedByName) {
         if (!ShareObject(caller->GetId(), pObject)) {
             Set(NOONE);
             return;
         }
 
-        if (!IsAIBaseObject(pObject) || !original.IsOver(pObject->GetPos())) {
-            ReleaseObject(pObject);
+        if (!IsOver(pObject->GetPos())) {
             Set(NOONE);
             return;
         }
     }
 
-    if (original.m_nInstance >= 0) {
-        ReleaseObject(pObject);
+    if (m_nInstance >= 0) {
+        ReleaseObject(pObject->GetId());
         return;
     }
 
-    if (resolvedByName) {
-        Set(resolvedType);
-    } else {
-        Set(original);
-    }
+    // The chain starts from a copy of what is being decoded, anchored on the
+    // caller and stripped of the special cases so the lookups below cannot
+    // recurse through it.
+    type.Set(*this);
+    type.SetInstance(caller->GetId());
+    type.m_SpecialCase[0] = 0;
+    type.m_SpecialCase[1] = 0;
+    type.m_SpecialCase[2] = 0;
+    type.m_SpecialCase[3] = 0;
+    type.m_SpecialCase[4] = 0;
 
     for (int index = 0; index < 5; index++) {
-        CGameAIBase* pAIBase = AsAIBase(pObject);
-        if (pAIBase == NULL) {
+        if (pObject == NULL) {
             Set(NOONE);
-            ReleaseObject(pObject);
             return;
         }
 
-        switch (specialCase[index]) {
-        case 0:
-            SetTypeFromObject(*this, pObject);
-            ReleaseObject(pObject);
+        BYTE nSpecialCase = m_SpecialCase[index];
+        if (nSpecialCase == 0) {
+            Set(type);
+            ReleaseObject(pObject->GetId());
             return;
-        case 1:
-            if (original.IsOver(caller->GetPos())) {
-                if (!ResolveObjectId(*this, caller, caller->GetId(), pObject)) {
-                    return;
-                }
+        }
+
+        CGameAIBase* pAIBase = static_cast<CGameAIBase*>(pObject);
+
+        // NOTE: Jump table at 0x40C934, index table at 0x40C9B8, ids from
+        // OBJECT.IDS.
+        switch (nSpecialCase) {
+        case 1: // Myself
+            // The only arm that neither shares nor releases: it either adopts
+            // the caller or leaves the working type exactly as it was.
+            if (IsOver(caller->GetPos()) == TRUE) {
+                type.Set(caller->GetAIType());
+                type.SetInstance(caller->GetId());
             }
             break;
-        case 2:
-        case 21:
-        case 22:
-        case 23:
-        case 24:
-        case 25:
-        case 26:
-        case 27:
-            if (!ResolveObjectId(*this, caller, GetPartyCharacterId(specialCase[index]), pObject)) {
+
+        case 2: { // LeaderOf
+            // Party slot 0. Unlike Player1..Player6 and Protagonist this arm
+            // does NOT re-test the location filter afterwards.
+            type.Set(ANYONE);
+
+            LONG nLeaderId = g_pBaldurChitin->GetObjectGame()->GetFixedOrderCharacterId(0);
+            type.SetInstance(nLeaderId);
+            if (nLeaderId == CGameObjectArray::INVALID_INDEX) {
+                Set(NOONE);
                 return;
             }
-            if (!original.IsOver(pObject->GetPos())) {
-                ReleaseObject(pObject);
+
+            if (!ResolveType(type, caller, pObject, FALSE)) {
                 Set(NOONE);
                 return;
             }
             break;
-        case 8:
-            if (!ResolveStoredType(*this, caller, pAIBase->field_EA, pObject)) {
+        }
+
+        case 8: // ProtectedBy
+            type.Set(pAIBase->field_EA);
+            if (!ResolveType(type, caller, pObject, FALSE)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 9:
-            if (!ResolveStoredType(*this, caller, pAIBase->field_126, pObject)) {
+
+        case 9: // ProtectorOf
+            type.Set(pAIBase->field_126);
+            if (!ResolveType(type, caller, pObject, FALSE)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 10:
-            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lAttacker, original, pObject)) {
+
+        case 10: // LastAttackerOf
+            type.Set(pAIBase->m_lAttacker);
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 11:
-            if (!ResolveStoredType(*this, caller, pAIBase->field_162, pObject)) {
+
+        case 11: // LastTargetedBy
+            type.Set(pAIBase->field_162);
+            if (!ResolveType(type, caller, pObject, FALSE)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 13:
-            if (!ResolveStoredType(*this, caller, pAIBase->m_lOrderedBy, pObject)) {
+
+        case 12: // NearestEnemyOf
+            // "Enemy" is the far side of whichever cutoff the working type
+            // sits on; a neutral type has no enemies at all.
+            if (type.m_nEnemyAlly <= CAIOBJECTTYPE_EA_GOODCUTOFF) {
+                type.Set(CAIObjectType(CAIOBJECTTYPE_EA_EVILCUTOFF, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            } else if (type.m_nEnemyAlly < CAIOBJECTTYPE_EA_EVILCUTOFF) {
+                ReleaseObject(pObject->GetId());
+                Set(NOONE);
+                return;
+            } else {
+                type.Set(CAIObjectType(CAIOBJECTTYPE_EA_GOODCUTOFF, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            }
+
+            if (!ResolveType(type, caller, pObject, TRUE)) {
+                // An evil sprite that came up empty stops hunting.
+                if (caller->GetObjectType() == CGameObject::TYPE_SPRITE
+                    && (static_cast<CGameSprite*>(caller)->m_baseStats.m_flags & 0x10000) != 0
+                    && caller->GetAIType().m_nEnemyAlly >= CAIOBJECTTYPE_EA_EVILCUTOFF) {
+                    static_cast<CGameSprite*>(caller)->m_baseStats.m_flags &= ~0x10000u;
+                }
+
+                Set(NOONE);
                 return;
             }
             break;
-        case 16:
-            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lHelp, original, pObject)) {
+
+        case 13: // LastCommandedBy
+            type.Set(pAIBase->m_lOrderedBy);
+            if (!ResolveType(type, caller, pObject, FALSE)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 17:
-            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lTrigger, original, pObject)) {
+
+        case 16: // LastHelp
+            type.Set(pAIBase->m_lHelp);
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 18:
-            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lSeen, original, pObject)) {
+
+        case 17: // LastTrigger
+            type.Set(pAIBase->m_lTrigger);
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 19:
-            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->m_lTalkedTo, original, pObject)) {
+
+        case 18: // LastSeenBy
+            type.Set(pAIBase->m_lSeen);
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 20:
-            if (!ResolveStoredType(*this, caller, pAIBase->m_lHeard, pObject)) {
+
+        case 19: // LastTalkedToBy
+            type.Set(pAIBase->m_lTalkedTo);
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 51:
-            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->field_342, original, pObject)) {
+
+        case 20: // LastHeardBy
+            type.Set(pAIBase->m_lHeard);
+            if (!ResolveType(type, caller, pObject, FALSE)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 54:
-            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->field_37E, original, pObject)) {
+
+        case 21: // Player1
+        case 22: // Player2
+        case 23: // Player3
+        case 24: // Player4
+        case 25: // Player5
+        case 26: { // Player6
+            type.Set(ANYONE);
+
+            LONG nCharacterId = g_pBaldurChitin->GetObjectGame()->GetFixedOrderCharacterId(
+                static_cast<SHORT>(nSpecialCase - 21));
+            type.SetInstance(nCharacterId);
+            if (nCharacterId == CGameObjectArray::INVALID_INDEX) {
+                Set(NOONE);
+                return;
+            }
+
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
                 return;
             }
             break;
-        case 55:
-            if (!ResolveStoredTypeChecked(*this, caller, pAIBase->field_3BA, original, pObject)) {
+        }
+
+        case 27: { // Protagonist
+            type.Set(ANYONE);
+
+            LONG nProtagonistId = g_pBaldurChitin->GetObjectGame()->GetProtagonist();
+            type.SetInstance(nProtagonistId);
+            if (nProtagonistId == CGameObjectArray::INVALID_INDEX) {
+                Set(NOONE);
+                return;
+            }
+
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
                 return;
             }
             break;
-        default:
+        }
+
+        case 49: // Farthest
+            // NOTE: the id is adopted without being tested against
+            // INVALID_INDEX -- only NearestEnemySummoned does that -- so a
+            // failed search leaves the lookup below to fail instead.
+            type.SetInstance(-1);
+            type.SetInstance(SearchArea(caller, type, TRUE, FALSE));
+            if (!ResolveType(type, caller, pObject, TRUE)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 50: // FarthestEnemyOf
+            if (type.m_nEnemyAlly <= CAIOBJECTTYPE_EA_GOODCUTOFF) {
+                type.Set(CAIObjectType(CAIOBJECTTYPE_EA_EVILCUTOFF, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            } else if (type.m_nEnemyAlly < CAIOBJECTTYPE_EA_EVILCUTOFF) {
+                ReleaseObject(pObject->GetId());
+                Set(NOONE);
+                return;
+            } else {
+                type.Set(CAIObjectType(CAIOBJECTTYPE_EA_GOODCUTOFF, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            }
+
+            type.SetInstance(SearchArea(caller, type, TRUE, FALSE));
+            if (!ResolveType(type, caller, pObject, TRUE)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 51: // LastMarkedObject
+            type.Set(pAIBase->field_342);
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 52: { // NearestPC
+            CAIObjectType bestType(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+            LONG nBestId = CGameObjectArray::INVALID_INDEX;
+            LONG nBestDistance = 0x7FFFFFFF;
+
+            ReleaseObject(pObject->GetId());
+
+            CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+            int nCharacters = pGame->m_nCharacters;
+            for (int slot = 0; slot < nCharacters; slot++) {
+                CGameObject* pMember = NULL;
+                if (!ShareObject(pGame->GetCharacterId(static_cast<SHORT>(slot)), pMember)) {
+                    continue;
+                }
+
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pMember);
+                if ((pSprite->m_derivedStats.m_generalState & STATE_DEAD) == 0
+                    && pSprite->GetAIType().m_nEnemyAlly <= CAIOBJECTTYPE_EA_GOODCUTOFF
+                    && pSprite->GetId() != pObject->GetId()
+                    && pSprite->CheckInvisibility(caller->GetCanSeeInvisible())) {
+                    CPoint& posMember = pSprite->GetPos();
+                    LONG nMemberX = posMember.x;
+                    LONG nMemberY = posMember.y;
+
+                    CPoint& posCaller = caller->GetPos();
+                    LONG nDeltaX = posCaller.x - nMemberX;
+                    LONG nDeltaY = posCaller.y - nMemberY;
+                    LONG nDistance = nDeltaX * nDeltaX + nDeltaY * nDeltaY;
+
+                    if (nBestDistance > nDistance) {
+                        nBestDistance = nDistance;
+                        bestType.Set(pSprite->GetAIType());
+                        nBestId = pSprite->GetId();
+                    }
+                }
+
+                ReleaseObject(pGame->GetCharacterId(static_cast<SHORT>(slot)));
+            }
+
+            if (nBestId == CGameObjectArray::INVALID_INDEX) {
+                Set(NOONE);
+                return;
+            }
+
+            // The party member is left unshared and pObject still points at
+            // the object released above; the next round picks the winner up
+            // again through its instance.
+            type.Set(bestType);
+            type.SetInstance(nBestId);
+            break;
+        }
+
+        case 53: { // NearestEnemySummoned
+            type.Set(ANYONE);
+
+            if (caller->GetAIType().m_nEnemyAlly <= CAIOBJECTTYPE_EA_GOODCUTOFF) {
+                type.Set(CAIObjectType(CAIOBJECTTYPE_EA_EVILCUTOFF, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            } else if (caller->GetAIType().m_nEnemyAlly < CAIOBJECTTYPE_EA_EVILCUTOFF) {
+                ReleaseObject(pObject->GetId());
+                Set(NOONE);
+                return;
+            } else {
+                type.Set(CAIObjectType(CAIOBJECTTYPE_EA_GOODCUTOFF, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0));
+            }
+
+            LONG nFoundId = SearchArea(caller, type, FALSE, TRUE);
+            if (nFoundId == CGameObjectArray::INVALID_INDEX) {
+                Set(NOONE);
+                return;
+            }
+
+            type.SetInstance(nFoundId);
+            if (!ResolveType(type, caller, pObject, TRUE)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+        }
+
+        case 54: // MyTarget
+            type.Set(pAIBase->field_37E);
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 55: // SpellTarget
+            type.Set(pAIBase->field_3BA);
+            if (!ResolveTypeChecked(type, *this, caller, pObject)) {
+                Set(NOONE);
+                return;
+            }
+            break;
+
+        case 255: // Nothing
+            // Shares the exit every failed lookup uses, so the object stays
+            // shared here too.
             Set(NOONE);
-            ReleaseObject(pObject);
             return;
+
+        // Unrecovered, see the note at the top of the function. Listed so a
+        // later session can see exactly which ids are outstanding instead of
+        // finding them folded into the default arm.
+        case 4: // WeakestOf
+        case 5: // StrongestOf
+        case 6: // MostDamagedOf
+        case 7: // LeastDamagedOf
+        case 14: // Nearest
+        case 28: // StrongestOfMale
+        case 29: // SecondNearestEnemyOf
+        case 30: // ThirdNearestEnemyOf
+        case 31: // FourthNearestEnemyOf
+        case 32: // FifthNearestEnemyOf
+        case 33: // SixthNearestEnemyOf
+        case 34: // SeventhNearestEnemyOf
+        case 35: // EigthNearestEnemyOf
+        case 36: // NinthNearestEnemyOf
+        case 37: // TenthNearestEnemyOf
+        case 38: // SecondNearest
+        case 39: // ThirdNearest
+        case 40: // FourthNearest
+        case 41: // FifthNearest
+        case 42: // SixthNearest
+        case 43: // SeventhNearest
+        case 44: // EighthNearest
+        case 45: // NinthNearest
+        case 46: // TenthNearest
+        case 47: // WorstAC
+        case 48: // BestAC
+            break;
+
+        default:
+            // GroupOf and LastHitter have no arm of their own, and neither
+            // does any id past SpellTarget bar Nothing: they all reset the
+            // chain to the caller and carry on.
+            type.Set(caller->GetAIType());
+            break;
         }
     }
-
-    ReleaseObject(pObject);
 }
 
 // 0x40CAC0
