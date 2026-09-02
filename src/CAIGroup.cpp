@@ -1354,6 +1354,13 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
 
         if (pSprite->m_derivedStats.m_nEncumberance == 2) {
             pSprite->FeedBack(CGameSprite::FEEDBACK_TOOHEAVY_STOPPED, TRUE, 0, 0, -1, 0, 0);
+            // An overloaded member does not tidy up after itself.  The arm ends
+            // on a jump that lands PAST the list's RemoveAll (from 0x406D4B to
+            // 0x407122, where the RemoveAll sits at 0x407119), so the FACE and
+            // MOVETOPOINT this member already queued stay in the list -- which
+            // is a function-level local, not a per-member one -- and the next
+            // member round the loop consumes them along with its own.
+            // Reproduced, not corrected.
         } else {
             moveAction->m_dest = memberDest;
 
@@ -1386,13 +1393,9 @@ void CAIGroup::GroupSetTarget(CPoint target, BOOL additive, SHORT formationType,
                     delete action;
                 }
             }
-        }
 
-        while (actions.GetCount() != 0) {
-            CAIAction* action = actions.RemoveTail();
-            delete action;
+            actions.RemoveAll();
         }
-        actions.RemoveAll();
 
         pSprite->m_inFormation = TRUE;
         pSprite->m_groupMove = FALSE;

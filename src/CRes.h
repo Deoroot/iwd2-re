@@ -57,6 +57,17 @@ public:
     /* 004C */ RESID m_nID;
 };
 
+// CRes ends here, at 0x50, and the m_bParsed that a dozen subclasses declare as
+// their own first member does NOT belong up here -- a standing suggestion that
+// is refuted by the subclasses themselves.  CResItem, CResSpell, CResUI,
+// CResWED, CResTile, CResPLT and CResBinary all put real data at 0x50, and
+// CResBitmap puts three fields there before its own parsed flag lands at 0x58;
+// hoisting a BOOL into CRes would push every one of those four bytes along.
+// BG2's PDB is what suggested it -- there CResCRE and CResBIO genuinely have no
+// members of their own, and BG2's CRes carries bWasMalloced and bLoaded at the
+// end of its 56 bytes -- but that is the NAME carrying over, not the slot: IWD2
+// reorganised the class, and its subclasses each pay for their own flag.
+
 template <class T, int nType>
 class CResHelper {
 public:
