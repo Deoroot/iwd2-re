@@ -22,6 +22,9 @@ Hook spec (JSON):
 }
 
 Types: u8 u16 u32 s16 s32 ptr f32 str wstr.  "str"/"wstr" deref, guarded.
+Labels become JSON keys and are emitted QUOTED, so a label may contain dots
+or dashes -- an unquoted one used to render invalid JS and the whole script
+failed to compile with a bare "SyntaxError: expecting '}'".
 conv: thiscall (this=ecx, stack args -> args[0..]) | cdecl | stdcall.
 Addresses absolute (ImageBase 0x400000, no ASLR).  Hook function ENTRIES only.
 
@@ -39,7 +42,7 @@ READERS = {   # NativePointer -> value
     "s32":  "{p}.readS32()",
     "f32":  "{p}.readFloat()",
     "ptr":  "{p}.readPointer().toString()",
-    "str":  "{p}.readUtf8String(64)",
+    "str":  "rdstr({p})",
     "wstr": "{p}.readUtf16String(64)",
 }
 ARG_VALUE = {   # NativePointer arg -> logged value
@@ -58,7 +61,17 @@ ARG_VALUE = {   # NativePointer arg -> logged value
 # frida_crash_guard.py: x86 frame chain, bounded by a plausible-stack window so
 # a garbage EBP stops the walk instead of faulting.
 PRELUDE = r"""function guard(f) { try { return f(); } catch (e) { return 'ERR:' + e; } }
-function rdstr(p)  { try { return p.readUtf8String(64); } catch (e) { return 'ERR'; } }
+function rdstr(p)  {
+  // readUtf8String(n) reads EXACTLY n bytes, so a fixed-width field such as a
+  // CResRef -- eight bytes, NUL-padded -- came back as a decode error rather
+  // than as its text.  Find the terminator first, then read up to it.
+  try {
+    const u = new Uint8Array(p.readByteArray(64));
+    let n = 0;
+    while (n < u.length && u[n] !== 0) { n++; }
+    return n === 0 ? '' : p.readUtf8String(n);
+  } catch (e) { return 'ERR'; }
+}
 function rdwstr(p) { try { return p.readUtf16String(64); } catch (e) { return 'ERR'; } }
 function ebpwalk(fp, depth) {
   const out = [];
@@ -104,10 +117,10 @@ def js_for_hook(h, idx):
     for d in h.get("this_dump", []):
         off = d["off"] if isinstance(d["off"], str) else hex(d["off"])
         rd = READERS.get(d.get("type", "u32"), READERS["u32"]).format(p=f"thiz.add({off})")
-        fields.append(f"{d.get('label', 'f_' + off)}: guard(() => {rd})")
+        fields.append(f"'{d.get('label', 'f_' + off)}': guard(() => {rd})")
     for g in h.get("globals", []):
         label = g.get("label", "g_" + str(g["chain"][0]))
-        fields.append(f"{label}: guard(() => {_global_js(g)})")
+        fields.append(f"'{label}': guard(() => {_global_js(g)})")
     if h.get("bt"):
         fields.append("bt: guard(() => ebpwalk(this.context.ebp, 8))")
     parts.append("    send({ " + ", ".join(fields) + " });")

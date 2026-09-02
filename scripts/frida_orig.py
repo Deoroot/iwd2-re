@@ -172,19 +172,65 @@ function readPointer() {
 // linear map per axis, which inverts to the desktop point that puts m_ptPointer
 // exactly on a control. Aiming blind lands elsewhere -- the first run put
 // (645,295) at game (402,205) and the click hit no control at all.
-let calibrated = false, calStep = 0, g1x = 0, g1y = 0;
+//
+// The probe points cannot be FIXED, because m_ptPointer reads (-1,-1) for a
+// cursor that is off the window and a WINDOWED game covers only part of the
+// desktop.  Hardcoded (200,200)/(600,400) calibrated one sentinel against one
+// real reading on a box whose window sat near (563,230): it produced ax=0.095
+// and every aim after it missed, reporting only "cursor never reached the
+// control".  So sweep a grid of the desktop and keep the first two readings
+// that are REAL and differ on both axes.  Grid spacing is an eighth of the
+// screen, which is also the minimum separation the linear fit ever sees.
+const GetSystemMetrics = new NativeFunction(user32.getExportByName('GetSystemMetrics'),
+                                            'int', ['int'], 'stdcall');
+let calibrated = false, calPts = null, calIdx = 0, calPlaced = false, calP1 = null;
 let mapAx = 1, mapBx = 0, mapAy = 1, mapBy = 0;
 
+function calGrid() {
+  const w = GetSystemMetrics(0), h = GetSystemMetrics(1);
+  const cx = w / 2, cy = h / 2;
+  const pts = [];
+  for (let iy = 1; iy <= 7; iy++) {
+    for (let ix = 1; ix <= 7; ix++) {
+      pts.push([Math.round(w * ix / 8), Math.round(h * iy / 8)]);
+    }
+  }
+  // Nearest the middle first: a windowed game is usually centred, so this
+  // finds two live points in a handful of ticks instead of forty.
+  pts.sort(function (a, b) {
+    const da = (a[0] - cx) * (a[0] - cx) + (a[1] - cy) * (a[1] - cy);
+    const db = (b[0] - cx) * (b[0] - cx) + (b[1] - cy) * (b[1] - cy);
+    return da - db;
+  });
+  return pts;
+}
+
 function calibrate() {
-  if (calStep === 0) { SetCursorPos(200, 200); calStep = 1; return false; }
+  if (calPts === null) { calPts = calGrid(); }
+  if (calIdx >= calPts.length) {
+    send({ tag: 'drive', step: 'clickFailed',
+           why: 'cursor map is degenerate -- no two probe points landed on the window' });
+    return null;
+  }
+  if (!calPlaced) {
+    SetCursorPos(calPts[calIdx][0], calPts[calIdx][1]);
+    calPlaced = true;
+    return false;
+  }
+  const d = calPts[calIdx];
   const g = readPointer();
-  if (calStep === 1) { g1x = g[0]; g1y = g[1]; SetCursorPos(600, 400); calStep = 2; return false; }
-  const ax = (g[0] - g1x) / 400.0, ay = (g[1] - g1y) / 200.0;
-  if (ax === 0 || ay === 0) { send({ tag: 'drive', step: 'clickFailed', why: 'cursor map is degenerate' }); return null; }
-  mapAx = ax; mapBx = g1x - ax * 200;
-  mapAy = ay; mapBy = g1y - ay * 200;
+  calIdx++; calPlaced = false;
+  // (-1,-1) means the cursor was off the window, not that the map is wrong.
+  if (g[0] < 0 || g[1] < 0) { return false; }
+  if (calP1 === null) { calP1 = [d[0], d[1], g[0], g[1]]; return false; }
+  const ddx = d[0] - calP1[0], ddy = d[1] - calP1[1];
+  const dgx = g[0] - calP1[2], dgy = g[1] - calP1[3];
+  if (ddx === 0 || ddy === 0 || dgx === 0 || dgy === 0) { return false; }
+  mapAx = dgx / ddx; mapBx = calP1[2] - mapAx * calP1[0];
+  mapAy = dgy / ddy; mapBy = calP1[3] - mapAy * calP1[1];
   calibrated = true;
-  send({ tag: 'drive', step: 'calibrated', ax: mapAx, bx: mapBx, ay: mapAy, by: mapBy });
+  send({ tag: 'drive', step: 'calibrated', ax: mapAx, bx: mapBx, ay: mapAy, by: mapBy,
+         p1: calP1, p2: [d[0], d[1], g[0], g[1]] });
   return false;
 }
 function aimAt(x, y, dx, dy) {
@@ -226,10 +272,30 @@ function runJob() {
 
   if (job.state === 'aim') {
     const at = readPointer();
+    if (at[0] < 0 || at[1] < 0) {
+      // (-1,-1) is the off-the-window sentinel, not a small aiming error: the
+      // map is stale because the game moved or changed display mode between
+      // screens (loading a save does exactly that).  Nudging by an error
+      // computed from the sentinel would shove the cursor a further ~640px
+      // away, which is what "cursor never reached the control" used to mean.
+      // Measure the map again instead, then re-resolve and re-aim.
+      if (++job.recals > 2) {
+        finishJob('cursor is off the window and recalibrating did not help');
+        return;
+      }
+      calibrated = false; calPts = null; calIdx = 0; calPlaced = false; calP1 = null;
+      job.state = 'resolve'; job.aimTries = 0;
+      send({ tag: 'drive', step: 'recalibrate', target: job.label, tries: job.recals });
+      return;
+    }
     if (Math.abs(at[0] - job.x) > 2 || Math.abs(at[1] - job.y) > 2) {
       // Linear map, so one correction is normally enough; retry a few times to
       // absorb rounding and a cursor the desktop clamped.
-      if (++job.aimTries > 4) { finishJob('cursor never reached the control'); return; }
+      if (++job.aimTries > 4) {
+        finishJob('cursor never reached the control (wanted ' + job.x + ',' + job.y
+                  + ' got ' + at[0] + ',' + at[1] + ')');
+        return;
+      }
       aimAt(job.x, job.y, job.x - at[0], job.y - at[1]);
       return;
     }
@@ -255,7 +321,7 @@ function finishJob(why) {
 }
 function postJob(thiz, panel, ctrl, label) {
   job = { thiz: thiz, panel: panel, ctrl: ctrl, label: label,
-          state: 'resolve', waited: 0, aimTries: 0, pressTicks: 0, x: 0, y: 0 };
+          state: 'resolve', waited: 0, aimTries: 0, recals: 0, pressTicks: 0, x: 0, y: 0 };
 }
 
 // The connection screen comes up with popup 19 ("Finding the network devices on
