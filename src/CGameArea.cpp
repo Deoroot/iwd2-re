@@ -1634,11 +1634,115 @@ void CGameArea::GetAllInPoly(const CRect& rBounding, CPoint* pPoly, SHORT nPoly,
 }
 
 // 0x46DAE0
+//
+// BG2's PDB knows this one as the CPoint overload of CGameArea::GetNearest,
+// and spells its seven parameters center, type, range, terrainTable,
+// lineOfSight, seeInvisible, nNearest.  IWD2 adds includeAll on the end and,
+// exactly as in GetNearest itself, uses the seventh as a "want the farthest
+// instead" switch rather than as an ordinal.
+//
+// GetNearest hands off to this one when the search type carries a location
+// filter, so the walk starts from a bare point with no searcher object at all,
+// and most of the divergences follow from that: no searcher type, so no
+// immunity list; no start object, so no vert-list anchor -- the walk is the
+// whole of m_lVertSort from the head, in one direction only, and there is no
+// back list.  It is also the only one of the four searches that asks the type
+// whether the candidate falls inside its location filter, and it hands IsOver
+// the PERSPECTIVE-scaled point rather than the raw one.
+//
+// The rest of the test set is its own: no state mask, no sleeping test and no
+// stealth test; includeAll is tested against zero where GetNearest tests its
+// ignoreDead against 1 exactly; and CheckLOS is given FALSE for
+// bCheckIfExplored where GetNearest gives TRUE.  The race 0xBE special case,
+// which neither ordinal twin has, IS here.
 LONG CGameArea::FindObjectNear(INT x, INT y, const CAIObjectType& type, SHORT range, const BYTE* terrainTable, BOOL checkLOS, BOOL seeInvisible, BOOL findFarthest, BOOL includeAll)
 {
-    // TODO: Incomplete.
+    BOOL bWantsRaceBE = type.m_nRace == 0xBE;
 
-    return -1;
+    if (x < 0 || y < 0) {
+        return CGameObjectArray::INVALID_INDEX;
+    }
+
+    LONG nBestDist;
+    if (findFarthest == 0) {
+        nBestDist = static_cast<LONG>(range) * static_cast<LONG>(range) + 1;
+    } else {
+        nBestDist = 0;
+    }
+
+    LONG nBestId = CGameObjectArray::INVALID_INDEX;
+
+    CPoint ptSearch(x, y);
+    LONG nSearchYPersp = (y * 4) / 3;
+
+    POSITION pos = m_lVertSort.GetHeadPosition();
+    while (pos != NULL) {
+        LONG nCandidateId = reinterpret_cast<LONG>(m_lVertSort.GetNext(pos));
+
+        CGameObject* pObject;
+        if (m_pGame->GetObjectArray()->GetShare(nCandidateId,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE)
+            != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        BOOL bIsSprite = pObject->GetObjectType() == CGameObject::TYPE_SPRITE;
+        CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+
+        if (pObject->GetAIType().m_nRace != 0xBE || bWantsRaceBE) {
+            CPoint ptCandidate = pObject->GetPos();
+            ptCandidate.y = (ptCandidate.y * 4) / 3;
+
+            if (nSearchYPersp - ptCandidate.y <= range) {
+                if (ptCandidate.y - nSearchYPersp > range) {
+                    // The list is sorted, so the first candidate past the far
+                    // edge of the band ends the search outright -- and it
+                    // answers with the running best rather than with failure.
+                    m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                    return nBestId;
+                }
+
+                if (type.IsOver(ptCandidate)
+                    && (!bIsSprite
+                        || (pSprite->m_active
+                            && pSprite->m_activeAI
+                            && pSprite->m_activeImprisonment
+                            && pSprite->m_animation.GetAboveGround()
+                            && pSprite->CheckInvisibility(seeInvisible)))
+                    && pObject->GetAIType().OfType(type, FALSE, FALSE)
+                    && (includeAll == 0
+                        || (pSprite->m_derivedStats.m_generalState & 0x10000000) != 0)) {
+                    BOOL bInSight = TRUE;
+                    if (checkLOS) {
+                        bInSight = CheckLOS(ptSearch, pObject->GetPos(), terrainTable, FALSE);
+                    }
+
+                    if (bInSight) {
+                        LONG dy = ptCandidate.y - nSearchYPersp;
+                        LONG nDistSq = (ptCandidate.x - x) * (ptCandidate.x - x) + dy * dy;
+                        if (findFarthest == 0) {
+                            if (nDistSq < nBestDist) {
+                                nBestDist = nDistSq;
+                                nBestId = nCandidateId;
+                            }
+                        } else if (findFarthest == 1 && nBestDist < nDistSq) {
+                            // Tested against 1 exactly: any other non-zero
+                            // value keeps neither the nearest nor the
+                            // farthest, and the search answers INVALID_INDEX.
+                            nBestDist = nDistSq;
+                            nBestId = nCandidateId;
+                        }
+                    }
+                }
+            }
+        }
+
+        m_pGame->GetObjectArray()->ReleaseShare(nCandidateId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    return nBestId;
 }
 
 // 0x46DDC0
