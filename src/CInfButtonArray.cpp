@@ -972,15 +972,19 @@ void CInfButtonArray::UpdateButtons()
         sHotKeyLabel.Format(_T("F%d"), nButton + 1);
 
         switch (m_buttonTypes[nButton]) {
+        // 0x58A9CA and 0x58AAB8 are two bodies, not one: they differ only in
+        // the GUIBTACT frame they load, which goes to BOTH the normal and the
+        // selected slot, and they converge at 0x58ABA1.  Neither sets a tooltip
+        // or a hot key.  The two button types have no name yet -- nothing in the
+        // recovered dispatch or picker code produces them.
         case 0:
+            nIconNormalFrame = 0x30;
+            nIconSelectedFrame = 0x30;
+            bSetHotKey = FALSE;
+            break;
         case 1:
-            // Two jumptable entries into one body at 0x58A9CA / 0x58AAB8; the
-            // only thing they vary is the GUIBTACT frame, which goes to BOTH
-            // the normal and the selected slot.  Neither sets a tooltip or a
-            // hot key.  The two button types have no name yet -- nothing in
-            // the recovered dispatch or picker code produces them.
-            nIconNormalFrame = m_buttonTypes[nButton] == 0 ? 0x30 : 0x34;
-            nIconSelectedFrame = nIconNormalFrame;
+            nIconNormalFrame = 0x34;
+            nIconSelectedFrame = 0x34;
             bSetHotKey = FALSE;
             break;
         case 7:
@@ -1051,6 +1055,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x16;
             nToolTip = 0x1336;
             nHotKey = 0xA;
+            nIconSequence = 1;
             // The song button's selection highlight tracks the PERSISTENT
             // song-modal state of the group leader, not the transient
             // m_nSelectedButton match -- override the generic m_bSelected set
@@ -1070,6 +1075,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x26;
             nToolTip = 0x133F;
             nHotKey = 0x10;
+            nIconSequence = 1;
             // Selection highlight tracks the leader's persistent search modal
             // (state 2), not the transient m_nSelectedButton match -- override
             // the generic set above (0x58A340 case 4: clear piVar8[0x73], set it
@@ -1082,6 +1088,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x62;
             nToolTip = 0x1345;
             nHotKey = 0xD;
+            nIconSequence = 1;
             break;
         case 9:
             // Shapeshift â€” frame 0x28, tooltip 0x135E.
@@ -1128,6 +1135,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x1A;
             nToolTip = 0x136B;
             nHotKey = 0xE;
+            nIconSequence = 1;
             break;
         case 0x0D:
             // Animal Empathy. These are GUIBTACT logical frames; the BAM cycle
@@ -1136,6 +1144,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x7E;
             nToolTip = 0x136E;
             nHotKey = 0x9;
+            nIconSequence = 1;
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
                 && static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) < 1) {
                 bGreyOut = TRUE;
@@ -1355,18 +1364,18 @@ void CInfButtonArray::UpdateButtons()
             if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
                 pSprite->GetQuickWeapon(nWeaponSlot, buttonData);
             }
+            // 0x58CE5D stores the frames and the sequence before the arm
+            // has looked at the slot at all, so the empty branch keeps them.
+            nIconNormalFrame = 0x68;
+            nIconSelectedFrame = 0x6A;
+            nIconSequence = 1;
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconNormalFrame = 0;
-                nIconSelectedFrame = 0;
-                nIconSequence = 1;  // small action-bar cycle
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
                 // Off-hand slot (odd index) â†’ STONSHIL.  Main hand â†’ STONWEAP.
                 cIconResRef = (m_buttonTypes[nButton] & 1) ? CResRef("STONSHIL") : CResRef("STONWEAP");
-                nIconNormalFrame = 0;
-                nIconSelectedFrame = 0;
                 nToolTip = 0x1356;
             }
             nHotKey = static_cast<USHORT>(0x19 + (m_buttonTypes[nButton] - 0x3C));
@@ -1400,7 +1409,6 @@ void CInfButtonArray::UpdateButtons()
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
                 if (buttonData.m_bDisplayCount) {
@@ -1410,8 +1418,13 @@ void CInfButtonArray::UpdateButtons()
                 cIconResRef = CResRef("STONSPEL");
                 nToolTip = 0x1250;
             }
-            nIconNormalFrame = 0;
-            nIconSelectedFrame = 0;
+            // 0x58D89D, the last word of the arm: a slot showing no count is
+            // greyed out whatever the branches above decided.
+            if (nCount == 0) {
+                bGreyOut = TRUE;
+            }
+            // 0x58D5BD stores -1 into both frame slots and 0 into the sequence,
+            // whatever the slot holds.
             bHasOverlay = FALSE;
             bActiveIcon = TRUE;
             break;
@@ -1426,7 +1439,6 @@ void CInfButtonArray::UpdateButtons()
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
                 if (buttonData.m_bDisplayCount) {
@@ -1436,8 +1448,17 @@ void CInfButtonArray::UpdateButtons()
                 cIconResRef = CResRef("STONITEM");
                 nToolTip = 0x1372;
             }
-            nIconNormalFrame = 0;
-            nIconSelectedFrame = 0;
+            // 0x58D519: a quick slot with nothing to count greys out.  The
+            // exemption in between compares settings.field_1D4 against strref
+            // 0x6097, "Tiernon's Hearthstone" -- against a field that NOTHING in
+            // the binary ever writes and no constructor initialises, so the test
+            // never fires.  Reproduced, not corrected.
+            if (nCount <= 0 && settings.field_1D4 != 0x6097) {
+                bGreyOut = TRUE;
+            }
+            // 0x58D364 stores -1 into both frame slots and 0x58D381 stores 1
+            // into the sequence, before the arm looks at the slot.
+            nIconSequence = 1;
             nHotKey = static_cast<USHORT>(0x2D + (m_buttonTypes[nButton] - 0x50));
             bHasOverlay = FALSE;
             bActiveIcon = TRUE;
@@ -1460,7 +1481,6 @@ void CInfButtonArray::UpdateButtons()
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
                 if (buttonData.m_bDisplayCount) {
@@ -1470,8 +1490,7 @@ void CInfButtonArray::UpdateButtons()
                 cIconResRef = CResRef("STONSPEC");
                 nToolTip = 0x135A;
             }
-            nIconNormalFrame = 0;
-            nIconSelectedFrame = 0;
+            // 0x58D9DA stores -1 into both frame slots and 0 into the sequence.
             bHasOverlay = FALSE;
             bActiveIcon = TRUE;
             break;
@@ -1492,15 +1511,16 @@ void CInfButtonArray::UpdateButtons()
             }
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nIconSequence = 1;
                 nToolTip = buttonData.m_name;
                 bGreyOut = buttonData.m_bDisabled;
             } else {
                 cIconResRef = CResRef("STONSONG");
                 nToolTip = 0x923C;
             }
-            nIconNormalFrame = 0;
-            nIconSelectedFrame = 0;
+            // 0x58DC8C: the song slots keep the bard-song GUIBTACT frames even
+            // though they draw their own icon, and the sequence stays 0.
+            nIconNormalFrame = 0x14;
+            nIconSelectedFrame = 0x16;
             bHasOverlay = FALSE;
             bActiveIcon = TRUE;
             break;

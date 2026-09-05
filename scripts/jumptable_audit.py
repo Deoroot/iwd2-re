@@ -617,7 +617,8 @@ def src_body(name):
     if name not in _BODY_CACHE:
         import subprocess
         r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "src_find.py"),
-                            name, "--body"], capture_output=True, text=True)
+                            name, "--body"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
         _BODY_CACHE[name] = r.stdout if r.returncode == 0 else None
     return _BODY_CACHE[name]
 
@@ -638,7 +639,8 @@ def src_overloads(bare):
     if bare not in _OVERLOAD_CACHE:
         import subprocess
         r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "src_find.py"), bare],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
         names = []
         if r.returncode == 0:
             for line in r.stdout.splitlines():
@@ -978,7 +980,8 @@ def audit(target, prefix=None, show_clones=True, multi=False):
         name = target
     if va is None:
         r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "src_find.py"), name],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
         m = re.search(r"(0x[0-9A-Fa-f]{6,8})", r.stdout)
         if m:
             va = int(m.group(1), 16)

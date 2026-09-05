@@ -1,0 +1,23 @@
+# Reach a SECOND action-bar state, on our side, to match what
+# `frida_orig.py --click 1:0` reaches on the original.
+#
+# The Prologue autosave opens on the GROUP bar (state 0x6E).  Clicking a party
+# portrait selects that one character and the bar becomes the single-PC bar
+# (state 0x72), which is nine more arms of CInfButtonArray::UpdateButtons'
+# switch: the two weapon sets, Attack, Skills, the quick spells, the quick
+# items, the quick abilities and Special Abilities.
+#
+# Portraits are panel 1, controls 0..5; the action bar is the same panel,
+# controls 6..17.  So `click 1 0` is the first portrait.
+#
+# Pair with the armed Iwd2DebugLog in RenderButton (the snippet lives in
+# scripts/probes/actionbar_settings.py): it fires on every change of
+# (m_nState, m_nSelectedButton), so one run writes call=1 for 0x6E and call=2
+# for 0x72, and --call picks between them.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 60

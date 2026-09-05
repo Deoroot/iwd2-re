@@ -37,10 +37,19 @@ DEF_RE = re.compile(
 CLASS_RE = re.compile(r"^(?:class|struct)\s+([A-Za-z_]\w*)\s*(?::[^;{]*)?\{?\s*(?://.*)?$")
 
 
+# The source is UTF-8; without saying so, Python opens it in the console
+# codepage and a byte with no slot there decodes to U+FFFD -- which then cannot
+# be written back out to a pipe, so --body dies mid-function and every caller
+# (jumptable_audit above all) reads the function as "could not place".  Two
+# files in src/ trip this today.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+
 def parse_file(path):
     """Return list of symbol dicts for one source file."""
     try:
-        with open(path, errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
     except OSError:
         return []
@@ -184,7 +193,7 @@ def fullname(s):
 
 def print_body(s, around=0):
     path = os.path.join(REPO, s["file"])
-    lines = open(path, errors="replace").readlines()
+    lines = open(path, encoding="utf-8", errors="replace").readlines()
     if around:
         lo = max(0, s["line"] - 1 - around)
         hi = min(len(lines), s["line"] + around)

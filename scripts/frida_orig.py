@@ -238,6 +238,14 @@ function aimAt(x, y, dx, dy) {
                Math.round((y - mapBy) / mapAy) + (dy | 0));
 }
 
+// Clicks to drive once the world engine is up, as [panel, control] pairs.  The
+// world screen is the only one with no scripted sequence of its own, so this is
+// how a trace reaches any action-bar state but the one the save opens in.
+let worldThis = null;
+let postClicks = %(post_clicks)s;
+let postSettled = 0;
+const POST_SETTLE = %(click_settle)d;
+
 // One click job at a time: {thiz, panel, ctrl, label}. The manager update of the
 // owning screen runs it, so a job posted for a screen that is not up yet simply
 // waits until that screen starts ticking.
@@ -373,6 +381,17 @@ Interceptor.attach(ptr(%(uimgr_update)#x), {
       runJob();
       return;
     }
+    // Post-load clicks belong to the world screen's own manager; they wait their
+    // settle out between jobs so the bar has run an UpdateButtons in between.
+    if (worldThis !== null && postClicks.length !== 0) {
+      if (!this.mgr.equals(worldThis.add(%(uimgr_off)#x))) return;
+      if (++postSettled < POST_SETTLE) return;
+      postSettled = 0;
+      const c = postClicks.shift();
+      send({ tag: 'drive', step: 'postClick', panel: c[0], ctrl: c[1] });
+      postJob(worldThis, c[0], c[1], 'post ' + c[0] + '/' + c[1]);
+      return;
+    }
     if (dismissed || connThis === null) return;
     if (!this.mgr.equals(connThis.add(%(uimgr_off)#x))) return;
     // FALLBACK_TICKS keeps a config that never reaches AutoSelectServiceProvider
@@ -403,7 +422,10 @@ Interceptor.attach(ptr(%(load_activated)#x), {
 });
 
 Interceptor.attach(ptr(%(world_activated)#x), {
-  onEnter() { send({ tag: 'loaded', detail: 'world engine activated' }); }
+  onEnter() {
+    worldThis = this.context.ecx;
+    send({ tag: 'loaded', detail: 'world engine activated' });
+  }
 });
 """
 
@@ -491,7 +513,8 @@ class Trace:
         return rc
 
 
-def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True) -> str:
+def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True,
+             clicks: list | None = None, click_settle: int = 60) -> str:
     hooks = spec["hooks"]
     blocks = ["'use strict';", PRELUDE, CRASH_JS]
     if skip_movies:
@@ -515,6 +538,8 @@ def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True) -> st
         "load_button": LOAD_BUTTON,
         "load_activated": LOAD_ACTIVATED, "load_game": LOAD_GAME,
         "world_activated": WORLD_ACTIVATED,
+        "post_clicks": json.dumps(clicks or []),
+        "click_settle": click_settle,
     })
     blocks.append(hooks_js(hooks))
     blocks.append(install_dump_js(hooks))
@@ -535,6 +560,12 @@ def main() -> int:
     ap.add_argument("--post-load", type=float, default=20.0,
                     help="seconds to keep tracing once the save is up")
     ap.add_argument("--timeout", type=float, default=180.0, help="hard cap, from spawn")
+    ap.add_argument("--click", action="append", metavar="PANEL:CONTROL", default=[],
+                    help="click this control once the world engine is up; repeatable, "
+                         "in order.  The action bar is panel 1, slot N is control N+6, "
+                         "and controls 0..5 are the party portraits.")
+    ap.add_argument("--click-settle", type=int, default=60,
+                    help="manager ticks to wait before each --click")
     ap.add_argument("--hit", help="hook name that must fire, else NOT-EXERCISED")
     ap.add_argument("--hit-min", type=int, default=1)
     ap.add_argument("--no-skip-movies", dest="skip_movies", action="store_false",
@@ -551,7 +582,9 @@ def main() -> int:
     pid = frida.spawn(ns.exe, cwd=GAME_DIR)
     session = frida.attach(pid)
     script = session.create_script(
-        build_js(spec, ns.load_slot, ns.settle_ticks, ns.skip_movies))
+        build_js(spec, ns.load_slot, ns.settle_ticks, ns.skip_movies,
+                  clicks=[[int(p) for p in c.split(":", 1)] for c in ns.click],
+                  click_settle=ns.click_settle))
     script.on("message", trace.on_message)
     script.load()
     frida.resume(pid)

@@ -24,19 +24,33 @@ the load screen, which is what keeps the two runs comparable.
 Usage:
   python scripts/probes/actionbar_settings.py --emit-hooks c:/tmp/bar.json
   python scripts/frida_orig.py --hooks c:/tmp/bar.json --out c:/tmp/orig.jsonl \\
-      --load-slot 0 --post-load 15 --timeout 240 --hit RenderButton
+      --load-slot 0 --post-load 25 --timeout 300 --hit RenderButton --click 1:0
   python scripts/probes/actionbar_settings.py --report c:/tmp/orig.jsonl
   python scripts/probes/actionbar_settings.py --diff c:/tmp/orig.jsonl \\
       "C:/Juegos/Icewind Dale 2/iwd2-re-debug.log"
+
+The save opens in state 0x6E, the group bar.  `--click 1:0` clicks the first
+party portrait, which is what puts the ORIGINAL into 0x72, the single-PC bar --
+nine more arms of the switch, and the only way to see them short of a save that
+opens in one.  Our side reaches the same place with an AutoUI scenario
+(scripts/scenarios/actionbar-states.txt).  One trace holds both states: --state
+picks which one the original reports and --call which one ours does, and 1 is
+always the state the save opened in.
 
 The our-side half is a deliberately armed Iwd2DebugLog, added to a CLEAN tree
 and removed with one `git checkout` (see CLAUDE.md).  Paste at the top of
 CInfButtonArray::RenderButton:
 
     {
+        // Armed on a CHANGE, so one run photographs every bar the scenario
+        // reaches and --call selects which: 1 is the state the save opens in.
+        static INT nDbgState = -1;
+        static INT nDbgSel = -1;
         static INT nDbgCalls = 0;
-        nDbgCalls++;
-        if (nDbgCalls == 1 || nDbgCalls == 601) {
+        if (m_nState != nDbgState || m_nSelectedButton != nDbgSel) {
+            nDbgState = m_nState;
+            nDbgSel = m_nSelectedButton;
+            nDbgCalls++;
             Iwd2DebugLog("BAR call=%d state=%d selBtn=%d",
                 nDbgCalls, m_nState, m_nSelectedButton);
             for (INT nDbg = 0; nDbg < 12; nDbg++) {
@@ -108,7 +122,7 @@ FIELDS = [
 COLUMNS = ["type"] + [name for _, name in FIELDS] + ["res", "hres", "frm"]
 
 
-def build_hooks():
+def build_hooks(max_shots=480):
     dump = []
     for n in range(NBUTTONS):
         base = n * SETTINGS_STRIDE
@@ -139,33 +153,43 @@ def build_hooks():
         "process": "IWD2.exe",
         "hooks": [
             {"addr": RENDER_BUTTON, "name": "RenderButton", "conv": "thiscall",
-             "args": render_args, "this_dump": dump, "max": 14},
+             "args": render_args, "this_dump": dump, "max": max_shots},
             {"addr": RENDER_BUTTON_OVERLAY, "name": "RenderButtonOverlay",
-             "conv": "thiscall", "args": render_args, "max": 14},
+             "conv": "thiscall", "args": render_args, "max": max_shots},
             {"addr": UPDATE_BUTTONS, "name": "UpdateButtons", "conv": "thiscall",
              "args": [],
              "this_dump": [
                  {"off": hex(STATE), "type": "s32", "label": "state.in"},
                  {"off": hex(SELECTED), "type": "s32", "label": "selBtn.in"},
              ],
-             "max": 6},
+             "max": max_shots},
         ],
     }
 
 
-def read_original(path):
-    """-> (state, selBtn, {slot: {column: value}}, n_photographs, unstable)."""
+def read_original(path, state=None):
+    """-> (state, selBtn, {slot: {column: value}}, n_photographs, unstable).
+
+    With a post-load --click the trace spans more than one bar state; 
+    picks which one to report, and the default is the last one reached.
+    """
     recs = [json.loads(l) for l in open(path) if l.strip()]
     shots = [r for r in recs if r.get("tag") == "RenderButton"]
+    if state is not None:
+        shots = [s for s in shots if s.get("state") == state]
     if not shots:
         return None
     last = shots[-1]
     rows = {}
     for n in range(NBUTTONS):
         rows[n] = {c: last.get("b%d.%s" % (n, c)) for c in COLUMNS}
-    keys = [k for k in shots[0] if k.startswith("b")]
+    # Only the LAST frame's worth of photographs: with a post-load --click the
+    # trace spans two states, and comparing across the click reports every field
+    # the click changed as "unstable".  Twelve shots is one frame.
+    recent = shots[-NBUTTONS:]
+    keys = [k for k in recent[0] if k.startswith("b")]
     unstable = [k for k in keys
-                if len({json.dumps(s.get(k)) for s in shots}) > 1]
+                if len({json.dumps(s.get(k)) for s in recent}) > 1]
     return last.get("state"), last.get("selBtn"), rows, len(shots), unstable
 
 
@@ -223,12 +247,18 @@ def main():
                     help="print the original's settings table")
     ap.add_argument("--diff", nargs=2, metavar=("JSONL", "DEBUGLOG"),
                     help="original vs ours, field by field")
+    ap.add_argument("--state", type=int,
+                    help="bar state to report from the original (default: the last "
+                         "one the trace reached)")
+    ap.add_argument("--max-shots", type=int, default=480,
+                    help="per-hook record cap; a post-load --click needs room for "
+                         "the frames before AND after it")
     ap.add_argument("--call", type=int, default=1,
                     help="which armed RenderButton call to read from the debug log")
     ns = ap.parse_args()
 
     if ns.emit_hooks:
-        spec = build_hooks()
+        spec = build_hooks(ns.max_shots)
         with open(ns.emit_hooks, "w") as fh:
             json.dump(spec, fh, indent=1)
         n = sum(len(h.get("this_dump", [])) for h in spec["hooks"])
@@ -236,7 +266,7 @@ def main():
               % (ns.emit_hooks, len(spec["hooks"]), n))
 
     if ns.report:
-        got = read_original(ns.report)
+        got = read_original(ns.report, ns.state)
         if got is None:
             print("no RenderButton records in %s" % ns.report)
             return 2
@@ -247,7 +277,7 @@ def main():
 
     if ns.diff:
         jsonl, log = ns.diff
-        got = read_original(jsonl)
+        got = read_original(jsonl, ns.state)
         ours = read_ours(log, ns.call)
         if got is None or ours is None:
             print("missing one side (original=%s ours=%s)"

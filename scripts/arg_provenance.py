@@ -515,7 +515,8 @@ def fn_source(name):
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         out = subprocess.run([sys.executable, os.path.join(repo, "scripts", "src_find.py"), name],
-                             capture_output=True, text=True, timeout=30).stdout
+                             capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=30).stdout
     except Exception:
         return None
     m = re.search(r"(\S+\.(?:cpp|h)):\d+\s+0x[0-9a-fA-F]+\s+\[(\d+)-(\d+)\]\s+(.*)", out)
