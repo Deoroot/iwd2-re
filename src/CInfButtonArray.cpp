@@ -1899,12 +1899,27 @@ void CInfButtonArray::UpdateButtons()
         break;
     }
     case 0x6C:
+        // Formation picker (0x58E7F8).  Twelve icon cells, FORM0 through FORMB
+        // in slot order, and nothing else at all -- no count, no tooltip, no
+        // selection, no grey-out.  0x6D below is a SEPARATE body in the binary
+        // and identical to this one instruction for instruction, bar the stack
+        // slots of its temporaries; the two are kept apart here because the
+        // jumptable really does send the two states to different addresses.
+        m_buttonArray[0].m_iconCell.SetResRef(CResRef("FORM0"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[1].m_iconCell.SetResRef(CResRef("FORM1"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[2].m_iconCell.SetResRef(CResRef("FORM2"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[3].m_iconCell.SetResRef(CResRef("FORM3"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[4].m_iconCell.SetResRef(CResRef("FORM4"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[5].m_iconCell.SetResRef(CResRef("FORM5"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[6].m_iconCell.SetResRef(CResRef("FORM6"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[7].m_iconCell.SetResRef(CResRef("FORM7"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[8].m_iconCell.SetResRef(CResRef("FORM8"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[9].m_iconCell.SetResRef(CResRef("FORM9"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[10].m_iconCell.SetResRef(CResRef("FORMA"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[11].m_iconCell.SetResRef(CResRef("FORMB"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        break;
     case 0x6D:
-        // Formation pickers (0x58E7F8 and 0x58E592).  Two bodies in the
-        // binary, identical instruction for instruction bar the stack slots of
-        // their temporaries: twelve icon cells, FORM0 through FORMB in slot
-        // order, and nothing else at all -- no count, no tooltip, no
-        // selection, no grey-out.
+        // Formation picker (0x58E592).  The twin of 0x6C above.
         m_buttonArray[0].m_iconCell.SetResRef(CResRef("FORM0"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
         m_buttonArray[1].m_iconCell.SetResRef(CResRef("FORM1"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
         m_buttonArray[2].m_iconCell.SetResRef(CResRef("FORM2"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
