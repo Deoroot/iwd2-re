@@ -917,6 +917,18 @@ void CInfButtonArray::UpdateButtons()
     field_17C2.SetResRef(CResRef("GUIBTACT"), pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
     field_16E8.SetResRef(CResRef("GUIBTBUT"), pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
 
+    // Computed once for the shared leader at 0x58A7BB, immediately before the
+    // button loop, and read by the two arms that draw special abilities: the
+    // Special Abilities button itself (type 0x0A) and the nine quick-ability
+    // slots (0x5A-0x62).  Three unsigned "> 0" tests, not a count.
+    BOOL bHasSpecialAbility = FALSE;
+    if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
+        && (pSprite->m_innateSpells.m_nSharedCurrent > 0
+            || pSprite->m_shapeshifts.m_nSharedTotal > 0
+            || pSprite->m_shapeshifts.m_nSharedCurrent > 0)) {
+        bHasSpecialAbility = TRUE;
+    }
+
     for (INT nButton = 0; nButton < 12; nButton++) {
         CUIControlBase* pControl = pPanel->GetControl(nButton + 6);
         if (pControl == NULL) {
@@ -1097,11 +1109,29 @@ void CInfButtonArray::UpdateButtons()
             nToolTip = 0x135E;
             break;
         case 10:
-            // Special Abilities. Ghidra case 10 frames 0x28/0x2A, tooltip 0x135A.
+            // Special Abilities.  Frames 0x28/0x2A, hot key 0x13, sequence 0.
             nIconNormalFrame = 0x28;
             nIconSelectedFrame = 0x2A;
             nToolTip = 0x135A;
             nHotKey = 0x13;
+            // Greyed, and re-labelled "No Special Abilities" (strref 0x9243),
+            // when the leader has neither innates nor shapeshifts left or the
+            // innate spell type is disabled outright.  The arm at 0x58CCD4
+            // runs this test FIRST, before it writes a single field.
+            if (!bHasSpecialAbility
+                || (rc == CGameObjectArray::SUCCESS && pSprite != NULL
+                    && pSprite->GetDerivedStats()->m_disabledSpellTypes[2] == 1)) {
+                bGreyOut = TRUE;
+                nToolTip = 0x9243;
+            }
+            // A modal feat that is dialled in shows as selected and re-labels
+            // the button "Using Special Ability" (0x9B93), overriding either
+            // tooltip above (0x58CE0E).
+            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL
+                && IsUsingModalFeat(pSprite) == 1) {
+                nToolTip = 0x9B93;
+                settings.m_bSelected = 1;
+            }
             break;
         case 0x0B:
             // Stealth. Ghidra case 0x0B frames 0x1C/0x1E, tooltip 0x1368.
@@ -1109,6 +1139,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x1E;
             nToolTip = 0x1368;
             nHotKey = 0xF;
+            nIconSequence = 1;
             // Grey the button out while the Stealth slot of the disabled-buttons
             // array is set (m_disabledButtons[0], at +0x16CC) or the post-reveal
             // grey-out timer is still ticking (m_nStealthGreyOut > 0), so stealth
@@ -1350,6 +1381,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0x5E;
             nToolTip = 0x7DBA;
             nHotKey = 0x36;
+            nIconSequence = 1;
             break;
         case 0x3C:
         case 0x3D:
@@ -1482,13 +1514,21 @@ void CInfButtonArray::UpdateButtons()
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
                 nToolTip = buttonData.m_name;
-                bGreyOut = buttonData.m_bDisabled;
                 if (buttonData.m_bDisplayCount) {
                     nCount = buttonData.m_count;
                 }
             } else {
                 cIconResRef = CResRef("STONSPEC");
                 nToolTip = 0x135A;
+            }
+            // The grey-out is decided at the very END of the arm (0x58DC32),
+            // outside the icon branch, and takes the same "No Special
+            // Abilities" label the Special Abilities button takes: a slot is
+            // greyed when the leader has no special abilities left at all, or
+            // when the entry the quick slot resolved to is itself disabled.
+            if (!bHasSpecialAbility || buttonData.m_bDisabled) {
+                bGreyOut = TRUE;
+                nToolTip = 0x9243;
             }
             // 0x58D9DA stores -1 into both frame slots and 0 into the sequence.
             bHasOverlay = FALSE;
@@ -1824,6 +1864,40 @@ void CInfButtonArray::SetCustomButtonTypes(const INT* pButtonList)
     for (INT nButton = 0; nButton < 9; nButton++) {
         m_customButtonTypes[nButton] = pButtonList[nButton];
     }
+}
+
+// Named for what it does: it has no BG2 counterpart -- IWD2's modal feats do
+// not exist in Baldur's Gate II, and the BG2 PDB has no CInfButtonArray method
+// of this shape.  Declared as a member because the call site at 0x58CE0E loads
+// ecx with the array before the call, even though the body never touches it.
+//
+// 0x595EB0
+BOOLEAN CInfButtonArray::IsUsingModalFeat(CGameSprite* pSprite)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfButtonArray.cpp
+    // __LINE__: 7136
+    UTIL_ASSERT(pSprite != NULL);
+
+    // The five feats CGameSprite::GetFeatRank knows a rank slot for, in the
+    // order the binary tests them.  GetFeatRank returns the rank the player has
+    // dialled in, so "> 0" is "this modal is running", and the HasFeat test
+    // behind it re-checks the feat's own prerequisites.
+    static const UINT nModalFeats[] = {
+        CGAMESPRITE_FEAT_POWER_ATTACK,
+        CGAMESPRITE_FEAT_EXPERTISE,
+        CGAMESPRITE_FEAT_ARTERIAL_STRIKE,
+        CGAMESPRITE_FEAT_HAMSTRING,
+        CGAMESPRITE_FEAT_RAPID_SHOT,
+    };
+
+    for (INT nFeat = 0; nFeat < 5; nFeat++) {
+        if (pSprite->GetFeatRank(nModalFeats[nFeat]) > 0
+            && pSprite->HasFeat(nModalFeats[nFeat])) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 // 0x595F70

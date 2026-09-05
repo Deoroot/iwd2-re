@@ -1,0 +1,32 @@
+# Reach the SKILLS SUBMENU (state 0x73), a picker state, on our side -- the
+# same place `frida_orig.py --click 1:4 --click 1:9` reaches on the original.
+#
+# The Prologue autosave opens on the GROUP bar (0x6E).  Clicking portrait 4
+# selects that one character and the bar becomes the single-PC bar (0x72);
+# measured on the original 2026-09-05, that character's bar is
+#
+#     07 3C 3D 05 0B 04 0C 5E 50 51 52 0A
+#
+# so slot 3 is Skills (type 5) -- control 9 -- and clicking it runs
+# DispatchActionBarClick case 5 -> SetState(0x73, 1).  State 0x73 is the
+# skills submenu, 0B 04 0C 77 0D then empties, and it is the FIRST picker
+# state either side of the oracle has ever been driven to: it is one of the
+# fourteen arms of the second switch at 0x58FC28, which both 0x6E and 0x72
+# take the default of.
+#
+# Portraits are panel 1, controls 0..5; the action bar is the same panel,
+# controls 6..17, so bar slot N is control N+6.
+#
+# Pair with the armed Iwd2DebugLog in RenderButton (the snippet lives in
+# scripts/probes/actionbar_settings.py): it fires on every change of
+# (m_nState, m_nSelectedButton), so one run writes call=1 for 0x6E, call=2
+# for 0x72 and call=3 for 0x73, and --call picks between them.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 4
+sleep 60
+click 1 9
+sleep 60

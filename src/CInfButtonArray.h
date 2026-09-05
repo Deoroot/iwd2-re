@@ -94,6 +94,8 @@ public:
     INT GetNextPickerPage(CGameButtonList* pButtonList);
     INT GetPreviousPickerPage(CGameButtonList* pButtonList);
     void SetCustomButtonTypes(const INT* pButtonList);
+    // Named for what it does: no BG2 counterpart -- see the body.
+    BOOLEAN IsUsingModalFeat(CGameSprite* pSprite);
     void SetQuickWeaponSlot(BYTE nSlot);
     void OnLButtonPressed(int buttonID);
     void OnRButtonPressed(int buttonID);
