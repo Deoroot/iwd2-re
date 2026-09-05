@@ -933,7 +933,19 @@ void CInfButtonArray::UpdateButtons()
         STRREF nToolTip = -1;
         USHORT nHotKey = 0xFFFF;
         BOOL bEnabled = TRUE;
+        // settings.field_0.  "This slot is populated"; the shared tail and
+        // RenderButton both gate on it.
         BOOL bActive = TRUE;
+        // settings.m_bActive (+4) and settings.m_bHasOverlay (+8) are
+        // INDEPENDENT stores in the binary, not two faces of one flag.
+        // Surveyed over all 43 arms of the switch: the overlay arms leave
+        // m_bActive 0 while m_bHasOverlay is 1, the arms that carry their own
+        // icon BAM set m_bActive 1 and m_bHasOverlay 0, the 0x28 arm sets BOTH
+        // to 1, and the empty-slot arm clears all three.
+        BOOL bActiveIcon = FALSE;
+        // The empty-slot arm makes no SetToolTipHotKey call at all; every other
+        // arm makes one, most of them with 0xFFFF.
+        BOOL bSetHotKey = TRUE;
         BOOL bGreyOut = FALSE;
         BOOL bActiveWeaponSet = FALSE;
         SHORT nCount = 0;
@@ -954,23 +966,42 @@ void CInfButtonArray::UpdateButtons()
         settings.m_bSelected = m_nSelectedButton == m_buttonTypes[nButton];
         settings.m_bGreyOut = FALSE;
 
+        // The label the tooltip shows for this slot's hot key.  Built once per
+        // slot in the loop head and handed to every SetToolTipHotKey call.
+        CString sHotKeyLabel;
+        sHotKeyLabel.Format(_T("F%d"), nButton + 1);
+
         switch (m_buttonTypes[nButton]) {
+        case 0:
+        case 1:
+            // Two jumptable entries into one body at 0x58A9CA / 0x58AAB8; the
+            // only thing they vary is the GUIBTACT frame, which goes to BOTH
+            // the normal and the selected slot.  Neither sets a tooltip or a
+            // hot key.  The two button types have no name yet -- nothing in
+            // the recovered dispatch or picker code produces them.
+            nIconNormalFrame = m_buttonTypes[nButton] == 0 ? 0x30 : 0x34;
+            nIconSelectedFrame = nIconNormalFrame;
+            bSetHotKey = FALSE;
+            break;
         case 7:
             nIconNormalFrame = 0;
             nIconSelectedFrame = 2;
             nToolTip = 0x3E35;
+            nIconSequence = 1;
             break;
         case 8:
             nIconNormalFrame = 0x0C;
             nIconSelectedFrame = 0x0E;
             nToolTip = 0x123A;
             nHotKey = 0x12;
+            nIconSequence = 1;
             break;
         case 0x0F:
             nIconNormalFrame = 0x2C;
             nIconSelectedFrame = 0x2C;
             nToolTip = 0x3E34;
             nHotKey = 0x11;
+            nIconSequence = 1;
             break;
         case 0x10:
         case 0x11:
@@ -982,7 +1013,9 @@ void CInfButtonArray::UpdateButtons()
             // that sits inside a GUIBTBUT bezel, not a full-button overlay.
             INT nFormationButton = m_buttonTypes[nButton] - 0x10;
             SHORT nFormation = g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_quickFormations[nFormationButton];
-            if (nFormation < 0) {
+            // 0x58B02B tests against -1 exactly, not against "negative": any
+            // other negative value falls through to the FORM%d branch.
+            if (nFormation == -1) {
                 cIconResRef = CResRef("STONFORM");
             } else if (nFormation < 10) {
                 CString sResRef;
@@ -993,11 +1026,16 @@ void CInfButtonArray::UpdateButtons()
                 sResRef.Format("FORM%c", static_cast<char>(nFormation + '7'));
                 cIconResRef = CResRef(sResRef);
             }
-            nIconNormalFrame = 0;
-            nIconSelectedFrame = 0;
+            // The frames stay at -1: a formation slot paints its FORMx BAM
+            // at whatever frame the cell already holds, and the arm at
+            // 0x58AF5F stores -1 into both frame slots before the resref.
+            nIconSequence = 1;
             nToolTip = 0x1347;
-            nHotKey = static_cast<USHORT>(0x20 + nFormationButton);
+            // 0x58B24B reads the button TYPE as a word and adds 0x20, so the
+            // five slots take 0x30..0x34 -- not 0x20 plus the slot index.
+            nHotKey = static_cast<USHORT>(m_buttonTypes[nButton] + 0x20);
             bHasOverlay = FALSE;
+            bActiveIcon = TRUE;
             // Ghidra `piVar8[0x73] = (uint)(piStack_51c == apiStack_4e8[0])`:
             // formation slot's selection highlight is driven by whether its
             // configured formation matches CGameSave::m_curFormation (NOT the
@@ -1136,6 +1174,7 @@ void CInfButtonArray::UpdateButtons()
                 nIconNormalFrame = 0;
                 nIconSelectedFrame = 0;
                 bHasOverlay = FALSE;
+                bActiveIcon = TRUE;
             } else if (g_pButtonArrayPickerList != NULL) {
                 // Picker list entry â€” pull icon + tooltip from the
                 // CGameButtonList built in RebuildPickerList.  Two layouts:
@@ -1158,6 +1197,7 @@ void CInfButtonArray::UpdateButtons()
                     nToolTip = pEntry->m_name;
                     bGreyOut = pEntry->m_bDisabled;
                     bHasOverlay = FALSE;
+                bActiveIcon = TRUE;
                     if (pEntry->m_bDisplayCount) {
                         nCount = pEntry->m_count;
                     }
@@ -1209,7 +1249,9 @@ void CInfButtonArray::UpdateButtons()
             nToolTip = 0x135A;
             break;
         case 0x28:
-            // Customize: Battle Song.
+            // Customize: Battle Song.  The one arm of the 43 that sets
+            // m_bActive AND m_bHasOverlay together (0x58E0B8).
+            bActiveIcon = TRUE;
             nIconNormalFrame = 0x14;
             nIconSelectedFrame = 0x16;
             nToolTip = 0x1336;
@@ -1336,6 +1378,7 @@ void CInfButtonArray::UpdateButtons()
                 bActiveWeaponSet = TRUE;
             }
             bHasOverlay = FALSE;
+            bActiveIcon = TRUE;
             break;
         }
         case 0x46:
@@ -1370,6 +1413,7 @@ void CInfButtonArray::UpdateButtons()
             nIconNormalFrame = 0;
             nIconSelectedFrame = 0;
             bHasOverlay = FALSE;
+            bActiveIcon = TRUE;
             break;
         }
         case 0x50:
@@ -1396,6 +1440,7 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 0;
             nHotKey = static_cast<USHORT>(0x2D + (m_buttonTypes[nButton] - 0x50));
             bHasOverlay = FALSE;
+            bActiveIcon = TRUE;
             break;
         }
         case 0x5A:
@@ -1428,6 +1473,7 @@ void CInfButtonArray::UpdateButtons()
             nIconNormalFrame = 0;
             nIconSelectedFrame = 0;
             bHasOverlay = FALSE;
+            bActiveIcon = TRUE;
             break;
         }
         case 0x6E:
@@ -1456,65 +1502,65 @@ void CInfButtonArray::UpdateButtons()
             nIconNormalFrame = 0;
             nIconSelectedFrame = 0;
             bHasOverlay = FALSE;
+            bActiveIcon = TRUE;
             break;
         }
         case 100:
         default:
+            // Empty slot (0x58A8A4, and the shared default at 0x58E4AD).  All
+            // three of field_0 / m_bActive / m_bHasOverlay are cleared, the
+            // loop head's m_bSelected compare is overwritten with 0, and
+            // m_bGreyOut goes to 1.  The only thing the arm varies is the
+            // tooltip, and it varies on the ARRAY's state, not on the slot.
             bActive = FALSE;
             bEnabled = FALSE;
+            bHasOverlay = FALSE;
             cIconResRef = CResRef("");
+            settings.m_bSelected = 0;
+            nToolTip = m_nState == 0x72 ? 0xA010 : -1;
+            bSetHotKey = FALSE;
             break;
         }
 
         settings.field_0 = bActive ? 1 : 0;
-        settings.m_bActive = bActive ? 1 : 0;
+        settings.m_bActive = bActiveIcon ? 1 : 0;
         settings.m_bHasOverlay = bHasOverlay ? 1 : 0;
         settings.m_nIconNormalFrame = nIconNormalFrame;
         settings.m_nIconSelectedFrame = nIconSelectedFrame;
+        settings.m_nIconSequence = nIconSequence;
         settings.m_bActiveWeaponSet = bActiveWeaponSet ? 1 : 0;
         settings.m_nCount = nCount;
         settings.m_bGreyOut = !bEnabled || bGreyOut;
-        // Overlay slots draw their icon from the shared GUIBTACT cell
-        // (field_17C2) at m_nIconNormalFrame, so their per-button m_iconCell
-        // stays empty.  Non-overlay slots carry their own 32x32 icon here.
-        if (bHasOverlay) {
-            settings.m_iconCell.SetResRef(CResRef(""), pPanel->m_pManager->m_bDoubleSize, FALSE, FALSE);
+        // Every arm writes BOTH cells, and both writes take bSetAutoRequest and
+        // bWarningIfMissing TRUE.  bDoubleSize is the discriminator, surveyed
+        // over the 62 SetResRef sites of the switch: a cell that receives a
+        // real resref is given CBaldurChitin::GetDoubleSize(), a cell that
+        // receives "" is given FALSE.  Only a slot carrying its own icon BAM
+        // ever receives one, so the overlay arms and the empty-slot arm both
+        // land in the first branch.  No SequenceSet and no FrameSet: the
+        // binary's UpdateButtons never touches either cell's frame cursor.
+        if (bHasOverlay || cIconResRef == "") {
+            settings.m_iconCell.SetResRef(CResRef(""), FALSE, TRUE, TRUE);
         } else {
-            settings.m_iconCell.SetResRef(cIconResRef, pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
-            settings.m_iconCell.SequenceSet(nIconSequence);
-            if (nIconNormalFrame >= 0) {
-                settings.m_iconCell.FrameSet(nIconNormalFrame);
-            }
+            settings.m_iconCell.SetResRef(cIconResRef, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
         }
-        // Stash sequence in m_nIconSequence so RenderButton can re-apply it when
-        // swapping between normal/selected frames without resetting to 0.
-        settings.m_nIconSequence = nIconSequence;
-        settings.m_countCell.SetResRef(CResRef(""), pPanel->m_pManager->m_bDoubleSize, FALSE, FALSE);
+        settings.m_countCell.SetResRef(CResRef(""), FALSE, TRUE, TRUE);
 
-        // Selection highlight: GUIBTBUT cycle entries 0x18+ map to frame 2
-        // (red border) per the BAM lookup table.  Original RenderButton at
-        // 0x5957C0 swaps to these frames when settings.m_bSelected is set
-        // (m_nSelectedButton matches this button's type).
-        SHORT nNormalFrame = static_cast<SHORT>(nButton * 2);
-        SHORT nPressedFrame = static_cast<SHORT>(nButton * 2 + 1);
-        if (settings.m_bSelected != 0) {
-            nNormalFrame = static_cast<SHORT>(nButton * 2 + 0x18);
-            nPressedFrame = static_cast<SHORT>(nButton * 2 + 0x19);
-        }
-
-        pButton->m_nNormalFrame = nNormalFrame;
-        pButton->m_nPressedFrame = nPressedFrame;
-        pButton->m_nDisabledFrame = static_cast<SHORT>(nButton * 2);
-        pButton->m_cVidCell.SetResRef(CResRef("GUIBTBUT"), pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
-        pButton->m_cVidCell.SequenceSet(0);
-        pButton->m_cVidCell.FrameSet(pButton->m_nNormalFrame);
+        // The binary's UpdateButtons touches pButton through exactly two vtable
+        // slots -- +0x44 SetToolTipStrRef and +0x48 SetToolTipHotKey.  It sets
+        // no frame, no cell and no enabled flag; those belong to whoever built
+        // the panel.
         pButton->SetToolTipStrRef(nToolTip, -1, -1);
-        pButton->SetToolTipHotKey(nHotKey, 0xFFFF, CString(""));
-        // Visibility is driven by settings.field_0: when 0 the original
-        // FUN_005957C0 + FUN_005950F0 both no-op, so CUIControlButtonAction::
-        // Render checks that to short-circuit. Keep m_bEnabled = TRUE so
-        // right-click customization works on slots the user could populate.
-        pButton->SetEnabled(TRUE);
+        if (bSetHotKey) {
+            pButton->SetToolTipHotKey(nHotKey, 0xFFFF, sHotKeyLabel);
+        }
+
+        // 0x58E52F, the tail every arm falls into: a slot that is present and
+        // not already greyed out by its own arm takes its grey-out from
+        // CheckActivation.
+        if (settings.field_0 != 0 && settings.m_bGreyOut == 0) {
+            settings.m_bGreyOut = CheckActivation(m_buttonTypes[nButton]) == 0;
+        }
     }
 
     if (rc == CGameObjectArray::SUCCESS) {
