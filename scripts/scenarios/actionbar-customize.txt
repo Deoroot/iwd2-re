@@ -1,0 +1,46 @@
+# Go one door deeper than actionbar-rclick-pickers.txt: through the customize
+# menu 0x75 into the states only it leads to.  Matches
+#   frida_orig.py --click 1:0 --rclick 1:13 --rclick 1:7 \
+#                 --click 1:0 --rclick 1:13 --rclick 1:9 \
+#                 --click 1:4 --rclick 1:12
+#
+# CInfButtonArray::OnRButtonPressed's 0x75 arm sends each customize entry on:
+# type 0x23 -> 0x74, 0x24 -> 0x66/0x67 or 0x77, 0x26 -> 0x78, 0x27 -> 0x6B,
+# 0x28 -> 0x71.  Portrait 0's leader has more than one caster source, so 0x24
+# reaches the CLASS picker 0x77 rather than a spellbook directly.
+#
+# The bars, as the ORIGINAL reported them for this route (* = greyed):
+#
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (portrait 0)
+#   0x75  23  24  25  26  27  64* 64* 64* 64* 64* 29  2A     (portrait 0)
+#   0x77  33  39  64* 64* 64* 64* 64* 64* 64* 64* 64* 64*
+#   0x78  50* 51* 52* 64* 64* 64* 64* 64* 64* 64* 64* 64*
+#   0x72  07  3C  3D  05  0B  04  0C  5E* 50* 51* 52* 0A*    (portrait 4)
+#   0x75  23  25  26  27  64* 64* 64* 64* 64* 64* 29  2A     (portrait 4)
+#
+# Portrait 4's customize menu has NO 0x24 entry and the four it does have sit
+# in slots 0..3, so its layout is not portrait 0's with a hole in it.  That is
+# measured, not assumed -- read it off the run before using a slot index here.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 7
+sleep 45
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 9
+sleep 45
+click 1 4
+sleep 45
+rclick 1 12
+sleep 60

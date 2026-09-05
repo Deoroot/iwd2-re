@@ -4107,15 +4107,28 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
 
     INT nButtonType = m_buttonTypes[buttonID];
 
-    // Empty quick-slot (type 100) renders inactive so its bezel can stay
-    // transparent, but right-clicking it in state 0x72 must still bring up
-    // the customize menu â€” otherwise erased slots become permanent dead
-    // zones.  UpdateButtons forces m_bGreyOut for type 100; bypass that
-    // gate for the customize entry path.
-    BOOL bCustomizeEntry = (m_nState == 0x72 && nButtonType == 100);
-    if (m_buttonArray[buttonID].m_bGreyOut && !bCustomizeEntry) {
-        return;
-    }
+    // NO grey-out gate, and that is not an omission.  The binary tests
+    // m_bGreyOut at 0x59474C and, when it is set, runs a chain of type range
+    // checks meant to refuse the click -- but the chain is DEAD.  Each range
+    // opens by jumping FORWARD over its own upper bound (`cmp eax,0x46` /
+    // `jge` at 0x59475C, and the same shape at 0x594766, 0x594770 and
+    // 0x59477A), so reaching one of the three `jg 0x594784` exits would need
+    // both `type > 0x4E` and `type < 0x46` to hold at once.  Those three jumps
+    // are the ONLY inbound edges to 0x594784 -- the `return TRUE` -- and its
+    // fallthrough is unreachable too, since `type > 0x76` implies
+    // `type >= 0x6E`, which the `jge 0x594792` above it has already sent to
+    // the common path.  So every button proceeds, greyed or not.
+    //
+    // Measured rather than deduced: right-clicking portrait 4's slot 7 in the
+    // Prologue autosave -- type 0x5E with m_bGreyOut set and the control still
+    // active -- opens the customize menu 0x75 on the original, while the early
+    // return this replaces left our build sitting in 0x72.
+    //
+    // (The bounds test above is ours: the binary rejects buttonID > 12, not
+    // >= 12, so an id of exactly 12 reads one past m_buttonTypes[12] and
+    // m_buttonArray[12].  Both land inside the object, so the original does
+    // not fault, but nothing calls it with 12 and reproducing the read would
+    // be writing deliberate out-of-bounds C++ for no observable gain.)
 
     switch (m_nState) {
     case 0x6E:
