@@ -23,9 +23,10 @@ HOW IT GETS INTO A SAVE, unattended, with nobody at the keyboard:
   -> calibrate the cursor map -> click Load Game -> LoadGame(slot)
   -> click Done on Character Arbitration -> world engine activated
 
-Every click is a REAL click: the cursor is moved onto the control and the left
-button is pressed, then the engine's own poll (CChitin::AsynchronousUpdate:1537)
-dispatches OnLButtonDown/Up exactly as it would for a hand.  That indirection is
+Every click is a REAL click: the cursor is moved onto the control and the button
+is pressed, then the engine's own poll (CChitin::AsynchronousUpdate:1537 for the
+left, :1579 for the right) dispatches OnLButtonDown/Up or OnRButtonDown/Up
+exactly as it would for a hand.  That indirection is
 not decoration -- calling the handlers directly deadlocks, see the comment on the
 input block in DRIVER_JS.  Each step below it is there because a measured run
 failed without it; the reasons are in the comments, and none of them are guessable
@@ -159,7 +160,20 @@ const SetCursorPos = new NativeFunction(user32.getExportByName('SetCursorPos'),
 const mouse_event = new NativeFunction(user32.getExportByName('mouse_event'), 'void',
                                        ['uint32', 'uint32', 'uint32', 'uint32', 'pointer'],
                                        'stdcall');
+// The right button gets the same treatment as the left because the engine polls
+// it the same way: the block at CChitin::AsynchronousUpdate:1579-1610 mirrors the
+// left one at :1537 field for field -- CheckMouseRButton(), then
+// GetAsyncKeyState(m_mouseRButton), then OnRButtonDown/OnRButtonUp with
+// m_ptPointer -- and CScreenWorld::CheckMouseRButton returns TRUE
+// (CScreenWorld.cpp:1038), so the world screen is listening.  So a right click is
+// the left one with two flags swapped; it does NOT need the OnRButtonDown vtable
+// slot, and calling that directly would deadlock for the reason above.
+// The desktop's swap-button setting cancels out rather than biting: CChitin sets
+// m_mouseRButton to VK_LBUTTON when SM_SWAPBUTTON is on (CChitin.cpp:722), and
+// mouse_event's RIGHTDOWN is remapped by that same setting, so the two compose
+// back to a right click either way -- the same reason the left click already works.
 const MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004;
+const MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010;
 
 function readPointer() {
   const c = ptr(0x8CF6D8).readPointer().add(%(ptpointer)#x);
@@ -238,15 +252,18 @@ function aimAt(x, y, dx, dy) {
                Math.round((y - mapBy) / mapAy) + (dy | 0));
 }
 
-// Clicks to drive once the world engine is up, as [panel, control] pairs.  The
-// world screen is the only one with no scripted sequence of its own, so this is
-// how a trace reaches any action-bar state but the one the save opens in.
+// Clicks to drive once the world engine is up, as [panel, control, button]
+// triples with button 'L' or 'R'.  The world screen is the only one with no
+// scripted sequence of its own, so this is how a trace reaches any action-bar
+// state but the one the save opens in -- and the right-button ones are the only
+// way in to the customize menu (0x75) and the formation pickers (0x6C/0x6D),
+// which no left click anywhere on the bar reaches.
 let worldThis = null;
 let postClicks = %(post_clicks)s;
 let postSettled = 0;
 const POST_SETTLE = %(click_settle)d;
 
-// One click job at a time: {thiz, panel, ctrl, label}. The manager update of the
+// One click job at a time: {thiz, panel, ctrl, label, btn}. The manager update of the
 // owning screen runs it, so a job posted for a screen that is not up yet simply
 // waits until that screen starts ticking.
 let job = null;
@@ -307,9 +324,11 @@ function runJob() {
       aimAt(job.x, job.y, job.x - at[0], job.y - at[1]);
       return;
     }
-    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, NULL);
+    mouse_event(job.btn === 'R' ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN,
+                0, 0, 0, NULL);
     job.state = 'press'; job.pressTicks = 0;
-    send({ tag: 'drive', step: 'press', target: job.label, x: job.x, y: job.y, ptPointer: at });
+    send({ tag: 'drive', step: 'press', target: job.label, btn: job.btn,
+           x: job.x, y: job.y, ptPointer: at });
     return;
   }
 
@@ -317,8 +336,9 @@ function runJob() {
   // per tick, so a one-tick press can fall between two polls.
   if (job.state === 'press') {
     if (++job.pressTicks < 4) return;
-    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, NULL);
-    send({ tag: 'drive', step: 'release', target: job.label });
+    mouse_event(job.btn === 'R' ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP,
+                0, 0, 0, NULL);
+    send({ tag: 'drive', step: 'release', target: job.label, btn: job.btn });
     finishJob(null);
   }
 }
@@ -327,8 +347,8 @@ function finishJob(why) {
   if (why) send({ tag: 'drive', step: 'clickFailed', target: job.label, why: why });
   job = null;
 }
-function postJob(thiz, panel, ctrl, label) {
-  job = { thiz: thiz, panel: panel, ctrl: ctrl, label: label,
+function postJob(thiz, panel, ctrl, label, btn) {
+  job = { thiz: thiz, panel: panel, ctrl: ctrl, label: label, btn: btn || 'L',
           state: 'resolve', waited: 0, aimTries: 0, recals: 0, pressTicks: 0, x: 0, y: 0 };
 }
 
@@ -388,8 +408,10 @@ Interceptor.attach(ptr(%(uimgr_update)#x), {
       if (++postSettled < POST_SETTLE) return;
       postSettled = 0;
       const c = postClicks.shift();
-      send({ tag: 'drive', step: 'postClick', panel: c[0], ctrl: c[1] });
-      postJob(worldThis, c[0], c[1], 'post ' + c[0] + '/' + c[1]);
+      const btn = c[2] === 'R' ? 'R' : 'L';
+      send({ tag: 'drive', step: 'postClick', panel: c[0], ctrl: c[1], btn: btn });
+      postJob(worldThis, c[0], c[1],
+              (btn === 'R' ? 'rpost ' : 'post ') + c[0] + '/' + c[1], btn);
       return;
     }
     if (dismissed || connThis === null) return;
@@ -513,6 +535,23 @@ class Trace:
         return rc
 
 
+class ClickAction(argparse.Action):
+    """Collect --click and --rclick into ONE ordered list of [panel, ctrl, button].
+
+    Two `append` dests would lose the interleaving, and the interleaving is the
+    whole point: the customize menu is reached by left-clicking a portrait and
+    THEN right-clicking one of that character's bar slots, in that order.
+    """
+
+    def __call__(self, parser, ns, value, option_string=None):
+        try:
+            panel, ctrl = (int(p) for p in value.split(":", 1))
+        except ValueError:
+            raise argparse.ArgumentError(self, f"expected PANEL:CONTROL, got {value!r}")
+        button = "R" if option_string == "--rclick" else "L"
+        ns.clicks = (getattr(ns, "clicks", None) or []) + [[panel, ctrl, button]]
+
+
 def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True,
              clicks: list | None = None, click_settle: int = 60) -> str:
     hooks = spec["hooks"]
@@ -560,10 +599,16 @@ def main() -> int:
     ap.add_argument("--post-load", type=float, default=20.0,
                     help="seconds to keep tracing once the save is up")
     ap.add_argument("--timeout", type=float, default=180.0, help="hard cap, from spawn")
-    ap.add_argument("--click", action="append", metavar="PANEL:CONTROL", default=[],
-                    help="click this control once the world engine is up; repeatable, "
-                         "in order.  The action bar is panel 1, slot N is control N+6, "
-                         "and controls 0..5 are the party portraits.")
+    ap.add_argument("--click", action=ClickAction, dest="clicks", default=None,
+                    metavar="PANEL:CONTROL",
+                    help="left-click this control once the world engine is up; "
+                         "repeatable, in order.  The action bar is panel 1, slot N is "
+                         "control N+6, and controls 0..5 are the party portraits.")
+    ap.add_argument("--rclick", action=ClickAction, dest="clicks", default=None,
+                    metavar="PANEL:CONTROL",
+                    help="the same with the RIGHT button.  --click and --rclick share "
+                         "ONE ordered list and interleave in the order given, which is "
+                         "what a route like `--click 1:4 --rclick 1:11` needs.")
     ap.add_argument("--click-settle", type=int, default=60,
                     help="manager ticks to wait before each --click")
     ap.add_argument("--hit", help="hook name that must fire, else NOT-EXERCISED")
@@ -583,7 +628,7 @@ def main() -> int:
     session = frida.attach(pid)
     script = session.create_script(
         build_js(spec, ns.load_slot, ns.settle_ticks, ns.skip_movies,
-                  clicks=[[int(p) for p in c.split(":", 1)] for c in ns.click],
+                  clicks=ns.clicks or [],
                   click_settle=ns.click_settle))
     script.on("message", trace.on_message)
     script.load()
