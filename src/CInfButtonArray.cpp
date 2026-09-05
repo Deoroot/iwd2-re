@@ -1598,6 +1598,7 @@ void CInfButtonArray::UpdateButtons()
 // reads grey, not yellow.
 BOOL CInfButtonArray::RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton)
 {
+
     INT nScale = g_pBaldurChitin->field_4A2C != 0 ? 2 : 1;
     CSize size(nScale * CIcon::ICON_SIZE_SM.cx, nScale * CIcon::ICON_SIZE_SM.cy);
 
@@ -1902,8 +1903,95 @@ CGameButtonList* CInfButtonArray::BuildFeatPointsPickerList(const CResRef& resRe
 // normal state, and only for the seven types DispatchActionBarClick owns.  The
 // return value tells the caller whether the bar took the key.
 //
-// 0x594170
+// 0x5959A0
+//
+// Is this button type enabled for the group leader right now?  The switch maps
+// the button type onto its slot in CDerivedStats::m_disabledButtons -- the
+// table at 0x595C00 pairs the modal buttons and the three quick-slot banks with
+// a slot and leaves every other type out.  A type with no slot answers TRUE,
+// and so do an empty group and a leader the object array will not share:
+// nothing is disabled unless the sprite says so.  UpdateButtons' tail turns a
+// FALSE into that slot's grey-out.
 BOOL CInfButtonArray::CheckActivation(LONG nButtonType)
+{
+    INT nDisabledButton;
+
+    switch (nButtonType) {
+    case 0x02: nDisabledButton = 0x0C; break;
+    case 0x03: nDisabledButton = 0x02; break;
+    case 0x0B: nDisabledButton = 0x00; break;
+    case 0x0C: nDisabledButton = 0x01; break;
+    case 0x46: nDisabledButton = 0x03; break;
+    case 0x47: nDisabledButton = 0x04; break;
+    case 0x48: nDisabledButton = 0x05; break;
+    case 0x49: nDisabledButton = 0x06; break;
+    case 0x4A: nDisabledButton = 0x07; break;
+    case 0x4B: nDisabledButton = 0x08; break;
+    case 0x4C: nDisabledButton = 0x09; break;
+    case 0x4D: nDisabledButton = 0x0A; break;
+    case 0x4E: nDisabledButton = 0x0B; break;
+    case 0x5A: nDisabledButton = 0x1F; break;
+    case 0x5B: nDisabledButton = 0x20; break;
+    case 0x5C: nDisabledButton = 0x21; break;
+    case 0x5D: nDisabledButton = 0x22; break;
+    case 0x5E: nDisabledButton = 0x23; break;
+    case 0x5F: nDisabledButton = 0x24; break;
+    case 0x60: nDisabledButton = 0x25; break;
+    case 0x61: nDisabledButton = 0x26; break;
+    case 0x62: nDisabledButton = 0x27; break;
+    case 0x6E: nDisabledButton = 0x0D; break;
+    case 0x6F: nDisabledButton = 0x0E; break;
+    case 0x70: nDisabledButton = 0x0F; break;
+    case 0x71: nDisabledButton = 0x10; break;
+    case 0x72: nDisabledButton = 0x11; break;
+    case 0x73: nDisabledButton = 0x12; break;
+    case 0x74: nDisabledButton = 0x13; break;
+    case 0x75: nDisabledButton = 0x14; break;
+    case 0x76: nDisabledButton = 0x15; break;
+    default:
+        return TRUE;
+    }
+
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->GetGroup()->GetCount() == 0) {
+        return TRUE;
+    }
+
+    LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+    CGameSprite* pSprite;
+
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetShare(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return TRUE;
+    }
+
+    // The binary picks the live stat block off m_bAllowEffectListCall rather
+    // than going through GetDerivedStats.
+    CDerivedStats* pStats = pSprite->m_bAllowEffectListCall != 0
+        ? &pSprite->m_derivedStats
+        : &pSprite->m_tempStats;
+    BOOL bEnabled = pStats->m_disabledButtons[nDisabledButton] == 0;
+
+    pGame->GetObjectArray()->ReleaseShare(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
+
+    return bEnabled;
+}
+
+// 0x594170
+//
+// Run a button type's action when the bar is not showing a button for it
+// -- the hot-key path out of CScreenWorld::OnKeyDown.  Named for what it
+// does; the BG2 PDB's CheckActivation is the function at 0x5959A0.
+BOOL CInfButtonArray::ActivateHiddenButton(LONG nButtonType)
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
 

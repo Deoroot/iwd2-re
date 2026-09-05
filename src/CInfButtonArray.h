@@ -87,6 +87,9 @@ public:
     BOOL RenderButton(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
     BOOL RenderButtonOverlay(CPoint pt, const CRect& rClip, BOOL bPressed, INT nButton);
     BOOL CheckActivation(LONG nButtonType);
+    // Named for what it does: the BG2 PDB's CheckActivation is 0x5959A0,
+    // and no name is known for this one.
+    BOOL ActivateHiddenButton(LONG nButtonType);
     void DispatchActionBarClick(INT nButtonType, CGameSprite* pSprite);
     INT GetNextPickerPage(CGameButtonList* pButtonList);
     INT GetPreviousPickerPage(CGameButtonList* pButtonList);

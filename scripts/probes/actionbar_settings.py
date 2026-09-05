@@ -42,23 +42,27 @@ CInfButtonArray::RenderButton:
             for (INT nDbg = 0; nDbg < 12; nDbg++) {
                 const CInfButtonSettings& s = m_buttonArray[nDbg];
                 Iwd2DebugLog("BAR %d type=%d f0=%d act=%d ovl=%d nf=%d sf=%d "
-                    "seq=%d sel=%d aws=%d cnt=%d grey=%d res=%.8s frm=%d",
+                    "seq=%d sel=%d aws=%d cnt=%d grey=%d res=%.8s hres=%.8s "
+                    "frm=%d",
                     nDbg, m_buttonTypes[nDbg], s.field_0, s.m_bActive,
                     s.m_bHasOverlay, s.m_nIconNormalFrame,
                     s.m_nIconSelectedFrame, s.m_nIconSequence, s.m_bSelected,
                     s.m_bActiveWeaponSet, s.m_nCount, s.m_bGreyOut,
-                    (const char*)s.m_iconCell.m_header.cResRef.GetResRef(),
+                    (const char*)s.m_iconCell.CResHelper<CResCell, 1000>::GetResRef().GetResRef(),
+                    (const char*)s.m_iconCell.m_header.GetResRef().GetResRef(),
                     (INT)s.m_iconCell.m_nCurrentFrame);
             }
         }
     }
 
-One caveat on `res`: the Frida side reads CVidCell+0xAC because that is where
-the binary keeps the cell's resref, while our header puts `m_header.cResRef` at
-CVidCell+0xBC.  Our side is self-consistent (it is the field our own SetResRef
-writes), but the two are only the same LOGICAL field if that 0x10 is the
-CResHelper size divergence the CItem debt already tracks -- so read a `res`
-mismatch as a lead, not as a verdict, until that is settled.
+Two resref columns, because a CVidCell carries two: `res` is the cell's own
+CResHelper<CResCell> resref at CVidCell+0xAC and `hres` is m_header's at
+CVidCell+0xBC.  Both sides read both.  Session 41 compared the original's `res`
+against our `hres` and reported the difference as an UpdateButtons bug; it is
+not one, and the layout is not skewed either -- our CVidCell puts the base
+CResHelper at +0xA4 and m_header at +0xB4, exactly as the inlined SetResRef
+bodies inside UpdateButtons do.  A `res` that agrees while `hres` differs is a
+resource-loading difference, not a difference in what UpdateButtons wrote.
 """
 from __future__ import annotations
 
@@ -74,11 +78,13 @@ BUTTON_TYPES = 0x16B0
 SELECTED = 0x197E
 STATE = 0x1982
 
-# m_iconCell sits at settings+0x14 and m_countCell at settings+0xEE; within a
-# CVidCell the binary keeps the resref at +0xAC and the current frame at +0xC4.
+# m_iconCell sits at settings+0x14 and m_countCell at settings+0xEE.  A CVidCell
+# has TWO resrefs -- its own CResHelper<CResCell> at +0xAC and m_header's at
+# +0xBC -- and the current frame at +0xC4.
 ICON_CELL = 0x14
 COUNT_CELL = 0xEE
 VIDCELL_RESREF = 0xAC
+VIDCELL_HEADER_RESREF = 0xBC
 VIDCELL_FRAME = 0xC4
 
 RENDER_BUTTON = "0x5950F0"
@@ -99,7 +105,7 @@ FIELDS = [
     (0x1D8, "cnt"),
     (0x1DC, "grey"),
 ]
-COLUMNS = ["type"] + [name for _, name in FIELDS] + ["res", "frm"]
+COLUMNS = ["type"] + [name for _, name in FIELDS] + ["res", "hres", "frm"]
 
 
 def build_hooks():
@@ -113,6 +119,8 @@ def build_hooks():
                          "label": "b%d.%s" % (n, name)})
         dump.append({"off": hex(base + ICON_CELL + VIDCELL_RESREF), "type": "str",
                      "label": "b%d.res" % n})
+        dump.append({"off": hex(base + ICON_CELL + VIDCELL_HEADER_RESREF),
+                     "type": "str", "label": "b%d.hres" % n})
         dump.append({"off": hex(base + ICON_CELL + VIDCELL_FRAME), "type": "s32",
                      "label": "b%d.frm" % n})
         dump.append({"off": hex(base + COUNT_CELL + VIDCELL_RESREF), "type": "str",

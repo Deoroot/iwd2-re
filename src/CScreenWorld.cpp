@@ -654,7 +654,7 @@ void CScreenWorld::HandleKeymapAction(BYTE nKey)
         if (nButtonType != -1) {
             // The bar has to be on screen; a button it currently shows is
             // clicked where it sits, and only a hidden one goes through
-            // CheckActivation.
+            // ActivateHiddenButton.
             CUIPanel* pPanel = m_cUIManager.GetPanel(1);
             if (pPanel != NULL && pPanel->m_bActive) {
                 BYTE nButton = pGame->GetButtonArray()->GetButtonId(nButtonType);
@@ -665,7 +665,7 @@ void CScreenWorld::HandleKeymapAction(BYTE nKey)
                         pGame->GetButtonArray()->OnLButtonPressed(nButton);
                     }
                 } else {
-                    pGame->GetButtonArray()->CheckActivation(nButtonType);
+                    pGame->GetButtonArray()->ActivateHiddenButton(nButtonType);
                 }
             }
         }
