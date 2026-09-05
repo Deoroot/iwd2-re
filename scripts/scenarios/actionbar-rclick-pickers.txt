@@ -1,0 +1,50 @@
+# Reach the three states a LEFT click cannot, matching what
+#   frida_orig.py --rclick 1:9 --click 1:0 --rclick 1:13 --click 1:0 --rclick 1:7
+# reaches on the original, so the oracle can diff them field by field.
+#
+# frida_orig.py drives right clicks now (the engine polls the right button in a
+# block that mirrors the left one, CChitin::AsynchronousUpdate:1579), which is
+# what makes these three states comparable at all -- before, our side could
+# reach them and the original's could not, so there was no diff to run.
+#
+# CInfButtonArray::OnRButtonPressed (0x594720) decides where each right click
+# goes, and both arms used here were read off the binary rather than the
+# paraphrase in our source:
+#
+#   0x5947EF  state 0x6E, button type 0x10..0x14 (a formation slot):
+#             m_nCustomizeSlot = type - 0x10, SetState(0x6C, 1)
+#   0x594846  state 0x72, a customizable type:
+#             m_nCustomizeSlot = buttonID - 3,  SetState(0x75, 1)
+#
+# The bars, as the ORIGINAL itself reported them (* = greyed):
+#
+#   0x6E  07  08  0F  10  11  12  13  14  64* 64* 64* 64*
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (portrait 0)
+#   0x6C  15  16  17  18  19  1A  1B  1C  1D  1E  1F  20
+#   0x75  23  24  25  26  27  64* 64* 64* 64* 64* 29  2A
+#   0x79  3C  3D  64* 3E  3F  64* 40  41  64* 42  43  64*
+#
+# So slot 3 (control 9) of the group bar is a formation button and slot 7
+# (control 13) of portrait 0's bar is type 0x5E, both ungreyed -- a greyed
+# button is refused by OnRButtonPressed's prologue unless its type is in the
+# 0x46-0x4E / 0x50-0x52 / 0x5A-0x62 / 0x6E-0x76 escape list.
+#
+# Portraits are panel 1, controls 0..5; the action bar is the same panel,
+# controls 6..17, so slot N is control N+6.  Clicking a portrait while a picker
+# is up drops back to that PC's 0x72 bar, which is what lets one run visit
+# three pickers.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+rclick 1 9
+sleep 45
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+click 1 0
+sleep 45
+rclick 1 7
+sleep 60

@@ -1225,9 +1225,14 @@ void CInfButtonArray::UpdateButtons()
             settings.m_bSelected = 0;
             break;
         case 0x23:
-            // Customize: Skills.
+            // Customize: Skills.  The arm at 0x58DDC3 opens `mov ebp, 1`
+            // and stores ebp into m_nIconSequence at 0x58DE29 -- one of the
+            // four customize arms that do, against the four below that store
+            // ebx.  s40's per-arm map reads this as a register NAME, which is
+            // how it stayed 0 here until state 0x75 was finally measured.
             nIconNormalFrame = 0x60;
             nIconSelectedFrame = 0x62;
+            nIconSequence = 1;
             nToolTip = 0x1345;
             break;
         case 0x24:
@@ -1265,18 +1270,21 @@ void CInfButtonArray::UpdateButtons()
             bActiveIcon = TRUE;
             nIconNormalFrame = 0x14;
             nIconSelectedFrame = 0x16;
+            nIconSequence = 1;   // ebp, set at 0x58E0B8, stored 0x58E11E
             nToolTip = 0x1336;
             break;
         case 0x29:
             // Customize: Clear Button.
             nIconNormalFrame = 0x74;
             nIconSelectedFrame = 0x76;
+            nIconSequence = 1;   // ebp, set at 0x58E145, stored 0x58E1AB
             nToolTip = 0x9B2B;
             break;
         case 0x2A:
             // Customize: Restore Default Buttons.
             nIconNormalFrame = 0x78;
             nIconSelectedFrame = 0x7A;
+            nIconSequence = 1;   // ebp, set at 0x58E1D2, stored 0x58E238
             nToolTip = 0x9B2C;
             break;
         case 0x21:
