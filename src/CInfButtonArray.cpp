@@ -896,17 +896,25 @@ void CInfButtonArray::UpdateButtons()
 
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CGameSprite* pSprite = NULL;
-    LONG nLeaderId = CGameObjectArray::INVALID_INDEX;
-    BYTE rc = 0xFF;
-    if (pGame->GetGroup()->GetCount() != 0) {
-        nLeaderId = pGame->GetGroup()->GetGroupLeader();
-        do {
-            rc = pGame->GetObjectArray()->GetShare(nLeaderId,
-                CGameObjectArray::THREAD_ASYNCH,
-                reinterpret_cast<CGameObject**>(&pSprite),
-                INFINITE);
-        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    // The binary asks for the leader unconditionally -- there is no test of the
+    // group's count in front of it -- takes the share ONCE, and RETURNS when
+    // that share does not succeed (0x58A4E2 falls into the two CString
+    // destructors and out).  So nothing past this point ever runs with a leader
+    // it could not share: the rc/pSprite tests the arms below still carry are
+    // redundant rather than wrong, and are left where they are for now.
+    LONG nLeaderId = pGame->GetGroup()->GetGroupLeader();
+    BYTE rc = pGame->GetObjectArray()->GetShare(nLeaderId,
+        CGameObjectArray::THREAD_ASYNCH,
+        reinterpret_cast<CGameObject**>(&pSprite),
+        INFINITE);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
     }
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfButtonArray.cpp
+    // __LINE__: 1800
+    UTIL_ASSERT(pSprite != NULL);
 
     // Shared array-level overlay cells.  GUIBTACT (field_17C2) supplies every
     // m_bHasOverlay slot's 38x38 action icon -- RenderButtonOverlay picks the
@@ -1199,60 +1207,23 @@ void CInfButtonArray::UpdateButtons()
         case 0x1D:
         case 0x1E:
         case 0x1F:
-        case 0x20: {
-            // Formation picker sub-grid (state 0x6C / 0x6D) â€” Ghidra sets
-            // m_bHasOverlay = 0 here too: small FORMx icon over GUIBTBUT.
-            if (m_nState == 0x6C || m_nState == 0x6D) {
-                INT nFormation = m_buttonTypes[nButton] - 0x15;
-                CString sResRef;
-                if (nFormation < 10) {
-                    sResRef.Format("FORM%d", nFormation);
-                } else {
-                    sResRef.Format("FORM%c", static_cast<char>('A' + nFormation - 10));
-                }
-                cIconResRef = CResRef(sResRef);
-                nIconNormalFrame = 0;
-                nIconSelectedFrame = 0;
-                bHasOverlay = FALSE;
-                bActiveIcon = TRUE;
-            } else if (g_pButtonArrayPickerList != NULL) {
-                // Picker list entry â€” pull icon + tooltip from the
-                // CGameButtonList built in RebuildPickerList.  Two layouts:
-                //   The binary starts from FindIndex(m_nListStartIndex) and fills
-                //   the slots in order, so m_nListStartIndex is an entry index and
-                //   the slot's own offset is buttonType - 0x15.  With more
-                //   than 12 entries slots 0 + 11 hold the 0x21/0x22 arrows and
-                //   fall through to their own UpdateButtons cases.
-                INT nListCount = static_cast<INT>(g_pButtonArrayPickerList->GetCount());
-                INT nEntry = m_nListStartIndex + (m_buttonTypes[nButton] - 0x15);
-                POSITION pos = (nEntry >= 0 && nEntry < nListCount)
-                    ? g_pButtonArrayPickerList->FindIndex(nEntry)
-                    : NULL;
-                CButtonData* pEntry = (pos != NULL) ? g_pButtonArrayPickerList->GetAt(pos) : NULL;
-                if (pEntry != NULL && pEntry->m_icon != "") {
-                    cIconResRef = pEntry->m_icon;
-                    nIconNormalFrame = 0;
-                    nIconSelectedFrame = 0;
-                    nIconSequence = 1;  // item-style icon BAM
-                    nToolTip = pEntry->m_name;
-                    bGreyOut = pEntry->m_bDisabled;
-                    bHasOverlay = FALSE;
-                bActiveIcon = TRUE;
-                    if (pEntry->m_bDisplayCount) {
-                        nCount = pEntry->m_count;
-                    }
-                } else {
-                    bActive = FALSE;
-                    bEnabled = FALSE;
-                    cIconResRef = CResRef("");
-                }
-            } else {
-                bActive = FALSE;
-                bEnabled = FALSE;
-                cIconResRef = CResRef("");
-            }
+        case 0x20:
+            // The twelve picker cells.  In the binary (0x58E25F) this arm is
+            // nine unconditional stores plus two empty cells: it does NOT test
+            // m_nState and it does NOT read the picker list.  Every icon,
+            // count, tooltip and selection a picker shows is written
+            // afterwards by the SECOND switch at the end of this function,
+            // which is where all the state-dependent work lives.  This arm
+            // sets no tooltip hot key and hands SetToolTipStrRef three -1s.
+            nIconNormalFrame = -1;
+            nIconSelectedFrame = -1;
+            nIconSequence = 0;
+            bHasOverlay = FALSE;
+            bActiveIcon = TRUE;
+            bSetHotKey = FALSE;
+            cIconResRef = CResRef("");
+            settings.m_bSelected = 0;
             break;
-        }
         case 0x23:
             // Customize: Skills.
             nIconNormalFrame = 0x60;
@@ -1621,6 +1592,585 @@ void CInfButtonArray::UpdateButtons()
         if (settings.field_0 != 0 && settings.m_bGreyOut == 0) {
             settings.m_bGreyOut = CheckActivation(m_buttonTypes[nButton]) == 0;
         }
+    }
+
+    // ------------------------------------------------------------------
+    // The SECOND switch, at 0x58E56D.  Once every slot has been through the
+    // per-type switch above, a switch on `m_nState - 0x65` over 23 values --
+    // index table at 0x58FC54, jumptable at 0x58FC28 -- lets a PICKER state
+    // rewrite the slots it owns.  Fourteen of the 23 values have an arm; the
+    // rest (0x6E, 0x6F, 0x72 and 0x74-0x79) take the default and change
+    // nothing, which is why no bar reachable before session 43 proved a line
+    // of it.
+    //
+    // Ten arms are the same walk over g_pButtonArrayPickerList and the binary
+    // gives each its own body; they differ in the slot range, the fallback
+    // resref, the tooltip field and fallback, and in whether they write a
+    // grey-out or a selection at all, so they are written out separately here
+    // too.  The two formation arms are one body the compiler duplicated: they
+    // are identical instruction for instruction bar the stack slots of their
+    // temporaries.
+    //
+    // Common to all ten: the label is rebuilt per slot, the control is fetched
+    // before anything is written (and a missing control leaves the slot
+    // untouched), a POSITION that has run out clears field_0, an entry that is
+    // NULL sets field_0 and stops, and every cell takes GetDoubleSize() with
+    // bSetAutoRequest and bWarningIfMissing TRUE.
+    switch (m_nState) {
+    case 0x65: {
+        // Quick-weapon picker (0x58EA6A).  The only arm that walks from the
+        // HEAD of the list rather than from FindIndex(m_nListStartIndex), the
+        // only one with no count cap, and the only one whose selection comes
+        // from the leader's equipment rather than from the entry.  It writes
+        // no grey-out.
+        if (g_pButtonArrayPickerList == NULL) {
+            break;
+        }
+
+        POSITION pos = g_pButtonArrayPickerList->GetHeadPosition();
+        for (INT nSlot = 0; nSlot < 12; nSlot++) {
+            CInfButtonSettings& s = m_buttonArray[nSlot];
+            CUIControlBase* pControl = pPanel->GetControl(nSlot + 6);
+            if (pControl == NULL) {
+                continue;
+            }
+
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pControl);
+            CString sLabel;
+            sLabel.Format(_T("F%d"), nSlot + 1);
+
+            if (pos == NULL) {
+                s.field_0 = 0;
+                continue;
+            }
+
+            CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+            if (pEntry == NULL) {
+                s.field_0 = 1;
+                continue;
+            }
+
+            if (pEntry->m_icon != "") {
+                s.m_iconCell.SetResRef(pEntry->m_icon, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            } else {
+                s.m_iconCell.SetResRef(CResRef("STONWEAP"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            }
+            if (pEntry->m_bDisplayCount) {
+                s.m_nCount = pEntry->m_count;
+            }
+
+            s.m_bSelected = pEntry->m_abilityId.m_itemNum == pSprite->GetEquipment()->m_selectedWeapon
+                && pEntry->m_abilityId.m_abilityNum == pSprite->GetEquipment()->m_selectedWeaponAbility;
+
+            STRREF nTip = pEntry->m_abilityId.m_strDescription;
+            pButton->SetToolTipStrRef(nTip == -1 ? 0x1356 : nTip, -1, -1);
+            pButton->SetToolTipHotKey(0xFFFF, 0xFFFF, sLabel);
+            s.field_0 = 1;
+        }
+        break;
+    }
+    case 0x66:
+    case 0x67: {
+        // Spellbook picker (0x58ED52).  The only arm that hands
+        // SetToolTipStrRef a third argument off the entry.
+        if (g_pButtonArrayPickerList == NULL) {
+            break;
+        }
+
+        INT nFirst = 0;
+        INT nLast = 0x0B;
+        if (g_pButtonArrayPickerList->GetCount() > 12) {
+            nFirst = 1;
+            nLast = 0x0A;
+        }
+
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        for (INT nSlot = nFirst; nSlot <= nLast; nSlot++) {
+            CInfButtonSettings& s = m_buttonArray[nSlot];
+            CUIControlBase* pControl = pPanel->GetControl(nSlot + 6);
+            if (pControl == NULL) {
+                continue;
+            }
+
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pControl);
+            CString sLabel;
+            sLabel.Format(_T("F%d"), nSlot + 1);
+
+            if (pos == NULL) {
+                s.field_0 = 0;
+                continue;
+            }
+
+            CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+            if (pEntry == NULL) {
+                s.field_0 = 1;
+                continue;
+            }
+
+            if (pEntry->m_icon != "") {
+                s.m_iconCell.SetResRef(pEntry->m_icon, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            } else {
+                s.m_iconCell.SetResRef(CResRef("STONSPEL"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            }
+            if (pEntry->m_bDisplayCount) {
+                s.m_nCount = pEntry->m_count;
+            }
+            s.m_bGreyOut = pEntry->m_bDisabled;
+
+            if (pEntry->m_name == -1) {
+                pButton->SetToolTipStrRef(0x134A, -1, -1);
+            } else {
+                pButton->SetToolTipStrRef(pEntry->m_name, -1, pEntry->m_abilityId.m_strTooltipDesc);
+            }
+            pButton->SetToolTipHotKey(0xFFFF, 0xFFFF, sLabel);
+            s.field_0 = 1;
+        }
+        break;
+    }
+    case 0x68:
+    case 0x69: {
+        // Item picker (0x58EED8).  Writes no grey-out.
+        if (g_pButtonArrayPickerList == NULL) {
+            break;
+        }
+
+        INT nFirst = 0;
+        INT nLast = 0x0B;
+        if (g_pButtonArrayPickerList->GetCount() > 12) {
+            nFirst = 1;
+            nLast = 0x0A;
+        }
+
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        for (INT nSlot = nFirst; nSlot <= nLast; nSlot++) {
+            CInfButtonSettings& s = m_buttonArray[nSlot];
+            CUIControlBase* pControl = pPanel->GetControl(nSlot + 6);
+            if (pControl == NULL) {
+                continue;
+            }
+
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pControl);
+            CString sLabel;
+            sLabel.Format(_T("F%d"), nSlot + 1);
+
+            if (pos == NULL) {
+                s.field_0 = 0;
+                continue;
+            }
+
+            CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+            if (pEntry == NULL) {
+                s.field_0 = 1;
+                continue;
+            }
+
+            if (pEntry->m_icon != "") {
+                s.m_iconCell.SetResRef(pEntry->m_icon, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            } else {
+                s.m_iconCell.SetResRef(CResRef("STONITEM"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            }
+            if (pEntry->m_bDisplayCount) {
+                s.m_nCount = pEntry->m_count;
+            }
+
+            STRREF nTip = pEntry->m_abilityId.m_strDescription;
+            pButton->SetToolTipStrRef(nTip == -1 ? 0x1356 : nTip, -1, -1);
+            pButton->SetToolTipHotKey(0xFFFF, 0xFFFF, sLabel);
+            s.field_0 = 1;
+        }
+        break;
+    }
+    case 0x6A:
+    case 0x6B: {
+        // Innate picker (0x58F056).  The five modal feats appear in the innate
+        // list as SPIN275..SPIN279; each shows selected while any of the spell
+        // states that stand for its ranks is set, and greys out entirely when
+        // the leader does not have the feat.  An entry that is none of the
+        // five keeps the selection and grey-out the per-type arm left it with.
+        if (g_pButtonArrayPickerList == NULL) {
+            break;
+        }
+
+        INT nFirst = 0;
+        INT nLast = 0x0B;
+        if (g_pButtonArrayPickerList->GetCount() > 12) {
+            nFirst = 1;
+            nLast = 0x0A;
+        }
+
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        for (INT nSlot = nFirst; nSlot <= nLast; nSlot++) {
+            CInfButtonSettings& s = m_buttonArray[nSlot];
+            CUIControlBase* pControl = pPanel->GetControl(nSlot + 6);
+            if (pControl == NULL) {
+                continue;
+            }
+
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pControl);
+            CString sLabel;
+            sLabel.Format(_T("F%d"), nSlot + 1);
+
+            if (pos == NULL) {
+                s.field_0 = 0;
+                continue;
+            }
+
+            CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+            if (pEntry == NULL) {
+                s.field_0 = 1;
+                continue;
+            }
+
+            const CDerivedStats* pStats = pSprite->GetDerivedStats();
+            if (pEntry->m_abilityId.m_res == CGameSprite::SPIN275) {
+                if (!pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+                    s.m_bSelected = 0;
+                    s.m_bGreyOut = 1;
+                } else {
+                    if (pStats->m_spellStates[SPLSTATE_FEAT_POWER_ATTACK_1]
+                        || pStats->m_spellStates[SPLSTATE_FEAT_POWER_ATTACK_2]
+                        || pStats->m_spellStates[SPLSTATE_FEAT_POWER_ATTACK_3]
+                        || pStats->m_spellStates[SPLSTATE_FEAT_POWER_ATTACK_4]
+                        || pStats->m_spellStates[SPLSTATE_FEAT_POWER_ATTACK_5]) {
+                        s.m_bSelected = 1;
+                    }
+                    s.m_bGreyOut = 0;
+                }
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN276) {
+                if (!pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
+                    s.m_bSelected = 0;
+                    s.m_bGreyOut = 1;
+                } else {
+                    if (pStats->m_spellStates[SPLSTATE_FEAT_EXPERTISE_1]
+                        || pStats->m_spellStates[SPLSTATE_FEAT_EXPERTISE_2]
+                        || pStats->m_spellStates[SPLSTATE_FEAT_EXPERTISE_3]
+                        || pStats->m_spellStates[SPLSTATE_FEAT_EXPERTISE_4]
+                        || pStats->m_spellStates[SPLSTATE_FEAT_EXPERTISE_5]) {
+                        s.m_bSelected = 1;
+                    }
+                    s.m_bGreyOut = 0;
+                }
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN277) {
+                if (!pSprite->HasFeat(CGAMESPRITE_FEAT_ARTERIAL_STRIKE)) {
+                    s.m_bSelected = 0;
+                    s.m_bGreyOut = 1;
+                } else {
+                    if (pStats->m_spellStates[SPLSTATE_FEAT_ARTERIAL_STRIKE]) {
+                        s.m_bSelected = 1;
+                    }
+                    s.m_bGreyOut = 0;
+                }
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN278) {
+                if (!pSprite->HasFeat(CGAMESPRITE_FEAT_HAMSTRING)) {
+                    s.m_bSelected = 0;
+                    s.m_bGreyOut = 1;
+                } else {
+                    if (pStats->m_spellStates[SPLSTATE_FEAT_HAMSTRING]) {
+                        s.m_bSelected = 1;
+                    }
+                    s.m_bGreyOut = 0;
+                }
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN279) {
+                if (!pSprite->HasFeat(CGAMESPRITE_FEAT_RAPID_SHOT)) {
+                    s.m_bSelected = 0;
+                    s.m_bGreyOut = 1;
+                } else {
+                    if (pStats->m_spellStates[SPLSTATE_FEAT_RAPID_SHOT]) {
+                        s.m_bSelected = 1;
+                    }
+                    s.m_bGreyOut = 0;
+                }
+            }
+
+            if (pEntry->m_icon != "") {
+                s.m_iconCell.SetResRef(pEntry->m_icon, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            } else {
+                s.m_iconCell.SetResRef(CResRef("STONSPEC"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            }
+            if (pEntry->m_bDisplayCount) {
+                s.m_nCount = pEntry->m_count;
+            }
+
+            STRREF nTip = pEntry->m_abilityId.m_strDescription;
+            pButton->SetToolTipStrRef(nTip == -1 ? 0x923B : nTip, -1, -1);
+            pButton->SetToolTipHotKey(0xFFFF, 0xFFFF, sLabel);
+            s.field_0 = 1;
+        }
+        break;
+    }
+    case 0x6C:
+    case 0x6D:
+        // Formation pickers (0x58E7F8 and 0x58E592).  Two bodies in the
+        // binary, identical instruction for instruction bar the stack slots of
+        // their temporaries: twelve icon cells, FORM0 through FORMB in slot
+        // order, and nothing else at all -- no count, no tooltip, no
+        // selection, no grey-out.
+        m_buttonArray[0].m_iconCell.SetResRef(CResRef("FORM0"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[1].m_iconCell.SetResRef(CResRef("FORM1"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[2].m_iconCell.SetResRef(CResRef("FORM2"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[3].m_iconCell.SetResRef(CResRef("FORM3"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[4].m_iconCell.SetResRef(CResRef("FORM4"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[5].m_iconCell.SetResRef(CResRef("FORM5"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[6].m_iconCell.SetResRef(CResRef("FORM6"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[7].m_iconCell.SetResRef(CResRef("FORM7"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[8].m_iconCell.SetResRef(CResRef("FORM8"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[9].m_iconCell.SetResRef(CResRef("FORM9"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[10].m_iconCell.SetResRef(CResRef("FORMA"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        m_buttonArray[11].m_iconCell.SetResRef(CResRef("FORMB"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+        break;
+    case 0x70: {
+        // Song picker (0x58F8E3).
+        if (g_pButtonArrayPickerList == NULL) {
+            break;
+        }
+
+        INT nFirst = 0;
+        INT nLast = 0x0B;
+        if (g_pButtonArrayPickerList->GetCount() > 12) {
+            nFirst = 1;
+            nLast = 0x0A;
+        }
+
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        for (INT nSlot = nFirst; nSlot <= nLast; nSlot++) {
+            CInfButtonSettings& s = m_buttonArray[nSlot];
+            CUIControlBase* pControl = pPanel->GetControl(nSlot + 6);
+            if (pControl == NULL) {
+                continue;
+            }
+
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pControl);
+            CString sLabel;
+            sLabel.Format(_T("F%d"), nSlot + 1);
+
+            if (pos == NULL) {
+                s.field_0 = 0;
+                continue;
+            }
+
+            CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+            if (pEntry == NULL) {
+                s.field_0 = 1;
+                continue;
+            }
+
+            if (pEntry->m_icon != "") {
+                s.m_iconCell.SetResRef(pEntry->m_icon, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            } else {
+                s.m_iconCell.SetResRef(CResRef("STONSPEL"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            }
+            if (pEntry->m_bDisplayCount) {
+                s.m_nCount = pEntry->m_count;
+            }
+            s.m_bGreyOut = pEntry->m_bDisabled;
+
+            STRREF nTip = pEntry->m_abilityId.m_strDescription;
+            pButton->SetToolTipStrRef(nTip == -1 ? 0x134A : nTip, -1, -1);
+            pButton->SetToolTipHotKey(0xFFFF, 0xFFFF, sLabel);
+            s.field_0 = 1;
+        }
+        break;
+    }
+    case 0x71:
+    case 0x7A: {
+        // Song pickers (0x58F758).
+        if (g_pButtonArrayPickerList == NULL) {
+            break;
+        }
+
+        INT nFirst = 0;
+        INT nLast = 0x0B;
+        if (g_pButtonArrayPickerList->GetCount() > 12) {
+            nFirst = 1;
+            nLast = 0x0A;
+        }
+
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        for (INT nSlot = nFirst; nSlot <= nLast; nSlot++) {
+            CInfButtonSettings& s = m_buttonArray[nSlot];
+            CUIControlBase* pControl = pPanel->GetControl(nSlot + 6);
+            if (pControl == NULL) {
+                continue;
+            }
+
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pControl);
+            CString sLabel;
+            sLabel.Format(_T("F%d"), nSlot + 1);
+
+            if (pos == NULL) {
+                s.field_0 = 0;
+                continue;
+            }
+
+            CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+            if (pEntry == NULL) {
+                s.field_0 = 1;
+                continue;
+            }
+
+            if (pEntry->m_icon != "") {
+                s.m_iconCell.SetResRef(pEntry->m_icon, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            } else {
+                s.m_iconCell.SetResRef(CResRef("STONSONG"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            }
+            if (pEntry->m_bDisplayCount) {
+                s.m_nCount = pEntry->m_count;
+            }
+            s.m_bGreyOut = pEntry->m_bDisabled;
+
+            pButton->SetToolTipStrRef(pEntry->m_name == -1 ? 0x923C : pEntry->m_name, -1, -1);
+            pButton->SetToolTipHotKey(0xFFFF, 0xFFFF, sLabel);
+            s.field_0 = 1;
+        }
+        break;
+    }
+    case 0x73: {
+        // Skills submenu (0x58EBEB).  The only arm that BAILS on a list too
+        // long to fit rather than paging it, and the only one that starts part
+        // way along the bar: the five skill buttons keep slots 0-4 and the
+        // list fills 5-11.
+        if (g_pButtonArrayPickerList == NULL) {
+            break;
+        }
+        if (g_pButtonArrayPickerList->GetCount() > 9) {
+            break;
+        }
+
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        for (INT nSlot = 5; nSlot < 12; nSlot++) {
+            CInfButtonSettings& s = m_buttonArray[nSlot];
+            CUIControlBase* pControl = pPanel->GetControl(nSlot + 6);
+            if (pControl == NULL) {
+                continue;
+            }
+
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pControl);
+            CString sLabel;
+            sLabel.Format(_T("F%d"), nSlot + 1);
+
+            if (pos == NULL) {
+                s.field_0 = 0;
+                continue;
+            }
+
+            CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+            if (pEntry == NULL) {
+                s.field_0 = 1;
+                continue;
+            }
+
+            if (pEntry->m_icon != "") {
+                s.m_iconCell.SetResRef(pEntry->m_icon, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            } else {
+                s.m_iconCell.SetResRef(CResRef("STONSPEL"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            }
+            if (pEntry->m_bDisplayCount) {
+                s.m_nCount = pEntry->m_count;
+            }
+            s.m_bGreyOut = pEntry->m_bDisabled;
+
+            pButton->SetToolTipStrRef(pEntry->m_name == -1 ? 0x923A : pEntry->m_name, -1, -1);
+            pButton->SetToolTipHotKey(0xFFFF, 0xFFFF, sLabel);
+            s.field_0 = 1;
+        }
+        break;
+    }
+    case 0x7B: {
+        // Modal-feat rank picker (0x58F4AF).  Same five entries as the innate
+        // picker, but here the list holds one entry per RANK and the entry
+        // whose count equals the rank the player has dialled in is the
+        // selected one.  Arterial Strike, Hamstring and Rapid Shot have a
+        // single rank, so they take the rank test alone.  This arm writes no
+        // grey-out, and it is the second of the two that hand
+        // SetToolTipStrRef a third argument off the entry.
+        if (g_pButtonArrayPickerList == NULL) {
+            break;
+        }
+
+        INT nFirst = 0;
+        INT nLast = 0x0B;
+        if (g_pButtonArrayPickerList->GetCount() > 12) {
+            nFirst = 1;
+            nLast = 0x0A;
+        }
+
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        for (INT nSlot = nFirst; nSlot <= nLast; nSlot++) {
+            CInfButtonSettings& s = m_buttonArray[nSlot];
+            CUIControlBase* pControl = pPanel->GetControl(nSlot + 6);
+            if (pControl == NULL) {
+                continue;
+            }
+
+            CUIControlButton* pButton = static_cast<CUIControlButton*>(pControl);
+            CString sLabel;
+            sLabel.Format(_T("F%d"), nSlot + 1);
+
+            if (pos == NULL) {
+                s.field_0 = 0;
+                continue;
+            }
+
+            CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+            if (pEntry == NULL) {
+                s.field_0 = 1;
+                continue;
+            }
+
+            if (pEntry->m_abilityId.m_res == CGameSprite::SPIN275) {
+                if (pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)
+                    && pSprite->GetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK) > 0
+                    && pEntry->m_count == pSprite->GetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+                    s.m_bSelected = 1;
+                }
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN276) {
+                if (pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE)
+                    && pSprite->GetFeatRank(CGAMESPRITE_FEAT_EXPERTISE) > 0
+                    && pEntry->m_count == pSprite->GetFeatRank(CGAMESPRITE_FEAT_EXPERTISE)) {
+                    s.m_bSelected = 1;
+                }
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN277) {
+                if (pSprite->HasFeat(CGAMESPRITE_FEAT_ARTERIAL_STRIKE)
+                    && pSprite->GetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE) > 0) {
+                    s.m_bSelected = 1;
+                }
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN278) {
+                if (pSprite->HasFeat(CGAMESPRITE_FEAT_HAMSTRING)
+                    && pSprite->GetFeatRank(CGAMESPRITE_FEAT_HAMSTRING) > 0) {
+                    s.m_bSelected = 1;
+                }
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN279) {
+                if (pSprite->HasFeat(CGAMESPRITE_FEAT_RAPID_SHOT)
+                    && pSprite->GetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT) > 0) {
+                    s.m_bSelected = 1;
+                }
+            }
+
+            if (pEntry->m_icon != "") {
+                s.m_iconCell.SetResRef(pEntry->m_icon, g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            } else {
+                s.m_iconCell.SetResRef(CResRef("STONSPEC"), g_pBaldurChitin->GetDoubleSize(), TRUE, TRUE);
+            }
+            if (pEntry->m_bDisplayCount) {
+                s.m_nCount = pEntry->m_count;
+            }
+
+            STRREF nTip = pEntry->m_abilityId.m_strDescription;
+            if (nTip == -1) {
+                pButton->SetToolTipStrRef(0x923B, -1, -1);
+            } else {
+                pButton->SetToolTipStrRef(nTip, -1, pEntry->m_abilityId.m_strTooltipDesc);
+            }
+            pButton->SetToolTipHotKey(0xFFFF, 0xFFFF, sLabel);
+            s.field_0 = 1;
+        }
+        break;
+    }
+    default:
+        // 0x6E, 0x6F, 0x72 and 0x74-0x79 reach the table and take its default;
+        // every state outside 0x65-0x7B never reaches it at all (0x58E57A
+        // range-checks first).  Neither changes anything.
+        break;
     }
 
     if (rc == CGameObjectArray::SUCCESS) {

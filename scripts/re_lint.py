@@ -94,6 +94,12 @@ def run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        # Not the console codepage: a diff can carry any byte the source does,
+        # and two files in src/ hold double-encoded em dashes that cp1252
+        # cannot decode.  Without this the reader thread dies, stdout comes
+        # back None, and the failure names nothing about the real cause.
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
 

@@ -1,0 +1,41 @@
+# Reach TWO more picker states, matching what
+#   frida_orig.py --click 1:1 --click 1:17 --click 1:0 --click 1:10
+# reaches on the original, so the oracle can diff them field by field.
+#
+# The party's six single-PC bars, dumped with `bar` on our side 2026-09-05 and
+# confirmed against the original for portrait 4, are
+#
+#   0   07 3C 3D 05 03 48 49 5E 50 51 52 0A
+#   1   07 3C 3D 05 0B 04 5D 5E 50 51 52 0A
+#   2   07 3C 3D 05 0B 04 5D 5E 50 51 52 0A
+#   3   07 3C 3D 05 03 48 49 4A 50 51 52 0A
+#   4   07 3C 3D 05 0B 04 0C 5E 50 51 52 0A
+#   5   07 3C 3D 05 03 48 49 5E 50 51 52 0A
+#
+# Only left clicks, because that is all frida_orig.py can drive on the
+# original, and only buttons that are NOT greyed out, because a greyed button
+# swallows the click.  That leaves two routes into a picker:
+#
+#   portrait 1, slot 11 (control 17) is Special Abilities (0x0A), ungreyed
+#     -> DispatchActionBarClick case 10 -> SetState(0x6A) -> the innate picker,
+#        button types 0x15..0x20, which is the arm at 0x58E25F, and the second
+#        switch's 0x58F056 arm fills it from g_pButtonArrayPickerList
+#   portrait 0, slot 4 (control 10) is Cast Spell (3), ungreyed
+#     -> case 3 counts the caster sources; this character has more than one, so
+#        SetState(0x76), the cast-spell class picker (types 0x33 and 0x39)
+#
+# Clicking a portrait while a picker is up drops back to that PC's 0x72 bar,
+# which is what lets one run visit both.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 1
+sleep 45
+click 1 17
+sleep 45
+click 1 0
+sleep 45
+click 1 10
+sleep 60
