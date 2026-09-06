@@ -3429,77 +3429,143 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         }
         break;
     case 0x73:
-        // NOTE: unrecovered.  The binary's arm at 0x590556 is 573 instructions
-        // with a jump table of its own at 0x593AC0 over types 4..0x77, and it
-        // ends by walking the state stack back rather than naming 0x72.  The
-        // body below is the paraphrase that predates this session; only its
-        // locking has been corrected.
+        // The skills bar, arm at 0x590556: a BYTE index table at 0x593AD8
+        // over types 4..0x77 feeding six slots at 0x593AC0, of which five are
+        // real -- 4, 0x0B, 0x0C, 0x0D and 0x77, the same five the 0x74 arm
+        // covers, because 0x74 is this bar's customize twin.
         //
-        // Skills submenu (entered from state 0x72 button 5): Stealth, Search,
-        // Thieving, Wilderness Lore, and Animal Empathy.
-        {
-            BYTE modal = pSprite->GetModalState();
-            switch (nButtonType) {
-            case 4: // Search
-                if (modal == 2) {
-                    pSprite->SetModalState(0, 0);
-                    SetSelectedButton(100);
-                } else {
-                    pSprite->SetModalState(2, 0);
-                    SetSelectedButton(5);
-                }
-                break;
-            case 0xB: // Stealth
-                if (modal == 3) {
-                    pSprite->SetModalState(0, 0);
-                    SetSelectedButton(100);
-                } else {
-                    pSprite->SetModalState(3, 0);
-                    SetSelectedButton(5);
-                }
-                break;
-            case 0xC: // Thieving
-                if (pGame->GetState() == 2
-                    && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
-                    pGame->SetState(0);
-                    SetSelectedButton(100);
-                } else {
-                    pGame->SetState(2);
-                    pGame->SetIconIndex(0x24);
-                    SetSelectedButton(0xC);
-                }
-                // Entering thieving/disarm mode cancels any active modal
-                // (Search/Stealth) on the leader -- unconditional, 0x593295.
+        // The body that stood here before was copied from the ACTION BAR's
+        // handlers for those same five types -- it cited their addresses,
+        // namely 0x593181 and 0x593295 -- and that is not this arm.  Two
+        // of the five do turn out to be the same source inlined differently,
+        // but type 0x0C is not, and the difference is a real one: see its
+        // own case below.
+        //
+        // All five, and the default, end on the same three statements.  The
+        // exit is never SetState(0x72, 0): it is the stack walk, and it is
+        // PopState(0, 0) here rather than the (0, 1) the customize arms use.
+        switch (nButtonType) {
+        case 0x04:
+            // Search.  Same source as the action bar's type 4 at 0x59309E:
+            // that copy calls GetModalState and jumps into the shared tail,
+            // this one inlines both, and the statements are identical.
+            if (pSprite->GetModalState() == 2) {
                 pSprite->SetModalState(0, 0);
-                break;
-            case 0xD: // Animal Empathy
-                if (static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) > 0) {
-                    CButtonData bd;
-                    pSprite->BuildAbilityButtonData(CGameSprite::SPIN108, 0, 0, bd);
-                    UseSpellAction(&bd, 1);
-                }
-                break;
-            case 0x77: { // Wilderness Lore, 0x593181.
-                ITEM_EFFECT effect;
-                CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_RANGERTRACKING);
-                effect.targetType = 1;
-                CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                    CPoint(-1, -1),
-                    -1,
-                    CPoint(-1, -1));
-                pEffect->SetSource(pSprite->GetPos());
-                pEffect->SetSourceId(pSprite->GetId());
-                pEffect->SetEnabled(FALSE);
+                SetSelectedButton(100);
+            } else {
+                pSprite->FeedBack(CGameSprite::FEEDBACK_SEARCHSTART, 0, 0, 0, -1, 0, 0);
+                pSprite->SetModalState(2, 0);
+                SetSelectedButton(5);
+            }
+            pGame->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x0B:
+            // NOTE: partial.  Stealth, and the only body of the five still
+            // unrecovered -- 215 of the arm's 573 instructions.  The modal
+            // toggle below is right as far as it goes and is what the arm
+            // opens with, but BOTH of its branches then issue a message that
+            // is missing here:
+            //
+            //   modal != 3 (turning stealth ON), at 0x59058C: three
+            //   CAIObjectType temporaries built with the eleven-argument ctor
+            //   at 0x40AE80, an action id read from the WORD at 0x8477A6, and
+            //   a CAIAction assembled field by field and handed to a
+            //   CMessageAddAction -- 0xE2 bytes, vtable 0x847B40, m_action at
+            //   +0x0C, caller and target both the leader's id.
+            //
+            //   modal == 3 (turning it off), at 0x590781: writes the dword
+            //   at 0x85BD1C into the sprite's +0x727A, then clears item
+            //   effect 0x88 and sends that one.
+            //
+            // Left as it stands rather than stubbed, because the toggle it
+            // does perform is faithful and removing it would take working
+            // stealth away; but it is NOT the whole arm.
+            if (pSprite->GetModalState() == 3) {
+                pSprite->SetModalState(0, 0);
+                SetSelectedButton(100);
+            } else {
+                pSprite->SetModalState(3, 0);
+                SetSelectedButton(5);
+            }
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x0C:
+            // The thieving / disarm cursor -- and this one is NOT the action
+            // bar's type 0x0C.  That arm, at 0x5930E2, leaves m_iconResRef
+            // alone; this one clears it, which is what the GROUP bar's type 8
+            // does.  Same three fields otherwise, and the same order of
+            // stores.  It is the second time in this file that a pair of
+            // same-typed arms differ by exactly that field.
+            if (pGame->m_nState == 2
+                && (pGame->m_iconIndex == 0x24 || pGame->m_iconIndex == 0x28)) {
+                pGame->m_nState = 0;
+                SetSelectedButton(100);
+            } else {
+                pGame->m_nState = 2;
+                pGame->m_iconIndex = 0x24;
+                pGame->m_iconResRef = _T("");
+                SetSelectedButton(0x0C);
+            }
+            // Unconditional, and after the branch: arming the cursor cancels
+            // whatever modal the leader was in.
+            pSprite->SetModalState(0, 0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x0D: {
+            // Animal Empathy.  The skill is read straight out of the sprite's
+            // derived stats rather than through the getter, and a rank of zero
+            // or less skips the cast without skipping the repaint below.
+            if (static_cast<signed char>(
+                    pSprite->m_derivedStats.m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) > 0) {
+                CButtonData buttonData;
+                pSprite->BuildAbilityButtonData(CGameSprite::SPIN108, 0, 0, buttonData);
+                UseSpellAction(&buttonData, 1);
+            }
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        }
+        case 0x77: {
+            // Wilderness Lore.  Same source as the action bar's type 0x77,
+            // arm 0x593181 -- that copy calls the CPoint ctor and the
+            // effect's three setters out of line, this one inlines all four,
+            // and the statements match.
+            ITEM_EFFECT effect;
+            CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_RANGERTRACKING);
+            effect.targetType = 1;
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                CPoint(-1, -1),
+                -1,
+                CPoint(-1, -1));
+            pEffect->SetSource(pSprite->GetPos());
+            pEffect->SetSourceId(pSprite->GetId());
+            pEffect->SetEnabled(FALSE);
 
-                CMessage* message = new CMessageAddEffect(pEffect,
-                    pSprite->GetId(), pSprite->GetId());
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-                break;
-            }
-            default:
-                break;
-            }
-            SetState(0x72, 0);
+            CMessage* message = new CMessageAddEffect(pEffect,
+                pSprite->GetId(), pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+
+            SetSelectedButton(100);
+            pGame->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        }
+        default:
+            // Arm 0x590D91.  No repaint, unlike the 0x75 default and like the
+            // 0x74 and 0x77 ones.
+            ClearPickerList();
+            PopState(0, 0);
+            break;
         }
         break;
     case 0x74:
