@@ -14,6 +14,7 @@
 #include "IcewindCGameEffects.h"
 #include "CMessage.h"
 #include "CSound.h"
+#include "CSpell.h"
 #include "CItem.h"
 #include "CScreenWorld.h"
 #include "CUIControlBase.h"
@@ -3048,23 +3049,49 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     case 0x67:
     case 0x68:
     case 0x69:
-    case 0x6A:
-    case 0x6B:
     case 0x70:
     case 0x71:
-    case 0x7A:
-    case 0x7B:
-        // NOTE: unrecovered.  These ten states are THREE arms in the binary,
-        // not one: 0x66/0x67/0x68/0x69/0x70/0x71/0x7A go to 0x59138F, the two
-        // innate states 0x6A/0x6B go to 0x592428, and the feat-point confirm
-        // 0x7B goes to 0x592858.  The body below is the merged paraphrase that
-        // predates this session; only its locking has been corrected.
+    case 0x7A: {
+        // The spell, item and song pickers -- arm at 0x59138F.  Seven states
+        // share this one body in the binary; the two innate pickers below are a
+        // separate arm, which is why the merged paraphrase this replaces
+        // carried a shift page step into states that have none and an innate
+        // grey-out exemption into states that never needed one.
         //
-        // Page-up / page-down clicks - move m_nListStartIndex and re-render without
-        // changing the state.  m_nListStartIndex is an entry index, not a page
-        // number, so a page step is ten entries.  Holding shift in a spellbook
-        // picker steps by a whole memorised level instead.
+        // Types 0x15..0x22 dispatch through a three-slot table at 0x593BD8
+        // indexed by the bytes at 0x593BE4, derived from the binary rather than
+        // transcribed: 0x15..0x20 are the twelve cells, 0x21 pages up, 0x22
+        // pages down.
+        //
+        // bUseNow is what the four Use*Action helpers turn into CGameSprite's
+        // `firstCall`, so a customise click readies the slot rather than firing
+        // it: the three customising states are exactly the ones missing here.
+        BOOL bUseNow = (m_nState == 0x67 || m_nState == 0x69
+            || m_nState == 0x7A || m_nState == 0x70);
+        BOOLEAN bUsed = FALSE;
+
+        if (g_pButtonArrayPickerList == NULL) {
+            // The clear-and-repaint at 0x5918DD writes the field rather than
+            // calling the setter, and does not walk the state stack back.
+            m_nSelectedButton = 100;
+            UpdateButtons();
+            break;
+        }
+
+        if (nButtonType < 0x15 || nButtonType > 0x22) {
+            // The range assert inlined at 0x5918C4 is left out: ours is
+            // __declspec(noreturn) and the original's is not.  Its fallthrough
+            // is the same clear-and-repaint as the missing list above.
+            m_nSelectedButton = 100;
+            UpdateButtons();
+            break;
+        }
+
         if (nButtonType == 0x21) {
+            // Page up, 0x5913E8.  m_nListStartIndex is an entry index, not a
+            // page number, so a step is ten entries clamped at zero -- unless
+            // this is a spellbook and shift is down, which steps by a whole
+            // memorised level instead.
             if (m_nListStartIndex <= 0) {
                 break;
             }
@@ -3085,11 +3112,9 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             UpdateButtons();
             break;
         }
-        if (nButtonType == 0x22) {
-            if (g_pButtonArrayPickerList == NULL) {
-                break;
-            }
 
+        if (nButtonType == 0x22) {
+            // Page down, 0x59143F.
             INT nLastPage = static_cast<INT>(g_pButtonArrayPickerList->GetCount()) - 10;
             if (m_nListStartIndex >= nLastPage) {
                 break;
@@ -3111,156 +3136,236 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             UpdateButtons();
             break;
         }
-        // Picker click.  The click is split in two: states 0x66 / 0x68 / 0x71
-        // ASSIGN the picked entry to the quick slot stashed in
-        // m_nCustomizeSlot, and then -- unless the clicked cell is greyed out
-        // -- every state falls through to the same "use it" dispatch.  A
-        // customise click therefore both binds the slot and fires, which is why
-        // bUseNow below is false for exactly those three states: the four
-        // Use*Action helpers turn it into CGameSprite's `firstCall`, so a
-        // customise click readies rather than executes.
-        //
-        //   0x66 / 0x67 / 0x6A / 0x6B -> UseSpellAction  (0x5886A0)
-        //   0x68 / 0x69               -> UseItemAction   (0x5884B0)
-        //   0x71 / 0x7A               -> UseSongAction   (0x588820)
-        //   0x70                      -> UseInnateAction (0x588760, the default)
-        if (nButtonType >= 0x15 && nButtonType <= 0x20 && g_pButtonArrayPickerList != NULL) {
-            BOOL bUseNow = (m_nState == 0x67 || m_nState == 0x69 || m_nState == 0x6A
-                || m_nState == 0x70 || m_nState == 0x7A);
 
-            // Resolve the clicked cell by walking the list from the current
-            // page: the walk counts BUTTON slots, so it starts at 1 whenever
-            // the list is long enough for slot 0 to be the page-up arrow.
-            INT nIndex = (g_pButtonArrayPickerList->GetCount() > 12) ? 1 : 0;
-            POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
-            CButtonData* pEntry = NULL;
-            while (pos != NULL) {
-                CButtonData* pCandidate = g_pButtonArrayPickerList->GetNext(pos);
-                if (nIndex == buttonID && pCandidate != NULL) {
-                    pEntry = pCandidate;
-                    break;
+        // The twelve cells, 0x5914C2.  The walk counts BUTTON slots, so it
+        // starts at 1 whenever the list is long enough for slot 0 to be the
+        // page-up arrow.  The binary inlines GetNext as a walk of the node's
+        // pNext and data fields.
+        INT nIndex = (g_pButtonArrayPickerList->GetCount() > 12) ? 1 : 0;
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        CButtonData* pEntry = NULL;
+        while (pos != NULL) {
+            CButtonData* pCandidate = g_pButtonArrayPickerList->GetNext(pos);
+            if (nIndex == buttonID && pCandidate != NULL) {
+                pEntry = pCandidate;
+                break;
+            }
+            nIndex++;
+        }
+
+        if (pEntry != NULL) {
+            // The spellbook gate at 0x591502.  Only 0x67 pays for it, and only
+            // on a cell that is not greyed out: the picked spell is demanded,
+            // the caster's specialisation mask resolved, and the whole dispatch
+            // refused with feedback when CanCast says no.
+            BOOL bDispatch = TRUE;
+            if (m_nState == 0x67 && !m_buttonArray[buttonID].m_bGreyOut) {
+                CSpell cSpell(pEntry->m_abilityId.m_res);
+                cSpell.Demand();
+
+                BYTE nClass = pEntry->m_abilityId.m_nClass;
+
+                // m_nTooltip is the specialisation index, not a tooltip:
+                // BuildAbilityButtonData stores GetSpecializationIndex there.
+                // The name is the layout's, and this read is at +0x38.
+                DWORD nSpecialization = pGame->GetRuleTables().GetSpecializationMask(
+                    nClass, static_cast<BYTE>(pEntry->m_abilityId.m_nTooltip));
+                cSpell.Release();
+
+                if (!pSprite->CanCast(nClass, nSpecialization, &cSpell)) {
+                    pSprite->FeedBack(CGameSprite::FEEDBACK_89, 0, 0, 0,
+                        pGame->GetRuleTables().GetClassBeyondCastingAbilityStringRef(nClass),
+                        0, 0);
+                    bDispatch = FALSE;
+                } else if (g_pBaldurChitin->pActiveEngine->GetShiftKey() == 1
+                    && bUseNow == 1
+                    && pEntry->m_abilityId.m_nClass == 3
+                    && pEntry->m_abilityId.m_nTooltip == 0
+                    && !pEntry->m_bDisabled) {
+                    // NOTE: unrecovered.  A shift-click on an unspecialised
+                    // class-3 cell calls a CGameSprite method at 0x716770
+                    // (ObjCreature.cpp, asserts on line 17075) with this entry,
+                    // and then leaves through the same tail below without
+                    // dispatching.  That callee walks a two-dimensional resref
+                    // table hanging off CInfGame at +0x145C, sized by the words
+                    // at +0x1464 and +0x1466 and column-picked by
+                    // IcewindMisc::IsEvil, which is more than can be named from
+                    // this arm alone.  The control flow here is faithful; only
+                    // the call is missing, so a shift-click of that one cell
+                    // does nothing rather than something wrong.
+                    bDispatch = FALSE;
                 }
-                nIndex++;
             }
 
-            BOOL bFeatPointPicker = FALSE;
-            BOOL bModalFeatToggled = FALSE;
-            BOOL bFeatPointsConfirmed = FALSE;
-            if (pEntry != NULL) {
-                // NOTE: unrecovered -- in state 0x67 the binary first demands
-                // the CSpell, builds a specialization mask and gates the whole
-                // dispatch on CGameSprite::CanCast, feeding back "cannot cast"
-                // instead (0x591502..0x5915d5).
-                INT nSlot = m_nCustomizeSlot;
+            if (bDispatch) {
+                // Three of the seven states are customise pickers, entered
+                // at 0x59163F: they bind the picked entry to the slot stashed
+                // in m_nCustomizeSlot and record the button type it now shows.
+                // SetCustomButtonValue is inlined at each site -- its own
+                // assert, same __LINE__ 2036, is the only bound on the index,
+                // and the sprite-side write truncates it to a BYTE.
                 if (m_nState == 0x66) {
+                    INT nSlot = m_nCustomizeSlot;
                     CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 2);
                     m_customButtonTypes[nSlot] = nSlot + 0x46;
                     pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x46);
+                    bUsed = TRUE;
                 } else if (m_nState == 0x68) {
+                    INT nSlot = m_nCustomizeSlot;
                     CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 3);
                     m_customButtonTypes[nSlot] = nSlot + 0x50;
                     pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x50);
+                    bUsed = TRUE;
                 } else if (m_nState == 0x71) {
+                    INT nSlot = m_nCustomizeSlot;
                     CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 6);
                     m_customButtonTypes[nSlot] = nSlot + 0x6E;
                     pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x6E);
-                } else if (m_nState == 0x6B) {
-                    // The innate picker is its own arm in the binary
-                    // (0x5924c9), with the same shape.
-                    CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 4);
-                    m_customButtonTypes[nSlot] = nSlot + 0x5A;
-                    pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x5A);
-                } else if (m_nState == 0x6A) {
-                    // Power Attack and Expertise do not fire from here:
-                    // they open their point picker instead, with the
-                    // chosen ability stashed for BuildFeatPointsPickerList.
-                    if ((pEntry->m_abilityId.m_res == CGameSprite::SPIN275
-                            && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK))
-                        || (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
-                            && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE))) {
-                        m_currentAbilityResRef = pEntry->m_abilityId.m_res;
-                        bFeatPointPicker = TRUE;
-                    } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN277) {
-                        // The other three modal feats have no picker: the
-                        // click flips the feat rank and posts the matching
-                        // effect at the sprite's own position.
-                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE,
-                            pSprite->GetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE) > 0 ? 0 : 1);
+                    bUsed = TRUE;
+                }
 
-                        ITEM_EFFECT effect;
-                        CGameEffect::ClearItemEffect(&effect,
-                            ICEWIND_CGAMEEFFECT_FEATARTERIALSTRIKE);
-                        effect.durationType = 1;
-
-                        CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                            pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
-                        CMessage* pMsg = new CMessageAddEffect(pEffect,
-                            pSprite->GetId(), pSprite->GetId());
-                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-                        bModalFeatToggled = TRUE;
-                    } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN278) {
-                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_HAMSTRING,
-                            pSprite->GetFeatRank(CGAMESPRITE_FEAT_HAMSTRING) > 0 ? 0 : 1);
-
-                        ITEM_EFFECT effect;
-                        CGameEffect::ClearItemEffect(&effect,
-                            ICEWIND_CGAMEEFFECT_FEATHAMSTRING);
-                        effect.durationType = 1;
-
-                        CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                            pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
-                        CMessage* pMsg = new CMessageAddEffect(pEffect,
-                            pSprite->GetId(), pSprite->GetId());
-                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-                        bModalFeatToggled = TRUE;
-                    } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN279) {
-                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT,
-                            pSprite->GetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT) > 0 ? 0 : 1);
-
-                        ITEM_EFFECT effect;
-                        CGameEffect::ClearItemEffect(&effect,
-                            ICEWIND_CGAMEEFFECT_FEATRAPIDSHOT);
-                        effect.durationType = 1;
-
-                        CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                            pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
-                        CMessage* pMsg = new CMessageAddEffect(pEffect,
-                            pSprite->GetId(), pSprite->GetId());
-                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-                        bModalFeatToggled = TRUE;
+                // At 0x59177B a greyed cell can still be bound to a quick
+                // slot, but it never fires; the helper's return overwrites the
+                // flag the customise above set.
+                if (!m_buttonArray[buttonID].m_bGreyOut) {
+                    switch (m_nState) {
+                    case 0x66:
+                    case 0x67:
+                        bUsed = UseSpellAction(pEntry, bUseNow);
+                        break;
+                    case 0x68:
+                    case 0x69:
+                        bUsed = UseItemAction(pEntry, bUseNow);
+                        break;
+                    case 0x71:
+                    case 0x7A:
+                        bUsed = UseSongAction(pEntry, bUseNow);
+                        break;
+                    default:
+                        bUsed = UseInnateAction(pEntry, bUseNow);
+                        break;
                     }
-                } else if (m_nState == 0x7B) {
-                    // CONFIRM in the feat-point picker (0x59296b-0x592aad),
-                    // the other half of the bFeatPointPicker branch above.
-                    // BuildFeatPointsPickerList gave every entry the number
-                    // of attack-bonus points it stands for, in m_count, so
-                    // the click writes that straight into the feat rank and
-                    // posts the modal effect that carries it.
-                    WORD effectID = 0;
-                    if (pEntry->m_abilityId.m_res == CGameSprite::SPIN275
-                        && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
-                        effectID = ICEWIND_CGAMEEFFECT_FEATPOWERATTACK;
-                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK,
-                            pEntry->m_count);
-                    } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
-                        && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
-                        effectID = ICEWIND_CGAMEEFFECT_FEATEXPERTISE;
-                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_EXPERTISE,
-                            pEntry->m_count);
-                    }
+                }
+            }
+        }
 
-                    // "Off" is the zero-point entry: it also drops the
-                    // stashed ability, so the next open of the picker has
-                    // nothing to rebuild from.
-                    if (pEntry->m_count == 0) {
-                        m_currentAbilityResRef = CResRef();
-                    }
+        // The tail at 0x5917E3, which every path that did not page reaches.
+        // ClearPickerList is inlined there in full -- RemoveHead, delete,
+        // RemoveAll, the list's own scalar deleting destructor, then the global
+        // cleared -- and matches 0x587BD0 instruction for instruction.  So is
+        // PopState: 0x591845 is its a3 == 1 half and 0x59187A its a3 == 0 half,
+        // each guarded by an emptiness test our PopState already carries.
+        ClearPickerList();
 
-                    // Faithful: neither resref matching leaves effectID at
-                    // the 0 the binary zeroes edi to (0x592982) and still
-                    // posts the effect.
+        if (bUsed) {
+            PopState(0, 1);
+            break;
+        }
+
+        PopState(0, 0);
+        m_nSelectedButton = 100;
+        UpdateButtons();
+        break;
+    }
+    case 0x6A:
+    case 0x6B: {
+        // The two innate pickers -- arm at 0x592428, with its own three-slot
+        // table at 0x593C34 indexed by the bytes at 0x593C40.  Same three
+        // groups as the arm above, and its page-up shares that arm's code by
+        // tail-merge; neither page step consults the shift key.
+        //
+        // 0x6A fires the picked innate, 0x6B binds it to a quick slot first.
+        BOOL bUseNow = (m_nState == 0x6A);
+        BOOLEAN bUsed = FALSE;
+        BOOL bFeatPointPicker = FALSE;
+
+        if (g_pButtonArrayPickerList == NULL) {
+            // Shared with the feat-point arm below, at 0x592E65.
+            SetSelectedButton(100);
+            UpdateButtons();
+            break;
+        }
+
+        if (nButtonType < 0x15 || nButtonType > 0x22) {
+            // Assert at 0x59282A, left out for the same noreturn reason.
+            SetSelectedButton(100);
+            UpdateButtons();
+            break;
+        }
+
+        if (nButtonType == 0x21) {
+            if (m_nListStartIndex <= 0) {
+                break;
+            }
+
+            INT nPage = m_nListStartIndex - 10;
+            if (nPage < 0) {
+                nPage = 0;
+            }
+
+            m_nListStartIndex = nPage;
+            UpdateButtons();
+            break;
+        }
+
+        if (nButtonType == 0x22) {
+            INT nLastPage = static_cast<INT>(g_pButtonArrayPickerList->GetCount()) - 10;
+            if (m_nListStartIndex >= nLastPage) {
+                break;
+            }
+
+            if (nLastPage >= m_nListStartIndex + 10) {
+                m_nListStartIndex = m_nListStartIndex + 10;
+            } else {
+                m_nListStartIndex = nLastPage;
+            }
+
+            UpdateButtons();
+            break;
+        }
+
+        INT nIndex = (g_pButtonArrayPickerList->GetCount() > 12) ? 1 : 0;
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        CButtonData* pEntry = NULL;
+        while (pos != NULL) {
+            CButtonData* pCandidate = g_pButtonArrayPickerList->GetNext(pos);
+            if (nIndex == buttonID && pCandidate != NULL) {
+                pEntry = pCandidate;
+                break;
+            }
+            nIndex++;
+        }
+
+        if (pEntry != NULL) {
+            if (m_nState == 0x6B) {
+                // From 0x592521.  This arm has no grey-out gate of any
+                // kind, which is what separates it from the seven above.
+                INT nSlot = m_nCustomizeSlot;
+                CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 4);
+                m_customButtonTypes[nSlot] = nSlot + 0x5A;
+                pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x5A);
+            }
+
+            BOOL bHandled = FALSE;
+            if (m_nState == 0x6A) {
+                // From 0x59256C, the five modal feats do not go through
+                // UseSpellAction: two of them open a point picker and three
+                // toggle their rank and post the effect that carries it.
+                if ((pEntry->m_abilityId.m_res == CGameSprite::SPIN275
+                        && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK))
+                    || (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
+                        && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE))) {
+                    m_currentAbilityResRef = pEntry->m_abilityId.m_res;
+                    bFeatPointPicker = TRUE;
+                    bUsed = TRUE;
+                    bHandled = TRUE;
+                } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN277) {
+                    pSprite->SetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE,
+                        pSprite->GetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE) > 0 ? 0 : 1);
+
                     ITEM_EFFECT effect;
-                    CGameEffect::ClearItemEffect(&effect, effectID);
+                    CGameEffect::ClearItemEffect(&effect,
+                        ICEWIND_CGAMEEFFECT_FEATARTERIALSTRIKE);
                     effect.durationType = 1;
 
                     CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
@@ -3268,72 +3373,184 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                     CMessage* pMsg = new CMessageAddEffect(pEffect,
                         pSprite->GetId(), pSprite->GetId());
                     g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-                    bFeatPointsConfirmed = TRUE;
+                    bUsed = TRUE;
+                    bHandled = TRUE;
+                } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN278) {
+                    pSprite->SetFeatRank(CGAMESPRITE_FEAT_HAMSTRING,
+                        pSprite->GetFeatRank(CGAMESPRITE_FEAT_HAMSTRING) > 0 ? 0 : 1);
+
+                    ITEM_EFFECT effect;
+                    CGameEffect::ClearItemEffect(&effect,
+                        ICEWIND_CGAMEEFFECT_FEATHAMSTRING);
+                    effect.durationType = 1;
+
+                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                        pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                    CMessage* pMsg = new CMessageAddEffect(pEffect,
+                        pSprite->GetId(), pSprite->GetId());
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                    bUsed = TRUE;
+                    bHandled = TRUE;
+                } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN279) {
+                    pSprite->SetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT,
+                        pSprite->GetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT) > 0 ? 0 : 1);
+
+                    ITEM_EFFECT effect;
+                    CGameEffect::ClearItemEffect(&effect,
+                        ICEWIND_CGAMEEFFECT_FEATRAPIDSHOT);
+                    effect.durationType = 1;
+
+                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                        pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                    CMessage* pMsg = new CMessageAddEffect(pEffect,
+                        pSprite->GetId(), pSprite->GetId());
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                    bUsed = TRUE;
+                    bHandled = TRUE;
                 }
-
-                // A greyed-out cell can still be bound to a quick slot, but
-                // it never fires -- except in the innate arm, which has no
-                // such gate.  The binary keeps each helper's return in a
-                // flag that only the unrecovered tails read (0x59182f for
-                // this arm, 0x5924f0 for the innate one).
-                BOOL bInnateArm = (m_nState == 0x6A || m_nState == 0x6B);
-                if (!bFeatPointPicker && !bModalFeatToggled && !bFeatPointsConfirmed
-                    && (bInnateArm || !m_buttonArray[buttonID].m_bGreyOut)) {
-                    switch (m_nState) {
-                    case 0x66:
-                    case 0x67:
-                    case 0x6A:
-                    case 0x6B:
-                        // NOTE: unrecovered -- state 0x6A first matches the
-                        // entry's resref against two fixed ones and gates
-                        // on CGameSprite::HasFeat(0x2F) (0x59256c).
-                        UseSpellAction(pEntry, bUseNow);
-                        break;
-                    case 0x68:
-                    case 0x69:
-                        UseItemAction(pEntry, bUseNow);
-                        break;
-                    case 0x71:
-                    case 0x7A:
-                        UseSongAction(pEntry, bUseNow);
-                        break;
-                    default:
-                        UseInnateAction(pEntry, bUseNow);
-                        break;
-                    }
-                }
             }
 
-            if (bFeatPointPicker) {
-                SetState(0x7B, 1);
-                break;
-            }
-
-            if (bFeatPointsConfirmed) {
-                // The confirm falls into this arm's shared tail (0x592aae),
-                // which drops the picker list rather than pushing another
-                // state -- the points are spent, so there is nothing to
-                // come back to.
-                ClearPickerList();
-                PopState(0, 0);
-                SetSelectedButton(100);
-                UpdateButtons();
-                break;
-            }
-
-            if (pEntry != NULL) {
-                // Something was picked, so the whole sequence is done: walk
-                // straight back to the bar it started from.
-                PopState(0, 1);
-                break;
+            // The state re-test at 0x592801 is the binary's; both arms of
+            // it reach here, and 0x6B always does.
+            if (!bHandled && (m_nState == 0x6B || m_nState == 0x6A)) {
+                bUsed = UseSpellAction(pEntry, bUseNow);
             }
         }
 
-        // An empty or unknown cell only steps back one level.
+        // The tail at 0x5924EC.  An empty cell or an exhausted list enters it
+        // one instruction earlier, at the point that reloads the flag with the
+        // FALSE it started at -- so both land here with bUsed clear.
+        ClearPickerList();
+
+        if (!bUsed) {
+            PopState(0, 0);
+            SetSelectedButton(100);
+            UpdateButtons();
+            break;
+        }
+
+        if (bFeatPointPicker) {
+            SetState(0x7B, 1);
+            break;
+        }
+
+        // Note that 0x5939DD is NOT a SetState: it is the second push of
+        // PopState, so entering the shared tail there with a 1 already pushed
+        // is PopState(0, 1), unwinding the whole picker sequence at once.
+        PopState(0, 1);
+        break;
+    }
+    case 0x7B: {
+        // The feat-point confirm picker -- arm at 0x592858, the third and last
+        // of the three the merged case hid.  Its table is at 0x593C50 with the
+        // index bytes at 0x593C5C, the same shape as the other two, and like
+        // the innate arm neither page step consults the shift key.
+        if (g_pButtonArrayPickerList == NULL) {
+            // A missing list clears the selection and repaints, at 0x592E65,
+            // without touching the state stack.
+            SetSelectedButton(100);
+            UpdateButtons();
+            break;
+        }
+
+        if (nButtonType < 0x15 || nButtonType > 0x22) {
+            // Assert at 0x592AD3, left out for the same noreturn reason.
+            SetSelectedButton(100);
+            UpdateButtons();
+            break;
+        }
+
+        if (nButtonType == 0x21) {
+            if (m_nListStartIndex <= 0) {
+                break;
+            }
+
+            INT nPage = m_nListStartIndex - 10;
+            if (nPage < 0) {
+                nPage = 0;
+            }
+
+            m_nListStartIndex = nPage;
+            UpdateButtons();
+            break;
+        }
+
+        if (nButtonType == 0x22) {
+            INT nLastPage = static_cast<INT>(g_pButtonArrayPickerList->GetCount()) - 10;
+            if (m_nListStartIndex >= nLastPage) {
+                break;
+            }
+
+            if (nLastPage >= m_nListStartIndex + 10) {
+                m_nListStartIndex = m_nListStartIndex + 10;
+            } else {
+                m_nListStartIndex = nLastPage;
+            }
+
+            UpdateButtons();
+            break;
+        }
+
+        INT nIndex = (g_pButtonArrayPickerList->GetCount() > 12) ? 1 : 0;
+        POSITION pos = g_pButtonArrayPickerList->FindIndex(m_nListStartIndex);
+        CButtonData* pEntry = NULL;
+        while (pos != NULL) {
+            CButtonData* pCandidate = g_pButtonArrayPickerList->GetNext(pos);
+            if (nIndex == buttonID && pCandidate != NULL) {
+                pEntry = pCandidate;
+                break;
+            }
+            nIndex++;
+        }
+
+        // The state re-test at 0x59296B is the binary's; nothing else can
+        // reach this arm, but it guards the whole body all the same.
+        if (pEntry != NULL && m_nState == 0x7B) {
+            // BuildFeatPointsPickerList gave every entry the number of
+            // attack-bonus points it stands for, in m_count, so the click
+            // writes that straight into the feat rank and posts the modal
+            // effect that carries it.
+            WORD effectID = 0;
+            if (pEntry->m_abilityId.m_res == CGameSprite::SPIN275
+                && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+                effectID = ICEWIND_CGAMEEFFECT_FEATPOWERATTACK;
+                pSprite->SetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK, pEntry->m_count);
+            } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
+                && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
+                effectID = ICEWIND_CGAMEEFFECT_FEATEXPERTISE;
+                pSprite->SetFeatRank(CGAMESPRITE_FEAT_EXPERTISE, pEntry->m_count);
+            }
+
+            // "Off" is the zero-point entry: it also drops the stashed
+            // ability, so the next open of the picker has nothing to rebuild
+            // from.
+            if (pEntry->m_count == 0) {
+                m_currentAbilityResRef = CResRef();
+            }
+
+            // Faithful: neither resref matching leaves effectID at the 0 the
+            // binary zeroes edi to at 0x592982, and it still posts the effect.
+            ITEM_EFFECT effect;
+            CGameEffect::ClearItemEffect(&effect, effectID);
+            effect.durationType = 1;
+
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+            CMessage* pMsg = new CMessageAddEffect(pEffect,
+                pSprite->GetId(), pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+        }
+
+        // The shared tail at 0x592AAE, which every path above that did not
+        // page reaches -- an empty cell and an exhausted list included.  The
+        // points are spent, so it drops the picker list rather than pushing
+        // another state.
+        ClearPickerList();
         PopState(0, 0);
         SetSelectedButton(100);
         UpdateButtons();
         break;
+    }
     case 0x6C:
         // The formation picker at 0x590294, reached by right-clicking a quick
         // formation slot on the group bar.  It rebinds the stashed quick slot
