@@ -1,0 +1,51 @@
+# Drive the LEFT button over the single-PC action bar, which is the arm
+# CInfButtonArray::OnLButtonPressed reaches through its state table's default
+# target -- states 0x6F and 0x72 share it, so this is where a click on the bar
+# of a selected character lands.
+#
+# The route deliberately starts on the group bar so both dispatchers are
+# exercised: state 0x6E has a five-arm table of its own, and only after a
+# portrait click does the bar become 0x72.
+#
+# The bars, as the ORIGINAL reported them (* = greyed):
+#
+#   0x6E  07  08  0F  10  11  12  13  14  64* 64* 64* 64*
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (portrait 0)
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+# The types this visits, and the arm each one proves:
+#
+#   0x6E slot 0  -> type 0x07, the group bar's own attack-mode toggle
+#   0x72 slot 0  -> type 0x07, the action bar's, which also clears the modal
+#   0x72 slot 3  -> type 0x05, one of the four literal DispatchActionBarClick
+#                   bodies the source used to merge into a single case
+#   0x72 slot 4  -> type 0x03, another of them
+#   0x72 slot 11 -> type 0x0A, a third
+#   0x72 slot 1  -> type 0x3C, the quick-weapon arm, on a plain click: no
+#                   shift, so it selects the weapon set rather than opening
+#                   the picker in state 0x65
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+dump
+click 1 6
+sleep 45
+dump
+click 1 0
+sleep 45
+dump
+click 1 6
+sleep 45
+dump
+click 1 9
+sleep 45
+click 1 10
+sleep 45
+click 1 17
+sleep 45
+dump
+click 1 7
+sleep 60
+dump

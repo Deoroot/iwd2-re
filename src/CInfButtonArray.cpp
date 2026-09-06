@@ -2933,54 +2933,117 @@ INT CInfButtonArray::GetPreviousPickerPage(CGameButtonList* pButtonList)
     return 0;
 }
 
+// The binary holds ONE lock for the whole of this function and takes no other:
+// a CGameObjectArray::GetDeny on the party leader at 0x590027, retried while
+// the array answers SHARED, abandoned when it answers anything but SUCCESS, and
+// released exactly once at 0x593A13 on the single exit every arm jumps to.
+// There is no GetShare in the 3,996 instructions the function spans, and no arm
+// takes a lock of its own -- so the leader's sprite the arms below use is the
+// one this prologue obtained, not one they fetch for themselves.
+//
+// The state dispatch is a 23-entry table at 0x593A3C indexed by m_nState - 0x65,
+// with fifteen distinct targets; states 0x6F and 0x72 share the switch default,
+// which is why the action bar lives there.  Two states our source did not name
+// at all have their own arms: 0x65 (0x590450) and 0x76 (0x5918F3).
+//
+// The binary returns 1 for a click it took and 0 for one it refused before the
+// lock, but the call site at 0x687CAD discards eax, so the signature stays
+// void, as OnRButtonPressed's does.
+//
 // 0x58FF20
 void CInfButtonArray::OnLButtonPressed(int buttonID)
 {
-    // TODO: Incomplete.
-
+    // NOTE: the binary's bounds test at 0x58FF51 rejects buttonID < 0 and
+    // buttonID > 12, so an id of exactly 12 reads one past m_buttonTypes[12]
+    // and m_buttonArray[12].  Both land inside the object so the original does
+    // not fault, but nothing calls it with 12 and reproducing the read would be
+    // writing deliberate out-of-bounds C++ for no observable gain -- the same
+    // call OnRButtonPressed already makes.
     if (buttonID < 0 || buttonID >= 12) {
         return;
     }
 
-    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     INT nButtonType = m_buttonTypes[buttonID];
 
-    // Greyout gate per Ghidra OnLButtonPressed entry: a greyed-out slot
-    // only blocks the click in state 0x72 (action bar) and in state 0x66
-    // for non-picker button types.  In every other submenu state the
-    // click must reach the handler â€” its default case is what pops the
-    // submenu back to the action bar when the user clicks an empty slot.
+    // The grey-out gate at 0x58FF77.  A greyed slot refuses the click in the
+    // action bar outright; in the spellbook it only lets the twelve picker
+    // types through; and in every other state it lets through the spell-class
+    // buttons, the quick items, and the empty-slot placeholder -- nothing else.
+    // Unlike the corresponding chain in OnRButtonPressed this one is LIVE: each
+    // range here is a real two-sided test, not the forward jump over its own
+    // upper bound that made the right-button chain dead code.
     if (m_buttonArray[buttonID].m_bGreyOut) {
         if (m_nState == 0x72) {
             return;
         }
-        if (m_nState == 0x66 && (nButtonType < 0x15 || nButtonType > 0x20)) {
+        if (m_nState == 0x66) {
+            if (nButtonType < 0x15 || nButtonType > 0x20) {
+                return;
+            }
+        } else if (!((nButtonType >= 0x32 && nButtonType <= 0x38)
+                       || (nButtonType >= 0x50 && nButtonType <= 0x52)
+                       || nButtonType == 0x64)) {
             return;
         }
     }
 
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+
+    // Written twice, in that order, at 0x58FFBF and again at 0x58FFDD.  The
+    // duplicate is the binary's: both stores hit the same three fields with the
+    // same values, and no call sits between them.
+    pGame->m_lastClick = CPoint(-1, -1);
+    pGame->m_lastTarget = CGameObjectArray::INVALID_INDEX;
+    pGame->m_lastClick = CPoint(-1, -1);
+    pGame->m_lastTarget = CGameObjectArray::INVALID_INDEX;
+
+    LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+    CGameSprite* pSprite = NULL;
+    BYTE rc;
+    do {
+        rc = pGame->GetObjectArray()->GetDeny(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED);
+
+    // The loop at 0x59002C retries on SHARED alone -- DENIED is not in the
+    // compare -- and 0x59003A abandons the click on anything but SUCCESS.
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
     switch (m_nState) {
-    case 0x6C:
-        // Ghidra OnLButtonPressed state 0x6C (FUN_0058ff20): formation picker
-        // reached by right-clicking a quick-formation slot.  Rebind the stashed
-        // quick slot (m_nCustomizeSlot @ +0x1976, set by OnRButtonPressed state
-        // 0x6E) to the chosen formation, then make it current:
-        //   gameSave->m_quickFormations[slot] = buttonID;        // +0x423e
-        //   gameSave->m_curFormation = m_quickFormations[slot];  // +0x423c
-        if (buttonID < 12) {
-            pGame->GetGameSave()->m_quickFormations[m_nCustomizeSlot] = static_cast<SHORT>(buttonID);
-            pGame->GetGameSave()->m_curFormation = pGame->GetGameSave()->m_quickFormations[m_nCustomizeSlot];
-            SetState(0x6E, 0);
+    case 0x65: {
+        // The quick-weapon customise picker at 0x590450, opened by the action
+        // bar's 0x3C..0x43 arm on a SHIFT-click.
+        // The click resolves the buttonID-th entry of the picker list -- a
+        // straight index, with none of the page-up offset the spellbook picker
+        // applies -- and binds it to the slot stashed in m_nCustomizeSlot.
+        // Whether anything was bound is what decides, at 0x59053F, if the
+        // selection is cleared on the way out.
+        BOOL bBound = FALSE;
+        if (g_pButtonArrayPickerList != NULL) {
+            INT nCount = static_cast<INT>(g_pButtonArrayPickerList->GetCount());
+            POSITION pos = g_pButtonArrayPickerList->GetHeadPosition();
+            for (INT nIndex = 0; nIndex < nCount && pos != NULL; nIndex++) {
+                CButtonData* pEntry = g_pButtonArrayPickerList->GetNext(pos);
+                if (nIndex == buttonID && pEntry != NULL) {
+                    CustomizeQuickSlot(pEntry, static_cast<BYTE>(m_nCustomizeSlot), 1);
+                    ReadyQuickSlotByMode(static_cast<SHORT>(m_nCustomizeSlot), 1);
+                    bBound = TRUE;
+                    break;
+                }
+            }
         }
-        return;
-    case 0x6D:
-        // Ghidra state 0x6D: formation selector that does NOT rebind a quick
-        // slot â€” it only sets the current formation (gameSave +0x423c).
-        if (buttonID < 12) {
-            pGame->GetGameSave()->m_curFormation = static_cast<SHORT>(buttonID);
-            SetState(0x6E, 0);
+        UpdateButtons();
+        ClearPickerList();
+        PopState(0, 0);
+        if (!bBound) {
+            m_nSelectedButton = 100;
         }
-        return;
+        break;
+    }
     case 0x66:
     case 0x67:
     case 0x68:
@@ -2991,20 +3054,26 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     case 0x71:
     case 0x7A:
     case 0x7B:
+        // NOTE: unrecovered.  These ten states are THREE arms in the binary,
+        // not one: 0x66/0x67/0x68/0x69/0x70/0x71/0x7A go to 0x59138F, the two
+        // innate states 0x6A/0x6B go to 0x592428, and the feat-point confirm
+        // 0x7B goes to 0x592858.  The body below is the merged paraphrase that
+        // predates this session; only its locking has been corrected.
+        //
         // Page-up / page-down clicks - move m_nListStartIndex and re-render without
         // changing the state.  m_nListStartIndex is an entry index, not a page
         // number, so a page step is ten entries.  Holding shift in a spellbook
         // picker steps by a whole memorised level instead.
         if (nButtonType == 0x21) {
             if (m_nListStartIndex <= 0) {
-                return;
+                break;
             }
 
             if ((m_nState == 0x67 || m_nState == 0x66)
                 && g_pBaldurChitin->pActiveEngine->GetShiftKey() == 1) {
                 m_nListStartIndex = GetPreviousPickerPage(g_pButtonArrayPickerList);
                 UpdateButtons();
-                return;
+                break;
             }
 
             INT nPage = m_nListStartIndex - 10;
@@ -3014,23 +3083,23 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
 
             m_nListStartIndex = nPage;
             UpdateButtons();
-            return;
+            break;
         }
         if (nButtonType == 0x22) {
             if (g_pButtonArrayPickerList == NULL) {
-                return;
+                break;
             }
 
             INT nLastPage = static_cast<INT>(g_pButtonArrayPickerList->GetCount()) - 10;
             if (m_nListStartIndex >= nLastPage) {
-                return;
+                break;
             }
 
             if ((m_nState == 0x67 || m_nState == 0x66)
                 && g_pBaldurChitin->pActiveEngine->GetShiftKey() == 1) {
                 m_nListStartIndex = GetNextPickerPage(g_pButtonArrayPickerList);
                 UpdateButtons();
-                return;
+                break;
             }
 
             if (nLastPage >= m_nListStartIndex + 10) {
@@ -3040,26 +3109,21 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             }
 
             UpdateButtons();
-            return;
+            break;
         }
-        // Picker click.  Ghidra OnLButtonPressed 0x5913b3..0x5917df.  The click
-        // is split in two: states 0x66 / 0x68 / 0x71 ASSIGN the picked entry to
-        // the quick slot stashed in m_nCustomizeSlot, and then -- unless the
-        // clicked cell is greyed out -- every state falls through to the same
-        // "use it" dispatch.  A customise click therefore both binds the slot
-        // and fires, which is why bUseNow below is false for exactly those
-        // three states: the four Use*Action helpers turn it into
-        // CGameSprite's `firstCall`, so a customise click readies rather than
-        // executes.
+        // Picker click.  The click is split in two: states 0x66 / 0x68 / 0x71
+        // ASSIGN the picked entry to the quick slot stashed in
+        // m_nCustomizeSlot, and then -- unless the clicked cell is greyed out
+        // -- every state falls through to the same "use it" dispatch.  A
+        // customise click therefore both binds the slot and fires, which is why
+        // bUseNow below is false for exactly those three states: the four
+        // Use*Action helpers turn it into CGameSprite's `firstCall`, so a
+        // customise click readies rather than executes.
         //
         //   0x66 / 0x67 / 0x6A / 0x6B -> UseSpellAction  (0x5886A0)
         //   0x68 / 0x69               -> UseItemAction   (0x5884B0)
         //   0x71 / 0x7A               -> UseSongAction   (0x588820)
         //   0x70                      -> UseInnateAction (0x588760, the default)
-        //
-        // The innate states 0x6A / 0x6B are a second, near-identical arm in the
-        // binary (0x5924c9): same walk, same customise-then-fire shape, but its
-        // own bUseNow (0x59242b) and no greyout gate on the fire.
         if (nButtonType >= 0x15 && nButtonType <= 0x20 && g_pButtonArrayPickerList != NULL) {
             BOOL bUseNow = (m_nState == 0x67 || m_nState == 0x69 || m_nState == 0x6A
                 || m_nState == 0x70 || m_nState == 0x7A);
@@ -3087,132 +3151,45 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 // the CSpell, builds a specialization mask and gates the whole
                 // dispatch on CGameSprite::CanCast, feeding back "cannot cast"
                 // instead (0x591502..0x5915d5).
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc;
-                do {
-                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        reinterpret_cast<CGameObject**>(&pSprite),
-                        INFINITE);
-                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    // The slot binding goes through CustomizeQuickSlot, which
-                    // takes its own Deny on GetGroupList()[0].  Nesting is what
-                    // the binary does -- it holds one leader Deny across the
-                    // whole of OnLButtonPressed (0x590027) -- and it is safe
-                    // because GetDeny only refuses a lock held by ANOTHER
-                    // thread; a re-entrant take just bumps m_denyCounts.
-                    INT nSlot = m_nCustomizeSlot;
-                    if (m_nState == 0x66) {
-                        CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 2);
-                        m_customButtonTypes[nSlot] = nSlot + 0x46;
-                        pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x46);
-                    } else if (m_nState == 0x68) {
-                        CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 3);
-                        m_customButtonTypes[nSlot] = nSlot + 0x50;
-                        pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x50);
-                    } else if (m_nState == 0x71) {
-                        CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 6);
-                        m_customButtonTypes[nSlot] = nSlot + 0x6E;
-                        pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x6E);
-                    } else if (m_nState == 0x6B) {
-                        // The innate picker is its own arm in the binary
-                        // (0x5924c9), with the same shape.
-                        CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 4);
-                        m_customButtonTypes[nSlot] = nSlot + 0x5A;
-                        pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x5A);
-                    } else if (m_nState == 0x6A) {
-                        // Power Attack and Expertise do not fire from here:
-                        // they open their point picker instead, with the
-                        // chosen ability stashed for BuildFeatPointsPickerList.
-                        if ((pEntry->m_abilityId.m_res == CGameSprite::SPIN275
-                                && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK))
-                            || (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
-                                && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE))) {
-                            m_currentAbilityResRef = pEntry->m_abilityId.m_res;
-                            bFeatPointPicker = TRUE;
-                        } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN277) {
-                            // The other three modal feats have no picker: the
-                            // click flips the feat rank and posts the matching
-                            // effect at the sprite's own position.
-                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE,
-                                pSprite->GetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE) > 0 ? 0 : 1);
+                INT nSlot = m_nCustomizeSlot;
+                if (m_nState == 0x66) {
+                    CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 2);
+                    m_customButtonTypes[nSlot] = nSlot + 0x46;
+                    pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x46);
+                } else if (m_nState == 0x68) {
+                    CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 3);
+                    m_customButtonTypes[nSlot] = nSlot + 0x50;
+                    pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x50);
+                } else if (m_nState == 0x71) {
+                    CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 6);
+                    m_customButtonTypes[nSlot] = nSlot + 0x6E;
+                    pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x6E);
+                } else if (m_nState == 0x6B) {
+                    // The innate picker is its own arm in the binary
+                    // (0x5924c9), with the same shape.
+                    CustomizeQuickSlot(pEntry, static_cast<BYTE>(nSlot), 4);
+                    m_customButtonTypes[nSlot] = nSlot + 0x5A;
+                    pSprite->SetCustomButtonValue(static_cast<BYTE>(nSlot), nSlot + 0x5A);
+                } else if (m_nState == 0x6A) {
+                    // Power Attack and Expertise do not fire from here:
+                    // they open their point picker instead, with the
+                    // chosen ability stashed for BuildFeatPointsPickerList.
+                    if ((pEntry->m_abilityId.m_res == CGameSprite::SPIN275
+                            && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK))
+                        || (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
+                            && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE))) {
+                        m_currentAbilityResRef = pEntry->m_abilityId.m_res;
+                        bFeatPointPicker = TRUE;
+                    } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN277) {
+                        // The other three modal feats have no picker: the
+                        // click flips the feat rank and posts the matching
+                        // effect at the sprite's own position.
+                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE,
+                            pSprite->GetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE) > 0 ? 0 : 1);
 
-                            ITEM_EFFECT effect;
-                            CGameEffect::ClearItemEffect(&effect,
-                                ICEWIND_CGAMEEFFECT_FEATARTERIALSTRIKE);
-                            effect.durationType = 1;
-
-                            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                                pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
-                            CMessage* pMsg = new CMessageAddEffect(pEffect,
-                                pSprite->GetId(), pSprite->GetId());
-                            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-                            bModalFeatToggled = TRUE;
-                        } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN278) {
-                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_HAMSTRING,
-                                pSprite->GetFeatRank(CGAMESPRITE_FEAT_HAMSTRING) > 0 ? 0 : 1);
-
-                            ITEM_EFFECT effect;
-                            CGameEffect::ClearItemEffect(&effect,
-                                ICEWIND_CGAMEEFFECT_FEATHAMSTRING);
-                            effect.durationType = 1;
-
-                            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                                pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
-                            CMessage* pMsg = new CMessageAddEffect(pEffect,
-                                pSprite->GetId(), pSprite->GetId());
-                            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-                            bModalFeatToggled = TRUE;
-                        } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN279) {
-                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT,
-                                pSprite->GetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT) > 0 ? 0 : 1);
-
-                            ITEM_EFFECT effect;
-                            CGameEffect::ClearItemEffect(&effect,
-                                ICEWIND_CGAMEEFFECT_FEATRAPIDSHOT);
-                            effect.durationType = 1;
-
-                            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                                pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
-                            CMessage* pMsg = new CMessageAddEffect(pEffect,
-                                pSprite->GetId(), pSprite->GetId());
-                            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-                            bModalFeatToggled = TRUE;
-                        }
-                    } else if (m_nState == 0x7B) {
-                        // CONFIRM in the feat-point picker (0x59296b-0x592aad),
-                        // the other half of the bFeatPointPicker branch above.
-                        // BuildFeatPointsPickerList gave every entry the number
-                        // of attack-bonus points it stands for, in m_count, so
-                        // the click writes that straight into the feat rank and
-                        // posts the modal effect that carries it.
-                        WORD effectID = 0;
-                        if (pEntry->m_abilityId.m_res == CGameSprite::SPIN275
-                            && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
-                            effectID = ICEWIND_CGAMEEFFECT_FEATPOWERATTACK;
-                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK,
-                                pEntry->m_count);
-                        } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
-                            && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
-                            effectID = ICEWIND_CGAMEEFFECT_FEATEXPERTISE;
-                            pSprite->SetFeatRank(CGAMESPRITE_FEAT_EXPERTISE,
-                                pEntry->m_count);
-                        }
-
-                        // "Off" is the zero-point entry: it also drops the
-                        // stashed ability, so the next open of the picker has
-                        // nothing to rebuild from.
-                        if (pEntry->m_count == 0) {
-                            m_currentAbilityResRef = CResRef();
-                        }
-
-                        // Faithful: neither resref matching leaves effectID at
-                        // the 0 the binary zeroes edi to (0x592982) and still
-                        // posts the effect.
                         ITEM_EFFECT effect;
-                        CGameEffect::ClearItemEffect(&effect, effectID);
+                        CGameEffect::ClearItemEffect(&effect,
+                            ICEWIND_CGAMEEFFECT_FEATARTERIALSTRIKE);
                         effect.durationType = 1;
 
                         CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
@@ -3220,50 +3197,116 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                         CMessage* pMsg = new CMessageAddEffect(pEffect,
                             pSprite->GetId(), pSprite->GetId());
                         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-                        bFeatPointsConfirmed = TRUE;
+                        bModalFeatToggled = TRUE;
+                    } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN278) {
+                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_HAMSTRING,
+                            pSprite->GetFeatRank(CGAMESPRITE_FEAT_HAMSTRING) > 0 ? 0 : 1);
+
+                        ITEM_EFFECT effect;
+                        CGameEffect::ClearItemEffect(&effect,
+                            ICEWIND_CGAMEEFFECT_FEATHAMSTRING);
+                        effect.durationType = 1;
+
+                        CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                            pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                        CMessage* pMsg = new CMessageAddEffect(pEffect,
+                            pSprite->GetId(), pSprite->GetId());
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                        bModalFeatToggled = TRUE;
+                    } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN279) {
+                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT,
+                            pSprite->GetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT) > 0 ? 0 : 1);
+
+                        ITEM_EFFECT effect;
+                        CGameEffect::ClearItemEffect(&effect,
+                            ICEWIND_CGAMEEFFECT_FEATRAPIDSHOT);
+                        effect.durationType = 1;
+
+                        CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                            pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                        CMessage* pMsg = new CMessageAddEffect(pEffect,
+                            pSprite->GetId(), pSprite->GetId());
+                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                        bModalFeatToggled = TRUE;
+                    }
+                } else if (m_nState == 0x7B) {
+                    // CONFIRM in the feat-point picker (0x59296b-0x592aad),
+                    // the other half of the bFeatPointPicker branch above.
+                    // BuildFeatPointsPickerList gave every entry the number
+                    // of attack-bonus points it stands for, in m_count, so
+                    // the click writes that straight into the feat rank and
+                    // posts the modal effect that carries it.
+                    WORD effectID = 0;
+                    if (pEntry->m_abilityId.m_res == CGameSprite::SPIN275
+                        && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK)) {
+                        effectID = ICEWIND_CGAMEEFFECT_FEATPOWERATTACK;
+                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK,
+                            pEntry->m_count);
+                    } else if (pEntry->m_abilityId.m_res == CGameSprite::SPIN276
+                        && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE)) {
+                        effectID = ICEWIND_CGAMEEFFECT_FEATEXPERTISE;
+                        pSprite->SetFeatRank(CGAMESPRITE_FEAT_EXPERTISE,
+                            pEntry->m_count);
                     }
 
-                    // A greyed-out cell can still be bound to a quick slot, but
-                    // it never fires -- except in the innate arm, which has no
-                    // such gate.  The binary keeps each helper's return in a
-                    // flag that only the unrecovered tails read (0x59182f for
-                    // this arm, 0x5924f0 for the innate one).
-                    BOOL bInnateArm = (m_nState == 0x6A || m_nState == 0x6B);
-                    if (!bFeatPointPicker && !bModalFeatToggled && !bFeatPointsConfirmed
-                        && (bInnateArm || !m_buttonArray[buttonID].m_bGreyOut)) {
-                        switch (m_nState) {
-                        case 0x66:
-                        case 0x67:
-                        case 0x6A:
-                        case 0x6B:
-                            // NOTE: unrecovered -- state 0x6A first matches the
-                            // entry's resref against two fixed ones and gates
-                            // on CGameSprite::HasFeat(0x2F) (0x59256c).
-                            UseSpellAction(pEntry, bUseNow);
-                            break;
-                        case 0x68:
-                        case 0x69:
-                            UseItemAction(pEntry, bUseNow);
-                            break;
-                        case 0x71:
-                        case 0x7A:
-                            UseSongAction(pEntry, bUseNow);
-                            break;
-                        default:
-                            UseInnateAction(pEntry, bUseNow);
-                            break;
-                        }
+                    // "Off" is the zero-point entry: it also drops the
+                    // stashed ability, so the next open of the picker has
+                    // nothing to rebuild from.
+                    if (pEntry->m_count == 0) {
+                        m_currentAbilityResRef = CResRef();
                     }
 
-                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
+                    // Faithful: neither resref matching leaves effectID at
+                    // the 0 the binary zeroes edi to (0x592982) and still
+                    // posts the effect.
+                    ITEM_EFFECT effect;
+                    CGameEffect::ClearItemEffect(&effect, effectID);
+                    effect.durationType = 1;
+
+                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                        pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                    CMessage* pMsg = new CMessageAddEffect(pEffect,
+                        pSprite->GetId(), pSprite->GetId());
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+                    bFeatPointsConfirmed = TRUE;
+                }
+
+                // A greyed-out cell can still be bound to a quick slot, but
+                // it never fires -- except in the innate arm, which has no
+                // such gate.  The binary keeps each helper's return in a
+                // flag that only the unrecovered tails read (0x59182f for
+                // this arm, 0x5924f0 for the innate one).
+                BOOL bInnateArm = (m_nState == 0x6A || m_nState == 0x6B);
+                if (!bFeatPointPicker && !bModalFeatToggled && !bFeatPointsConfirmed
+                    && (bInnateArm || !m_buttonArray[buttonID].m_bGreyOut)) {
+                    switch (m_nState) {
+                    case 0x66:
+                    case 0x67:
+                    case 0x6A:
+                    case 0x6B:
+                        // NOTE: unrecovered -- state 0x6A first matches the
+                        // entry's resref against two fixed ones and gates
+                        // on CGameSprite::HasFeat(0x2F) (0x59256c).
+                        UseSpellAction(pEntry, bUseNow);
+                        break;
+                    case 0x68:
+                    case 0x69:
+                        UseItemAction(pEntry, bUseNow);
+                        break;
+                    case 0x71:
+                    case 0x7A:
+                        UseSongAction(pEntry, bUseNow);
+                        break;
+                    default:
+                        UseInnateAction(pEntry, bUseNow);
+                        break;
+                    }
                 }
             }
 
             if (bFeatPointPicker) {
                 SetState(0x7B, 1);
-                return;
+                break;
             }
 
             if (bFeatPointsConfirmed) {
@@ -3275,14 +3318,14 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 PopState(0, 0);
                 SetSelectedButton(100);
                 UpdateButtons();
-                return;
+                break;
             }
 
             if (pEntry != NULL) {
                 // Something was picked, so the whole sequence is done: walk
                 // straight back to the bar it started from.
                 PopState(0, 1);
-                return;
+                break;
             }
         }
 
@@ -3290,410 +3333,502 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         PopState(0, 0);
         SetSelectedButton(100);
         UpdateButtons();
-        return;
+        break;
+    case 0x6C:
+        // The formation picker at 0x590294, reached by right-clicking a quick
+        // formation slot on the group bar.  It rebinds the stashed quick slot
+        // (m_nCustomizeSlot, set by OnRButtonPressed state 0x6E) to the chosen
+        // formation and makes it current.  It then walks the state stack back
+        // rather than naming a state: the tail at 0x59031E is PopState(0, 0)
+        // inlined.
+        //
+        // NOTE: the binary range-checks m_nCustomizeSlot against 5 before each
+        // of the two reads and calls CUtil::UtilAssert on failure (lines 1499
+        // and 1500 of the original file).  Our UtilAssert is declared noreturn,
+        // which the original's is not -- it returns and the read proceeds -- so
+        // reproducing the calls here would change the control flow the compiler
+        // sees.  Left out deliberately.
+        if (buttonID < 12) {
+            pGame->m_gameSave.m_quickFormations[m_nCustomizeSlot] = static_cast<SHORT>(buttonID);
+            pGame->m_gameSave.m_curFormation = pGame->m_gameSave.m_quickFormations[m_nCustomizeSlot];
+            PopState(0, 0);
+        }
+        break;
+    case 0x6D:
+        // The formation selector at 0x59022F: no quick slot is rebound, only
+        // the current formation, and the same inlined PopState(0, 0) walks
+        // back.  Nothing reachable opens this state -- the only SetState(0x6D)
+        // in the image is the group bar's button-type 6 arm below, and no
+        // reachable group bar shows a type 6.
+        if (buttonID < 12) {
+            pGame->m_gameSave.m_curFormation = static_cast<SHORT>(buttonID);
+            PopState(0, 0);
+        }
+        break;
     case 0x6E:
+        // The group action bar at 0x59005F.  Its own five-arm table, which
+        // lives at 0x593A98, dispatches on m_buttonTypes[buttonID] - 6 over the
+        // range 0..0xE; types 9..0xE and everything outside it share the
+        // do-nothing body at 0x5928A9, which is a bare UpdateButtons.
         switch (nButtonType) {
+        case 6:
+            // NOTE: unmeasurable.  This is the only site in the image that
+            // opens state 0x6D, and it passes 0 as the second argument, not 1 --
+            // so the state is pushed without being stacked.  No reachable group
+            // bar shows a type 6, so the arm is recovered from the disassembly
+            // at 0x5901B5 and cannot be driven.
+            SetState(0x6D, 0);
+            m_nSelectedButton = m_buttonTypes[buttonID];
+            UpdateButtons();
+            break;
         case 7:
-            if (pGame->GetState() == 3) {
-                pGame->SetState(0);
-                SetSelectedButton(100);
+            if (pGame->m_nState == 3) {
+                pGame->m_nState = 0;
+                m_nSelectedButton = 100;
             } else {
-                pGame->SetState(3);
-                SetSelectedButton(7);
+                pGame->m_nState = 3;
+                m_nSelectedButton = 7;
             }
             UpdateButtons();
-            return;
+            break;
         case 8:
-            if (pGame->GetState() == 2 && pGame->GetIconIndex() == 0x0C) {
-                pGame->SetState(0);
-                SetSelectedButton(100);
+            if (pGame->m_nState == 2 && pGame->m_iconIndex == 0x0C) {
+                pGame->m_nState = 0;
+                m_nSelectedButton = 100;
             } else {
-                pGame->SetState(2);
-                pGame->SetIconIndex(0x0C);
-                SetSelectedButton(8);
+                pGame->m_nState = 2;
+                pGame->m_iconIndex = 0x0C;
+                pGame->m_iconResRef = "";
+                m_nSelectedButton = 8;
             }
             UpdateButtons();
-            return;
+            break;
         case 0x0F:
-            pGame->SetState(0);
-            SetSelectedButton(100);
+            pGame->m_nState = 0;
+            m_nSelectedButton = 100;
             pGame->GetGroup()->ClearActions();
             UpdateButtons();
-            return;
+            break;
         case 0x10:
         case 0x11:
         case 0x12:
         case 0x13:
         case 0x14: {
-            INT nFormationButton = nButtonType - 0x10;
-            pGame->GetGameSave()->m_curFormation = pGame->GetGameSave()->m_quickFormations[nFormationButton];
+            // The five quick-formation slots.  Unlike 0x6C this one does not
+            // rebind anything, and unlike 0x6D it names the state it returns
+            // to rather than popping.
+            SHORT nFormationSlot = static_cast<SHORT>(nButtonType - 0x10);
+            pGame->m_gameSave.m_curFormation = pGame->m_gameSave.m_quickFormations[nFormationSlot];
             SetState(0x6E, 0);
-            return;
+            UpdateButtons();
+            break;
         }
         default:
+            UpdateButtons();
             break;
         }
         break;
-    case 0x75:
-        // Customize menu â€” left click writes the chosen button type into
-        // m_customButtonTypes[m_nCustomizeSlot] and mirrors it onto the
-        // sprite via SetCustomButtonValue.  Per Ghidra OnLButtonPressed
-        // state 0x75 (FUN_0058FF20 around 0x592b14).  No state change after
-        // write â€” the menu stays open and UpdateButtons re-paints the slot
-        // with the new icon.  Slot index was stashed by OnRButtonPressed
-        // state 0x72 customize-entry.
+    case 0x73:
+        // NOTE: unrecovered.  The binary's arm at 0x590556 is 573 instructions
+        // with a jump table of its own at 0x593AC0 over types 4..0x77, and it
+        // ends by walking the state stack back rather than naming 0x72.  The
+        // body below is the paraphrase that predates this session; only its
+        // locking has been corrected.
+        //
+        // Skills submenu (entered from state 0x72 button 5): Stealth, Search,
+        // Thieving, Wilderness Lore, and Animal Empathy.
         {
-            INT nNewType = -1;
+            BYTE modal = pSprite->GetModalState();
             switch (nButtonType) {
-            case 0x23: nNewType = 5;   break; // Attack
-            case 0x24: nNewType = 3;   break; // Cast Spell
-            case 0x25: nNewType = 0xE; break;
-            case 0x26:
-                SetState(0x78, 1);
-                return;
-            case 0x27: nNewType = 10;  break; // Innate ability
-            case 0x28: nNewType = 2;   break; // Bard Song
-            case 0x29: nNewType = 100; break; // No action
-            case 0x2A: {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc;
-                do {
-                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        reinterpret_cast<CGameObject**>(&pSprite),
-                        INFINITE);
-                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    for (BYTE i = 0; i < 9; i++) {
-                        pSprite->SetCustomButtonValue(i, 0);
-                    }
-                    pSprite->ResetQuickSlots();
-                    for (BYTE i = 0; i < 9; i++) {
-                        m_customButtonTypes[i] = pSprite->GetCustomButtonValue(i);
-                    }
-                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
+            case 4: // Search
+                if (modal == 2) {
+                    pSprite->SetModalState(0, 0);
+                    SetSelectedButton(100);
+                } else {
+                    pSprite->SetModalState(2, 0);
+                    SetSelectedButton(5);
                 }
-                SetState(0x72, 0);
-                return;
+                break;
+            case 0xB: // Stealth
+                if (modal == 3) {
+                    pSprite->SetModalState(0, 0);
+                    SetSelectedButton(100);
+                } else {
+                    pSprite->SetModalState(3, 0);
+                    SetSelectedButton(5);
+                }
+                break;
+            case 0xC: // Thieving
+                if (pGame->GetState() == 2
+                    && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
+                    pGame->SetState(0);
+                    SetSelectedButton(100);
+                } else {
+                    pGame->SetState(2);
+                    pGame->SetIconIndex(0x24);
+                    SetSelectedButton(0xC);
+                }
+                // Entering thieving/disarm mode cancels any active modal
+                // (Search/Stealth) on the leader -- unconditional, 0x593295.
+                pSprite->SetModalState(0, 0);
+                break;
+            case 0xD: // Animal Empathy
+                if (static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) > 0) {
+                    CButtonData bd;
+                    pSprite->BuildAbilityButtonData(CGameSprite::SPIN108, 0, 0, bd);
+                    UseSpellAction(&bd, 1);
+                }
+                break;
+            case 0x77: { // Wilderness Lore, 0x593181.
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_RANGERTRACKING);
+                effect.targetType = 1;
+                CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                    CPoint(-1, -1),
+                    -1,
+                    CPoint(-1, -1));
+                pEffect->SetSource(pSprite->GetPos());
+                pEffect->SetSourceId(pSprite->GetId());
+                pEffect->SetEnabled(FALSE);
+
+                CMessage* message = new CMessageAddEffect(pEffect,
+                    pSprite->GetId(), pSprite->GetId());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                break;
             }
             default:
-                // Empty / unknown click in customize menu â€” pop back to
-                // the action bar like every other submenu default exit.
-                SetState(0x72, 0);
-                return;
-            }
-
-            if (m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
-                m_customButtonTypes[m_nCustomizeSlot] = nNewType;
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc;
-                do {
-                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        reinterpret_cast<CGameObject**>(&pSprite),
-                        INFINITE);
-                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nNewType);
-                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-            }
-            // Close the menu so the new icon shows.  NOTE: unrecovered -- the
-            // binary walks the state stack back here rather than naming 0x72.
-            SetState(0x72, 0);
-        }
-        return;
-    case 0x73:
-        // Skills submenu (entered from state 0x72 button 5). Per Ghidra
-        // OnLButtonPressed state 0x73 handles Stealth, Search, Thieving,
-        // Wilderness Lore, and Animal Empathy, then pops back to state 0x72
-        // via the state-stack mechanism. Any other click exits the submenu.
-        {
-            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-            CGameSprite* pSprite = NULL;
-            BYTE rc;
-            do {
-                rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                BYTE modal = pSprite->GetModalState();
-                switch (nButtonType) {
-                case 4: // Search
-                    if (modal == 2) {
-                        pSprite->SetModalState(0, 0);
-                        SetSelectedButton(100);
-                    } else {
-                        pSprite->SetModalState(2, 0);
-                        SetSelectedButton(5);
-                    }
-                    break;
-                case 0xB: // Stealth
-                    if (modal == 3) {
-                        pSprite->SetModalState(0, 0);
-                        SetSelectedButton(100);
-                    } else {
-                        pSprite->SetModalState(3, 0);
-                        SetSelectedButton(5);
-                    }
-                    break;
-                case 0xC: // Thieving
-                    if (pGame->GetState() == 2
-                        && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
-                        pGame->SetState(0);
-                        SetSelectedButton(100);
-                    } else {
-                        pGame->SetState(2);
-                        pGame->SetIconIndex(0x24);
-                        SetSelectedButton(0xC);
-                    }
-                    // 0x593295: entering thieving/disarm mode cancels any active
-                    // modal (Search/Stealth) on the leader -- unconditional.
-                    pSprite->SetModalState(0, 0);
-                    break;
-                case 0xD: // Animal Empathy
-                    // Per Ghidra OnL state 0x73 case 0xD: require Animal
-                    // Empathy > 0, build DAT_008f8e60 ("SPIN108", Charm
-                    // Animal), then dispatch via UseSpellAction.
-                    if (static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) > 0) {
-                        CButtonData bd;
-                        bd.m_abilityId.m_res = CResRef("SPIN108");
-                        bd.m_abilityId.m_targetType = -1;
-                        bd.m_abilityId.m_strDescription = -1;
-                        bd.m_bDisabled = FALSE;
-                        bd.m_bDisplayCount = TRUE;
-                        pSprite->UseButtonAction(bd, 1);
-                    }
-                    break;
-                case 0x77: { // Wilderness Lore.  0x593181.
-                    ITEM_EFFECT effect;
-                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_RANGERTRACKING);
-                    effect.targetType = 1;
-                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                        CPoint(-1, -1),
-                        -1,
-                        CPoint(-1, -1));
-                    pEffect->SetSource(pSprite->GetPos());
-                    pEffect->SetSourceId(pSprite->GetId());
-                    pEffect->SetEnabled(FALSE);
-
-                    CMessage* message = new CMessageAddEffect(pEffect,
-                        pSprite->GetId(), pSprite->GetId());
-                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-                    break;
-                }
-                default:
-                    break;
-                }
-                pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
+                break;
             }
             SetState(0x72, 0);
         }
-        return;
+        break;
     case 0x74:
-        // Skills submenu in customize mode (entered from state 0x75 case
-        // 0x23 right-click).  Click writes the chosen button type into
-        // m_customButtonTypes[m_nCustomizeSlot] and the sprite mirror,
-        // then exits to state 0x72.  Empty / unknown clicks just exit.
+        // NOTE: unrecovered -- the binary's arm at 0x590E26 is 359 instructions
+        // and the body below is the paraphrase, with its locking corrected.
+        //
+        // Skills submenu in customize mode (entered from state 0x75 case 0x23
+        // right-click).  Click writes the chosen button type into
+        // m_customButtonTypes[m_nCustomizeSlot] and the sprite mirror.
         if ((nButtonType == 4 || nButtonType == 0xB || nButtonType == 0xC
                 || nButtonType == 0xD || nButtonType == 0x77)
             && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
             m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
-            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-            CGameSprite* pSprite = NULL;
-            BYTE rc;
-            do {
-                rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
-                pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
-            }
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
         }
         SetState(0x72, 0);
-        return;
+        break;
+    case 0x75: {
+        // NOTE: unrecovered -- the binary's arm is at 0x592B01 and the body
+        // below is the paraphrase, with its locking corrected.
+        //
+        // Customize menu: a left click writes the chosen button type into
+        // m_customButtonTypes[m_nCustomizeSlot] and mirrors it onto the sprite
+        // via SetCustomButtonValue.  The slot index was stashed by
+        // OnRButtonPressed's state 0x72 customize entry.
+        INT nNewType = -1;
+        switch (nButtonType) {
+        case 0x23: nNewType = 5;   break; // Attack
+        case 0x24: nNewType = 3;   break; // Cast Spell
+        case 0x25: nNewType = 0xE; break;
+        case 0x26:
+            SetState(0x78, 1);
+            goto done;
+        case 0x27: nNewType = 10;  break; // Innate ability
+        case 0x28: nNewType = 2;   break; // Bard Song
+        case 0x29: nNewType = 100; break; // No action
+        case 0x2A:
+            for (BYTE i = 0; i < 9; i++) {
+                pSprite->SetCustomButtonValue(i, 0);
+            }
+            pSprite->ResetQuickSlots();
+            for (BYTE i = 0; i < 9; i++) {
+                m_customButtonTypes[i] = pSprite->GetCustomButtonValue(i);
+            }
+            SetState(0x72, 0);
+            goto done;
+        default:
+            // Empty / unknown click in customize menu -- pop back to
+            // the action bar like every other submenu default exit.
+            SetState(0x72, 0);
+            goto done;
+        }
+
+        if (m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
+            m_customButtonTypes[m_nCustomizeSlot] = nNewType;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nNewType);
+        }
+        SetState(0x72, 0);
+        break;
+    }
+    case 0x76:
+        // NOTE: unrecovered.  State 0x76 has an arm of its own at 0x5918F3, 78
+        // instructions long, that nothing in this file reproduces; before this
+        // session it fell through to the action bar's type switch, which is a
+        // different body entirely.  Doing nothing is wrong in a way that is
+        // visible only as a dead click; running the wrong arm was wrong in a
+        // way that could act on the party.
+        break;
     case 0x77:
-        // Customize class picker â€” entered from state 0x75 case 0x24 via
-        // OnRButtonPressed.  Per Ghidra OnLButtonPressed state 0x77: each
-        // class button (0x32-0x39) writes its own type into the customize
-        // slot's m_customButtonTypes entry + sprite mirror, so the action
-        // bar slot becomes a "per-class quick spell" launcher.  Other
-        // clicks (empty slot, etc.) just pop back to 0x72.
+        // NOTE: unrecovered -- the binary's arm at 0x591A44 is 536 instructions
+        // and the body below is the paraphrase, with its locking corrected.
+        //
+        // Customize class picker, entered from state 0x75 case 0x24: each class
+        // button (0x32-0x39) writes its own type into the customize slot.
         if (nButtonType >= 0x32 && nButtonType <= 0x39
             && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
             m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
-            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-            CGameSprite* pSprite = NULL;
-            BYTE rc;
-            do {
-                rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
-                pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
-            }
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
         }
         SetState(0x72, 0);
-        return;
-    case 0x79:
-        // Quick-weapon picker (entered from state 0x72 right-click on a
-        // weapon slot).  Per Ghidra OnLButtonPressed state 0x79: a click
-        // on a 0x3C-0x43 button calls CGameSprite::SetWeaponSet with the
-        // set index (buttonType - 0x3C) / 2, updates the array's tracked
-        // quick-weapon slot, then exits to 0x72.  Any other click just
-        // exits.
-        if (nButtonType >= 0x3C && nButtonType <= 0x43) {
-            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-            CGameSprite* pSprite = NULL;
-            BYTE rc;
-            do {
-                rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                BYTE nNewSet = static_cast<BYTE>((nButtonType - 0x3C) / 2);
-                pSprite->SetWeaponSet(nNewSet);
-                m_nQuickWeaponSlot = pSprite->m_nWeaponSet;
-                pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
-            }
-        }
-        SetState(0x72, 0);
-        return;
+        break;
     case 0x78:
-        // Quick-item picker sub-menu reached from state 0x75 case 0x26.
-        // Per Ghidra OnLButtonPressed state 0x78: a click on a 0x50-0x52
-        // button writes that button type into m_customButtonTypes[slot]
-        // (and the sprite mirror) and pops back to the action bar.  Any
-        // other click just dismisses the picker.
+        // NOTE: unrecovered -- the binary's arm at 0x592271 is 117 instructions
+        // and the body below is the paraphrase, with its locking corrected.
+        //
+        // Quick-item picker reached from state 0x75 case 0x26.
         if (nButtonType >= 0x50 && nButtonType <= 0x52
             && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
             m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
-            LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-            CGameSprite* pSprite = NULL;
-            BYTE rc;
-            do {
-                rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
-                pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    INFINITE);
-            }
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
         }
         SetState(0x72, 0);
-        return;
+        break;
+    case 0x79:
+        // The quick-weapon picker at 0x590365, entered by right-clicking a
+        // weapon slot on the action bar.  A click on a 0x3C..0x43 button hands
+        // CGameSprite::SetWeaponSet the set index -- the pair (button - 0x3C)
+        // halved -- then mirrors the sprite's resulting set into
+        // m_nQuickWeaponSlot.  The binary range-checks that set against 4 and
+        // asserts, which is left out for the reason state 0x6C records.  The
+        // exit is the stack walk at 0x590409, not a named state.
+        if (nButtonType >= 0x3C && nButtonType <= 0x43) {
+            pSprite->SetWeaponSet(static_cast<BYTE>((nButtonType - 0x3C) / 2));
+            m_nQuickWeaponSlot = pSprite->m_nWeaponSet;
+        }
+        UpdateButtons();
+        ClearPickerList();
+        PopState(0, 0);
+        break;
     default:
+        // States 0x6F and 0x72 share the state table's default target, which
+        // is 0x592C6F, so this is the single-PC action bar and every state the
+        // table does not name.  The type table at 0x593C8C covers types
+        // 2..0x77; the sixty values inside that range which select the table's
+        // default, and everything outside it, fall straight through to the
+        // release with nothing done.  Types 6, 9 and 0x0F are among them --
+        // 0x0F in particular used to have a body here that the binary does not
+        // have, which is what the jump-table audit reports as DEFAULT on 15.
         switch (nButtonType) {
-        case 3:
-        case 5:
-        case 10:
-        case 0xE:
-        case 0x50:
-        case 0x51:
-        case 0x52:
-            // The seven types DispatchActionBarClick owns.  They are grouped
-            // here rather than left scattered across the switch because they
-            // all need the same thing: the party leader's sprite.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    DispatchActionBarClick(nButtonType, pSprite);
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
+        case 0x02:
+            // Bard song.  Already singing (modal state 1) stops it; otherwise
+            // the song picker opens.  Arm at 0x59336B.
+            if (pSprite->GetModalState() == 1) {
+                pSprite->SetModalState(0, 0);
+                SetSelectedButton(100);
+                UpdateButtons();
+            } else {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
+                UpdateButtons();
+                SetState(0x7A, 1);
             }
-            return;
-        case 7:
-            if (pGame->GetState() == 3) {
-                pGame->SetState(0);
+            break;
+        case 0x03:
+            // Four of the seven DispatchActionBarClick types have a two
+            // instruction body of their own in the binary -- they sit at
+            // addresses 0x5932A5, 0x592ED9, 0x593358 and 0x593345 -- because
+            // each passes its own literal rather than the runtime value.
+            // Only the quick-item group
+            // at 0x5935A3 passes nButtonType.  That is exactly what the
+            // jump-table audit reports as SPLIT on 3, 5, 10, 14, 80, 81 and 82,
+            // and merging the seven into one case is what hid it.
+            DispatchActionBarClick(3, pSprite);
+            break;
+        case 0x04:
+            // Search modal toggle, arm at 0x59309E.
+            if (pSprite->GetModalState() == 2) {
+                pSprite->SetModalState(0, 0);
                 SetSelectedButton(100);
             } else {
-                pGame->SetState(3);
+                // Entering Search announces "Searching" in the combat feedback
+                // before the modal state flips on, at 0x5930B3.
+                pSprite->FeedBack(CGameSprite::FEEDBACK_SEARCHSTART, 0, 0, 0, -1, 0, 0);
+                pSprite->SetModalState(2, 0);
+                SetSelectedButton(5);
+            }
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x05:
+            DispatchActionBarClick(5, pSprite);
+            break;
+        case 0x07:
+            // Arm at 0x592C9C.  Note the unconditional SetModalState(0, 0):
+            // arming the attack cursor cancels Search or Stealth.
+            if (g_pBaldurChitin->GetObjectGame()->GetState() == 3) {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
+                SetSelectedButton(100);
+            } else {
+                g_pBaldurChitin->GetObjectGame()->SetState(3);
                 SetSelectedButton(7);
             }
-            // 0x5939e1: clears any active modal (Search/Stealth) on the leader.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    pSprite->SetModalState(0, 0);
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-            }
+            pSprite->SetModalState(0, 0);
             UpdateButtons();
-            return;
-        case 8:
-            if (pGame->GetState() == 2 && pGame->GetIconIndex() == 0x0C) {
-                pGame->SetState(0);
+            break;
+        case 0x08:
+            // Arm at 0x592D02.  The group bar's own type 8 arm looks identical
+            // but also clears m_iconResRef; this one does not.
+            if (g_pBaldurChitin->GetObjectGame()->GetState() == 2
+                && g_pBaldurChitin->GetObjectGame()->GetIconIndex() == 0x0C) {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
                 SetSelectedButton(100);
             } else {
-                pGame->SetState(2);
-                pGame->SetIconIndex(0x0C);
+                g_pBaldurChitin->GetObjectGame()->SetState(2);
+                g_pBaldurChitin->GetObjectGame()->SetIconIndex(0x0C);
                 SetSelectedButton(8);
             }
-            // 0x593173: clears any active modal (Search/Stealth) on the leader.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    pSprite->SetModalState(0, 0);
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
+            pSprite->SetModalState(0, 0);
+            UpdateButtons();
+            break;
+        case 0x0A:
+            DispatchActionBarClick(0x0A, pSprite);
+            break;
+        case 0x0B:
+            // Stealth modal toggle, arm at 0x592EEC.  Toggling the modal alone
+            // is not enough: entering stealth also queues an immediate Hide()
+            // action so the sprite attempts to hide on the spot instead of
+            // waiting for the next three-cycle modal upkeep, and leaving
+            // stealth applies a FORCEVISIBLE effect so it reappears at once.
+            if (pSprite->GetModalState() == 3) {
+                pSprite->SetModalState(0, 0);
+                pSprite->SetStealthGreyOut(90);
+                SetSelectedButton(100);
+
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_FORCEVISIBLE);
+                effect.durationType = 1;
+                CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                    pSprite->GetPos(),
+                    pSprite->m_id,
+                    CPoint(-1, -1));
+                CMessage* pMessage = new CMessageAddEffect(pEffect,
+                    pSprite->m_id, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+            } else {
+                pSprite->SetModalState(3, 0);
+                SetSelectedButton(5);
+
+                CAIAction action(18 /* Hide, ACTION.IDS */, CPoint(-1, -1), 0, -1);
+                CMessage* pMessage = new CMessageAddAction(action,
+                    pSprite->m_id, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+            }
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x0C:
+            // Thieving mode, arm at 0x5930E2: SetState(2) with icon index 0x24,
+            // or toggle off when already in that mode under either icon.
+            if (g_pBaldurChitin->GetObjectGame()->GetState() == 2
+                && (g_pBaldurChitin->GetObjectGame()->GetIconIndex() == 0x24
+                    || g_pBaldurChitin->GetObjectGame()->GetIconIndex() == 0x28)) {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
+                SetSelectedButton(100);
+            } else {
+                g_pBaldurChitin->GetObjectGame()->SetState(2);
+                g_pBaldurChitin->GetObjectGame()->SetIconIndex(0x24);
+                SetSelectedButton(0x0C);
+            }
+            // Entering thieving/disarm mode cancels any active modal on the
+            // leader -- unconditional, at 0x593173.
+            pSprite->SetModalState(0, 0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x0D:
+            // Animal Empathy, arm at 0x59325A: require the skill, then build
+            // the SPIN108 (Charm Animal) button data and dispatch it.
+            if (static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) > 0) {
+                CButtonData bd;
+                pSprite->BuildAbilityButtonData(CGameSprite::SPIN108, 0, 0, bd);
+                UseSpellAction(&bd, 1);
             }
             UpdateButtons();
-            return;
-        case 0x0F:
-            pGame->SetState(0);
-            SetSelectedButton(100);
-            pGame->GetGroup()->ClearActions();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x0E:
+            DispatchActionBarClick(0x0E, pSprite);
+            break;
+        case 0x32:
+            m_nCurrentSelectedSpellClass = 2;
+            m_nCurrentSelectedSpellLevel = 0;
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
             UpdateButtons();
-            return;
+            SetState(0x67, 1);
+            break;
+        case 0x33:
+            // Cleric, regular spells: level 0 signals the picker dispatcher to
+            // use the by-class list rather than the domain pool.
+            m_nCurrentSelectedSpellClass = 3;
+            m_nCurrentSelectedSpellLevel = 0;
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x34:
+            m_nCurrentSelectedSpellClass = 4;
+            m_nCurrentSelectedSpellLevel = 0;
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x35:
+            m_nCurrentSelectedSpellClass = 7;
+            m_nCurrentSelectedSpellLevel = 0;
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x36:
+            m_nCurrentSelectedSpellClass = 8;
+            m_nCurrentSelectedSpellLevel = 0;
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x37:
+            m_nCurrentSelectedSpellClass = 10;
+            m_nCurrentSelectedSpellLevel = 0;
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x38:
+            m_nCurrentSelectedSpellClass = 11;
+            m_nCurrentSelectedSpellLevel = 0;
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x39:
+            // The cleric DOMAIN button, arm at 0x5932FD.  It is the one member
+            // of this bank that does NOT zero the level: it stores the caster's
+            // own specialization, read straight from m_baseStats through the
+            // getter at 0x5940D0, and that non-zero value is what tells the
+            // picker to walk the domain pool.  Writing a 1 here, as this case
+            // used to, happened to look the same on a cleric whose
+            // specialization is 1.
+            m_nCurrentSelectedSpellClass = 3;
+            m_nCurrentSelectedSpellLevel = pSprite->m_baseStats.m_specialization;
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
         case 0x3C:
         case 0x3D:
         case 0x3E:
@@ -3702,213 +3837,120 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x41:
         case 0x42:
         case 0x43: {
-            // Quick weapon click â€” Ghidra 0x58FF20 default + button-type fall-
-            // through.  Two behaviors: full picker (state 0x65) if the active
-            // engine reports "weapon swap allowed", otherwise just select the
-            // weapon set and call the equip helper.  We approximate by always
-            // doing the lightweight path: if a different button is clicked,
-            // make it the selected one; clicking the active one clears the
-            // selection.
-            INT nEffective = nButtonType;
-            // Off-hand collapses to its main when the main is empty or holds a
-            // 2H/ranged/sling/crossbow (ITEMTYPE 0x29/0x2F/0x31/0x35).  Ghidra
-            // address calc: m_equipment.m_items[(button - 0x3C) + 43] for the
-            // odd off-hand slot resolves to the same offset as the main slot.
-            if ((nButtonType & 1) != 0) {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    INT nProbeSlot = (nButtonType - 0x3C) + 43;
-                    CItem* pMain = pSprite->m_equipment.m_items[nProbeSlot];
-                    if (pMain == NULL) {
-                        nEffective = nButtonType - 1;
-                    } else {
-                        WORD itemType = pMain->GetItemType();
-                        if (itemType == 0x2F || itemType == 0x35
-                            || itemType == 0x31 || itemType == 0x29) {
-                            nEffective = nButtonType - 1;
-                        }
-                    }
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
+            // Quick weapon click, arm at 0x592D92.  The virtual the binary
+            // calls through the active engine's slot 0x44 is GetShiftKey, so
+            // SHIFT-clicking a weapon button opens the full picker in state
+            // 0x65 with the slot stashed; a plain click selects the weapon set
+            // in place.
+            if (g_pBaldurChitin->GetActiveEngine()->GetShiftKey() == 1) {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
+                SetSelectedButton(100);
+                m_nCustomizeSlot = m_buttonTypes[buttonID] - 0x3C;
+                UpdateButtons();
+                SetState(0x65, 1);
+                break;
+            }
+
+            // An off-hand button collapses onto its main hand when the main is
+            // empty or holds a two-hander, a bow, a sling or a crossbow.  The
+            // equipment index the binary computes is m_items[type - 0x11].
+            INT nEffective = m_buttonTypes[buttonID];
+            if (nEffective == 0x3D || nEffective == 0x3F
+                || nEffective == 0x41 || nEffective == 0x43) {
+                CItem* pMain = pSprite->GetEquipment()->m_items[nEffective - 0x11];
+                if (pMain == NULL
+                    || pMain->GetItemType() == 0x2F
+                    || pMain->GetItemType() == 0x35
+                    || pMain->GetItemType() == 0x31
+                    || pMain->GetItemType() == 0x29) {
+                    nEffective--;
                 }
             }
-            if (m_nSelectedButton != nEffective) {
-                pGame->SetState(0);
-                SetSelectedButton(nEffective);
-                UpdateButtons();
-            } else {
-                pGame->SetState(0);
+
+            if (m_nSelectedButton == nEffective) {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
                 SetSelectedButton(100);
                 UpdateButtons();
+                break;
             }
-            return;
-        }
-        case 2:
-            // Bard song toggle.  Per Ghidra 0x58FF20 default case 2: read
-            // sprite's modal state, if already singing (state 1) clear it,
-            // otherwise enter song-select state 0x7A.  Simplified: toggle
-            // modal state directly.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    if (pSprite->GetModalState() == 1) {
-                        pSprite->SetModalState(0, 0);
-                        SetSelectedButton(100);
-                    } else {
-                        pGame->SetState(0);
-                        UpdateButtons();
-                        SetState(0x7A, 1);
-                    }
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-                UpdateButtons();
-            }
-            return;
-        case 4:
-            // Search modal toggle.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    if (pSprite->GetModalState() == 2) {
-                        pSprite->SetModalState(0, 0);
-                        SetSelectedButton(100);
-                    } else {
-                        // 0x5930b3: entering Search announces "Searching" in the
-                        // combat feedback before the modal state flips on.
-                        pSprite->FeedBack(CGameSprite::FEEDBACK_SEARCHSTART, 0, 0, 0, -1, 0, 0);
-                        pSprite->SetModalState(2, 0);
-                        SetSelectedButton(5);
-                    }
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-                UpdateButtons();
-            }
-            return;
-        case 0xB:
-            // Stealth modal toggle (0x592EEC).  Toggling the modal alone is not
-            // enough: entering stealth also queues an immediate Hide() action so
-            // the sprite attempts to hide on the spot (CGameSprite::ExecuteAction
-            // action 18 -> the detection pass) instead of waiting for the next
-            // three-cycle modal upkeep, and leaving stealth applies a
-            // FORCEVISIBLE effect so it reappears at once.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    if (pSprite->GetModalState() == 3) {
-                        pSprite->SetModalState(0, 0);
-                        pSprite->SetStealthGreyOut(90);
-                        SetSelectedButton(100);
 
-                        ITEM_EFFECT effect;
-                        CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_FORCEVISIBLE);
-                        effect.durationType = 1;
-                        CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                            pSprite->GetPos(),
-                            pSprite->m_id,
-                            CPoint(-1, -1));
-                        CMessage* pMessage = new CMessageAddEffect(pEffect,
-                            pSprite->m_id, pSprite->m_id);
-                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
-                    } else {
-                        pSprite->SetModalState(3, 0);
-                        SetSelectedButton(5);
-
-                        CAIAction action(18 /* Hide, ACTION.IDS */, CPoint(-1, -1), 0, -1);
-                        CMessage* pMessage = new CMessageAddAction(action,
-                            pSprite->m_id, pSprite->m_id);
-                        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
-                    }
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-                UpdateButtons();
-            }
-            return;
-        case 0xC:
-            // Thieving mode. Ghidra default case 0xC: SetState(2) and
-            // IconIndex 0x24 (or toggle off when already in that mode).
-            if (pGame->GetState() == 2
-                && (pGame->GetIconIndex() == 0x24 || pGame->GetIconIndex() == 0x28)) {
-                pGame->SetState(0);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            pSprite->SetModalState(0, 0);
+            SetSelectedButton(nEffective);
+            ReadyQuickSlotByMode(static_cast<SHORT>(nEffective - 0x3C), 1);
+            if (g_pBaldurChitin->GetObjectGame()->GetState() == 0) {
                 SetSelectedButton(100);
-            } else {
-                pGame->SetState(2);
-                pGame->SetIconIndex(0x24);
-                SetSelectedButton(0xC);
-            }
-            // 0x593177: entering thieving/disarm mode cancels any active modal
-            // (Search/Stealth) on the leader -- unconditional.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    pSprite->SetModalState(0, 0);
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
             }
             UpdateButtons();
-            return;
-        case 0xD:
-            // Animal Empathy: require skill > 0, then use SPIN108 (Charm Animal).
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc;
-                do {
-                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        reinterpret_cast<CGameObject**>(&pSprite),
-                        INFINITE);
-                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    if (static_cast<signed char>(pSprite->GetDerivedStats()->m_nSkills[CGAMESPRITE_SKILL_ANIMAL_EMPATHY]) > 0) {
-                        CButtonData bd;
-                        bd.m_abilityId.m_res = CResRef("SPIN108");
-                        bd.m_abilityId.m_targetType = -1;
-                        bd.m_abilityId.m_strDescription = -1;
-                        bd.m_bDisabled = FALSE;
-                        bd.m_bDisplayCount = TRUE;
-                        pSprite->UseButtonAction(bd, 1);
-                    }
-                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
+            break;
+        }
+        case 0x46:
+        case 0x47:
+        case 0x48:
+        case 0x49:
+        case 0x4A:
+        case 0x4B:
+        case 0x4C:
+        case 0x4D:
+        case 0x4E:
+            // NOTE: unrecovered.  The binary's arm at 0x5933C3 first refuses a
+            // click on the already-selected button, then demands the slot's
+            // CSpell, builds a specialization mask through CRuleTables and
+            // gates the whole dispatch on CGameSprite::CanCast, feeding back
+            // the "beyond casting ability" string when it fails.  Only the
+            // tail below is reproduced.
+            if (m_nSelectedButton == nButtonType) {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
+                SetSelectedButton(100);
                 UpdateButtons();
+                break;
             }
-            return;
+
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            SetSelectedButton(nButtonType);
+            pSprite->SetModalState(0, 0);
+            UpdateButtons();
+            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x46), 2);
+            if (g_pBaldurChitin->GetObjectGame()->GetState() == 0) {
+                SetSelectedButton(100);
+            }
+            break;
+        case 0x50:
+        case 0x51:
+        case 0x52:
+            // The one DispatchActionBarClick body that passes the runtime
+            // value, at 0x5935A3, which is why these three share it.
+            DispatchActionBarClick(nButtonType, pSprite);
+            break;
+        case 0x5A:
+        case 0x5B:
+        case 0x5C:
+        case 0x5D:
+        case 0x5E:
+        case 0x5F:
+        case 0x60:
+        case 0x61:
+        case 0x62:
+            // NOTE: unrecovered.  The binary's arm at 0x5935B5 matches the
+            // slot's resref against the five modal-feat abilities and, for
+            // Power Attack and Expertise, opens the feat-point picker in state
+            // 0x7B instead of firing; the other three flip a feat rank and post
+            // the matching effect.  Only the tail below is reproduced.
+            if (m_nSelectedButton == nButtonType) {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
+                SetSelectedButton(100);
+                UpdateButtons();
+                break;
+            }
+
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            SetSelectedButton(nButtonType);
+            pSprite->SetModalState(0, 0);
+            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x5A), 4);
+            if (g_pBaldurChitin->GetObjectGame()->GetState() == 0) {
+                SetSelectedButton(100);
+            }
+            break;
         case 0x6E:
         case 0x6F:
         case 0x70:
@@ -3918,180 +3960,61 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x74:
         case 0x75:
         case 0x76:
-            // Quick song click.  Ghidra default case 0x6E-0x76 reads the
-            // assigned CButtonData via GetQuickSong, then calls
-            // FUN_00588820(buttonData, 1) which dispatches through the AI
-            // action table.  UseButtonAction is our generic equivalent â€” it
-            // handles spell / item / ability / song uniformly.
-            {
-                CButtonData buttonData;
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc;
-                do {
-                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        reinterpret_cast<CGameObject**>(&pSprite),
-                        INFINITE);
-                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    pSprite->GetQuickSong(static_cast<BYTE>(nButtonType - 0x6E), buttonData);
-                    if (buttonData.m_icon != "") {
-                        pSprite->UseButtonAction(buttonData, 0);
-                    } else if (pSprite->GetModalState() == 1) {
-                        // No assigned song â€” toggle out of song-modal mode.
-                        pSprite->SetModalState(0, 0);
-                    }
-                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-                pGame->SetState(0);
-                SetSelectedButton(100);
-                UpdateButtons();
-            }
-            return;
-        case 0x77:
-            // Wilderness Lore (tooltip 0x7DBA): hands the leader a disabled
-            // RANGERTRACKING effect addressed to itself.  0x590AF4.
-            {
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc;
-                do {
-                    rc = pGame->GetObjectArray()->GetDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        reinterpret_cast<CGameObject**>(&pSprite),
-                        INFINITE);
-                } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    ITEM_EFFECT effect;
-                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_RANGERTRACKING);
-                    effect.targetType = 1;
-                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
-                        CPoint(-1, -1),
-                        -1,
-                        CPoint(-1, -1));
-                    pEffect->SetSource(pSprite->GetPos());
-                    pEffect->SetSourceId(pSprite->GetId());
-                    pEffect->SetEnabled(FALSE);
-
-                    CMessage* message = new CMessageAddEffect(pEffect,
-                        pSprite->GetId(), pSprite->GetId());
-                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-
-                    pGame->GetObjectArray()->ReleaseDeny(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-                pGame->SetState(0);
-                SetSelectedButton(100);
-                UpdateState();
-            }
-            return;
-        case 0x46:
-        case 0x47:
-        case 0x48:
-        case 0x49:
-        case 0x4A:
-        case 0x4B:
-        case 0x4C:
-        case 0x4D:
-        case 0x4E: {
-            // Quick spell cast (0x593559).
-            pGame->SetState(0);
-            SetSelectedButton(nButtonType);
-
-            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x46), 2);
-
-            if (pGame->GetState() == 0) {
+            // NOTE: unrecovered.  The binary's arm at 0x59393C reads the quick
+            // song slot through the shared helper at 0x587F80 -- the same one
+            // UpdateButtons' four quick-slot banks take, still unnamed -- and
+            // hands the result to UseSongAction.  The modal branch below is
+            // faithful; the dispatch is not.
+            if (pSprite->GetModalState() == 1) {
+                pSprite->SetModalState(0, 0);
                 SetSelectedButton(100);
             }
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
             UpdateButtons();
-            return;
-        }
-        case 0x5A:
-        case 0x5B:
-        case 0x5C:
-        case 0x5D:
-        case 0x5E:
-        case 0x5F:
-        case 0x60:
-        case 0x61:
-        case 0x62: {
-            // Quick ability use (0x593902).
-            pGame->SetState(0);
-            SetSelectedButton(nButtonType);
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x77: {
+            // Wilderness Lore, arm at 0x593181: the leader is handed a
+            // disabled RANGERTRACKING effect addressed to itself.
+            ITEM_EFFECT effect;
+            CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_RANGERTRACKING);
+            effect.targetType = 1;
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                CPoint(-1, -1),
+                -1,
+                CPoint(-1, -1));
+            pEffect->SetSource(pSprite->GetPos());
+            pEffect->SetSourceId(pSprite->GetId());
+            pEffect->SetEnabled(FALSE);
 
-            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x5A), 4);
+            CMessage* message = new CMessageAddEffect(pEffect,
+                pSprite->GetId(), pSprite->GetId());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
-            if (pGame->GetState() == 0) {
-                SetSelectedButton(100);
-            }
+            SetSelectedButton(100);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
             UpdateButtons();
-            return;
+            ClearPickerList();
+            PopState(0, 0);
+            break;
         }
-        case 0x32:
-            m_nCurrentSelectedSpellClass = 2;
-            m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x67, 1);
-            return;
-        case 0x33:
-            // Cleric â€” regular spells (m_nCurrentSelectedSpellLevel = 0
-            // signals the picker dispatcher to use m_spells.m_spellsByClass).
-            m_nCurrentSelectedSpellClass = 3;
-            m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x67, 1);
-            return;
-        case 0x39:
-            // Cleric DOMAIN.  Per Ghidra OnLButton case 0x39:
-            //   m_nCurrentSelectedSpellClass = 3
-            //   m_nCurrentSelectedSpellLevel = FUN_005940d0() == sprite[0x80C]
-            // Any non-zero level acts as the "domain" sentinel for FUN_00587c20
-            // case 2's dispatch; we use 1 here since the picker iterates ALL
-            // levels of m_domainSpells anyway.
-            m_nCurrentSelectedSpellClass = 3;
-            m_nCurrentSelectedSpellLevel = 1;
-            SetState(0x67, 1);
-            return;
-        case 0x34:
-            m_nCurrentSelectedSpellClass = 4;
-            m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x67, 1);
-            return;
-        case 0x35:
-            m_nCurrentSelectedSpellClass = 7;
-            m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x67, 1);
-            return;
-        case 0x36:
-            m_nCurrentSelectedSpellClass = 8;
-            m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x67, 1);
-            return;
-        case 0x37:
-            m_nCurrentSelectedSpellClass = 10;
-            m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x67, 1);
-            return;
-        case 0x38:
-            m_nCurrentSelectedSpellClass = 11;
-            m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x67, 1);
-            return;
         default:
-            // Unhandled button click.  In submenu states (anything other
-            // than the main action bar 0x72 or the group bar 0x6E), this
-            // is how Ghidra exits â€” empty/unknown slot click pops the
-            // state stack back to 0x72 via the default branch.  We don't
-            // implement the state stack, so SetState(0x72, 0) directly.
-            if (m_nState != 0x72 && m_nState != 0x6E) {
-                SetState(0x72, 0);
-            }
-            return;
+            // The table's default at 0x5939E6 is the shared exit itself: sixty
+            // of the 118 type values land here and the binary does nothing at
+            // all with them.  There is deliberately no SetState back to the
+            // action bar -- the submenu states never reach this switch.
+            break;
         }
         break;
     }
+
+done:
+    // The single release, at 0x593A13.  Every arm above reaches it; the only
+    // paths that skip it are the three early returns before the lock existed.
+    pGame->GetObjectArray()->ReleaseDeny(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
 
 // A right click on an action-bar slot opens the picker that rebinds it.  The
