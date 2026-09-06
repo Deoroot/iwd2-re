@@ -3749,17 +3749,93 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         }
         break;
     case 0x77:
-        // NOTE: unrecovered -- the binary's arm at 0x591A44 is 536 instructions
-        // and the body below is the paraphrase, with its locking corrected.
+        // The class picker of the customize menu, arm at 0x591A44: eight
+        // slots at 0x593C14 over types 0x32..0x39, one per caster source, each
+        // binding the customize slot to that source.
         //
-        // Customize class picker, entered from state 0x75 case 0x24: each class
-        // button (0x32-0x39) writes its own type into the customize slot.
-        if (nButtonType >= 0x32 && nButtonType <= 0x39
-            && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
-            m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
-            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+        // Eight separate arms again, sixty instructions each, and this time
+        // they are NOT interchangeable copies the way the 0x74 arm's five
+        // are: each carries its own type as an IMMEDIATE, in both the write
+        // to m_customButtonTypes and the one to the sprite.  The 0x74 arm
+        // uses the register holding nButtonType instead.  Two arms of the
+        // same shape, two different things written -- so the literals are
+        // spelled out here rather than folded into nButtonType, which would
+        // compile to the other arm's code.
+        //
+        // Every arm ends on PopState(0, 1), unwinding the customize sequence
+        // in one go; only the first carries the tail, and the other seven
+        // jump into it at 0x591B45.  The default at 0x5921DC skips the
+        // repaint and steps back one level, exactly as the 0x74 default does.
+        switch (nButtonType) {
+        case 0x32:
+            m_customButtonTypes[m_nCustomizeSlot] = 0x32;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x32);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x33:
+            m_customButtonTypes[m_nCustomizeSlot] = 0x33;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x33);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x34:
+            m_customButtonTypes[m_nCustomizeSlot] = 0x34;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x34);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x35:
+            m_customButtonTypes[m_nCustomizeSlot] = 0x35;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x35);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x36:
+            m_customButtonTypes[m_nCustomizeSlot] = 0x36;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x36);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x37:
+            m_customButtonTypes[m_nCustomizeSlot] = 0x37;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x37);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x38:
+            m_customButtonTypes[m_nCustomizeSlot] = 0x38;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x38);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x39:
+            m_customButtonTypes[m_nCustomizeSlot] = 0x39;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x39);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        default:
+            ClearPickerList();
+            PopState(0, 0);
+            break;
         }
-        SetState(0x72, 0);
         break;
     case 0x78:
         // The quick-item picker, arm at 0x592271, reached from the customize
