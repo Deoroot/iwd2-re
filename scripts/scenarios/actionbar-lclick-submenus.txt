@@ -1,0 +1,62 @@
+# Left clicks inside the customize menu's two submenus -- the skills submenu
+# 0x74 (arm 0x590E26) and the class picker 0x77 (arm 0x591A44).  Companion to
+# actionbar-lclick-customize.txt, which covers 0x75 and 0x78.  Matches
+#   frida_orig.py --click 1:0 --rclick 1:13 --rclick 1:6 --click 1:6 \
+#                 --rclick 1:13 --rclick 1:7 --click 1:6
+#
+#   click 1:0    portrait 0                              -> 0x72
+#   rclick 1:13  slot 7 (type 0x5E) opens the customize
+#                menu                                    -> 0x75
+#   rclick 1:6   slot 0 (type 0x23) opens the skills
+#                submenu                                 -> 0x74
+#   click 1:6    slot 0 of that bar is type 0x0B, one of
+#                the five the arm accepts.  It writes the
+#                TYPE FROM THE REGISTER and unwinds with
+#                PopState(0, 1)                          -> 0x72
+#   rclick 1:13  back into the customize menu            -> 0x75
+#   rclick 1:7   slot 1 (type 0x24) opens the class
+#                picker                                  -> 0x77
+#   click 1:6    slot 0 of that bar is type 0x33, and
+#                this arm writes an IMMEDIATE 0x33 rather
+#                than the register -- the one thing that
+#                separates it from the 0x74 arm above.
+#                Same PopState(0, 1)                     -> 0x72
+#
+# Both PopState(0, 1) steps are the discriminating ones: the stack at each is
+# [submenu, 0x72] and SetState pushes to the front, so taking the front would
+# land back on the customize menu instead of the bar.
+#
+# MEASURED: the original walks
+#   0x6E -> 0x72 -> 0x75 -> 0x74 -> 0x72 -> 0x75 -> 0x77 -> 0x72
+# over 153 photographed frames, and slot 7 reads 5E, then 0B, then 33.
+#
+# The bars, as the ORIGINAL reported them (* = greyed):
+#
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (portrait 0)
+#   0x75  23  24  25  26  27  64* 64* 64* 64* 64* 29  2A
+#   0x74  0B  04  0C  77  0D* 64* 64* 64* 64* 64* 64* 64*
+#   0x77  33  39  64* 64* 64* 64* 64* 64* 64* 64* 64* 64*
+#
+# As in the sibling scenario, slot 7 of the 0x72 bar is the slot being
+# rebound, so the two writes are legible there: 5E -> 0B -> 33.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 6
+sleep 45
+click 1 6
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 7
+sleep 45
+click 1 6
+sleep 60
