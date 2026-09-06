@@ -3482,7 +3482,13 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             //
             // Left as it stands rather than stubbed, because the toggle it
             // does perform is faithful and removing it would take working
-            // stealth away; but it is NOT the whole arm.
+            // stealth away; but it is NOT the whole arm, and the gap has a
+            // measured price rather than a guessed one.  Driving
+            // actionbar-lclick-skills.txt onto this very button puts the bar
+            // one field of 168 away from the original: m_nSelectedButton reads
+            // 100 there and 5 here.  We set 5 and stop; the original sets 5,
+            // sends the action, and the action resolving is what clears the
+            // selection again.  Everything else on the bar matches.
             if (pSprite->GetModalState() == 3) {
                 pSprite->SetModalState(0, 0);
                 SetSelectedButton(100);
