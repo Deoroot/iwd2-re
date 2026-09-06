@@ -3503,19 +3503,78 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         }
         break;
     case 0x74:
-        // NOTE: unrecovered -- the binary's arm at 0x590E26 is 359 instructions
-        // and the body below is the paraphrase, with its locking corrected.
+        // The skills submenu of the customize menu, arm at 0x590E26.  Where
+        // its 0x75 sibling indexes a jump table directly, this one goes
+        // through a BYTE index table at 0x593B64 covering types 4..0x77 and
+        // feeding five slots at 0x593B4C -- and of the 111 types that table
+        // spans, exactly five take: 4, 0x0B, 0x0C, 0x0D and 0x77.  That much
+        // the paraphrase had right.
         //
-        // Skills submenu in customize mode (entered from state 0x75 case 0x23
-        // right-click).  Click writes the chosen button type into
-        // m_customButtonTypes[m_nCustomizeSlot] and the sprite mirror.
-        if ((nButtonType == 4 || nButtonType == 0xB || nButtonType == 0xC
-                || nButtonType == 0xD || nButtonType == 0x77)
-            && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
+        // What it did not have is that those five are five SEPARATE arms in
+        // the binary, identical to the instruction -- sixty each, differing
+        // only in their own branch targets.  MSVC does not merge equal switch
+        // arms, so five copies is what a source spelling the body out five
+        // times compiles to and one case group would have produced one arm.
+        // Written out five times for that reason.  The 0x0D copy is where the
+        // shared tail physically lives; the other four jump into the middle
+        // of it, at 0x5912D7.
+        //
+        // Both exits differ from the paraphrase's SetState(0x72, 0).  A type
+        // that takes drops the game state, repaints, and unwinds the whole
+        // stack with PopState(0, 1).  A type that does not skips the repaint
+        // entirely -- the default at 0x5912FA opens on the picker-list
+        // teardown, with no UpdateButtons before it -- and steps back one
+        // level with PopState(0, 0).  The 0x75 arm's default does repaint,
+        // so this asymmetry is real and not a shared tail misread.
+        //
+        // No bound on m_nCustomizeSlot, for the reason the 0x78 arm records:
+        // the assert at 0x590E81 is SetCustomButtonValue's own body inlined.
+        switch (nButtonType) {
+        case 0x04:
             m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
             pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x0B:
+            m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x0C:
+            m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x0D:
+            m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        case 0x77:
+            m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+            break;
+        default:
+            ClearPickerList();
+            PopState(0, 0);
+            break;
         }
-        SetState(0x72, 0);
         break;
     case 0x75:
         // The customize menu, arm at 0x592B01, with its own eight-entry table
