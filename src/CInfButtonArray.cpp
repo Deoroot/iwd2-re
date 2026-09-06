@@ -3561,12 +3561,85 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         break;
     }
     case 0x76:
-        // NOTE: unrecovered.  State 0x76 has an arm of its own at 0x5918F3, 78
-        // instructions long, that nothing in this file reproduces; before this
-        // session it fell through to the action bar's type switch, which is a
-        // different body entirely.  Doing nothing is wrong in a way that is
-        // visible only as a dead click; running the wrong arm was wrong in a
-        // way that could act on the party.
+        // The spell-class picker at 0x5918F3, and it is NOT the same arm as
+        // the one the action bar's 0x32..0x38 bank runs even though the two
+        // pick the same eight classes: this one has its own eight-entry table
+        // at 0x593BF4 over types 0x32..0x39, it drops the game state by writing
+        // m_nState rather than calling SetState, and its default does not
+        // repaint -- it clears the selection, tears the picker list down and
+        // walks the state stack back.
+        //
+        // Measured: a plain left click on a Cast Spell button (type 0x03) in
+        // the action bar puts the original here, and the click that follows
+        // opens the spellbook in state 0x67.  This is the arm that carries
+        // that step.
+        switch (nButtonType) {
+        case 0x32:
+            m_nCurrentSelectedSpellClass = 2;
+            m_nCurrentSelectedSpellLevel = 0;
+            pGame->m_nState = 0;
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x33:
+            m_nCurrentSelectedSpellClass = 3;
+            m_nCurrentSelectedSpellLevel = 0;
+            pGame->m_nState = 0;
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x34:
+            m_nCurrentSelectedSpellClass = 4;
+            m_nCurrentSelectedSpellLevel = 0;
+            pGame->m_nState = 0;
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x35:
+            m_nCurrentSelectedSpellClass = 7;
+            m_nCurrentSelectedSpellLevel = 0;
+            pGame->m_nState = 0;
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x36:
+            m_nCurrentSelectedSpellClass = 8;
+            m_nCurrentSelectedSpellLevel = 0;
+            pGame->m_nState = 0;
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x37:
+            m_nCurrentSelectedSpellClass = 10;
+            m_nCurrentSelectedSpellLevel = 0;
+            pGame->m_nState = 0;
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x38:
+            m_nCurrentSelectedSpellClass = 11;
+            m_nCurrentSelectedSpellLevel = 0;
+            pGame->m_nState = 0;
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        case 0x39:
+            // The domain pool, arm at 0x59195D.  As in the action bar's bank,
+            // the one entry that does not zero the level: it stores the
+            // caster's own specialization, read straight from m_baseStats.
+            m_nCurrentSelectedSpellClass = 3;
+            m_nCurrentSelectedSpellLevel = pSprite->m_baseStats.m_specialization;
+            pGame->m_nState = 0;
+            UpdateButtons();
+            SetState(0x67, 1);
+            break;
+        default:
+            m_nCurrentSelectedSpellClass = 0;
+            m_nCurrentSelectedSpellLevel = 0;
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        }
         break;
     case 0x77:
         // NOTE: unrecovered -- the binary's arm at 0x591A44 is 536 instructions

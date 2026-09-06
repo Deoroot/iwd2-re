@@ -1,0 +1,35 @@
+# Reach the spell-class picker, state 0x76, which has an arm of its own in
+# CInfButtonArray::OnLButtonPressed at 0x5918F3 and is NOT the same body as the
+# action bar's identically-shaped 0x32..0x38 bank.
+#
+# The route is deliberately short.  Going through slot 3 first, as
+# actionbar-lclick-bar.txt does, sends the bar into the skills submenu 0x73 and
+# every later click then lands on a different set of types; slot 4 is the Cast
+# Spell button and reaches the picker in one step.
+#
+# The bars, as the ORIGINAL reported them (* = greyed):
+#
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (portrait 0)
+#   0x76  33  39  64* 64* 64* 64* 64* 64* 64* 64* 64* 64*
+#   0x67  15  16  17  18  19  1A  1B  1C  1D  1E  1F  20
+#
+# Portrait 0's leader is a cleric with a domain pool, so the picker offers
+# exactly two entries: slot 0 is type 0x33, the class, and slot 1 is type 0x39,
+# the domain.  Clicking slot 0 runs the 0x76 arm's type-0x33 body and opens the
+# spellbook in 0x67.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+dump
+click 1 10
+sleep 60
+dump
+click 1 6
+sleep 60
+dump
