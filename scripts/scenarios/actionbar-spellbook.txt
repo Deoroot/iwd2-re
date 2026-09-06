@@ -1,0 +1,63 @@
+# Go one door deeper than actionbar-customize.txt: through the class picker
+# 0x77 and into the spellbook itself, which nothing had ever driven.  Matches
+#   frida_orig.py --click 1:0 --rclick 1:7 \
+#                 --click 1:0 --rclick 1:13 --rclick 1:7 --rclick 1:6 \
+#                 --click 1:0 --rclick 1:13 --rclick 1:7 --rclick 1:7
+#
+# Three arms of CInfButtonArray::OnRButtonPressed (0x594720) are on this route
+# and nothing else reaches them:
+#
+#   the arm at 0x59485C  state 0x72, a quick-weapon type 0x3C..0x43: refuse
+#                        with FEEDBACK_ITEMCURSED when CheckWeaponUsability
+#                        says no and with FEEDBACK_MAGICALWEAPONINUSE when
+#                        m_items[42] is taken, else m_nCustomizeSlot =
+#                        type - 0x3C and SetState(0x79, 1)
+#   the arm at 0x5948F4  state 0x75, type 0x24 (Cast Spell): count the caster
+#                        sources; two or more open the class picker 0x77
+#   the arms at 0x594BA5 state 0x77, one per class, plus the domain pool at
+#      through 0x594F53  0x594CB7 -- each walks its levels and opens the
+#                        spellbook 0x66 only if something is castable
+#
+# The bars, as the ORIGINAL reported them for this route (* = greyed):
+#
+#   0x6E  07  08  0F  10  11  12  13  14  64* 64* 64* 64*
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (portrait 0)
+#   0x79  3C  3D  64* 3E  3F  64* 40  41  64* 42  43  64*
+#   0x75  23  24  25  26  27  64* 64* 64* 64* 64* 29  2A
+#   0x77  33  39  64* 64* 64* 64* 64* 64* 64* 64* 64* 64*
+#   0x66  15  16  17  18  19  1A  1B  1C  1D  1E  1F  20
+#
+# Portrait 0's leader is a cleric with a domain pool, so the class picker
+# offers exactly two entries: slot 0 is type 0x33 (the class) and slot 1 is
+# type 0x39 (the domain).  Both land in 0x66, by different arms -- which is
+# why this route visits the picker twice rather than once.
+#
+# The picker's own bar (15..20) is the same one state 0x6C shows, so a bar
+# alone does not identify the state; read the state field, not the types.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+rclick 1 7
+sleep 45
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 7
+sleep 45
+rclick 1 6
+sleep 45
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 7
+sleep 45
+rclick 1 7
+sleep 60

@@ -4094,26 +4094,26 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
     }
 }
 
+// A right click on an action-bar slot opens the picker that rebinds it.  The
+// binary's signature returns BOOL -- FALSE when buttonID is out of range and
+// TRUE on every other path -- but nothing reads it: the image's only caller,
+// CUIControlButtonAction::OnRButtonClick at 0x77A320, tail-calls this out of a
+// void vtable slot.  Kept void, like OnLButtonPressed.
+//
 // 0x594720
 void CInfButtonArray::OnRButtonPressed(int buttonID)
 {
-    // TODO: Incomplete â€” picker states (0x66/0x71/0x78/0x79) need SetState
-    // helpers that build the per-class spell / item / ability lists.  When a
-    // sub-list cannot be built, the right-click is currently silent.
-
     if (buttonID < 0 || buttonID >= 12) {
         return;
     }
-
-    INT nButtonType = m_buttonTypes[buttonID];
 
     // NO grey-out gate, and that is not an omission.  The binary tests
     // m_bGreyOut at 0x59474C and, when it is set, runs a chain of type range
     // checks meant to refuse the click -- but the chain is DEAD.  Each range
     // opens by jumping FORWARD over its own upper bound (`cmp eax,0x46` /
     // `jge` at 0x59475C, and the same shape at 0x594766, 0x594770 and
-    // 0x59477A), so reaching one of the three `jg 0x594784` exits would need
-    // both `type > 0x4E` and `type < 0x46` to hold at once.  Those three jumps
+    // at 0x59477A), so reaching one of the three `jg 0x594784` exits would
+    // need both `type > 0x4E` and `type < 0x46` at once.  Those three jumps
     // are the ONLY inbound edges to 0x594784 -- the `return TRUE` -- and its
     // fallthrough is unreachable too, since `type > 0x76` implies
     // `type >= 0x6E`, which the `jge 0x594792` above it has already sent to
@@ -4130,44 +4130,45 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
     // not fault, but nothing calls it with 12 and reproducing the read would
     // be writing deliberate out-of-bounds C++ for no observable gain.)
 
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    LONG nLeader = pGame->GetGroup()->GetGroupLeader();
+
+    // The binary ignores the return code and keeps no early exit: the share it
+    // takes here is released once, at the tail (0x594FE1), on every path below.
+    CGameSprite* pSprite = NULL;
+    pGame->GetObjectArray()->GetShare(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        reinterpret_cast<CGameObject**>(&pSprite),
+        INFINITE);
+
     switch (m_nState) {
-    case 0x6E:
+    case 0x6E: {
+        // The group bar.  Right-clicking one of the five quick-formation
+        // slots stashes it so the formation picker (0x6C) can rebind it.
+        INT nButtonType = m_buttonTypes[buttonID];
+
         if (nButtonType >= 0x10 && nButtonType <= 0x14) {
-            // Stash the right-clicked quick-formation slot (0-4) so the picker
-            // (state 0x6C) can rebind it.  Ghidra OnRButtonPressed state 0x6E
-            // writes m_nCustomizeSlot (+0x1976) â€” the same scratch field the
-            // 0x6C picker reads.
             m_nCustomizeSlot = nButtonType - 0x10;
             SetState(0x6C, 1);
         }
-        return;
-    case 0x72:
+        break;
+    }
+    case 0x72: {
+        // The main action bar.  The index table at 0x595040 sorts every
+        // button type into three groups: the customizable slots, the eight
+        // quick-weapon slots, and everything else, which does nothing.
+        INT nButtonType = m_buttonTypes[buttonID];
+
         switch (nButtonType) {
-        case 0x3C:
-        case 0x3D:
-        case 0x3E:
-        case 0x3F:
-        case 0x40:
-        case 0x41:
-        case 0x42:
-        case 0x43:
-            // Ghidra also calls CheckWeaponUsability() + sprite[0x4B80] check
-            // first.  Both denials produce a feedback string then no state
-            // change.  We skip the check and unconditionally enter state 0x79
-            // (the quick-weapon picker); the picker itself isn't built yet so
-            // this is a no-op until SetState(0x79) lands.
-            m_nCurrentSelectedSpellLevel = nButtonType - 0x3C;
-            SetState(0x79, 1);
-            return;
-        case 2:
-        case 3:
-        case 4:
-        case 5:
-        case 10:
-        case 0xB:
-        case 0xC:
-        case 0xD:
-        case 0xE:
+        case 0x02:
+        case 0x03:
+        case 0x04:
+        case 0x05:
+        case 0x0A:
+        case 0x0B:
+        case 0x0C:
+        case 0x0D:
+        case 0x0E:
         case 0x32:
         case 0x33:
         case 0x34:
@@ -4197,7 +4198,7 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
         case 0x60:
         case 0x61:
         case 0x62:
-        case 100:
+        case 0x64:
         case 0x6E:
         case 0x6F:
         case 0x70:
@@ -4208,161 +4209,254 @@ void CInfButtonArray::OnRButtonPressed(int buttonID)
         case 0x75:
         case 0x76:
         case 0x77:
-            // Customize the slot.  Ghidra stores (buttonID - 3) at
-            // offset 0x1976 so state 0x75 can write back to the right
-            // m_customButtonTypes entry.
+            // Stash the slot so state 0x75 knows which
+            // m_customButtonTypes entry to write back.
             m_nCustomizeSlot = buttonID - 3;
             SetState(0x75, 1);
-            return;
+            break;
+        case 0x3C:
+        case 0x3D:
+        case 0x3E:
+        case 0x3F:
+        case 0x40:
+        case 0x41:
+        case 0x42:
+        case 0x43:
+            // A quick-weapon slot.  Both refusals report and leave the
+            // state alone: a cursed or otherwise unusable weapon, and a
+            // magical weapon already occupying the melee slot.
+            if (pSprite->CheckWeaponUsability(FALSE) != 1) {
+                pSprite->FeedBack(CGameSprite::FEEDBACK_ITEMCURSED, 0, 0, 0, -1, 0, 0);
+                break;
+            }
+
+            if (pSprite->m_equipment.m_items[42] != NULL) {
+                pSprite->FeedBack(CGameSprite::FEEDBACK_MAGICALWEAPONINUSE, 0, 0, 0, -1, 0, 0);
+                break;
+            }
+
+            m_nCustomizeSlot = m_buttonTypes[buttonID] - 0x3C;
+            SetState(0x79, 1);
+            break;
         }
-        return;
-    case 0x75:
+        break;
+    }
+    case 0x75: {
+        // The customize menu.  Six types, dispatched through the table
+        // at 0x5950B8; the sixth (0x25, Use Item) is wired to the default
+        // and does nothing at all.
+        INT nButtonType = m_buttonTypes[buttonID];
+
         switch (nButtonType) {
         case 0x23:
+            // Skills.
             SetState(0x74, 1);
-            return;
-        case 0x26:
-            SetState(0x78, 1);
-            return;
-        case 0x27:
-            // Innate ability customize â€” Ghidra OnR state 0x75 case 0x27
-            // checks sprite[0x4A94] (m_innateSpells internal head pointer)
-            // is non-zero before opening the picker.  We use the
-            // std::vector emptiness check on m_innateSpells.m_List.
-            {
-                CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                BOOL bHasInnate = FALSE;
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    bHasInnate = !pSprite->m_innateSpells.m_List.empty();
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
+            break;
+        case 0x24: {
+            // Cast Spell.  A class counts as a caster when any of its levels
+            // still holds a spell, and the domain pool counts as one more.
+            // Two or more sources open the class picker (0x77); exactly one
+            // goes straight to that class's spellbook (0x66), but only if the
+            // class has castings left.
+            //
+            // Note this counts by list contents, where the left-click twin
+            // DispatchActionBarClick counts by m_nSharedCurrent.  The two
+            // really do differ -- see the vector test at 0x5949E9.
+            BYTE nClass = 0;
+            UINT nCount = 0;
+
+            for (UINT nClassIndex = 0; nClassIndex < CSPELLLIST_NUM_CLASSES; nClassIndex++) {
+                if (nCount > 1) {
+                    break;
                 }
-                if (bHasInnate) {
-                    SetState(0x6B, 1);
+
+                UINT nLevel = 0;
+                while (nLevel < pSprite->m_spells.m_spellsByClass[nClassIndex].m_nHighestLevel) {
+                    if (!pSprite->m_spells.m_spellsByClass[nClassIndex].GetSpellsAtLevel(nLevel)->m_List.empty()) {
+                        nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nClassIndex);
+                        nCount++;
+                        break;
+                    }
+
+                    nLevel++;
                 }
             }
-            return;
-        case 0x28:
-            // Bard Song customize â€” Ghidra OnR state 0x75 case 0x28 checks
-            // the song list head + (end - head) / 16 (entry size).  We
-            // approximate with std::vector emptiness on m_songs.m_List.
-            {
-                CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                BOOL bHasSong = FALSE;
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    bHasSong = !pSprite->m_songs.m_List.empty();
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
+
+            for (UINT nLevel = 0; nLevel < pSprite->m_domainSpells.m_nHighestLevel; nLevel++) {
+                if (!pSprite->m_domainSpells.m_lists[nLevel].m_List.empty()) {
+                    if (nCount == 0) {
+                        // A cleric whose only spells are domain spells still
+                        // goes straight to the spellbook, with the
+                        // specialization steering it to the domain list.
+                        nClass = CAIOBJECTTYPE_C_CLERIC;
+                        m_nCurrentSelectedSpellLevel = pSprite->m_baseStats.m_specialization;
+                    }
+
+                    nCount++;
+                    break;
                 }
-                if (bHasSong) {
-                    SetState(0x71, 1);
-                }
+
+                m_nCurrentSelectedSpellLevel = 0;
             }
-            return;
-        case 0x24:
-            // Cast Spell â€” pick state 0x66 (customize spellbook) for a
-            // single-class caster and state 0x77 (customize-class-picker)
-            // for multi-class.  Mirrors Ghidra OnRButtonPressed state 0x75
-            // case 0x24 which iterates classes 2/3/4/7/8/10/11 and counts
-            // those with memorised spells (plus the cleric domain pool).
-            {
-                CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-                LONG nLeader = pGame->GetGroup()->GetGroupLeader();
-                CGameSprite* pSprite = NULL;
-                BYTE rc = pGame->GetObjectArray()->GetShare(nLeader,
-                    CGameObjectArray::THREAD_ASYNCH,
-                    reinterpret_cast<CGameObject**>(&pSprite),
-                    INFINITE);
-                INT nCasterCount = 0;
-                BYTE nOnlyClass = 0;
-                BOOL bDomainContributed = FALSE;
-                if (rc == CGameObjectArray::SUCCESS && pSprite != NULL) {
-                    static const BYTE classes[] = { 2, 3, 4, 7, 8, 10, 11 };
-                    for (size_t i = 0; i < sizeof(classes) / sizeof(classes[0]); i++) {
-                        CGameSpriteGroupedSpellList* grouped = pSprite->GetSpells(classes[i]);
-                        if (grouped != NULL && grouped->m_nHighestLevel != 0) {
-                            nCasterCount++;
-                            nOnlyClass = classes[i];
-                        }
-                    }
-                    if (pSprite->m_domainSpells.m_nHighestLevel != 0) {
-                        if (nCasterCount == 0) {
-                            nOnlyClass = 3;
-                            bDomainContributed = TRUE;
-                        }
-                        nCasterCount++;
-                    }
-                    pGame->GetObjectArray()->ReleaseShare(nLeader,
-                        CGameObjectArray::THREAD_ASYNCH,
-                        INFINITE);
-                }
-                if (nCasterCount == 1) {
-                    m_nCurrentSelectedSpellClass = nOnlyClass;
-                    m_nCurrentSelectedSpellLevel = bDomainContributed ? 1 : 0;
+
+            if (nCount > 1) {
+                SetState(0x77, 1);
+                break;
+            }
+
+            if (nCount == 1) {
+                if (pSprite->GetSpells(nClass)->GetTotalCurrentCount() != 0) {
+                    m_nCurrentSelectedSpellClass = nClass;
                     SetState(0x66, 1);
-                } else if (nCasterCount >= 2) {
-                    SetState(0x77, 1);
                 }
             }
-            return;
+            break;
         }
-        return;
-    case 0x77:
+        case 0x26:
+            // Quick Item.
+            SetState(0x78, 1);
+            break;
+        case 0x27:
+            // Special Abilities.
+            if (pSprite->m_innateSpells.m_nSharedCurrent != 0) {
+                SetState(0x6B, 1);
+            }
+            break;
+        case 0x28:
+            // Battle Song.
+            if (!pSprite->m_songs.m_List.empty()) {
+                SetState(0x71, 1);
+            }
+            break;
+        }
+        break;
+    }
+    case 0x77: {
+        // The class picker in front of the spellbook.  Each arm names the
+        // class, then walks its levels for anything castable; nothing
+        // castable leaves the picker where it is.  The two spontaneous
+        // casters -- Bard and Sorcerer -- read m_nSharedTotal where the
+        // memorising classes read m_nSharedCurrent.
+        INT nButtonType = m_buttonTypes[buttonID];
+        BOOLEAN bHasSpells = FALSE;
+        UINT nLevel;
+
         switch (nButtonType) {
         case 0x32:
-            m_nCurrentSelectedSpellClass = 2;
+            // The arm at 0x594BA5.
+            m_nCurrentSelectedSpellClass = CAIOBJECTTYPE_C_BARD;
             m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x66, 1);
-            return;
+
+            for (nLevel = 0; nLevel < pSprite->GetSpells(CAIOBJECTTYPE_C_BARD)->m_nHighestLevel; nLevel++) {
+                if (bHasSpells) {
+                    break;
+                }
+
+                bHasSpells = pSprite->GetSpellsAtLevel(CAIOBJECTTYPE_C_BARD, nLevel)->m_nSharedTotal != 0;
+            }
+            break;
         case 0x33:
-            m_nCurrentSelectedSpellClass = 3;
+            // The arm at 0x594C2E.
+            m_nCurrentSelectedSpellClass = CAIOBJECTTYPE_C_CLERIC;
             m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x66, 1);
-            return;
+
+            for (nLevel = 0; nLevel < pSprite->GetSpells(CAIOBJECTTYPE_C_CLERIC)->m_nHighestLevel; nLevel++) {
+                if (bHasSpells) {
+                    break;
+                }
+
+                bHasSpells = pSprite->GetSpellsAtLevel(CAIOBJECTTYPE_C_CLERIC, nLevel)->m_nSharedCurrent != 0;
+            }
+            break;
         case 0x34:
-            m_nCurrentSelectedSpellClass = 4;
+            // The arm at 0x594D32.
+            m_nCurrentSelectedSpellClass = CAIOBJECTTYPE_C_DRUID;
             m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x66, 1);
-            return;
+
+            for (nLevel = 0; nLevel < pSprite->GetSpells(CAIOBJECTTYPE_C_DRUID)->m_nHighestLevel; nLevel++) {
+                if (bHasSpells) {
+                    break;
+                }
+
+                bHasSpells = pSprite->GetSpellsAtLevel(CAIOBJECTTYPE_C_DRUID, nLevel)->m_nSharedCurrent != 0;
+            }
+            break;
         case 0x35:
-            m_nCurrentSelectedSpellClass = 7;
+            // The arm at 0x594DBB.
+            m_nCurrentSelectedSpellClass = CAIOBJECTTYPE_C_PALADIN;
             m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x66, 1);
-            return;
+
+            for (nLevel = 0; nLevel < pSprite->GetSpells(CAIOBJECTTYPE_C_PALADIN)->m_nHighestLevel; nLevel++) {
+                if (bHasSpells) {
+                    break;
+                }
+
+                bHasSpells = pSprite->GetSpellsAtLevel(CAIOBJECTTYPE_C_PALADIN, nLevel)->m_nSharedCurrent != 0;
+            }
+            break;
         case 0x36:
-            m_nCurrentSelectedSpellClass = 8;
+            // The arm at 0x594E44.
+            m_nCurrentSelectedSpellClass = CAIOBJECTTYPE_C_RANGER;
             m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x66, 1);
-            return;
+
+            for (nLevel = 0; nLevel < pSprite->GetSpells(CAIOBJECTTYPE_C_RANGER)->m_nHighestLevel; nLevel++) {
+                if (bHasSpells) {
+                    break;
+                }
+
+                bHasSpells = pSprite->GetSpellsAtLevel(CAIOBJECTTYPE_C_RANGER, nLevel)->m_nSharedCurrent != 0;
+            }
+            break;
         case 0x37:
-            m_nCurrentSelectedSpellClass = 10;
+            // The arm at 0x594ECD.
+            m_nCurrentSelectedSpellClass = CAIOBJECTTYPE_C_SORCERER;
             m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x66, 1);
-            return;
+
+            for (nLevel = 0; nLevel < pSprite->GetSpells(CAIOBJECTTYPE_C_SORCERER)->m_nHighestLevel; nLevel++) {
+                if (bHasSpells) {
+                    break;
+                }
+
+                bHasSpells = pSprite->GetSpellsAtLevel(CAIOBJECTTYPE_C_SORCERER, nLevel)->m_nSharedTotal != 0;
+            }
+            break;
         case 0x38:
-            m_nCurrentSelectedSpellClass = 11;
+            // The arm at 0x594F53.
+            m_nCurrentSelectedSpellClass = CAIOBJECTTYPE_C_WIZARD;
             m_nCurrentSelectedSpellLevel = 0;
-            SetState(0x66, 1);
-            return;
+
+            for (nLevel = 0; nLevel < pSprite->GetSpells(CAIOBJECTTYPE_C_WIZARD)->m_nHighestLevel; nLevel++) {
+                if (bHasSpells) {
+                    break;
+                }
+
+                bHasSpells = pSprite->GetSpellsAtLevel(CAIOBJECTTYPE_C_WIZARD, nLevel)->m_nSharedCurrent != 0;
+            }
+            break;
         case 0x39:
-            m_nCurrentSelectedSpellClass = 3;
-            SetState(0x66, 1);
-            return;
+            // The cleric's domain pool, at 0x594CB7.  Same shape, but the
+            // level it opens on comes from the specialization.
+            m_nCurrentSelectedSpellClass = CAIOBJECTTYPE_C_CLERIC;
+            m_nCurrentSelectedSpellLevel = pSprite->m_baseStats.m_specialization;
+
+            for (nLevel = 0; nLevel < pSprite->m_domainSpells.m_nHighestLevel; nLevel++) {
+                if (bHasSpells) {
+                    break;
+                }
+
+                bHasSpells = pSprite->m_domainSpells.m_lists[nLevel].m_nSharedCurrent != 0;
+            }
+            break;
         }
-        return;
+
+        if (bHasSpells) {
+            SetState(0x66, 1);
+        }
+        break;
     }
+    }
+
+    pGame->GetObjectArray()->ReleaseShare(nLeader,
+        CGameObjectArray::THREAD_ASYNCH,
+        INFINITE);
 }
