@@ -71,6 +71,7 @@ public:
     CInfButtonArray();
 
     static void GetSelectedQuickWeaponData(CButtonData& cButtonData);
+    static void GetSelectedQuickSlotData(BYTE nSlot, CButtonData* pButtonData, INT nMode);
     static BYTE GetSelectedModalMode();
     static void ReadyQuickSlotByMode(SHORT nButton, INT nMode);
     static void CustomizeQuickSlot(const CButtonData* pButtonData, BYTE nButton, INT nMode);

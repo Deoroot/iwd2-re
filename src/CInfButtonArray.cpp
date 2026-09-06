@@ -189,6 +189,59 @@ CGameButtonList* CInfButtonArray::BuildPickerList(INT nSlot, INT nListType, cons
     return pButtons;
 }
 
+// Fill `pButtonData` from quick slot `nSlot` of the party leader, picking the
+// quick-slot family from `nMode` the way ReadyQuickSlotByMode does: 1 weapon,
+// 2 spell, 3 item, 4 innate, 6 song.  Mode 5 -- and any other value -- takes the
+// leader lock and releases it again without writing anything, so the caller is
+// left holding whatever its CButtonData constructor put there.  Every accessor
+// is inlined by the binary except GetQuickWeapon, which it calls out of line.
+//
+// 0x587F80
+void CInfButtonArray::GetSelectedQuickSlotData(BYTE nSlot, CButtonData* pButtonData, INT nMode)
+{
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_group.m_memberList.GetCount() == 0) {
+        return;
+    }
+
+    LONG* groupList = pGame->m_group.GetGroupList();
+    LONG nLeader = groupList[0];
+    delete groupList;
+
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = pGame->m_cObjectArray.GetShare(nLeader,
+            CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite),
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    switch (nMode) {
+    case 1:
+        pSprite->GetQuickWeapon(nSlot, *pButtonData);
+        break;
+    case 2:
+        pSprite->GetQuickSpell(nSlot, *pButtonData);
+        break;
+    case 3:
+        pSprite->GetQuickItem(nSlot, *pButtonData);
+        break;
+    case 4:
+        pSprite->GetQuickAbility(nSlot, *pButtonData);
+        break;
+    case 6:
+        pSprite->GetQuickSong(nSlot, *pButtonData);
+        break;
+    }
+
+    pGame->m_cObjectArray.ReleaseShare(nLeader, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+}
+
 // 0x588240
 void CInfButtonArray::GetSelectedQuickWeaponData(CButtonData& cButtonData)
 {
