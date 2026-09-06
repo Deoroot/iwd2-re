@@ -37,7 +37,15 @@ Usage:
   save_party.py --feat POWER_ATTACK          # which saves hold a character with it
   save_party.py --class bard                 # which saves hold a bard
   save_party.py 000000007 --feats            # every feat each member has
+  save_party.py --class bard --buttons       # which bar buttons a save's party has
   save_party.py --check                      # exit 1 if any parse looks wrong
+
+--buttons answers a question that used to cost a game launch per guess: which
+arms of CInfButtonArray::OnLButtonPressed a save can even reach. Bar slots 3..11
+of the 0x72 action bar are the character's nine custom button types, so a type
+the party does not carry is an arm no route can click. That is how session 50
+found, without launching anything, that exactly one character in the ten saves
+has the bard song button (type 0x02) and that its nine song slots are empty.
 """
 
 import argparse
@@ -57,6 +65,14 @@ PARTY_COUNT = 0x24
 NPC_STRIDE = 0x340
 NPC_CRE_OFFSET = 0x04
 NPC_CRE_SIZE = 0x08
+# CSavedGamePartyCreature, from src/FileFormat.h. The nine custom button types
+# are what CGameSprite loads into field_3D14 (CGameSprite.cpp:8116) and
+# CInfButtonArray copies into m_customButtonTypes, which become bar slots 3..11
+# of the 0x72 action bar -- so these nine bytes decide which arms of
+# OnLButtonPressed a save can even reach.
+NPC_QUICK_SONGS = 0x152    # m_quickSongsSpellId[9], RESREF
+NPC_CUSTOM_BUTTONS = 0x19A # field_19A[9], the custom button types
+EMPTY_SLOT_RESREFS = ("STONSONG", "STONSPEL", "STONITEM", "STONSPEC")
 CRE_HEADER = 0x08          # CCreatureFileHeader starts here inside the CRE
 FEATS_IN_HEADER = 0x1B8    # m_feats[3]
 LEVELS_IN_HEADER = 0x83    # m_classLevels[11], CLASSMASK bit order
@@ -122,6 +138,37 @@ def classes(cre):
     return [f"{CLASS_NAMES[i]}{lv[i]}" for i in range(11) if lv[i]]
 
 
+def party_entries(data):
+    """[(index, entry_offset)] for each party member, for the fields that live in
+    the .GAM's own NPC entry rather than in the embedded CRE."""
+    if data[:4] != b"GAME":
+        return []
+    off = struct.unpack_from("<I", data, PARTY_OFFSET)[0]
+    count = struct.unpack_from("<I", data, PARTY_COUNT)[0]
+    out = []
+    for i in range(count):
+        base = off + i * NPC_STRIDE
+        if base + NPC_STRIDE > len(data):
+            break
+        out.append((i, base))
+    return out
+
+
+def custom_buttons(data, base):
+    """The nine action-bar button types this character carries."""
+    return struct.unpack_from("<9i", data, base + NPC_CUSTOM_BUTTONS)
+
+
+def quick_songs(data, base):
+    """The nine quick song slots, '' where the slot holds a placeholder."""
+    out = []
+    for k in range(9):
+        at = base + NPC_QUICK_SONGS + 8 * k
+        res = data[at:at + 8].split(b"\0")[0].decode("ascii", "replace")
+        out.append("" if res in EMPTY_SLOT_RESREFS else res)
+    return out
+
+
 def sanity(cre):
     """No bit past the last real feat, and at least one SIMPLE_* proficiency."""
     words = struct.unpack_from("<3I", cre, CRE_HEADER + FEATS_IN_HEADER)
@@ -159,6 +206,9 @@ def main():
     ap.add_argument("--feat", help="only list saves holding a member with this feat "
                                    "(name without the CGAMESPRITE_FEAT_ prefix, or a number)")
     ap.add_argument("--feats", action="store_true", help="list every feat per member")
+    ap.add_argument("--buttons", action="store_true",
+                    help="the nine custom action-bar button types and the quick song "
+                         "slots, i.e. which OnLButtonPressed arms this save can reach")
     ap.add_argument("--class", dest="klass",
                     help="only list saves holding a member of this class (e.g. bard)")
     ap.add_argument("--all-roots", action="store_true",
@@ -189,9 +239,11 @@ def main():
         for folder, gam in gam_files(root):
             if args.match and args.match not in folder:
                 continue
-            members = party(read_gam(gam))
+            data = read_gam(gam)
+            members = party(data)
             if not members:
                 continue
+            bases = dict(party_entries(data))
             rows = []
             for idx, cre in members:
                 ok = sanity(cre)
@@ -211,6 +263,16 @@ def main():
                 if want is not None:
                     hit = "HAS" if names.get(want) in feats else "no"
                     print(f"{who}  {hit} {names[want]}{mark}")
+                elif args.buttons:
+                    btns = custom_buttons(data, bases[idx])
+                    types = " ".join(f"{b:02X}" if 0 <= b < 256 else str(b) for b in btns)
+                    songs = [s for s in quick_songs(data, bases[idx]) if s]
+                    flag = "   <-- BARDSONG BUTTON (type 02)" if 2 in btns else ""
+                    print(f"{who}{mark}")
+                    print(f"      buttons: {types}{flag}")
+                    print(f"      bar 0x72: 07 3C 3D "
+                          f"{' '.join(f'{b:02X}' if 0 <= b < 256 else str(b) for b in btns)}")
+                    print(f"      songs bound: {', '.join(songs) or '(none)'}")
                 elif args.feats:
                     print(f"{who}{mark}")
                     print(f"      {', '.join(feats) or '(none)'}")
