@@ -1,0 +1,40 @@
+# The skills bar 0x73 (arm 0x590556) by left click, and deliberately onto the
+# ONE body of that arm still only partly recovered -- type 0x0B, Stealth.
+# Matches
+#   frida_orig.py --click 1:0 --click 1:9 --click 1:6
+#
+#   click 1:0    portrait 0                              -> 0x72
+#   click 1:9    slot 3 is type 0x05, the skills button.
+#                DispatchActionBarClick's type-5 arm opens
+#                the bar only when the leader's modal is
+#                zero, so a run that does NOT reach 0x73
+#                is a TIMING result, not a code one       -> 0x73
+#   click 1:6    slot 0 is type 0x0B.  Our copy performs
+#                the modal toggle and stops; the binary
+#                also sends a CMessageAddAction built from
+#                three CAIObjectType temporaries.  This
+#                step is here to price that gap, not to
+#                pass                                     -> 0x72
+#
+# MEASURED: the original walks 0x6E -> 0x72 -> 0x73 -> 0x72 over 81 frames.
+#
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (portrait 0)
+#   0x73  0B  04  0C  77  0D* 64* 64* 64* 64* 64* 64* 64*
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (unchanged)
+#
+# Note the last bar: slot 7 still reads 5E.  The skills bar does NOT rewrite
+# the customize slot, which is exactly what separates it from its 0x74 twin --
+# same five button types, same layout, different job.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+click 1 9
+sleep 45
+click 1 6
+sleep 60
