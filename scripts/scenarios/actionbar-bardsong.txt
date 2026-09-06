@@ -1,0 +1,71 @@
+# The BARD SONG button on the action bar -- button type 0x02, whose arm sits at
+# 0x59336B inside CInfButtonArray::OnLButtonPressed, plus the song picker it
+# opens (state 0x7A) and CInfButtonArray::UseSongAction (0x588820).  All three
+# were recovered from the binary in s46/s48/s49 and none had ever run.
+#
+# LOAD THIS BY NAME, not by row:
+#   auto_start_game.py --save-name "000000000-Autosave - Prologue" \
+#       --ui-script scripts\scenarios\actionbar-bardsong.txt
+# It is the only save of the ten under MPSave whose party holds a bard, and the
+# bard is its party slot 0.  Do NOT pass --slot: the load screen shows five rows
+# out of ten and opens scrolled, so the row this save occupies is not its
+# alphabetical index, and frida_orig.py cannot reach it at all (see below).
+#
+# Why control 12.  The 0x72 bar is slot 0 = 7, slots 1/2 = the quick weapon
+# pair, and slots 3..11 = m_customButtonTypes[0..8], which CGameSprite loads
+# from CSavedGamePartyCreature::field_19A (CGameSprite.cpp:8116).  The .GAM
+# gives this bard 05 0B 04 02 5E 03 51 52 0A, so the bar reads
+#   07 3C 3D 05 0B 04 02 5E 03 51 52 0A
+# and the song button is bar slot 6.  Slot N is control N+6, hence control 12.
+# c:\tmp\s50_qbuttons.py reads those nine values out of any save, which is how
+# this route was planned without launching the game once: no other character in
+# any of the ten saves carries a type 0x02 at all.
+#
+# What the three clicks exercise, measured:
+#   click 1 0   select the bard    -> 0x6E then 0x72
+#   click 1 12  the song button    -> not singing (modal 0), so the arm takes its
+#                                     else branch: SetState(0x7A, 1), the picker
+#   click 1 6   picker cell 0      -> the shared picker-cell body dispatches on
+#                                     m_nState and calls UseSongAction(pEntry, 1);
+#                                     it finds SPIN151 as song id 5, sets the
+#                                     modal state and m_nSelectedButton = 2
+#   click 1 12  the song button    -> now singing (modal 1), so the arm takes its
+#                                     IF branch and stops the song
+# so both halves of the arm run, in one scenario.
+#
+# The state walk is 0x6E -> 0x72 -> 0x7A -> 0x72.
+#
+# The bar alone cannot prove any of this: the song button does not change its own
+# appearance, and the two branches paint the same bar.  What proves it is the
+# sprite state the arm leaves behind -- the second visit to the button reports
+# modal=1 and m_nSelectedButton=2, which is exactly what UseSongAction writes,
+# where the first reported modal=0 and 100.  Probe with c:\tmp\s49_instr2.py
+# (OnLButtonPressed entry) and c:\tmp\s50_instr4.py (the arm and UseSongAction).
+#
+# NOT diffed against the original.  frida_orig.py drives the load screen by
+# calling CScreenLoad::LoadGame(nSlot) directly, which skips the bounds check the
+# real UI does, so any row past the last populated m_aGameSlots entry makes the
+# ORIGINAL dereference NULL and close to the desktop -- measured on rows 3, 4 and
+# 7, each of which came back NOT-LOADED with the trace ending on the LoadGame
+# step.  Rows 0..2 loaded and are three other parties.  Reaching this save in the
+# original needs a scroll primitive for the load list (or an absolute index into
+# m_aGameSlots); that is the missing primitive, in the sense of s44.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded, so
+# anything clicked before it is invisible to --hit.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+dump
+click 1 12
+sleep 45
+dump
+click 1 6
+sleep 60
+dump
+sleep 45
+click 1 12
+sleep 60
+dump
