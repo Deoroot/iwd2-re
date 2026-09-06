@@ -3679,44 +3679,65 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             ClearPickerList();
             PopState(0, 0);
             break;
-        case 0x0B:
-            // NOTE: partial.  Stealth, and the only body of the five still
-            // unrecovered -- 215 of the arm's 573 instructions.  The modal
-            // toggle below is right as far as it goes and is what the arm
-            // opens with, but BOTH of its branches then issue a message that
-            // is missing here:
-            //
-            //   modal != 3 (turning stealth ON), at 0x59058C: three
-            //   CAIObjectType temporaries built with the eleven-argument ctor
-            //   at 0x40AE80, an action id read from the WORD at 0x8477A6, and
-            //   a CAIAction assembled field by field and handed to a
-            //   CMessageAddAction -- 0xE2 bytes, vtable 0x847B40, m_action at
-            //   +0x0C, caller and target both the leader's id.
-            //
-            //   modal == 3 (turning it off), at 0x590781: writes the dword
-            //   at 0x85BD1C into the sprite's +0x727A, then clears item
-            //   effect 0x88 and sends that one.
-            //
-            // Left as it stands rather than stubbed, because the toggle it
-            // does perform is faithful and removing it would take working
-            // stealth away; but it is NOT the whole arm, and the gap has a
-            // measured price rather than a guessed one.  Driving
-            // actionbar-lclick-skills.txt onto this very button puts the bar
-            // one field of 168 away from the original: m_nSelectedButton reads
-            // 100 there and 5 here.  We set 5 and stop; the original sets 5,
-            // sends the action, and the action resolving is what clears the
-            // selection again.  Everything else on the bar matches.
+        case 0x0B: {
+            // Stealth.  Both halves of the modal toggle send a message, which
+            // is what the partial body here used to be missing; the toggle
+            // itself was already faithful.
             if (pSprite->GetModalState() == 3) {
+                // Turning it OFF, at 0x590781.  m_nStealthGreyOut is set from
+                // the dword at 0x85BD1C, which is 90, and the effect that
+                // follows is the one that drops the character back into view.
                 pSprite->SetModalState(0, 0);
-                SetSelectedButton(100);
+                pSprite->m_nStealthGreyOut = 90;
+                m_nSelectedButton = 100;
+
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_FORCEVISIBLE);
+                effect.durationType = 1;
+
+                // The id is read straight off the sprite here rather than
+                // through GetId, unlike the picker arms above.
+                CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                    pSprite->GetPos(), pSprite->m_id, CPoint(-1, -1));
+                CMessage* pMsg = new CMessageAddEffect(pEffect,
+                    pSprite->m_id, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
             } else {
+                // Turning it ON, at 0x59058C.  The action is built on the
+                // stack -- the three CAIObjectType members come from the
+                // default constructor, inlined here, and only these three
+                // fields are set on top of it.  m_specificID, m_specificID3,
+                // both strings and m_internalFlags keep the constructor's
+                // values, and the constructor does not touch m_dest at all,
+                // which is why this one has to.
                 pSprite->SetModalState(3, 0);
-                SetSelectedButton(5);
+                m_nSelectedButton = 5;
+
+                CAIAction action;
+
+                // The action id is the WORD at 0x8477A6, which is 18.  No
+                // CAIAction constant in this codebase carries that value yet
+                // and the original's name for it is not recoverable from this
+                // arm, so the number stands with its source spelled out.
+                action.m_actionID = 18;
+                action.m_specificID2 = -1;
+                action.m_dest = CPoint(-1, -1);
+
+                CMessage* pMsg = new CMessageAddAction(action,
+                    pSprite->m_id, pSprite->m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
             }
+
+            // The tail at 0x59082D belongs to this type alone -- the ON branch
+            // is the only thing that jumps to it and the OFF branch falls into
+            // it -- and it drops the game state, which the partial body did
+            // not.  The write is direct, not through CInfGame::SetState.
+            pGame->m_nState = 0;
             UpdateButtons();
             ClearPickerList();
             PopState(0, 0);
             break;
+        }
         case 0x0C:
             // The thieving / disarm cursor -- and this one is NOT the action
             // bar's type 0x0C.  That arm, at 0x5930E2, leaves m_iconResRef
