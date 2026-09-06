@@ -1,0 +1,50 @@
+# A LEFT click on the action bar's QUICK INNATE slot -- the arm at 0x5935B5,
+# one of the three CInfButtonArray::OnLButtonPressed arms that carried
+# NOTE: unrecovered from s46 until s49.  Matches
+#   frida_orig.py --click 1:0 --rclick 1:13 --rclick 1:10 --click 1:6 \
+#                 --click 1:13
+#
+# The ORIGINAL's walk, 126 frames over five runs:
+#   0x6E -> 0x72 -> 0x75 -> 0x6B -> 0x72
+#
+# Why the four clicks before the one that matters.  Portrait 0's action bar is
+#   0x72  07 3C 3D 05 03 48* 49* 5E 50* 51* 52* 0A
+# and slot 7 (control 13) is type 0x5E, a quick innate -- the only slot of the
+# bar's spell/innate half that is not greyed out, since every quick-SPELL slot
+# on all six portraits of this save is empty and a greyed slot refuses a left
+# click in state 0x72.  But slot 7 starts EMPTY too (res STONSPEC, count 0), and
+# clicking an empty innate makes the arm a no-op: it selects, matches none of
+# the five modal feats, finds m_nCount == 0 and readies nothing.  So the route
+# first BINDS an innate into the slot, through the customise path s48 measured:
+# right-click slot 7 for the customise menu 0x75, right-click its slot 4
+# (type 0x27) for the innate picker 0x6B, left-click cell 0 to bind it.  The
+# bar comes back with slot 7 holding SPIN263B and a count of 1.
+#
+# Only then does the last click exercise the arm's dispatch.  In the original
+# the slot reads count 1 / not greyed on the first frame of that last 0x72 run
+# and count 0 / greyed on its last: the innate was spent.  That transition is
+# the proof the arm ran, and it is 53 frames long, so pair frames with
+# c:\tmp\s48_cutf.py rather than taking the run's last frame.
+#
+# What this route does NOT reach: the modal-feat half of the arm.  SPIN263B is
+# not one of SPIN275..SPIN279, so the branch that stashes m_currentAbilityResRef
+# and opens the feat-point picker with SetState(0x7B, 1) is still unrun -- even
+# though this save's leader (fighter1) does have Power Attack.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded, so
+# anything clicked before it is invisible to --hit.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 10
+sleep 45
+click 1 6
+sleep 45
+click 1 13
+sleep 60
