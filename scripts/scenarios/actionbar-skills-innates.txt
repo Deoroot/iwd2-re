@@ -1,0 +1,55 @@
+# The two states the customize menu leads to that nothing had driven: the
+# skills submenu 0x74 and the innate-ability picker 0x6B.  Matches
+#   frida_orig.py --click 1:0 --rclick 1:13 --rclick 1:6 \
+#                 --click 1:0 --rclick 1:13 --rclick 1:10 \
+#                 --click 1:0 --rclick 1:13 --rclick 1:8
+#
+# All three routes leave from state 0x75 and are decided by the six-arm table
+# at 0x5950B8 in CInfButtonArray::OnRButtonPressed:
+#
+#   slot 0, type 0x23 (Skills)             -> SetState(0x74, 1), no condition
+#   slot 4, type 0x27 (Special Abilities)  -> SetState(0x6B, 1) when the
+#                                             leader's m_innateSpells has a
+#                                             shared count
+#   slot 2, type 0x25 (Use Item)           -> the table's only default arm;
+#                                             the click does nothing
+#
+# The bars, as the ORIGINAL reported them for this route (* = greyed):
+#
+#   0x6E  07  08  0F  10  11  12  13  14  64* 64* 64* 64*
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (portrait 0)
+#   0x75  23  24  25  26  27  64* 64* 64* 64* 64* 29  2A
+#   0x74  0B  04  0C  77  0D* 64* 64* 64* 64* 64* 64* 64*
+#   0x6B  15  16  17  18  19  1A  1B  1C  1D  1E  1F  20
+#
+# Read the state, not the bar: 0x6B's twelve picker buttons are the same ones
+# 0x6C and 0x66 show.
+#
+# The original keeps changing state for a few frames after the last scripted
+# click, so match frames by (state, types) rather than by call index -- and do
+# not read the tail as a result of the last click.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 6
+sleep 45
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 10
+sleep 45
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 8
+sleep 60

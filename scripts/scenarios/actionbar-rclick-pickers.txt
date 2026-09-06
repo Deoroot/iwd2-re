@@ -25,9 +25,11 @@
 #   0x79  3C  3D  64* 3E  3F  64* 40  41  64* 42  43  64*
 #
 # So slot 3 (control 9) of the group bar is a formation button and slot 7
-# (control 13) of portrait 0's bar is type 0x5E, both ungreyed -- a greyed
-# button is refused by OnRButtonPressed's prologue unless its type is in the
-# 0x46-0x4E / 0x50-0x52 / 0x5A-0x62 / 0x6E-0x76 escape list.
+# (control 13) of portrait 0's bar is type 0x5E.  Both happen to be ungreyed,
+# but that is not a requirement: OnRButtonPressed's grey-out gate is dead code
+# and the original takes the click either way.  An earlier draft of this note
+# claimed a type escape list guarded it; there is no such list -- see the
+# comment on the prologue in CInfButtonArray.cpp.
 #
 # Portraits are panel 1, controls 0..5; the action bar is the same panel,
 # controls 6..17, so slot N is control N+6.  Clicking a portrait while a picker
