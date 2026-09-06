@@ -1,0 +1,57 @@
+# A LEFT click on a CELL of two pickers -- the spellbook 0x66 and the innate
+# picker 0x6B.  The existing picker scenarios open these states and stop; this
+# one clicks inside them, which is the only thing that runs the picker arms of
+# CInfButtonArray::OnLButtonPressed.  Matches
+#   frida_orig.py --click 1:0 --rclick 1:13 --rclick 1:7 --rclick 1:6 \
+#                 --click 1:6 --rclick 1:13 --rclick 1:10 --click 1:6
+#
+# The ORIGINAL's walk, 173 frames over nine runs:
+#   0x6E -> 0x72 -> 0x75 -> 0x77 -> 0x66 -> 0x72 -> 0x75 -> 0x6B -> 0x72
+#
+# Two of the three arms the merged picker case used to hide are on this route:
+#
+#   0x59138F  state 0x66, a cell of type 0x15..0x20: bind the picked entry to
+#             the slot stashed in m_nCustomizeSlot with CustomizeQuickSlot mode
+#             2, write m_customButtonTypes[slot] = slot + 0x46 and the sprite's
+#             matching custom button, then UseSpellAction with bUseNow FALSE --
+#             a customise click readies the slot rather than firing it
+#   0x592428  state 0x6B, the same shape with mode 4 and slot + 0x5A, and no
+#             grey-out gate of any kind
+#
+# Both leave through PopState(0, 1), which unwinds the whole picker sequence in
+# one step rather than stepping back a level: that is why each cell click
+# returns to 0x72 and not to the menu it came from.  The two 0x72 runs after a
+# cell click are what proves it -- taking the deque's FRONT instead would have
+# landed on 0x77 and 0x75.
+#
+# The right clicks that get there are OnRButtonPressed's, already measured:
+# 1:13 is slot 7 (type 0x5E) which opens the customise menu 0x75 and stashes
+# m_nCustomizeSlot = 4; 1:7 is slot 1 (type 0x24, Cast Spell) which opens the
+# class picker 0x77; 1:6 is slot 0 of 0x77 (type 0x33) which opens the
+# spellbook; 1:10 is slot 4 of 0x75 (type 0x27) which opens the innates.
+#
+# Read the STATE, not the bar: 0x66 and 0x6B both show 15..20, the same twelve
+# buttons 0x6C and 0x67 show.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 7
+sleep 45
+rclick 1 6
+sleep 45
+click 1 6
+sleep 45
+rclick 1 13
+sleep 45
+rclick 1 10
+sleep 45
+click 1 6
+sleep 60
