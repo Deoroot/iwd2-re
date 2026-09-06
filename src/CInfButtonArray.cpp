@@ -3517,26 +3517,79 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         }
         SetState(0x72, 0);
         break;
-    case 0x75: {
-        // NOTE: unrecovered -- the binary's arm is at 0x592B01 and the body
-        // below is the paraphrase, with its locking corrected.
+    case 0x75:
+        // The customize menu, arm at 0x592B01, with its own eight-entry table
+        // at 0x593C6C covering types 0x23..0x2A.  Each entry rewrites the slot
+        // that OnRButtonPressed stashed in m_nCustomizeSlot, in both the array
+        // this class keeps and the sprite's own copy.
         //
-        // Customize menu: a left click writes the chosen button type into
-        // m_customButtonTypes[m_nCustomizeSlot] and mirrors it onto the sprite
-        // via SetCustomButtonValue.  The slot index was stashed by
-        // OnRButtonPressed's state 0x72 customize entry.
-        INT nNewType = -1;
+        // There is NO bound on m_nCustomizeSlot here: the paraphrase's
+        // `>= 0 && < 9` guard was invented.  The binary indexes
+        // m_customButtonTypes with the raw INT and hands the truncated BYTE to
+        // SetCustomButtonValue, whose own assert is the only check in the path.
+        //
+        // Nor does any exit name the action bar.  Seven of the nine are the
+        // shared repaint at 0x5939CF -- UpdateButtons, ClearPickerList,
+        // PopState(0, 0) -- which walks the state stack back to whatever
+        // pushed the customize menu; the paraphrase's SetState(0x72, 0) named a
+        // destination the binary never names.  Written out at each site because
+        // the sharing is the compiler's tail-merge, not the source's.
         switch (nButtonType) {
-        case 0x23: nNewType = 5;   break; // Attack
-        case 0x24: nNewType = 3;   break; // Cast Spell
-        case 0x25: nNewType = 0xE; break;
+        case 0x23:  // Attack
+            m_customButtonTypes[m_nCustomizeSlot] = 5;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 5);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x24:  // Cast Spell
+            m_customButtonTypes[m_nCustomizeSlot] = 3;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 3);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x25:
+            m_customButtonTypes[m_nCustomizeSlot] = 0xE;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0xE);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
         case 0x26:
+            // The one arm that goes somewhere by name, and the one whose exit
+            // at 0x5939E6 skips the repaint entirely -- SetState has just
+            // rebuilt the bar, so repainting it again would be wasted work.
+            g_pBaldurChitin->GetObjectGame()->SetState(0);
+            UpdateButtons();
             SetState(0x78, 1);
-            goto done;
-        case 0x27: nNewType = 10;  break; // Innate ability
-        case 0x28: nNewType = 2;   break; // Bard Song
-        case 0x29: nNewType = 100; break; // No action
+            break;
+        case 0x27:  // Innate ability
+            m_customButtonTypes[m_nCustomizeSlot] = 0xA;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0xA);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x28:  // Bard song
+            m_customButtonTypes[m_nCustomizeSlot] = 2;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 2);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
+        case 0x29:  // No action
+            m_customButtonTypes[m_nCustomizeSlot] = 0x64;
+            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), 0x64);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
         case 0x2A:
+            // Restore defaults: blank all nine on the sprite, let the sprite
+            // rebuild its quick slots, then read the result back.  The
+            // read-back is not redundant -- ResetQuickSlots is what decides
+            // what the defaults are.
             for (BYTE i = 0; i < 9; i++) {
                 pSprite->SetCustomButtonValue(i, 0);
             }
@@ -3544,22 +3597,17 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
             for (BYTE i = 0; i < 9; i++) {
                 m_customButtonTypes[i] = pSprite->GetCustomButtonValue(i);
             }
-            SetState(0x72, 0);
-            goto done;
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
         default:
-            // Empty / unknown click in customize menu -- pop back to
-            // the action bar like every other submenu default exit.
-            SetState(0x72, 0);
-            goto done;
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
+            break;
         }
-
-        if (m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
-            m_customButtonTypes[m_nCustomizeSlot] = nNewType;
-            pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nNewType);
-        }
-        SetState(0x72, 0);
         break;
-    }
     case 0x76:
         // The spell-class picker at 0x5918F3, and it is NOT the same arm as
         // the one the action bar's 0x32..0x38 bank runs even though the two
@@ -3655,16 +3703,30 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         SetState(0x72, 0);
         break;
     case 0x78:
-        // NOTE: unrecovered -- the binary's arm at 0x592271 is 117 instructions
-        // and the body below is the paraphrase, with its locking corrected.
+        // The quick-item picker, arm at 0x592271, reached from the customize
+        // menu's type 0x26.  Only the three quick-item placeholders take.
         //
-        // Quick-item picker reached from state 0x75 case 0x26.
-        if (nButtonType >= 0x50 && nButtonType <= 0x52
-            && m_nCustomizeSlot >= 0 && m_nCustomizeSlot < 9) {
+        // The two exits differ, and that difference is the whole arm.  A type
+        // that took walks the stack ALL the way back -- PopState(0, 1),
+        // inlined at 0x59232E as back() / clear() / SetState -- so the bar it
+        // lands on is the one the customize sequence started from.  A type
+        // that did not steps back a single level, PopState(0, 0) inlined
+        // at 0x5923DF.  The paraphrase sent both to SetState(0x72, 0).
+        //
+        // No bound on m_nCustomizeSlot: the assert at 0x5922C3 is
+        // SetCustomButtonValue's own body inlined here, same __LINE__ 2036 and
+        // the same two strings, so the call below already carries it.
+        if (nButtonType >= 0x50 && nButtonType <= 0x52) {
             m_customButtonTypes[m_nCustomizeSlot] = nButtonType;
             pSprite->SetCustomButtonValue(static_cast<BYTE>(m_nCustomizeSlot), nButtonType);
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 1);
+        } else {
+            UpdateButtons();
+            ClearPickerList();
+            PopState(0, 0);
         }
-        SetState(0x72, 0);
         break;
     case 0x79:
         // The quick-weapon picker at 0x590365, entered by right-clicking a
@@ -4082,9 +4144,10 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         break;
     }
 
-done:
     // The single release, at 0x593A13.  Every arm above reaches it; the only
     // paths that skip it are the three early returns before the lock existed.
+    // Once the last paraphrase left, no arm needed to jump past a repaint any
+    // more, so the label the earlier drafts carried here is gone.
     pGame->GetObjectArray()->ReleaseDeny(nLeader,
         CGameObjectArray::THREAD_ASYNCH,
         INFINITE);
