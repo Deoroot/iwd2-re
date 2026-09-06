@@ -4525,13 +4525,10 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x4B:
         case 0x4C:
         case 0x4D:
-        case 0x4E:
-            // NOTE: unrecovered.  The binary's arm at 0x5933C3 first refuses a
-            // click on the already-selected button, then demands the slot's
-            // CSpell, builds a specialization mask through CRuleTables and
-            // gates the whole dispatch on CGameSprite::CanCast, feeding back
-            // the "beyond casting ability" string when it fails.  Only the
-            // tail below is reproduced.
+        case 0x4E: {
+            // Quick spell, arm at 0x5933C3.  Clicking the button that is
+            // already selected only clears the selection, through the tail
+            // every action-bar arm shares at 0x592E59.
             if (m_nSelectedButton == nButtonType) {
                 g_pBaldurChitin->GetObjectGame()->SetState(0);
                 SetSelectedButton(100);
@@ -4539,15 +4536,65 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 break;
             }
 
-            g_pBaldurChitin->GetObjectGame()->SetState(0);
-            SetSelectedButton(nButtonType);
-            pSprite->SetModalState(0, 0);
-            UpdateButtons();
-            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x46), 2);
-            if (g_pBaldurChitin->GetObjectGame()->GetState() == 0) {
-                SetSelectedButton(100);
+            CButtonData* pButtonData = new CButtonData();
+            GetSelectedQuickSlotData(static_cast<BYTE>(nButtonType - 0x46),
+                pButtonData, 2);
+
+            // The gate the spellbook picker pays at 0x591502, with no
+            // grey-out escape: the action bar always demands the spell and
+            // always asks CanCast.  m_nTooltip carries the specialisation
+            // index here too, not a tooltip.
+            CSpell cSpell(pButtonData->m_abilityId.m_res);
+            cSpell.Demand();
+
+            BYTE nClass = pButtonData->m_abilityId.m_nClass;
+            DWORD nSpecialization = pGame->GetRuleTables().GetSpecializationMask(
+                nClass, static_cast<BYTE>(pButtonData->m_abilityId.m_nTooltip));
+            cSpell.Release();
+
+            if (!pSprite->CanCast(nClass, nSpecialization, &cSpell)) {
+                // The refusal jumps to the CSpell destructor at 0x59358A,
+                // one instruction PAST the operator delete at 0x593581, so
+                // the original leaks this CButtonData.  Reproduced.
+                pSprite->FeedBack(CGameSprite::FEEDBACK_89, 0, 0, 0,
+                    pGame->GetRuleTables().GetClassBeyondCastingAbilityStringRef(nClass),
+                    0, 0);
+                break;
             }
+
+            if (m_nState == 0x72
+                && pButtonData->m_abilityId.m_nClass == 3
+                && pButtonData->m_abilityId.m_nTooltip == 0
+                && g_pBaldurChitin->pActiveEngine->GetShiftKey() == 1
+                && !pButtonData->m_bDisabled) {
+                // NOTE: unrecovered.  The action bar's copy of the
+                // shift-click the spellbook picker also carries: the binary
+                // calls a CGameSprite method at 0x716770 with this entry and
+                // dispatches nothing.  That callee walks a two-dimensional
+                // resref table hanging off CInfGame at +0x145C, sized by the
+                // words at +0x1464 and +0x1466 and column-picked by
+                // IcewindMisc::IsEvil, which is more than can be named from
+                // this arm.  The control flow is faithful; only the call is
+                // missing, so the shift-click does nothing rather than
+                // something wrong.
+            } else {
+                g_pBaldurChitin->GetObjectGame()->SetState(0);
+                SetSelectedButton(nButtonType);
+                pSprite->SetModalState(0, 0);
+                UpdateButtons();
+                // A test at 0x593547 that this arm makes here and the
+                // innate one hoists: an empty slot readies nothing.
+                if (m_buttonArray[buttonID].m_nCount > 0) {
+                    ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x46), 2);
+                }
+                if (g_pBaldurChitin->GetObjectGame()->GetState() == 0) {
+                    SetSelectedButton(100);
+                }
+            }
+
+            delete pButtonData;
             break;
+        }
         case 0x50:
         case 0x51:
         case 0x52:
@@ -4563,12 +4610,8 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x5F:
         case 0x60:
         case 0x61:
-        case 0x62:
-            // NOTE: unrecovered.  The binary's arm at 0x5935B5 matches the
-            // slot's resref against the five modal-feat abilities and, for
-            // Power Attack and Expertise, opens the feat-point picker in state
-            // 0x7B instead of firing; the other three flip a feat rank and post
-            // the matching effect.  Only the tail below is reproduced.
+        case 0x62: {
+            // Quick innate, arm at 0x5935B5.
             if (m_nSelectedButton == nButtonType) {
                 g_pBaldurChitin->GetObjectGame()->SetState(0);
                 SetSelectedButton(100);
@@ -4576,14 +4619,89 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
                 break;
             }
 
+            // Unlike the quick-spell arm this one selects FIRST and asks
+            // what the slot holds afterwards.
             g_pBaldurChitin->GetObjectGame()->SetState(0);
             SetSelectedButton(nButtonType);
             pSprite->SetModalState(0, 0);
-            ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x5A), 4);
+
+            CButtonData* pButtonData = new CButtonData();
+            GetSelectedQuickSlotData(static_cast<BYTE>(nButtonType - 0x5A),
+                pButtonData, 4);
+
+            // The five modal feats, as the innate picker at 0x59256C has
+            // them -- but this arm opens the point picker with a plain
+            // SetState instead of a flag, and it has no UseInnateAction
+            // fallback: an ability that is none of the five falls straight
+            // through to the tail.
+            if ((pButtonData->m_abilityId.m_res == CGameSprite::SPIN275
+                    && pSprite->HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK))
+                || (pButtonData->m_abilityId.m_res == CGameSprite::SPIN276
+                    && pSprite->HasFeat(CGAMESPRITE_FEAT_EXPERTISE))) {
+                m_currentAbilityResRef = pButtonData->m_abilityId.m_res;
+                SetState(0x7B, 1);
+                delete pButtonData;
+                break;
+            }
+
+            // Read at 0x5936A6, before any branch below touches anything:
+            // an empty slot readies nothing.
+            BOOL bReady = m_buttonArray[buttonID].m_nCount > 0;
+
+            if (pButtonData->m_abilityId.m_res == CGameSprite::SPIN277) {
+                pSprite->SetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE,
+                    pSprite->GetFeatRank(CGAMESPRITE_FEAT_ARTERIAL_STRIKE) > 0 ? 0 : 1);
+
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect,
+                    ICEWIND_CGAMEEFFECT_FEATARTERIALSTRIKE);
+                effect.durationType = 1;
+
+                CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                    pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                CMessage* pMsg = new CMessageAddEffect(pEffect,
+                    pSprite->GetId(), pSprite->GetId());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            } else if (pButtonData->m_abilityId.m_res == CGameSprite::SPIN278) {
+                pSprite->SetFeatRank(CGAMESPRITE_FEAT_HAMSTRING,
+                    pSprite->GetFeatRank(CGAMESPRITE_FEAT_HAMSTRING) > 0 ? 0 : 1);
+
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect,
+                    ICEWIND_CGAMEEFFECT_FEATHAMSTRING);
+                effect.durationType = 1;
+
+                CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                    pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                CMessage* pMsg = new CMessageAddEffect(pEffect,
+                    pSprite->GetId(), pSprite->GetId());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            } else if (pButtonData->m_abilityId.m_res == CGameSprite::SPIN279) {
+                pSprite->SetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT,
+                    pSprite->GetFeatRank(CGAMESPRITE_FEAT_RAPID_SHOT) > 0 ? 0 : 1);
+
+                ITEM_EFFECT effect;
+                CGameEffect::ClearItemEffect(&effect,
+                    ICEWIND_CGAMEEFFECT_FEATRAPIDSHOT);
+                effect.durationType = 1;
+
+                CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect,
+                    pSprite->GetPos(), pSprite->GetId(), CPoint(-1, -1));
+                CMessage* pMsg = new CMessageAddEffect(pEffect,
+                    pSprite->GetId(), pSprite->GetId());
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            }
+
+            if (bReady) {
+                ReadyQuickSlotByMode(static_cast<SHORT>(nButtonType - 0x5A), 4);
+            }
             if (g_pBaldurChitin->GetObjectGame()->GetState() == 0) {
                 SetSelectedButton(100);
             }
+
+            delete pButtonData;
             break;
+        }
         case 0x6E:
         case 0x6F:
         case 0x70:
@@ -4593,15 +4711,20 @@ void CInfButtonArray::OnLButtonPressed(int buttonID)
         case 0x74:
         case 0x75:
         case 0x76:
-            // NOTE: unrecovered.  The binary's arm at 0x59393C reads the quick
-            // song slot through the shared helper at 0x587F80 -- the same one
-            // UpdateButtons' four quick-slot banks take, still unnamed -- and
-            // hands the result to UseSongAction.  The modal branch below is
-            // faithful; the dispatch is not.
+            // Quick song, arm at 0x59393C.  A bard already singing stops
+            // instead of starting the slot's song; the tail below runs
+            // either way.
             if (pSprite->GetModalState() == 1) {
                 pSprite->SetModalState(0, 0);
                 SetSelectedButton(100);
+            } else {
+                CButtonData* pButtonData = new CButtonData();
+                GetSelectedQuickSlotData(static_cast<BYTE>(nButtonType - 0x6E),
+                    pButtonData, 6);
+                UseSongAction(pButtonData, 1);
+                delete pButtonData;
             }
+
             g_pBaldurChitin->GetObjectGame()->SetState(0);
             UpdateButtons();
             ClearPickerList();
