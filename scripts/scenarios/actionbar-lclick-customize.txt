@@ -1,0 +1,73 @@
+# Left clicks INSIDE the customize menu (0x75) and the quick-item picker
+# (0x78) -- the two arms of CInfButtonArray::OnLButtonPressed recovered from
+# 0x592B01 and 0x592271.  Every other customize scenario in this directory
+# reaches those states with the RIGHT button, which runs a different handler
+# entirely; this one is the left-button twin.  Matches
+#   frida_orig.py --click 1:0 --rclick 1:13 --click 1:9 --click 1:6 \
+#                 --rclick 1:13 --click 1:6
+#
+# What each step is FOR -- the point of the route is the state SEQUENCE after
+# each click, not the bar it paints:
+#
+#   click 1:0    portrait 0                              -> 0x72
+#   rclick 1:13  slot 7 is type 0x5E, whose right click  -> 0x75
+#   click 1:9    slot 3 is type 0x26, the only entry of
+#                the eight that goes somewhere by name   -> 0x78
+#   click 1:6    slot 0 is type 0x50.  It is GREYED, and
+#                that is deliberate: the left-button gate
+#                lets 0x50..0x52 through in every state
+#                but 0x72 and 0x66, so the click lands on
+#                the arm's TAKE branch, which is the one
+#                that unwinds the stack in one go with
+#                PopState(0, 1)                          -> the bar the
+#                                                            sequence started
+#                                                            from
+#   rclick 1:13  back into the customize menu            -> 0x75
+#   click 1:6    slot 0 is type 0x23, an ordinary entry:
+#                writes 5 into the slot and steps back a
+#                SINGLE level with PopState(0, 0)        -> 0x72
+#
+# The last two steps are what separates the recovered arms from the
+# paraphrase they replaced: the paraphrase sent both exits to
+# SetState(0x72, 0), which happens to look right from a 0x72 that was one
+# level down and would NOT be right from anywhere deeper.
+#
+# MEASURED, and the state sequence is only half of it.  The original walks
+#   0x6E -> 0x72 -> 0x75 -> 0x78 -> 0x72 -> 0x75 -> 0x72
+# and the step that proves the unwind is the fourth: PopState(0, 1) takes the
+# deque's BACK, which is the 0x72 pushed first, so the click lands there.  Had
+# that arm taken the front the way its neighbour does it would have landed on
+# 0x75, since SetState pushes to the front and 0x75 was pushed last.
+#
+# The other half is slot 7 of the 0x72 bar, which is the customize slot this
+# route rebinds.  Across the three visits the ORIGINAL reported (* = greyed):
+#
+#   0x72  07  3C  3D  05  03  48* 49* 5E  50* 51* 52* 0A     (before)
+#   0x75  23  24  25  26  27  64* 64* 64* 64* 64* 29  2A
+#   0x78  50* 51* 52* 64* 64* 64* 64* 64* 64* 64* 64* 64*
+#   0x72  07  3C  3D  05  03  48* 49* 50* 50* 51* 52* 0A     (0x78 wrote 0x50)
+#   0x75  23  24  25  26  27  64* 64* 64* 64* 64* 29  2A
+#   0x72  07  3C  3D  05  03  48* 49* 05  50* 51* 52* 0A     (0x75 wrote 0x05)
+#
+# So the two writes the arms make are visible in the bar itself: 5E -> 50 ->
+# 05.  A run that reproduces the sequence but leaves slot 7 at 5E has the
+# navigation right and the write missing.
+#
+# Slot N is control N+6; portraits are controls 0..5 of the same panel.
+#
+# waitgo first: the crash guard only attaches once the save reports loaded.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 45
+rclick 1 13
+sleep 45
+click 1 9
+sleep 45
+click 1 6
+sleep 45
+rclick 1 13
+sleep 45
+click 1 6
+sleep 60
