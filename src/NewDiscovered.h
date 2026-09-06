@@ -937,7 +937,10 @@ void RemoveAll(); // 0x7FB278
 void FUN_007fb298(); // 0x7FB298
 void FUN_007fb2c1(); // 0x7FB2C1
 void AddHead(); // 0x7FB319
-void FUN_007fb343(); // 0x7FB343
+// Unlinks the node at +8 and relinks through pPrev, blanking the head at +4
+// when the list empties -- the mirror image of RemoveHead at 0x7FBE77, which
+// unlinks +4 and relinks through pNext.  ClearPickerList calls the latter.
+void RemoveTail(); // 0x7FB343
 void FUN_007fb367(); // 0x7FB367
 void FUN_007fb3a6(); // 0x7FB3A6
 void FUN_007fb3e3(); // 0x7FB3E3
