@@ -32,8 +32,19 @@ input block in DRIVER_JS.  Each step below it is there because a measured run
 failed without it; the reasons are in the comments, and none of them are guessable
 from the decompile.
 
---load-slot is a VISIBLE ROW of the load screen, the same number our build's
---slot takes (CScreenLoad.cpp:240-246), so the two sides stay comparable.
+WHICH SAVE: use --load-name, not a row.  --load-slot is a VISIBLE ROW of the load
+screen, the same number our build's --slot takes (CScreenLoad.cpp:240-246), but a
+row is not a save: the screen shows 5 of however many saves exist and opens
+ALREADY SCROLLED, so the row of a given save is neither its folder order nor its
+alphabetical index, and asking for a row that is empty crashed the original
+outright (LoadGame's range check is CUtil::UtilAssert, which returns).
+--load-name takes the MPSave folder name, the same string our build's
+auto_start_game.py --save-name takes, so the two sides stay comparable without
+either of them depending on scroll position; --load-index takes an absolute
+m_aGameSlots index.  Both are reached by setting m_nTopGameSlot and asking for
+row 0, which is the scroll the UI itself would have done.  Every run lists all
+the slots it found (`SLOTS`/`slot[i]` in <out>.status) before driving anything,
+and refuses rather than dereferences when the target is empty.
 --load-slot -1 leaves the game at the menu, for startup/menu/network traces.
 
 NOT for our build: its addresses are a different image entirely, and the debug
@@ -42,8 +53,12 @@ our side with Iwd2DebugLog and diff the two logs -- docs/frida-differential-trac
 
 Output contract (what vm.sh trace parses, and what to read by hand):
   <out>          JSONL, one record per hook hit, fsync'd per line
-  <out>.status   plain lines: `loaded: ...`, `HITS <name> <n>`, `RESULT: <verdict>`
-Verdicts: CLEAN 0 | CRASH 1 | NOT-LOADED 2 | NOT-EXERCISED 2.
+  <out>.status   plain lines: `SLOTS`/`slot[i]`, `LOADING`, `loaded: ...`,
+                 `ASSERT <file>:<line>`, `HITS <name> <n>`, `RESULT: <verdict>`
+  <out>.asserts  JSONL the hook writes ITSELF, on the asserting thread
+Verdicts: CLEAN 0 | CRASH 1 | NOT-LOADED 2 | NOT-EXERCISED 2
+        | SCRIPT-ERROR 2 (the script never compiled, so nothing was installed)
+        | ASSERT-BLOCKED 2 (the game refused, and said which assert).
 NOT-LOADED and NOT-EXERCISED both mean "ran, proved nothing" -- exit 2, never a
 silent pass (see the --hit lesson behind vm.sh smoke).
 
@@ -104,6 +119,91 @@ WORLD_ACTIVATED = 0x6869C0   # CScreenWorld::EngineActivated -- the "loaded" sig
 MP_ACTIVATED    = 0x648ED0   # CScreenMultiPlayer::EngineActivated (Character Arbitration)
 MP_PANEL, MP_DONE = 0, 28    # GUIMP Done button (CUIControlFactory.cpp:583)
 PLAY_MOVIE_INT  = 0x43F230   # CBaldurProjector::PlayMovieInternal(const CResRef&, BOOL)
+UTIL_ASSERT     = 0x780C00   # CUtil::UtilAssert(INT nLine, LPCSTR pFile, LPCSTR pExpr, LPCSTR pMsg)
+
+# A failed assert in the original is a MODAL DIALOG, and until this hook existed
+# it was completely invisible from here: the driver just sat there until --timeout
+# and reported NOT-LOADED with no reason, because nothing it watches ever fires.
+# (Found the hard way -- the only evidence was a human looking at the screen.)
+# The arg order is read off the call sites: `push msg; push expr; push file;
+# push line; call 0x780C00; add esp,0x10` -- cdecl, caller cleans -- and
+# UtilAssert+0x10 hands the SECOND arg to strrchr(s,'\\'), which only makes
+# sense for the file path.  A NULL msg is reported by the game itself as
+# "no msg." (0x8B99AC), so it is passed through as-is rather than special-cased.
+#
+# MEASURED LIMIT, s51: this catches CUtil::UtilAssert and nothing else, and there
+# is at least one assert it does NOT catch.  Loading either Prologue save puts up
+# "An Assertion failed in CGameEffect.cpp at line number 1744 / Unknown effect id:
+# 17989", and across four runs this hook logged nothing for it -- not a delivery
+# problem, since the install-time `assertLogReady` line reaches the log fine on
+# the same runs.  The static read says it should fire: scanning the image for
+# `push 1744` (68 d0 06 00 00) finds one plausible site, 0x492C81, whose next
+# bytes are `e8 75 df 2e 00` = call 0x780C00.  So a second path into
+# CChitin::ShutDown (0x7909C0, which owns the dialog's format string 0x8BA0CC)
+# reaches the same dialog without passing through here -- most likely a site that
+# loads the line number into a register, which that byte scan cannot see.
+# Until that path is found, an absent ASSERT line is NOT proof that no assert fired.
+#
+# UtilAssert is NOT noreturn here (it tail-jumps to an epilogue), so the game
+# does continue once a human clicks through.  --ignore-asserts is that click:
+# it swaps the whole function for a logging no-op, skipping the modal and the
+# CChitin::SuspendThreads that comes with it.  Off by default: skipping an
+# assert leaves the caller running on whatever the failed path produced (for
+# CGameEffect::CreateEffect, a function that falls off its end), so it is a
+# deliberate experiment, not a safety net -- the crash guard is still what
+# says whether the run survived it.
+ASSERT_JS = """
+const IGNORE_ASSERTS = %(ignore_asserts)d;
+const ASSERT_LOG = %(assert_log)s;
+
+function assertText(p) {
+  try { return p.isNull() ? null : p.readCString(); } catch (e) { return null; }
+}
+
+// Written from INSIDE the hook, on the asserting thread, before anything else
+// runs.  send() alone is not enough: UtilAssert calls CChitin::SuspendThreads
+// (0x780C57) before it puts the dialog up, and that freezes the thread Frida
+// delivers messages on -- so the record is queued and never arrives, and the
+// run looks like it simply stopped after the last drive step.  Costing two runs
+// to find, that is the same fsync lesson as gotcha 2 in frida_probe.py.
+function reportAssert(line, file, expr, msg) {
+  const f = assertText(file);
+  const rec = { tag: 'assert', line: line,
+                file: f === null ? null : f.split('\\\\').pop(),
+                expr: assertText(expr), msg: assertText(msg) };
+  try {
+    const fp = new File(ASSERT_LOG, 'a');
+    fp.write(JSON.stringify(rec) + '\\n');
+    fp.flush();
+    fp.close();
+  } catch (e) { send({ tag: 'assertLogError', error: '' + e }); }
+  send(rec);
+}
+
+// Prove the file channel works at install time rather than discovering at the
+// end of a five-minute run that the only record of an assert went nowhere.
+// Silently swallowing this is how an empty log got mistaken for "no assert".
+try {
+  const fp0 = new File(ASSERT_LOG, 'a');
+  fp0.write(JSON.stringify({ tag: 'assertLogReady' }) + '\\n');
+  fp0.flush();
+  fp0.close();
+} catch (e) { send({ tag: 'assertLogError', error: '' + e }); }
+
+if (IGNORE_ASSERTS) {
+  Interceptor.replace(ptr(%(util_assert)#x), new NativeCallback(
+    function (line, file, expr, msg) { reportAssert(line, file, expr, msg); },
+    // No ABI argument: cdecl IS Frida's x86 default, and naming it explicitly
+    // ('cdecl' is not one of the accepted spellings) fails the whole script with
+    // "invalid abi specified" -- which shows up only as a NOT-LOADED with an
+    // empty trace, since the script never installs anything.
+    'void', ['int', 'pointer', 'pointer', 'pointer']));
+} else {
+  Interceptor.attach(ptr(%(util_assert)#x), {
+    onEnter(args) { reportAssert(args[0].toInt32(), args[1], args[2], args[3]); }
+  });
+}
+"""
 
 # The intro movies are not cosmetic here, they are a hard block: the connection
 # screen runs ONE update, then PlayMovieInternal does SelectEngine(projector)
@@ -124,6 +224,15 @@ Interceptor.replace(ptr(%(play_movie)#x), new NativeCallback(function (thiz, res
 # branch cluster and takes the game down with it (docs/frida-differential-tracing.md:101).
 DRIVER_JS = """
 const LOAD_SLOT = %(slot)d;
+const LOAD_NAME = %(load_name)s;    // MPSave folder name, or null
+const LOAD_INDEX = %(load_index)d;  // absolute m_aGameSlots index, or -1
+// CScreenLoad members, verified against CScreenLoad::LoadGame (0x63BE80):
+//   +0x1C4 m_bShiftKeyDown  +0x1C6 m_nTopGameSlot  +0x1CA m_nNumGameSlots
+//   +0x1D2 m_aGameSlots, whose CPtrArray data pointer is +0x1D6 -- the binary
+//   indexes it as [esi+0x1d6][ebx*4] at LoadGame+0xCA.  A slot's m_sFileName is
+//   the CString at slot+0: LoadGame+0xD2 pushes the slot pointer straight into
+//   the CString copy ctor, so the char* payload is *(void**)slot.
+const SCR_TOPSLOT = 0x1C6, SCR_NUMSLOTS = 0x1CA, SCR_SLOTDATA = 0x1D6;
 const SETTLE = %(settle)d;
 const FALLBACK_TICKS = %(fallback)d;
 let ticks = 0, settled = 0, inputReady = false, dismissed = false;
@@ -438,8 +547,59 @@ Interceptor.attach(ptr(%(load_activated)#x), {
   onLeave() {
     if (loading || LOAD_SLOT < 0) return;
     loading = true;
-    send({ tag: 'drive', step: 'LoadGame', slot: LOAD_SLOT });
-    LoadGame(this.thiz, LOAD_SLOT);
+    const scr = this.thiz;
+
+    // Enumerate m_aGameSlots BEFORE driving anything.  This is the whole point
+    // of the name/index path: the load screen shows GAME_SLOTS (5) rows out of
+    // however many saves exist and RefreshGameSlots opens it already scrolled
+    // (CScreenLoad.cpp:843), so a visible row is NOT a save's folder order and
+    // is not stable between runs.  Worse, RefreshGameSlots sizes the array from
+    // pGames->GetCount() but SKIPS the "default" folder while filling it, so the
+    // tail entry stays NULL while m_nNumGameSlots still counts it -- and
+    // LoadGame's own range assert is CUtil::UtilAssert, which RETURNS
+    // (0x63BEAB falls through), so an out-of-range or NULL slot is not caught by
+    // the game: it dereferences and takes the process to the desktop.  Reading
+    // the names here turns that silent crash into a refusal with a listing.
+    const num = scr.add(SCR_NUMSLOTS).readS32();
+    const data = scr.add(SCR_SLOTDATA).readPointer();
+    const names = [];
+    for (let i = 0; i < num; i++) {
+      let nm = null;
+      try {
+        const slot = data.isNull() ? NULL : data.add(i * 4).readPointer();
+        if (!slot.isNull()) {
+          const s = slot.readPointer();   // CString payload: char* at slot+0
+          if (!s.isNull()) nm = s.readUtf8String();
+        }
+      } catch (e) { nm = null; }
+      names.push(nm);
+    }
+    send({ tag: 'drive', step: 'gameSlots', num: num,
+           top: scr.add(SCR_TOPSLOT).readS32(), names: names });
+
+    // Resolve to an ABSOLUTE index into m_aGameSlots, then reach it by setting
+    // m_nTopGameSlot and asking for row 0 -- LoadGame's only use of the row is
+    // nGameSlot = nSlot + m_nTopGameSlot (LoadGame+0x8D..0x9C), so this is the
+    // scroll the UI would have done, not a bypass of it.
+    let index = LOAD_INDEX;
+    if (LOAD_NAME !== null) {
+      index = names.indexOf(LOAD_NAME);
+      if (index < 0) {
+        send({ tag: 'drive', step: 'loadNameNotFound', name: LOAD_NAME });
+        return;
+      }
+    }
+    if (index < 0) index = LOAD_SLOT + scr.add(SCR_TOPSLOT).readS32();
+
+    if (index >= num || names[index] === null) {
+      send({ tag: 'drive', step: 'loadSlotEmpty', index: index, num: num });
+      return;
+    }
+
+    scr.add(SCR_TOPSLOT).writeS32(index);
+    send({ tag: 'drive', step: 'LoadGame', slot: 0,
+           index: index, name: names[index] });
+    LoadGame(scr, 0);
   }
 });
 
@@ -475,6 +635,8 @@ class Trace:
         self.loaded = False
         self.loaded_detail = ""
         self.crash = None
+        self.asserts: list[dict] = []
+        self.errors: list[dict] = []
         self.counts: dict[str, int] = {}
 
     def _write(self, fp, line: str) -> None:
@@ -493,6 +655,13 @@ class Trace:
     def on_message(self, message, data) -> None:
         if message["type"] != "send":
             self.record({"tag": "ERROR", "message": message})
+            # A script that failed to compile installs NOTHING, so every signal
+            # this class waits on stays silent and the run looks exactly like a
+            # driver that could not click.  Say so instead: an "invalid abi
+            # specified" cost a full run before this line existed.
+            self.errors.append(message)
+            desc = message.get("description") or message.get("type")
+            self.say(f"SCRIPT-ERROR {desc}")
             return
         payload = message["payload"]
         tag = payload.get("tag")
@@ -506,6 +675,57 @@ class Trace:
             self.say(f"loaded: {self.loaded_detail}")
         elif tag == "crash" and self.crash is None:
             self.crash = payload
+        elif tag == "assert":
+            self.asserts.append(payload)
+            self.say("ASSERT {file}:{line} {expr!r} {msg!r}".format(
+                file=payload.get("file"), line=payload.get("line"),
+                expr=payload.get("expr"), msg=payload.get("msg")))
+        elif tag == "drive":
+            # Surface the save-resolution steps in <out>.status too: a run that
+            # refuses to load has to say WHY there, not only in the JSONL, or it
+            # reads as an ordinary NOT-LOADED and the next session re-guesses the
+            # row (which is what six runs of s50 did).
+            step = payload.get("step")
+            if step == "gameSlots":
+                self.say(f"SLOTS num={payload.get('num')} top={payload.get('top')}")
+                for i, nm in enumerate(payload.get("names") or []):
+                    self.say(f"  slot[{i}] {nm if nm is not None else '<NULL>'}")
+            elif step == "LoadGame":
+                self.say(f"LOADING index={payload.get('index')} "
+                         f"name={payload.get('name')!r}")
+            elif step in ("loadNameNotFound", "loadSlotEmpty"):
+                self.say(f"REFUSED {step} {payload}")
+
+    def absorb_assert_log(self, path) -> None:
+        """Fold in asserts the JS wrote but send() never delivered.
+
+        The hook writes each assert to this file itself, on the asserting thread,
+        precisely because the message queue may never drain once the game
+        suspends its threads -- so at the end this file, not the message stream,
+        is the authority on whether an assert fired.
+        """
+        try:
+            lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        except OSError:
+            return
+        seen = {json.dumps(a, sort_keys=True) for a in self.asserts}
+        for line in lines:
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            # The log also carries the install-time `assertLogReady` marker, and
+            # counting that as an assert both prints `ASSERT None:None` and makes
+            # a NOT-LOADED run claim ASSERT-BLOCKED.
+            if rec.get("tag") != "assert":
+                continue
+            if json.dumps(rec, sort_keys=True) in seen:
+                continue
+            self.asserts.append(rec)
+            self.record(rec)
+            self.say("ASSERT {file}:{line} {expr!r} {msg!r}".format(
+                file=rec.get("file"), line=rec.get("line"),
+                expr=rec.get("expr"), msg=rec.get("msg")))
 
     def finish(self, drove: bool, hit: str | None, hit_min: int) -> int:
         for name, n in sorted(self.counts.items()):
@@ -517,6 +737,14 @@ class Trace:
             for frame in c.get("frames") or []:
                 self.say(f"  frame {frame}")
             verdict, rc = "CRASH", 1
+        elif self.errors:
+            verdict, rc = "SCRIPT-ERROR", 2
+        elif drove and not self.loaded and self.asserts:
+            # A run that never loaded AND tripped an assert did not fail to be
+            # driven -- the game refused, and it said why.  Reporting that as a
+            # plain NOT-LOADED sends the next session hunting the driver.
+            a = self.asserts[0]
+            verdict, rc = f"ASSERT-BLOCKED ({a.get('file')}:{a.get('line')})", 2
         elif drove and not self.loaded:
             verdict, rc = "NOT-LOADED", 2
         elif hit and self.counts.get(hit, 0) < hit_min:
@@ -553,15 +781,21 @@ class ClickAction(argparse.Action):
 
 
 def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True,
-             clicks: list | None = None, click_settle: int = 60) -> str:
+             clicks: list | None = None, click_settle: int = 60,
+             load_name: str | None = None, load_index: int = -1,
+             ignore_asserts: bool = False, assert_log: str = "") -> str:
     hooks = spec["hooks"]
-    blocks = ["'use strict';", PRELUDE, CRASH_JS]
+    blocks = ["'use strict';", PRELUDE, CRASH_JS,
+              ASSERT_JS % {"util_assert": UTIL_ASSERT,
+                           "ignore_asserts": int(ignore_asserts),
+                           "assert_log": json.dumps(str(assert_log or ""))}]
     if skip_movies:
         blocks.append(SKIP_MOVIES_JS % {"play_movie": PLAY_MOVIE_INT})
     # Always installed: with --load-slot -1 the driving halves self-gate, but the
     # "loaded" signal is still worth having.
     blocks.append(DRIVER_JS % {
         "slot": slot, "settle": settle, "fallback": max(600, settle * 30),
+        "load_name": json.dumps(load_name), "load_index": load_index,
         "conn_update": CONN_UPDATE, "conn_ready": CONN_READY,
         "conn_dismiss": CONN_DISMISS,
         "uimgr_update": UIMGR_UPDATE, "uimgr_off": UIMGR_OFF,
@@ -594,6 +828,20 @@ def main() -> int:
     ap.add_argument("--status", help="verdict file (default: <out>.status)")
     ap.add_argument("--load-slot", type=int, default=3,
                     help="visible load-screen row to load; -1 leaves the game at the menu")
+    ap.add_argument("--load-name",
+                    help="MPSave folder name to load, e.g. '000000000-Autosave - Prologue'. "
+                         "Resolved against m_aGameSlots and reached by setting "
+                         "m_nTopGameSlot, so it does not depend on which rows are "
+                         "visible. Overrides --load-index and the row of --load-slot")
+    ap.add_argument("--ignore-asserts", action="store_true",
+                    help="swap CUtil::UtilAssert for a logging no-op so a failed "
+                         "assert does not stop the run on its modal dialog. Asserts "
+                         "are ALWAYS logged; this only skips the dialog, and it "
+                         "leaves the caller running on a failed path -- read the "
+                         "crash guard before trusting anything measured after one")
+    ap.add_argument("--load-index", type=int, default=-1,
+                    help="absolute m_aGameSlots index to load (alphabetical order, "
+                         "as CInfGame::GetSaveGames built it); overrides --load-slot's row")
     ap.add_argument("--settle-ticks", type=int, default=10,
                     help="menu update ticks to wait AFTER the enumeration popup clears")
     ap.add_argument("--post-load", type=float, default=20.0,
@@ -621,6 +869,10 @@ def main() -> int:
     spec = json.loads(Path(ns.hooks).read_text())
     out = Path(ns.out)
     status = Path(ns.status) if ns.status else Path(str(out) + ".status")
+    # Its own file, truncated up front, because the JS appends to it directly and
+    # a leftover from the previous run would read as this run's asserts.
+    assert_log = Path(str(out) + ".asserts")
+    assert_log.write_text("", encoding="utf-8")
     trace = Trace(out, status)
     trace.say(f"=== spawning {ns.exe} (slot {ns.load_slot}, {len(spec['hooks'])} hooks) ===")
 
@@ -629,7 +881,10 @@ def main() -> int:
     script = session.create_script(
         build_js(spec, ns.load_slot, ns.settle_ticks, ns.skip_movies,
                   clicks=ns.clicks or [],
-                  click_settle=ns.click_settle))
+                  click_settle=ns.click_settle,
+                  load_name=ns.load_name, load_index=ns.load_index,
+                  ignore_asserts=ns.ignore_asserts,
+                  assert_log=str(assert_log)))
     script.on("message", trace.on_message)
     script.load()
     frida.resume(pid)
@@ -646,6 +901,7 @@ def main() -> int:
             break
         time.sleep(0.5)     # gotcha 1: there is no stdin to block on
 
+    trace.absorb_assert_log(assert_log)
     rc = trace.finish(drove=ns.load_slot >= 0, hit=ns.hit, hit_min=ns.hit_min)
 
     # Kill policy: the original is fair to kill once the trace is done -- leaving
