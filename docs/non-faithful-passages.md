@@ -55,6 +55,51 @@ Code that runs but does something measurably different from the binary.
 | `CScreenMap.cpp:2205,2262`, `CScreenStore.cpp:5082,5818`, `CStore.cpp:114` | "Slightly different." | — |
 | `CScreenConnection.cpp:3510`, `CScreenCreateChar.cpp:4962`, `CInfCursor.cpp:484` | "Slightly different" (loop/inlining). | — |
 
+### Our save files are rejected by the original 🔴 (measured s51, writer not yet found)
+
+A save written by our build can be **unloadable in `IWD2.exe`**. Loading either
+Prologue save in the original puts up a modal assert and stops there:
+
+```
+An Assertion failed in CGameEffect.cpp at line number 1744
+Programmer says: Unknown effect id:  17989
+```
+
+That is `CGameEffect::CreateEffect`'s factory falling off the end of its `switch`
+(`CGameEffect.cpp:1076`). **17989 is `0x4645`, which is the ASCII `"EF"` of an
+`"EFF V2.0"` signature read as a 16-bit opcode** — the original is reading the
+signature itself as the effect id, so the block is in a shape it does not expect
+at that spot.
+
+What the bytes say, measured over all ten saves in `MPSave`:
+
+- Exactly two saves carry an `"EFF V2.0"` block inside `ICEWIND2.GAM`
+  (`000000000-Autosave - Prologue` and `000000010-Bard Prologue`, both at
+  offset `0x4366`), and those are **exactly** the two the original refuses.
+- Every other save has effects only inside the zlib-packed `ICEWIND2.SAV`
+  area entries, and every one of those loads clean — `000000007-Staircase
+  Transition` gives `RESULT: CLEAN (RenderButton hit x53)`.
+- The block sits immediately after that party member's inventory resrefs
+  (`00BOWS01`, `00AROW01`), i.e. inside an embedded party CRE.
+- Its declared opcode is a sane 435, and its tail is
+  `cc cc cc cc cc cc cc cc` — **MSVC uninitialised-stack fill**, so the block
+  was written by a Debug build over memory it never set.
+
+So our writer emits the 8-byte `"EFF "`/`"V2.0"` signature (and some
+uninitialised tail) where the original expects a bare effect structure whose
+first field is the opcode. The writing site is **not yet identified** — this
+entry records the measurement, not a diagnosis.
+
+Why it matters beyond save compatibility: it silently blocks every
+`frida_orig.py` differential against a party saved by our build, which is the
+project's main tool for answering runtime questions. It is what stopped s51 from
+diffing the bard arm against the original. Reproduce with:
+
+```
+.venv-reagent\Scripts\python.exe scripts\frida_orig.py --hooks <table> \
+    --out c:\tmp\o.jsonl --load-name "000000010-Bard Prologue"
+```
+
 ### Suspected-wrong (flagged by the author)
 | File:line | Note |
 |-----------|------|
