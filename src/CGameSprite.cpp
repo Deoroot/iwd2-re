@@ -18355,8 +18355,7 @@ void CGameSprite::ApplyTriggers()
 BOOL CGameSprite::HandleEffects()
 {
     BOOL bRetry;
-    BOOL v1;
-    BOOL v2;
+    BOOL bResult;
 
     do {
         bRetry = FALSE;
@@ -18370,13 +18369,40 @@ BOOL CGameSprite::HandleEffects()
 
         m_activeImprisonment = TRUE;
 
-        // TODO: Incomplete.  Original handles many more passes and status
-        // side-effects (e.g. the portrait/button refresh at 0x7346c5); this
-        // restores the core equipped/timed list pass and the skill-modifier fold.
+        // At 0x7345C2, field_72E2 is only ever written by the constructor, which
+        // sets it to INVALID_INDEX, and GetDeny answers that with BAD_INDEX
+        // before touching the array -- so this loop leaves at once and the
+        // SUCCESS branch is unreachable in the shipped binary.
+        CGameObject* pObject;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(field_72E2,
+                CGameObjectArray::THREAD_ASYNCH,
+                &pObject,
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc == CGameObjectArray::SUCCESS) {
+            // NOTE: unrecovered -- 0x555200 is called here with pObject as
+            // `this`; it walks an id list at +0x232 and ORs 0x20 into +0x86 of
+            // each object it names. The owning class is not identified.
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(field_72E2,
+                CGameObjectArray::THREAD_ASYNCH,
+                INFINITE);
+        }
+
         m_bonusStats.BonusInit();
 
-        v1 = m_equipedEffectList.HandleList(this);
-        v2 = m_timedEffectList.HandleList(this);
+        bResult = TRUE;
+        bResult &= m_equipedEffectList.HandleList(this);
+        if (m_equipedEffectList.m_retry) {
+            bRetry = TRUE;
+        }
+
+        bResult &= m_timedEffectList.HandleList(this);
+        if (m_timedEffectList.m_retry) {
+            bRetry = TRUE;
+        }
 
         m_derivedStats += m_bonusStats;
 
@@ -18396,10 +18422,17 @@ BOOL CGameSprite::HandleEffects()
             m_derivedStats.m_nSkills[index] = (nSkill > 0) ? static_cast<BYTE>(nSkill) : 0;
         }
 
-        bRetry = m_equipedEffectList.m_retry || m_timedEffectList.m_retry;
+        // At 0x7346C5 the selected character's action bar is rebuilt from the
+        // stats just recomputed. This is what repaints the bar after a modal
+        // state change (bard song started or stopped) -- measured in the
+        // original as SetState(m_nState, 0) via UpdateState from 0x734709.
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter() == pGame->GetCharacterPortraitNum(m_id)) {
+            g_pBaldurChitin->GetObjectGame()->m_cButtonArray.UpdateState();
+        }
     } while (bRetry);
 
-    return v1 && v2;
+    return bResult;
 }
 
 // 0x7349A0

@@ -16,6 +16,9 @@ Hook spec (JSON):
       "globals": [ {"chain": ["0x8CF6D8", "0x104C"], "type": "u32",
                     "label": "idLocalPlayer"} ],
       "bt": true,                     // 8-frame EBP walk on entry
+      "caller": true,                 // the immediate return address -- the
+                                      // EBP walk starts a frame up, and the
+                                      // original omits frame pointers anyway
       "ret": "s32",                   // log retval onLeave
       "max": 200 }                    // stop after N hits (default 500)
   ]
@@ -121,6 +124,8 @@ def js_for_hook(h, idx):
     for g in h.get("globals", []):
         label = g.get("label", "g_" + str(g["chain"][0]))
         fields.append(f"'{label}': guard(() => {_global_js(g)})")
+    if h.get("caller"):
+        fields.append("caller: this.returnAddress.toString()")
     if h.get("bt"):
         fields.append("bt: guard(() => ebpwalk(this.context.ebp, 8))")
     parts.append("    send({ " + ", ".join(fields) + " });")
