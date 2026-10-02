@@ -39,12 +39,12 @@ All numbers below are measured directly from the repo. Regenerate them anytime:
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **`.text` code recovered** | **~78.9%** (3,534,206 / 4,479,215 bytes) | Byte-weighted — the real 'how much engine is rebuilt' figure. Big functions count more than stubs. |
-| **Functions recovered** | **~83.7%** (8,386 / 10,022) | By count, against the functions that actually exist to be recovered. Excludes 19,646 `Unwind@`/`Catch@` SEH funclets and thunks — compiler-generated exception plumbing Ghidra defines a function for. **1,636 left.** |
-| **Functions named in Ghidra** | 69.0% (6,914 / 10,022) | Metadata only — 3,108 still `FUN_`/`sub_`. Naming ≠ recovery. |
-| *(legacy)* Recovered vs raw entries | 37.5% (11,124 / 29,668) | The number this table used to publish. Its denominator is two thirds SEH funclets, so it understates progress by ~2.2x. |
-| **Source code** | 318,042 lines | 426 `.cpp`/`.h` files |
-| **TODO / FIXME** | 838 | 118 files; 260 are `TODO: Incomplete` stubs |
+| **`.text` code recovered** | **~81.4%** (3,644,561 / 4,479,215 bytes) | Byte-weighted — the real 'how much engine is rebuilt' figure. Big functions count more than stubs. |
+| **Functions recovered** | **~84.8%** (8,615 / 10,165) | By count, against the functions that actually exist to be recovered. Excludes 19,646 `Unwind@`/`Catch@` SEH funclets and thunks — compiler-generated exception plumbing Ghidra defines a function for. **1,550 left.** |
+| **Functions named in Ghidra** | 69.4% (7,059 / 10,165) | Metadata only — 3,106 still `FUN_`/`sub_`. Naming ≠ recovery. |
+| *(legacy)* Recovered vs raw entries | 38.3% (11,428 / 29,811) | The number this table used to publish. Its denominator is two thirds SEH funclets, so it understates progress by ~2.2x. |
+| **Source code** | 340,286 lines | 430 `.cpp`/`.h` files |
+| **TODO / FIXME** | 798 | 118 files; 213 are `TODO: Incomplete` stubs |
 | **Unnamed fields** | 659 unique | `field_XXX` members awaiting names |
 
 **A correction, 2026-07-31.** This table used to report *~37% of functions recovered (11,062 / 29,663)*. That denominator was wrong. Ghidra defines a function for every SEH funclet, and **19,599 of those ~29.7k entries are `Unwind@...` blocks**, plus 33 `Catch@...` and a handful of thunks — compiler-generated exception plumbing that nobody reverse-engineers. Measured against the functions that actually exist to be recovered, the figure is **83.7%**, and the remaining backlog is **~1,636 functions rather than ~18,500**. The old number is kept in the table as a *(legacy)* row so the published history stays traceable. The same inflation hit the naming figure: ~89% was really 69%.
@@ -52,6 +52,38 @@ All numbers below are measured directly from the repo. Regenerate them anytime:
 **Two numbers, two different things.** *Named in Ghidra* (69%) is cheap metadata — it says a human or a script put a label on an address, not that any C++ exists. **The byte-weighted `.text` figure (~78.9%)** remains the one that reflects how much engine has been rebuilt, because it counts a 2000-instruction function for what it is and a 5-byte stub for what it is. It now sits close to the function count (83.7%), which is what you would expect once the funclets stop distorting the denominator. (The function-size denominator is derived from Ghidra's entry addresses and validated against the PE — the sum matches `.text` VirtualSize to within 2 bytes.)
 
 > `src/NewDiscovered.h` is a **stale manual scratch list** of uncategorized `FUN_` addresses. It is **not `#include`d anywhere** and covers only about a third of the functions still anonymous in Ghidra. Don't treat its header count as a real backlog figure — use `scripts/project_status.py`.
+
+### Progress by subsystem (measured)
+
+<!-- progress-badges:begin -->
+
+![recovered](docs/badges/recovered.svg) ![code bytes](docs/badges/code-bytes.svg) ![complete](docs/badges/complete.svg) ![parity green](docs/badges/parity-green.svg)
+
+![Creatures](docs/badges/group-creatures.svg) ![Script engine](docs/badges/group-script-engine.svg) ![Effects](docs/badges/group-effects.svg) ![Animations](docs/badges/group-animations.svg) ![Projectiles & VFX](docs/badges/group-projectiles-vfx.svg) ![Areas & objects](docs/badges/group-areas-objects.svg) ![Game rules & items](docs/badges/group-game-rules-items.svg) ![Messages & network](docs/badges/group-messages-network.svg) ![Screens](docs/badges/group-screens.svg) ![UI controls](docs/badges/group-ui-controls.svg) ![Video & rendering](docs/badges/group-video-rendering.svg) ![Resources & files](docs/badges/group-resources-files.svg) ![Sound & music](docs/badges/group-sound-music.svg) ![Engine core](docs/badges/group-engine-core.svg) ![Unclassified](docs/badges/group-unclassified.svg)
+
+| Subsystem | Functions | Recovered | Bytes | Complete | Parity GREEN | Parity RED | Left |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Creatures | 625 | 535 (86%) | 83% | 522 (84%) | 78% | 0 | 90 |
+| Script engine | 453 | 437 (96%) | 97% | 433 (96%) | 63% | 0 | 16 |
+| Effects | 803 | 796 (99%) | 100% | 791 (99%) | 73% | 0 | 7 |
+| Animations | 487 | 467 (96%) | 96% | 465 (95%) | 80% | 0 | 20 |
+| Projectiles & VFX | 218 | 201 (92%) | 96% | 195 (89%) | 84% | 0 | 17 |
+| Areas & objects | 484 | 468 (97%) | 97% | 458 (95%) | 82% | 0 | 16 |
+| Game rules & items | 474 | 445 (94%) | 86% | 434 (92%) | 78% | 0 | 29 |
+| Messages & network | 878 | 781 (89%) | 85% | 748 (85%) | 61% | 0 | 97 |
+| Screens | 1,077 | 1,032 (96%) | 95% | 990 (92%) | 79% | 0 | 45 |
+| UI controls | 1,539 | 1,267 (82%) | 96% | 1,254 (81%) | 53% | 0 | 272 |
+| Video & rendering | 395 | 378 (96%) | 97% | 333 (84%) | 74% | 0 | 17 |
+| Resources & files | 365 | 328 (90%) | 97% | 327 (90%) | 73% | 0 | 37 |
+| Sound & music | 191 | 187 (98%) | 99% | 187 (98%) | 76% | 0 | 4 |
+| Engine core | 251 | 201 (80%) | 82% | 195 (78%) | 60% | 0 | 50 |
+| Unclassified | 796 | 138 (17%) | 15% | 138 (17%) | 40% | 0 | 658 |
+| **Total (game code)** | 9,036 | 7,661 (85%) | 87% | 7,470 (83%) | 70% | 0 | 1,375 |
+| *Runtime library (not counted)* | 1,127 | 954 (85%) | 91% | 954 (85%) | 50% | 0 | 173 |
+
+*Generated by `scripts/progress_badges.py --write`. **Recovered** = C++ exists (a `// 0xADDR` marker). **Complete** = recovered with no `TODO: Incomplete`, as a share of ALL functions. **Parity GREEN** = share of the recovered functions the offline parity sweep finds no fault in (sweep of 2026-10-02), and **Parity RED** = how many it flags as a likely faithfulness break -- a lint, not a proof against the binary. 144 recovered functions are left out of both parity columns because the sweep could not match them to a source body. 736 functions are placed in a subsystem by their neighbours' class, not their own name; edit `scripts/progress_groups.json` to regroup. Linked-in library code (import thunks, MFC, the C runtime) is shown but kept out of every total, which is why the totals here are lower than `project_status.py`'s, which count it.*
+
+<!-- progress-badges:end -->
 
 ### Subsystem recovery (high level)
 

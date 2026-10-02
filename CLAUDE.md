@@ -18,6 +18,7 @@ Paths: `/home/wills/iwd2-re/...` = host; `C:\iwd2-re\...`, `C:\GOG Games\...` = 
 | **Which session was the last one / where did it leave off** | `git tag -l 's[0-9]*' --sort=-v:refname \| head -1`, then `docs/sessions.md` (top row). Several sessions share a day, so the date does NOT identify one — the `sNN` tag does. **End every session by tagging and adding its row** |
 | **Verify a recovered fn (the whole sequence, one verdict)** | `scripts/arc.py verify 0xADDR` — see "arc" below. Don't run the 9 steps by hand |
 | **What to work on next** | `scripts/arc.py targets` (= `scripts/next_targets.py`); tracked top-40 in `docs/next-targets.md` |
+| **How much is left, per subsystem** (recovered / complete / parity GREEN) | `scripts/progress_badges.py` (table) / `--write` (README badges) / `--classes` (regroup via `scripts/progress_groups.json`). Fidelity column needs `parity_cache_sweep.py --skip-concat-swap --json docs/badges/parity.json` (~20 min on Windows) |
 | **Drive/inspect the UI yourself (menus, action bar, ground)** | `scripts/vm.sh smoke <slot> <secs> --ui scripts/scenarios/<s>.txt` — see "AutoUI" below. Don't hand-drive or ask the user first |
 | Find fn/class/global in src (file:line, 0xADDR, exact body) | `python3 scripts/src_find.py NAME` / `Class::Method --body` / `0xADDR` / `Class:: -l` / `--file f.cpp` |
 | Quick look at a binary fn (sig, callees, callers, strings) | `python3 scripts/fn_digest.py 0xADDR\|Name` (`--full` → tmp file path) |

@@ -67,7 +67,17 @@ def main() -> int:
     ap.add_argument("--config", default=str(REPO / "re-agent.host.yaml"))
     ap.add_argument("--filter", default=None, help="regex on symbol/class")
     ap.add_argument("--signal", default=None, help="only show findings whose reason matches this regex")
+    ap.add_argument("--json", default=None, metavar="PATH",
+                    help="also write {address: GREEN|YELLOW|RED} per hook (read by progress_badges.py)")
+    ap.add_argument("--skip-concat-swap", action="store_true",
+                    help="drop check_concat_swap, which spawns one arg_provenance.py process PER "
+                         "FUNCTION -- minutes on Linux, hours on Windows. It only ever reports YELLOW.")
     args = ap.parse_args()
+
+    if args.skip_concat_swap:
+        from re_agent.parity import signals
+        # The engine iterates this very list object, so removing in place is enough.
+        signals.ALL_SIGNALS.remove(signals.check_concat_swap)
 
     config = load_config(Path(args.config))
     source_root = Path(config.project_profile.source_root)
@@ -83,6 +93,26 @@ def main() -> int:
             gmap[normalize_address(h.address)] = g
 
     results = run_parity(hooks, source_root, config, backend=None, ghidra_data_map=gmap)
+
+    if args.json:
+        import datetime
+        verdicts = {}
+        for r in results:
+            st = r["status"]
+            st = str(getattr(st, "name", None) or getattr(st, "value", None) or st).upper()
+            # A RED whose only reason is that the sweep could not FIND the body
+            # says nothing about faithfulness -- it is a lookup miss.
+            reds = [f.reason for f in r["findings"] if f.level == "red"]
+            if st == "RED" and reds and all(x.startswith("Source function body not found") for x in reds):
+                st = "UNMATCHED"
+            verdicts[normalize_address(r["hook"].address)] = st
+        Path(args.json).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.json).write_text(json.dumps({
+            "generated": datetime.date.today().isoformat(),
+            "signals": "decompile-only (asm signals skipped: no PyGhidra)"
+                       + ("; concat-swap skipped" if args.skip_concat_swap else ""),
+            "verdicts": dict(sorted(verdicts.items())),
+        }, indent=0) + "\n", encoding="utf-8")
 
     sig_rx = re.compile(args.signal, re.I) if args.signal else None
     n_yellow = n_red = 0

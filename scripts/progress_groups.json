@@ -1,0 +1,208 @@
+{
+  "_comment": "Subsystems for scripts/progress_badges.py. Ordered: the FIRST group whose regex matches a function's class wins. Run `progress_badges.py --classes` to see what each group caught and what fell to Unclassified.",
+  "library_start": "0x7DE120",
+  "groups": [
+    {
+      "name": "Creatures",
+      "patterns": [
+        "^CGameSprite",
+        "^CDerivedStats$",
+        "^CCreatureFile$",
+        "^CGameStatsSprite$",
+        "^CGameDialogSprite$",
+        "^CSpellList$",
+        "^IcewindMisc$",
+        "^CImmunities",
+        "^CSelectiveBonusList$",
+        "^CGroupedSpellList$",
+        "^CSpellResRefList$",
+        "^CAbilityId$",
+        "^CWeaponIdentification$"
+      ]
+    },
+    {
+      "name": "Script engine",
+      "patterns": [
+        "^CAI",
+        "^CGameAIBase$",
+        "^CVariable",
+        "^CNamedCreatureVariableHash$",
+        "^CDungeonMaster$",
+        "^CGameAIGame$",
+        "^CGameAIArea$",
+        "^CNamedCreatureVariableHashEntry$"
+      ]
+    },
+    {
+      "name": "Effects",
+      "patterns": [
+        "^CGameEffect",
+        "^IcewindCGameEffect",
+        "^CPersistantEffect",
+        "^CColorEffects$",
+        "^CColorRanges$",
+        "^CBounceList$"
+      ]
+    },
+    {
+      "name": "Animations",
+      "patterns": [
+        "^CGameAnimationType",
+        "^IcewindCGameAnimationType",
+        "^CGameAnimation$"
+      ]
+    },
+    {
+      "name": "Projectiles & VFX",
+      "patterns": [
+        "^CProjectile",
+        "^IcewindCProjectile",
+        "^IcewindCSpellHit",
+        "^IcewindCVisualEffect",
+        "^CGameFireball3d$",
+        "^CParticle$",
+        "^CBlood$",
+        "^CGameTemporal$"
+      ]
+    },
+    {
+      "name": "Areas & objects",
+      "patterns": [
+        "^CGameArea",
+        "^CGameDoor$",
+        "^CGameTrigger$",
+        "^CGameContainer$",
+        "^CGameStatic$",
+        "^CGameTiledObject$",
+        "^CGameSound$",
+        "^CGameSpawning$",
+        "^CSpawn",
+        "^CSearchBitmap$",
+        "^CPathSearch$",
+        "^CVisibilityMap$",
+        "^CInfinity$",
+        "^CInfTileSet$",
+        "^CWeather$",
+        "^CRainStorm$",
+        "^CSnowStorm$",
+        "^CGameObject",
+        "^CGameRemoteObjectArray$",
+        "^CObjectMarker$",
+        "^CMarker$",
+        "^CMoveList",
+        "^CWorldMap$",
+        "^CGameText$",
+        "^CTiledObject$",
+        "^CSearchRequest$",
+        "^CSnowFlake$",
+        "^CRainDrop$"
+      ]
+    },
+    {
+      "name": "Game rules & items",
+      "patterns": [
+        "^CInfGame$",
+        "^CRuleTables$",
+        "^CItem$",
+        "^CStore$",
+        "^CSpell$",
+        "^CGameJournal$",
+        "^CTimerWorld$",
+        "^CMultiplayerSettings$",
+        "^CGameSave$",
+        "^CWarp$",
+        "^CGameDialog",
+        "^CGameJournalEntry$",
+        "^CGameTimer$",
+        "^CGameOptions$",
+        "^CGameStatsRes$"
+      ]
+    },
+    {
+      "name": "Messages & network",
+      "patterns": [
+        "^CMessage",
+        "^CBaldurMessage$",
+        "^CNetwork",
+        "^CGameSpy$",
+        "^CChatBuffer$",
+        "^CCacheStatus$",
+        "^CSwitchCDStatus$",
+        "^CGamePermission$"
+      ]
+    },
+    {
+      "name": "Screens",
+      "patterns": [
+        "^CScreen",
+        "^CBaldurEngine$",
+        "^CInfButtonArray$",
+        "^CInfCursor$",
+        "^CInfToolTip$",
+        "^CProgressBar$",
+        "^CBaldurProjector$",
+        "^CButtonData$",
+        "^CInfButtonSettings$",
+        "^CIcon$",
+        "^CKeyInfo$"
+      ]
+    },
+    {
+      "name": "UI controls",
+      "patterns": [
+        "^CUI"
+      ]
+    },
+    {
+      "name": "Video & rendering",
+      "patterns": [
+        "^CVid",
+        "^CVideo$",
+        "^CChitin3d$",
+        "^CVRamPool$"
+      ]
+    },
+    {
+      "name": "Resources & files",
+      "patterns": [
+        "^CRes",
+        "^CDimm",
+        "^CTlk",
+        "^C2DArray$",
+        "^CMemINI$",
+        "File$",
+        "^CMemINI",
+        "^DR_ENTRY$",
+        "^ResName$",
+        "^CCrypt$",
+        "^CAlias"
+      ]
+    },
+    {
+      "name": "Sound & music",
+      "patterns": [
+        "^CSound",
+        "^sound$",
+        "^music$",
+        "^audio$",
+        "^adecode$",
+        "^sectionsize$",
+        "^yfSectionSizeManager$",
+        "^CVoice"
+      ]
+    },
+    {
+      "name": "Engine core",
+      "patterns": [
+        "^CChitin$",
+        "^CBaldurChitin$",
+        "^CUtil$",
+        "^CImm$",
+        "^TString$",
+        "^CSevenEyes$",
+        "^Icewind586B70$",
+        "^main$"
+      ]
+    }
+  ]
+}

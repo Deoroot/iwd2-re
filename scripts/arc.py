@@ -1285,6 +1285,17 @@ def freshness_nags() -> list[str]:
             if behind.isdigit() and int(behind) > 10:
                 out.append(f"next-targets.md is {behind} commits stale "
                            f"-> scripts/next_targets.py --write")
+    # The README's progress badges: counts move with every src/ commit, the
+    # parity column only when the (~20 min on Windows) sweep is re-run.
+    since = git("log", "-1", "--format=%h", "--", "docs/badges/recovered.svg").strip()
+    if not since:
+        out.append("progress badges missing -> scripts/progress_badges.py --write")
+    else:
+        behind = git("rev-list", "--count", f"{since}..HEAD", "--", "src").strip()
+        if behind.isdigit() and int(behind) > 10:
+            out.append(f"progress badges are {behind} src/ commits stale "
+                       f"-> scripts/progress_badges.py --write (parity: "
+                       f"parity_cache_sweep.py --skip-concat-swap --json docs/badges/parity.json)")
     hook = REPO / ".git" / "hooks" / "pre-commit"
     if hook.exists() and "pre-commit-arc" not in hook.read_text(encoding="utf-8", errors="replace"):
         out.append("pre-commit hook lost the arc delegation "
