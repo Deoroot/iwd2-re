@@ -979,6 +979,45 @@ void CInfButtonArray::UpdateButtons()
     field_17C2.SetResRef(CResRef("GUIBTACT"), pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
     field_16E8.SetResRef(CResRef("GUIBTBUT"), pPanel->m_pManager->m_bDoubleSize, TRUE, TRUE);
 
+    // 0x58A542: does the leader have anything to cast?  Read only by the Cast
+    // Spell arm (type 3), which greys out and re-labels itself "No Spells"
+    // when it does not.  One flag per list, zeroed together (0x58A537), then
+    // OR'd: the seven class lists and the domain list count a level with
+    // spells left in m_nSharedCurrent; the two spontaneous casters, bard and
+    // sorcerer, are then asked again through GetSpells/GetSpellsAtLevel and
+    // count m_nSharedTotal instead, into the bard's and the sorcerer's slots.
+    // The binary also asserts the class index and level inside the walk
+    // (ObjCreature.h 1741 and 1750, FileFormat.h 2572, all inlined
+    // accessors); those asserts are not reproduced here.
+    BOOLEAN bHasSpells = FALSE;
+    BOOLEAN nHasSpellsInList[CSPELLLIST_NUM_CLASSES + 1] = { 0 };
+    if (pSprite->IsSpellcaster() == TRUE) {
+        for (INT nClassIndex = 0; nClassIndex < CSPELLLIST_NUM_CLASSES; nClassIndex++) {
+            CGameSpriteGroupedSpellList& list = pSprite->m_spells.m_spellsByClass[nClassIndex];
+            for (UINT nLevel = 0; nLevel < list.m_nHighestLevel; nLevel++) {
+                nHasSpellsInList[nClassIndex] |= list.GetSpellsAtLevel(nLevel)->m_nSharedCurrent > 0;
+            }
+        }
+
+        for (UINT nLevel = 0; nLevel < pSprite->m_domainSpells.m_nHighestLevel; nLevel++) {
+            nHasSpellsInList[CSPELLLIST_NUM_CLASSES] |= pSprite->m_domainSpells.GetSpellsAtLevel(nLevel)->m_nSharedCurrent > 0;
+        }
+
+        BYTE nClass = CAIOBJECTTYPE_C_BARD;
+        for (UINT nLevel = 0; nLevel < pSprite->GetSpells(nClass)->m_nHighestLevel; nLevel++) {
+            nHasSpellsInList[0] |= pSprite->GetSpellsAtLevel(nClass, nLevel)->m_nSharedTotal > 0;
+        }
+
+        nClass = CAIOBJECTTYPE_C_SORCERER;
+        for (UINT nLevel = 0; nLevel < pSprite->GetSpells(nClass)->m_nHighestLevel; nLevel++) {
+            nHasSpellsInList[5] |= pSprite->GetSpellsAtLevel(nClass, nLevel)->m_nSharedTotal > 0;
+        }
+
+        for (INT nList = 0; nList < CSPELLLIST_NUM_CLASSES + 1 && !bHasSpells; nList++) {
+            bHasSpells = nHasSpellsInList[nList] != 0;
+        }
+    }
+
     // Computed once for the shared leader at 0x58A7BB, immediately before the
     // button loop, and read by the two arms that draw special abilities: the
     // Special Abilities button itself (type 0x0A) and the nine quick-ability
@@ -1142,6 +1181,11 @@ void CInfButtonArray::UpdateButtons()
             nIconSelectedFrame = 10;
             nToolTip = 0x1250;
             nHotKey = 0xB;
+            // 0x58C03D: nothing to cast -- grey out, "No Spells" (0x924A).
+            if (!bHasSpells) {
+                bGreyOut = TRUE;
+                nToolTip = 0x924A;
+            }
             break;
         case 4:
             // Search modal. Ghidra case 4 frames 0x24/0x26, tooltip 0x133F.
