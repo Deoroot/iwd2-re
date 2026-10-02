@@ -19,6 +19,10 @@ Hook spec (JSON):
       "caller": true,                 // the immediate return address -- the
                                       // EBP walk starts a frame up, and the
                                       // original omits frame pointers anyway
+      "this_reg": "esi",              // read `this` from another register --
+                                      // for a hook placed MID-BODY, where ecx
+                                      // no longer holds the object
+      "regs": ["edi"],                // log raw register values
       "ret": "s32",                   // log retval onLeave
       "max": 200 }                    // stop after N hits (default 500)
   ]
@@ -112,8 +116,10 @@ def js_for_hook(h, idx):
     parts.append(f"    if (++cnt{idx} > {maxn}) return;")
     fields = [f"tag: '{name}'"]
     if conv == "thiscall":
-        parts.append("    const thiz = this.context.ecx;")
+        parts.append(f"    const thiz = this.context.{h.get('this_reg', 'ecx')};")
         fields.append("this: thiz.toString()")
+    for r in h.get("regs", []):
+        fields.append(f"'{r}': this.context.{r}.toString()")
     for i, t in enumerate(args):
         expr = ARG_VALUE.get(t, ARG_VALUE["u32"]).format(a=f"args[{i}]")
         fields.append(f"a{i}_{t}: {expr}")
