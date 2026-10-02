@@ -20,7 +20,8 @@ game that already reached the main menu has missed all of it.
 HOW IT GETS INTO A SAVE, unattended, with nobody at the keyboard:
 
   skip the intro movies -> wait for input to go live -> dismiss the network popup
-  -> calibrate the cursor map -> click Load Game -> LoadGame(slot)
+  -> calibrate the cursor map -> click Load Game -> scroll to the save by name
+  -> click row 0's Load button (the game calls LoadGame itself)
   -> click Done on Character Arbitration -> world engine activated
 
 Every click is a REAL click: the cursor is moved onto the control and the button
@@ -54,7 +55,8 @@ our side with Iwd2DebugLog and diff the two logs -- docs/frida-differential-trac
 Output contract (what vm.sh trace parses, and what to read by hand):
   <out>          JSONL, one record per hook hit, fsync'd per line
   <out>.status   plain lines: `SLOTS`/`slot[i]`, `LOADING`, `loaded: ...`,
-                 `ASSERT <file>:<line>`, `HITS <name> <n>`, `RESULT: <verdict>`
+                 `ASSERT via=<UtilAssert|ShutDown> <file>:<line>` (+ bt lines),
+                 `HITS <name> <n>`, `RESULT: <verdict>`
   <out>.asserts  JSONL the hook writes ITSELF, on the asserting thread
 Verdicts: CLEAN 0 | CRASH 1 | NOT-LOADED 2 | NOT-EXERCISED 2
         | SCRIPT-ERROR 2 (the script never compiled, so nothing was installed)
@@ -106,6 +108,7 @@ CHITIN_LBUTTON   = 0x0004    # CChitin::m_mouseLButton (the VK the engine polls)
 
 # Load Game on GUICONN is panel 0 / control 7 (CUIControlFactory.cpp:316).
 LOAD_PANEL, LOAD_CONTROL = 0, 7
+LOAD_ROW_PANEL, LOAD_ROW_CONTROL = 0, 55   # GUILOAD row-0 Load button (CUIControlFactory.cpp:151-156)
 # Binary-mirror layouts, pack(2): CUIPanel::m_ptOrigin +0x24, CUIControlBase
 # m_ptOrigin +0x0E / m_size +0x16 / m_bActive +0x1E.
 PANEL_ORIGIN, CTRL_ORIGIN, CTRL_SIZE, CTRL_ACTIVE = 0x24, 0x0E, 0x16, 0x1E
@@ -120,6 +123,7 @@ MP_ACTIVATED    = 0x648ED0   # CScreenMultiPlayer::EngineActivated (Character Ar
 MP_PANEL, MP_DONE = 0, 28    # GUIMP Done button (CUIControlFactory.cpp:583)
 PLAY_MOVIE_INT  = 0x43F230   # CBaldurProjector::PlayMovieInternal(const CResRef&, BOOL)
 UTIL_ASSERT     = 0x780C00   # CUtil::UtilAssert(INT nLine, LPCSTR pFile, LPCSTR pExpr, LPCSTR pMsg)
+CHITIN_SHUTDOWN = 0x7909C0   # CChitin::ShutDown(int nLineNumber, const char* szFileName, const char* text)
 
 # A failed assert in the original is a MODAL DIALOG, and until this hook existed
 # it was completely invisible from here: the driver just sat there until --timeout
@@ -131,18 +135,23 @@ UTIL_ASSERT     = 0x780C00   # CUtil::UtilAssert(INT nLine, LPCSTR pFile, LPCSTR
 # sense for the file path.  A NULL msg is reported by the game itself as
 # "no msg." (0x8B99AC), so it is passed through as-is rather than special-cased.
 #
-# MEASURED LIMIT, s51: this catches CUtil::UtilAssert and nothing else, and there
-# is at least one assert it does NOT catch.  Loading either Prologue save puts up
-# "An Assertion failed in CGameEffect.cpp at line number 1744 / Unknown effect id:
-# 17989", and across four runs this hook logged nothing for it -- not a delivery
-# problem, since the install-time `assertLogReady` line reaches the log fine on
-# the same runs.  The static read says it should fire: scanning the image for
-# `push 1744` (68 d0 06 00 00) finds one plausible site, 0x492C81, whose next
-# bytes are `e8 75 df 2e 00` = call 0x780C00.  So a second path into
-# CChitin::ShutDown (0x7909C0, which owns the dialog's format string 0x8BA0CC)
-# reaches the same dialog without passing through here -- most likely a site that
-# loads the line number into a register, which that byte scan cannot see.
-# Until that path is found, an absent ASSERT line is NOT proof that no assert fired.
+# RESOLVED, s52 (was "MEASURED LIMIT, s51"): s51 saw the Prologue saves put up
+# "An Assertion failed in CGameEffect.cpp at line number 1744 / Unknown effect
+# id: 17989" while this hook logged nothing in four runs, and concluded a second
+# path into CChitin::ShutDown existed.  There is none.  The driver used to call
+# CScreenLoad::LoadGame from INSIDE a Frida callback, so the whole load ran with
+# the JS lock held and nothing reached the logs until that callback returned --
+# which a modal assert never lets it do.  With the load driven by a real click on
+# the row's Load button instead, both hooks fire on that save, and the FUZZY
+# backtrace carries 0x492C8B, the return address of the `call 0x780C00` at
+# 0x492C86 that the static `push 1744` scan had already found.
+#
+# CChitin::ShutDown is hooked as well, as the backstop: it owns the dialog's
+# format string (0x8BA0CC, referenced from ShutDown+0xF1 only), so any assert box
+# passes through it with a backtrace, and user32!MessageBoxA is hooked after that
+# for any dialog at all.  Lesson for any new driver step: never call a game
+# function that can block from inside a hook -- post a click and let the game
+# call it from its own tick.
 #
 # UtilAssert is NOT noreturn here (it tail-jumps to an epilogue), so the game
 # does continue once a human clicks through.  --ignore-asserts is that click:
@@ -166,11 +175,16 @@ function assertText(p) {
 // delivers messages on -- so the record is queued and never arrives, and the
 // run looks like it simply stopped after the last drive step.  Costing two runs
 // to find, that is the same fsync lesson as gotcha 2 in frida_probe.py.
-function reportAssert(line, file, expr, msg) {
+function reportAssert(line, file, expr, msg, via, extra) {
   const f = assertText(file);
-  const rec = { tag: 'assert', line: line,
+  const rec = { tag: 'assert', via: via, line: line,
                 file: f === null ? null : f.split('\\\\').pop(),
                 expr: assertText(expr), msg: assertText(msg) };
+  if (extra) { for (const k in extra) rec[k] = extra[k]; }
+  writeAssertRecord(rec);
+}
+
+function writeAssertRecord(rec) {
   try {
     const fp = new File(ASSERT_LOG, 'a');
     fp.write(JSON.stringify(rec) + '\\n');
@@ -190,9 +204,47 @@ try {
   fp0.close();
 } catch (e) { send({ tag: 'assertLogError', error: '' + e }); }
 
+function backtraceOf(ctx, kind) {
+  try {
+    return Thread.backtrace(ctx, kind).map(function (a) { return a.toString(); });
+  } catch (e) { return ['error: ' + e]; }
+}
+
+// CChitin::ShutDown(nLineNumber, szFileName, text) owns the dialog's format
+// string (0x8BA0CC, referenced from ShutDown+0xF1 and nowhere else), so every
+// "An Assertion failed" dialog passes through here whatever reached it. Its
+// one caller is CBaldurChitin::ShutDown, slot 0x9C, which UtilAssert reaches
+// by vcall. nLineNumber -1 is an ordinary quit, not an assert.
+Interceptor.attach(ptr(%(chitin_shutdown)#x), {
+  onEnter(args) {
+    const line = args[0].toInt32();
+    if (line === -1) {
+      writeAssertRecord({ tag: 'shutdown' });
+      return;
+    }
+    reportAssert(line, args[1], NULL, args[2], 'ShutDown', {
+      btAccurate: backtraceOf(this.context, Backtracer.ACCURATE),
+      btFuzzy: backtraceOf(this.context, Backtracer.FUZZY) });
+  }
+});
+
+// The last stop of any dialog, whoever raised it: an assert box that slips past
+// both hooks above still has to come through here to be seen.
+try {
+  const mbox = Module.getExportByName('user32.dll', 'MessageBoxA');
+  Interceptor.attach(mbox, {
+    onEnter(args) {
+      writeAssertRecord({ tag: 'messageBox', text: assertText(args[1]),
+                          caption: assertText(args[2]),
+                          btAccurate: backtraceOf(this.context, Backtracer.ACCURATE),
+                          btFuzzy: backtraceOf(this.context, Backtracer.FUZZY) });
+    }
+  });
+} catch (e) { send({ tag: 'assertLogError', error: 'MessageBoxA: ' + e }); }
+
 if (IGNORE_ASSERTS) {
   Interceptor.replace(ptr(%(util_assert)#x), new NativeCallback(
-    function (line, file, expr, msg) { reportAssert(line, file, expr, msg); },
+    function (line, file, expr, msg) { reportAssert(line, file, expr, msg, 'UtilAssert'); },
     // No ABI argument: cdecl IS Frida's x86 default, and naming it explicitly
     // ('cdecl' is not one of the accepted spellings) fails the whole script with
     // "invalid abi specified" -- which shows up only as a NOT-LOADED with an
@@ -200,7 +252,7 @@ if (IGNORE_ASSERTS) {
     'void', ['int', 'pointer', 'pointer', 'pointer']));
 } else {
   Interceptor.attach(ptr(%(util_assert)#x), {
-    onEnter(args) { reportAssert(args[0].toInt32(), args[1], args[2], args[3]); }
+    onEnter(args) { reportAssert(args[0].toInt32(), args[1], args[2], args[3], 'UtilAssert'); }
   });
 }
 """
@@ -599,7 +651,15 @@ Interceptor.attach(ptr(%(load_activated)#x), {
     scr.add(SCR_TOPSLOT).writeS32(index);
     send({ tag: 'drive', step: 'LoadGame', slot: 0,
            index: index, name: names[index] });
-    LoadGame(scr, 0);
+    // CLICK row 0's Load button (panel 0 control 55, CUIControlButtonLoadLoad,
+    // LoadGame(m_nID - 55)) instead of calling LoadGame from here.  A call from
+    // inside this callback runs the WHOLE load with Frida's JS lock held: every
+    // send() made during it is only flushed when the callback returns, and a
+    // load that never returns -- a modal assert -- takes every record with it.
+    // s51 read that as "UtilAssert does not fire" for four runs, s52 as "nothing
+    // fires after LOADING, not even CInfGame::LoadGame".  Clicked, the game
+    // calls LoadGame from its own tick with no JS on the stack.
+    postJob(scr, %(load_row_panel)d, %(load_row_control)d, 'LoadRow');
   }
 });
 
@@ -677,9 +737,7 @@ class Trace:
             self.crash = payload
         elif tag == "assert":
             self.asserts.append(payload)
-            self.say("ASSERT {file}:{line} {expr!r} {msg!r}".format(
-                file=payload.get("file"), line=payload.get("line"),
-                expr=payload.get("expr"), msg=payload.get("msg")))
+            self.say_assert(payload)
         elif tag == "drive":
             # Surface the save-resolution steps in <out>.status too: a run that
             # refuses to load has to say WHY there, not only in the JSONL, or it
@@ -695,6 +753,14 @@ class Trace:
                          f"name={payload.get('name')!r}")
             elif step in ("loadNameNotFound", "loadSlotEmpty"):
                 self.say(f"REFUSED {step} {payload}")
+
+    def say_assert(self, rec: dict) -> None:
+        self.say("ASSERT via={via} {file}:{line} {expr!r} {msg!r}".format(
+            via=rec.get("via"), file=rec.get("file"), line=rec.get("line"),
+            expr=rec.get("expr"), msg=rec.get("msg")))
+        for kind in ("btAccurate", "btFuzzy"):
+            if rec.get(kind):
+                self.say(f"  {kind} " + " ".join(rec[kind][:16]))
 
     def absorb_assert_log(self, path) -> None:
         """Fold in asserts the JS wrote but send() never delivered.
@@ -723,9 +789,7 @@ class Trace:
                 continue
             self.asserts.append(rec)
             self.record(rec)
-            self.say("ASSERT {file}:{line} {expr!r} {msg!r}".format(
-                file=rec.get("file"), line=rec.get("line"),
-                expr=rec.get("expr"), msg=rec.get("msg")))
+            self.say_assert(rec)
 
     def finish(self, drove: bool, hit: str | None, hit_min: int) -> int:
         for name, n in sorted(self.counts.items()):
@@ -787,6 +851,7 @@ def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True,
     hooks = spec["hooks"]
     blocks = ["'use strict';", PRELUDE, CRASH_JS,
               ASSERT_JS % {"util_assert": UTIL_ASSERT,
+                           "chitin_shutdown": CHITIN_SHUTDOWN,
                            "ignore_asserts": int(ignore_asserts),
                            "assert_log": json.dumps(str(assert_log or ""))}]
     if skip_movies:
@@ -802,6 +867,7 @@ def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True,
         "getpanel": UIMGR_GETPANEL, "getcontrol": PANEL_GETCONTROL,
         "mousemove": CONN_MOUSEMOVE, "lbtndown": CONN_LBTNDOWN, "lbtnup": CONN_LBTNUP,
         "load_panel": LOAD_PANEL, "load_control": LOAD_CONTROL,
+        "load_row_panel": LOAD_ROW_PANEL, "load_row_control": LOAD_ROW_CONTROL,
         "mp_activated": MP_ACTIVATED, "mp_panel": MP_PANEL, "mp_done": MP_DONE,
         "panel_origin": PANEL_ORIGIN, "ctrl_origin": CTRL_ORIGIN,
         "ctrl_size": CTRL_SIZE, "ctrl_active": CTRL_ACTIVE,

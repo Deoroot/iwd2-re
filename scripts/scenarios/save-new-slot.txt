@@ -1,0 +1,28 @@
+# Write a save with OUR build, so the original can be asked to load it
+# (frida_orig.py --load-name). World -> options -> the options "Save" control
+# (panel 2 control 6, CScreenSave::StartSave). On the save screen, panel 0
+# controls 55..59 are the per-row save buttons (CUIControlButtonSaveSave,
+# OnSaveButtonClick(m_nID - 55)); they summon popup 1, whose control 3 is the
+# name edit and control 7 the Done button (CUIControlFactory.cpp:250-255).
+#
+# WARNING: this OVERWRITES whichever save sits in visible row 0 -- the popup
+# comes up with that save's name already in the edit, so Done saves over it.
+# In s52 that was "000000008-Staircase Transition - copia". Back up MPSave first
+# and restore the folder afterwards; copy the result to the original's MPSave
+# under a new folder name.
+wait world 3000
+waitgo 6000
+sleep 30
+goto options
+sleep 60
+click 2 6
+sleep 90
+screen
+dump
+click 0 55
+sleep 60
+dump
+click 1 7
+sleep 600
+screen
+dump
