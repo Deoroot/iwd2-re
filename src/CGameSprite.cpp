@@ -7666,77 +7666,92 @@ void CGameSprite::Marshal(CAreaFileCreature** pCreature)
 // 0x70B2F0
 void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BOOLEAN a4, BOOLEAN a5)
 {
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 11953
     UTIL_ASSERT(pCreature != NULL && creatureSize != NULL && facing != NULL);
 
-    const DWORD CRE_V22_HEADER_SIZE = 0x37C;
-    const DWORD CRE_V22_OFFSETS_OFFSET = 8 + CRE_V22_HEADER_SIZE;
-    const DWORD CRE_V22_DATA_OFFSET = 0x62E;
-    const DWORD CRE_EFFECT_SIZE = 0x108;
+    // The file stores hit points without the CON bonus; it is added back at
+    // the end, once the header has been copied out.
+    m_baseStats.m_hitPoints -= static_cast<SHORT>(m_nHPCONBonusTotalOld);
+    m_baseStats.m_maxHitPointsBase -= static_cast<SHORT>(m_nHPCONBonusTotalOld);
+    m_derivedStats.m_nMaxHitPoints -= static_cast<SHORT>(m_nHPCONBonusTotalOld);
 
-    DWORD nSize = CRE_V22_DATA_OFFSET;
+    // The effect list is always written as version-2 (0x108-byte) records, so
+    // the header has to say so. Unmarshal sets this byte to 0 for a creature
+    // that loaded with no V2 effects; without this store such a creature is
+    // saved as "V1" with V2 records behind it, and the loader reads the
+    // "EF" of the "EFF V2.0" signature as the opcode (17989).
+    m_baseStats.m_effectVersion = 1;
+
+    *pCreature = NULL;
+    CCreatureFileEquipment equipment;
+    *creatureSize = 0;
+    *facing = m_nDirection;
 
     for (UINT nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
         for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
-            nSize += m_spells.m_spellsByClass[nClass].m_lists[nLevel].m_List.size() * sizeof(CCreatureFileSpell)
+            *creatureSize += m_spells.m_spellsByClass[nClass].m_lists[nLevel].m_List.size() * sizeof(CCreatureFileSpell)
                 + 2 * sizeof(UINT);
         }
     }
 
     for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
-        nSize += m_domainSpells.m_lists[nLevel].m_List.size() * sizeof(CCreatureFileSpell)
+        *creatureSize += m_domainSpells.m_lists[nLevel].m_List.size() * sizeof(CCreatureFileSpell)
             + 2 * sizeof(UINT);
     }
 
-    nSize += m_innateSpells.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
-    nSize += m_songs.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
-    nSize += m_shapeshifts.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
-    // Equipment header + inventory item records (CGameSpriteEquipment::Marshal
-    // at 0x7124C0 builds both; nItemCount excludes the fist slot).
-    CCreatureFileEquipment equipment;
-    CCreatureFileItem* pItems = NULL;
-    LONG nItemCount = 0;
+    *creatureSize += m_innateSpells.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
+    *creatureSize += m_songs.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
+    *creatureSize += m_shapeshifts.m_List.size() * sizeof(CCreatureFileSpell) + 2 * sizeof(UINT);
+
+    CCreatureFileItem* pItems;
+    LONG nItemCount;
     m_equipment.Marshal(&equipment, &pItems, &nItemCount, a5);
-    nSize += sizeof(CCreatureFileEquipment) + nItemCount * sizeof(CCreatureFileItem);
+    *creatureSize += sizeof(CCreatureFileEquipment) + nItemCount * sizeof(CCreatureFileItem);
 
-    // Active (timed) effects, serialised as version-2 (0x108-byte) records.
-    BYTE* pEffectData = NULL;
-    ULONG nEffectBytes = m_timedEffectList.Marshal(&pEffectData, 1, a4 == FALSE);
-    DWORD nEffectCount = nEffectBytes / CRE_EFFECT_SIZE;
-    nSize += nEffectCount * CRE_EFFECT_SIZE;
+    BYTE* pEffectData;
+    ULONG nEffectBytes;
+    if (a4) {
+        m_pLocalVariables->MarshalToCharacter(this);
+        nEffectBytes = m_timedEffectList.Marshal(&pEffectData, 1, FALSE);
+    } else {
+        equipment.m_miscItem[27] = 0xFFFF;
+        nEffectBytes = m_timedEffectList.Marshal(&pEffectData, 1, TRUE);
+    }
 
-    *pCreature = new BYTE[nSize];
-    *creatureSize = nSize;
-    memset(*pCreature, 0, nSize);
+    DWORD nEffectCount = nEffectBytes / sizeof(CGameEffectBase);
+    m_baseStats.m_bRemoveFromArea = static_cast<BOOLEAN>(m_removeFromArea);
+    nEffectBytes = nEffectCount * sizeof(CGameEffectBase);
+    *creatureSize += nEffectBytes + 0x62E;
 
+    *pCreature = new BYTE[*creatureSize];
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 12051
+    UTIL_ASSERT(*pCreature != NULL);
+
+    memset(*pCreature, 0, *creatureSize);
     memcpy(*pCreature, "CRE V2.2", 8);
 
-    CCreatureFileHeader header = m_baseStats;
-    header.m_subrace = m_startTypeAI.GetSubRace();
-    header.m_bRemoveFromArea = m_removeFromArea;
-    DWORD nHeaderCopySize = sizeof(header);
-    if (nHeaderCopySize > CRE_V22_HEADER_SIZE) {
-        nHeaderCopySize = CRE_V22_HEADER_SIZE;
-    }
-    memcpy(*pCreature + 8, &header, nHeaderCopySize);
+    m_baseStats.m_subrace = m_startTypeAI.m_nSubRace;
+    memcpy(*pCreature + 8, &m_baseStats, sizeof(CCreatureFileHeader));
 
-    CCreatureFileOffsets* offsets = reinterpret_cast<CCreatureFileOffsets*>(*pCreature + CRE_V22_OFFSETS_OFFSET);
+    CCreatureFileOffsets* offsets = reinterpret_cast<CCreatureFileOffsets*>(*pCreature + 8 + sizeof(CCreatureFileHeader));
     offsets->m_enemyAlly = m_startTypeAI.m_nEnemyAlly;
-    offsets->m_general = m_startTypeAI.m_nGeneral;
+    offsets->m_general = m_liveTypeAI.m_nGeneral;
     offsets->m_race = m_startTypeAI.m_nRace;
     offsets->m_class = m_startTypeAI.m_nClass;
     offsets->m_specifics = m_startTypeAI.m_nSpecific;
     offsets->m_gender = m_startTypeAI.m_nGender;
-    memcpy(offsets->m_specialCase, m_startTypeAI.m_SpecialCase, sizeof(offsets->m_specialCase));
     offsets->m_alignment = m_startTypeAI.m_nAlignment;
     offsets->m_instance = m_startTypeAI.m_nInstance;
-    strncpy(offsets->m_name, m_scriptName, SCRIPTNAME_SIZE);
     offsets->m_avClass = m_startTypeAI.m_nAvClass;
     offsets->m_classMask = m_startTypeAI.m_nClassMask;
+    memcpy(offsets->m_specialCase, m_startTypeAI.m_SpecialCase, sizeof(offsets->m_specialCase));
+    strncpy(offsets->m_name, m_scriptName, SCRIPTNAME_SIZE);
     m_dialog.GetResRef(offsets->m_dialog);
 
-    *facing = m_nDirection;
-
-    DWORD nOffset = CRE_V22_DATA_OFFSET;
+    DWORD nOffset = 0x62E;
 
     for (UINT nClass = 0; nClass < CSPELLLIST_NUM_CLASSES; nClass++) {
         for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
@@ -7744,7 +7759,7 @@ void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BO
             offsets->m_spellListOffset[nClass][nLevel] = nOffset;
             offsets->m_spellListCount[nClass][nLevel] = list.m_List.size();
 
-            for (UINT nIndex = 0; nIndex < list.m_List.size(); nIndex++) {
+            for (UINT nIndex = 0; nIndex < offsets->m_spellListCount[nClass][nLevel]; nIndex++) {
                 CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
                 pSpell->field_0 = list.m_List[nIndex].m_nID;
                 pSpell->m_nMax = list.m_List[nIndex].m_nMax;
@@ -7765,7 +7780,7 @@ void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BO
         offsets->m_domainListOffset[nLevel] = nOffset;
         offsets->m_domainListCount[nLevel] = list.m_List.size();
 
-        for (UINT nIndex = 0; nIndex < list.m_List.size(); nIndex++) {
+        for (UINT nIndex = 0; nIndex < offsets->m_domainListCount[nLevel]; nIndex++) {
             CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
             pSpell->field_0 = list.m_List[nIndex].m_nID;
             pSpell->m_nMax = list.m_List[nIndex].m_nMax;
@@ -7780,29 +7795,50 @@ void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BO
         nOffset += sizeof(UINT);
     }
 
-    CGameSpriteSpellList* extraLists[3] = { &m_innateSpells, &m_songs, &m_shapeshifts };
-    DWORD* extraOffsets[3] = { &offsets->m_innateListOffset, &offsets->m_songListOffset, &offsets->m_shapeListOffset };
-    DWORD* extraCounts[3] = { &offsets->m_innateListCount, &offsets->m_songListCount, &offsets->m_shapeListCount };
-
-    for (INT nList = 0; nList < 3; nList++) {
-        CGameSpriteSpellList& list = *extraLists[nList];
-        *extraOffsets[nList] = nOffset;
-        *extraCounts[nList] = list.m_List.size();
-
-        for (UINT nIndex = 0; nIndex < list.m_List.size(); nIndex++) {
-            CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
-            pSpell->field_0 = list.m_List[nIndex].m_nID;
-            pSpell->m_nMax = list.m_List[nIndex].m_nMax;
-            pSpell->m_nCurrent = list.m_List[nIndex].m_nCurrent;
-            pSpell->field_C = list.m_List[nIndex].m_nShared;
-            nOffset += sizeof(CCreatureFileSpell);
-        }
-
-        *reinterpret_cast<UINT*>(*pCreature + nOffset) = list.m_nSharedMax;
-        nOffset += sizeof(UINT);
-        *reinterpret_cast<UINT*>(*pCreature + nOffset) = list.m_nSharedTotal;
-        nOffset += sizeof(UINT);
+    offsets->m_innateListOffset = nOffset;
+    offsets->m_innateListCount = m_innateSpells.m_List.size();
+    for (UINT nIndex = 0; nIndex < offsets->m_innateListCount; nIndex++) {
+        CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
+        pSpell->field_0 = m_innateSpells.m_List[nIndex].m_nID;
+        pSpell->m_nMax = m_innateSpells.m_List[nIndex].m_nMax;
+        pSpell->m_nCurrent = m_innateSpells.m_List[nIndex].m_nCurrent;
+        pSpell->field_C = m_innateSpells.m_List[nIndex].m_nShared;
+        nOffset += sizeof(CCreatureFileSpell);
     }
+    *reinterpret_cast<UINT*>(*pCreature + nOffset) = m_innateSpells.m_nSharedMax;
+    nOffset += sizeof(UINT);
+    *reinterpret_cast<UINT*>(*pCreature + nOffset) = m_innateSpells.m_nSharedTotal;
+    nOffset += sizeof(UINT);
+
+    offsets->m_songListOffset = nOffset;
+    offsets->m_songListCount = m_songs.m_List.size();
+    for (UINT nIndex = 0; nIndex < offsets->m_songListCount; nIndex++) {
+        CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
+        pSpell->field_0 = m_songs.m_List[nIndex].m_nID;
+        pSpell->m_nMax = m_songs.m_List[nIndex].m_nMax;
+        pSpell->m_nCurrent = m_songs.m_List[nIndex].m_nCurrent;
+        pSpell->field_C = m_songs.m_List[nIndex].m_nShared;
+        nOffset += sizeof(CCreatureFileSpell);
+    }
+    *reinterpret_cast<UINT*>(*pCreature + nOffset) = m_songs.m_nSharedMax;
+    nOffset += sizeof(UINT);
+    *reinterpret_cast<UINT*>(*pCreature + nOffset) = m_songs.m_nSharedTotal;
+    nOffset += sizeof(UINT);
+
+    offsets->m_shapeListOffset = nOffset;
+    offsets->m_shapeListCount = m_shapeshifts.m_List.size();
+    for (UINT nIndex = 0; nIndex < offsets->m_shapeListCount; nIndex++) {
+        CCreatureFileSpell* pSpell = reinterpret_cast<CCreatureFileSpell*>(*pCreature + nOffset);
+        pSpell->field_0 = m_shapeshifts.m_List[nIndex].m_nID;
+        pSpell->m_nMax = m_shapeshifts.m_List[nIndex].m_nMax;
+        pSpell->m_nCurrent = m_shapeshifts.m_List[nIndex].m_nCurrent;
+        pSpell->field_C = m_shapeshifts.m_List[nIndex].m_nShared;
+        nOffset += sizeof(CCreatureFileSpell);
+    }
+    *reinterpret_cast<UINT*>(*pCreature + nOffset) = m_shapeshifts.m_nSharedMax;
+    nOffset += sizeof(UINT);
+    *reinterpret_cast<UINT*>(*pCreature + nOffset) = m_shapeshifts.m_nSharedTotal;
+    nOffset += sizeof(UINT);
 
     offsets->m_equipmentListOffset = nOffset;
     memcpy(*pCreature + nOffset, &equipment, sizeof(CCreatureFileEquipment));
@@ -7819,16 +7855,21 @@ void CGameSprite::Marshal(BYTE** pCreature, LONG* creatureSize, WORD* facing, BO
     if (nEffectCount != 0) {
         offsets->m_effectListCount = nEffectCount;
         offsets->m_effectListOffset = nOffset;
-        memcpy(*pCreature + nOffset, pEffectData, nEffectCount * CRE_EFFECT_SIZE);
-        nOffset += nEffectCount * CRE_EFFECT_SIZE;
+        memcpy(*pCreature + nOffset, pEffectData, nEffectBytes);
+        nOffset += nEffectBytes;
         delete[] reinterpret_cast<CGameEffectBase*>(pEffectData);
     }
 
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreature.cpp
+    // __LINE__: 12187
     UTIL_ASSERT(nOffset == static_cast<DWORD>(*creatureSize));
 
-    // TODO: 0x70B2F0 also temporarily shifts the sprite position fields around
-    // the body and calls RemoveAllOfType(0xBA) on the equiped + timed effect
-    // lists afterwards; not yet ported (does not affect the saved size).
+    m_baseStats.m_hitPoints += static_cast<SHORT>(m_nHPCONBonusTotalOld);
+    m_baseStats.m_maxHitPointsBase += static_cast<SHORT>(m_nHPCONBonusTotalOld);
+    m_derivedStats.m_nMaxHitPoints += static_cast<SHORT>(m_nHPCONBonusTotalOld);
+
+    m_equipedEffectList.RemoveAllOfType(this, CGAMEEFFECT_JUMPTOAREA, m_equipedEffectList.GetPosCurrent(), -1);
+    m_timedEffectList.RemoveAllOfType(this, CGAMEEFFECT_JUMPTOAREA, m_timedEffectList.GetPosCurrent(), -1);
 }
 
 // 0x70BEE0
