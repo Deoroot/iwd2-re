@@ -1582,30 +1582,74 @@ void CInfButtonArray::UpdateButtons()
         case 0x60:
         case 0x61:
         case 0x62: {
-            // Quick ability (innate / feat / special).  STONSPEC fallback;
-            // tooltip 0x135A ("Special Abilities").
+            // Quick ability (innate / feat / special), 0x58D9CA.  STONSPEC
+            // fallback; tooltip 0x135A ("Special Abilities").
+            //
+            // The slot is fetched through GetSelectedQuickSlotData in mode 4
+            // (0x58DA2E), not read off the prologue's sprite, and the arm
+            // tests nothing before the call.
             CButtonData buttonData;
-            if (rc == CGameObjectArray::SUCCESS && pSprite != NULL && pGame->m_bGameLoaded) {
-                pSprite->GetQuickAbility(static_cast<BYTE>(m_buttonTypes[nButton] - 0x5A), buttonData);
-            }
+            GetSelectedQuickSlotData(static_cast<BYTE>(m_buttonTypes[nButton] - 0x5A), &buttonData, 4);
             if (buttonData.m_icon != "") {
                 cIconResRef = buttonData.m_icon;
-                nToolTip = buttonData.m_name;
-                if (buttonData.m_bDisplayCount) {
-                    nCount = buttonData.m_count;
-                }
             } else {
                 cIconResRef = CResRef("STONSPEC");
-                nToolTip = 0x135A;
             }
+
+            // The five modal feats, split on m_bDisplayCount (0x58DA90).  A
+            // slot holding one of them shows SELECTED while the feat's rank is
+            // above zero -- that is how a running Power Attack lights its quick
+            // slot.  The two ranked feats (Power Attack, Expertise) also show
+            // the rank as the count; the three plain toggles always show 0.
+            // A slot that is no modal feat, or whose feat the leader lacks,
+            // shows the entry's own count when it displays one.
+            const CResRef& cAbility = buttonData.m_abilityId.m_res;
+            if (buttonData.m_bDisplayCount) {
+                UINT nFeat = 0;
+                if (cAbility == CGameSprite::SPIN275) {
+                    nFeat = CGAMESPRITE_FEAT_POWER_ATTACK;
+                } else if (cAbility == CGameSprite::SPIN276) {
+                    nFeat = CGAMESPRITE_FEAT_EXPERTISE;
+                }
+                if (nFeat != 0 && pSprite->HasFeat(nFeat)) {
+                    // A signed 16-bit compare (0x58DACE): the rank goes
+                    // through the entry's SHORT count first.
+                    buttonData.m_count = static_cast<SHORT>(pSprite->GetFeatRank(nFeat));
+                    settings.m_bSelected = buttonData.m_count > 0;
+                }
+                nCount = buttonData.m_count;
+            } else {
+                UINT nFeat = 0;
+                if (cAbility == CGameSprite::SPIN277) {
+                    nFeat = CGAMESPRITE_FEAT_ARTERIAL_STRIKE;
+                } else if (cAbility == CGameSprite::SPIN278) {
+                    nFeat = CGAMESPRITE_FEAT_HAMSTRING;
+                } else if (cAbility == CGameSprite::SPIN279) {
+                    nFeat = CGAMESPRITE_FEAT_RAPID_SHOT;
+                }
+                if (nFeat != 0 && pSprite->HasFeat(nFeat)) {
+                    // GetFeatRank is called TWICE here: once into the entry's
+                    // count, once for a full 32-bit "> 0" test.
+                    buttonData.m_count = static_cast<SHORT>(pSprite->GetFeatRank(nFeat));
+                    settings.m_bSelected = pSprite->GetFeatRank(nFeat) > 0;
+                }
+                nCount = 0;
+            }
+
             // The grey-out is decided at the very END of the arm (0x58DC32),
             // outside the icon branch, and takes the same "No Special
             // Abilities" label the Special Abilities button takes: a slot is
             // greyed when the leader has no special abilities left at all, or
             // when the entry the quick slot resolved to is itself disabled.
+            // That label is only the FALLBACK: 0x58DC5A shows the entry's own
+            // name whenever it has one, greyed or not.
+            nToolTip = 0x135A;
             if (!bHasSpecialAbility || buttonData.m_bDisabled) {
                 bGreyOut = TRUE;
                 nToolTip = 0x9243;
+            }
+            if (buttonData.m_name != -1) {
+                nToolTip = buttonData.m_name;
             }
             // 0x58D9DA stores -1 into both frame slots and 0 into the sequence.
             bHasOverlay = FALSE;
