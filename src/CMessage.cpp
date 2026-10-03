@@ -19344,3 +19344,10 @@ void CMessageProjectileTrailingVFX::Run()
     // happens in the factory (0x554D20) and the post-dispatch object-flag
     // modification in IcewindCProjectileTravellingVFX::Fire.
 }
+
+// CItem is pack(2), 0xEE bytes: the binary offsets of the two messages
+// that carry one by value.
+static_assert(offsetof(CMessageAddItem, m_item) == 0x0C, "CMessageAddItem::m_item");
+static_assert(offsetof(CMessageContainerAddItem, m_item) == 0x0C, "CMessageContainerAddItem::m_item");
+static_assert(offsetof(CMessageContainerAddItem, m_slotNum) == 0xFA, "CMessageContainerAddItem::m_slotNum");
+static_assert(offsetof(CMessageContainerAddItem, m_bCompressContainer) == 0xFC, "CMessageContainerAddItem::m_bCompressContainer");

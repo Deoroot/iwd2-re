@@ -14,6 +14,7 @@ class CWeaponIdentification;
 // pack(2), like every other class in this repo that carries binary offset
 // comments: without it the trailing SHORT would 4-align and sizeof would
 // come out 0xF0 instead of the 0xEE the binary needs.
+#pragma pack(push, 2)
 class CItem : public CResHelper<CResItem, 1005> {
 public:
     static const CString VALUE;
@@ -87,6 +88,7 @@ public:
     /* 0024 */ CSound m_useSound[2];
     /* 00EC */ SHORT m_numSounds;
 };
+#pragma pack(pop)
 
 // These are measurements, not wishes: the compiler evaluates them, so they are
 // how the four-byte question above was settled rather than argued.  With the
@@ -101,15 +103,22 @@ static_assert(sizeof(CSound) == 0x64,
 static_assert(sizeof(CResHelper<CResItem, 1005>) == 0x10,
     "0x10, as C2DArray and CVidCell already show -- CItem's extra four bytes "
     "are its vptr, not a bigger CResHelper");
+static_assert(sizeof(CItem) == 0xEE,
+    "CMessageItem puts m_item at 0x0C and the SHORT after it at 0xFA");
 
-// NOT closed, and deliberately not forced: sizeof(CItem) is 0xF0 here and 0xEE
-// in the binary.  Every member matches; the two bytes are trailing padding,
-// and CMessageItem pins the real figure (m_item at 0x0C, the SHORT after it at
-// 0xFA).  Only `#pragma pack(2)` around this class brings it to 0xEE -- and
-// with that pragma our build dies before the world engine activates, exit
-// 0xCFFFFFFF with no crash log, while the same build without it loads and runs
-// the action-bar scenarios clean.  Something in the tree depends on CItem's
-// current alignment; finding it is its own arc, and a class this widely
-// embedded is not worth breaking to win two bytes of padding.
+// sizeof(CItem) is 0xEE, as in the binary: the two bytes s43 could not remove
+// were trailing padding, and pack(2) removes them.  CMessageContainerAddItem
+// pins the figure (m_item at 0x0C, m_slotNum at 0xFA -- static_asserts in
+// CMessage.cpp).  s43 recorded that this very pragma killed the build before
+// world activation, exit 0xCFFFFFFF with no crash log.  That exit is what ANY
+// launch gives when it follows a kill too closely (see the smoke-test notes);
+// s54 launched the pack(2) build with a clean gap and it loads, runs the
+// action-bar routes and the inventory party-transfer route to PASS.
+//
+// Still open, and NOT CItem's: the three controls that embed a CItem by value
+// sit on bases 0xA bytes too big -- our CUIControlButton is 0x670 where the
+// binary's is 0x666 (CUIControlButtonInventoryHistoryIcon::m_pItem at 0x666),
+// CUIControlButton3State 0x678 against 0x66E -- so their m_item comment
+// offsets (0x66A, 0x66E) are not met yet.
 
 #endif /* CITEM_H_ */
