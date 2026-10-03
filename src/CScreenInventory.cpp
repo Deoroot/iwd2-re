@@ -560,7 +560,8 @@ void CScreenInventory::OnKeyDown(SHORT nKeysFlags)
                 break;
             default:
                 if (GetTopPopup() == NULL) {
-                    for (SHORT index = 0; index < CINFGAME_KEYMAP_SIZE; index) {
+                    // 0x625B19 advances the index (inc esi; cmp si, 0x174).
+                    for (SHORT index = 0; index < CINFGAME_KEYMAP_SIZE; index++) {
                         // NOTE: Uninline.
                         if (pGame->GetKeymap(index) == m_pVirtualKeysFlags[nKeyFlag]
                             && pGame->GetKeymapFlag(index) == m_bCtrlKeyDown) {

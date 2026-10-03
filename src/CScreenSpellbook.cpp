@@ -337,7 +337,7 @@ void CScreenSpellbook::OnKeyDown(SHORT nKeysFlags)
                 break;
             default:
                 if (GetTopPopup() == NULL) {
-                    for (SHORT index = 0; index < CINFGAME_KEYMAP_SIZE; index) {
+                    for (SHORT index = 0; index < CINFGAME_KEYMAP_SIZE; index++) {
                         // NOTE: Uninline.
                         if (pGame->GetKeymap(index) == m_pVirtualKeysFlags[nKeyFlag]
                             && pGame->GetKeymapFlag(index) == m_bCtrlKeyDown) {

@@ -4790,7 +4790,7 @@ BOOLEAN CBaldurMessage::GetGameSpyQueryInfo(CString& sResponse)
     sMaxCharacters.Format("%d", CMultiplayerSettings::MAX_CHARACTERS);
 
     INT nNumPlayers = 0;
-    for (INT nPlayer = 0; nPlayer < CMultiplayerSettings::MAX_PLAYERS; nPlayer) {
+    for (INT nPlayer = 0; nPlayer < CMultiplayerSettings::MAX_PLAYERS; nPlayer++) {
         if (g_pChitin->cNetwork.GetPlayerID(nPlayer) != 0) {
             nNumPlayers++;
         }
@@ -4883,7 +4883,7 @@ BOOLEAN CBaldurMessage::GetGameSpyQueryRules(CString& sResponse)
     sImportXP.Format("%d", (nImportingBitField & CMultiplayerSettings::IMPORT_EXPERIENCE) != 0);
     sImportItems.Format("%d", (nImportingBitField & CMultiplayerSettings::IMPORT_ITEMS) != 0);
 
-    for (BYTE nPermission = 0; nPermission < CGamePermission::TOTAL_PERMISSIONS; nPermission) {
+    for (BYTE nPermission = 0; nPermission < CGamePermission::TOTAL_PERMISSIONS; nPermission++) {
         BOOLEAN bPermission = g_pBaldurChitin->GetObjectGame()->GetMultiplayerSettings()->GetPermission(-1, nPermission);
         switch (nPermission) {
         case 0:

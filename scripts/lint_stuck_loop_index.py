@@ -107,6 +107,26 @@ def scan_file(path: Path):
         body_end = _balance(text, nb, "{", "}")
         body = text[nb:body_end]
 
+        # The other shape: a for-loop whose STEP is a bare name, `for (SHORT
+        # index = 0; index < N; index)`.  The step evaluates the variable and
+        # throws it away, so unless the body advances it the loop never ends.
+        # Ten of these hung CScreen*::OnKeyDown's keymap scan and the GameSpy
+        # query loops (s54); the binary advances every one of them.
+        if kw == "for":
+            parts = head.split(";")
+            if len(parts) == 3:
+                step = parts[2].strip()
+                # Only an increment, decrement or assignment advances it here:
+                # _mutated also counts passing it to a call, and every one of
+                # these bodies passes the index to GetKeymap.
+                v = re.escape(step)
+                advanced = re.search(
+                    rf"(\+\+|--)\s*\b{v}\b|\b{v}\s*(\+\+|--|[-+*/%&|^]?=(?!=))", body
+                )
+                if re.fullmatch(r"[A-Za-z_]\w*", step) and not advanced:
+                    line = text.count("\n", 0, lm.start()) + 1
+                    hits.append((line, step, kw, "no-op step"))
+
         control = set(re.findall(r"[A-Za-z_]\w*", head))
         pre_start = max(0, lm.start() - PRE_WINDOW)
         pre = text[pre_start : lm.start()]

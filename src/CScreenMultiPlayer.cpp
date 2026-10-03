@@ -469,7 +469,7 @@ void CScreenMultiPlayer::OnKeyDown(SHORT nKeysFlags)
                     g_pBaldurChitin->GetCurrentVideoMode()->PrintScreen();
                     break;
                 default:
-                    for (SHORT index = 0; index < CINFGAME_KEYMAP_SIZE; index) {
+                    for (SHORT index = 0; index < CINFGAME_KEYMAP_SIZE; index++) {
                         if (pGame->GetKeymap(index) == m_pVirtualKeysFlags[nKeyFlag]
                             && pGame->GetKeymapFlag(index) == m_bCtrlKeyDown) {
                             switch (index) {
