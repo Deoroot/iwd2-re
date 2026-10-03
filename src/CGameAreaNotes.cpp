@@ -292,7 +292,7 @@ BOOL CGameAreaNotes::UpdateAreaNote(WORD startX, WORD startY, CString szNote, DW
     return FALSE;
 }
 
-// 0x47B090
+// 0x47B330
 void CGameAreaNotes::Add(CString area, WORD startX, WORD startY, CString szNote, DWORD dwFlags, STRREF strRef)
 {
     // TODO: Incomplete.
