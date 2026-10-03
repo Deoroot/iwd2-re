@@ -173,10 +173,21 @@ def load_groups():
 
 def library_start():
     """Everything from here to the end of .text is linked-in library code --
-    import thunks, then MFC and the C runtime.  Nobody recovers it, so it is
-    reported as its own row and kept OUT of the game totals."""
+    the tail of zlib, import thunks, then MFC and the C runtime.  Nobody
+    recovers it, so it is reported as its own row and kept OUT of the game
+    totals."""
     with open(GROUPS, encoding="utf-8") as fh:
         return int(json.load(fh).get("library_start", "0xFFFFFFFF"), 16)
+
+
+def library_ranges():
+    """Library code linked in BELOW `library_start`, as half-open [lo, hi)
+    pairs.  zlib 1.1.2 is split in three by the link order: compress and
+    uncompress after CCrypt, deflate.c + inflate.c before InitOpenGL, and the
+    rest (zutil, trees, adler32, inf*) right up to the import thunks."""
+    with open(GROUPS, encoding="utf-8") as fh:
+        return [(int(lo, 16), int(hi, 16))
+                for lo, hi in json.load(fh).get("library_ranges", [])]
 
 
 def group_of(c, groups):
@@ -199,10 +210,12 @@ def measure():
     cls, how = classify(real, source)
     groups = load_groups()
     lib = library_start()
+    lib_ranges = library_ranges()
 
     rows = defaultdict(Counter)
     for a in real:
-        g = LIBRARY if a >= lib else group_of(cls[a], groups)
+        in_lib = a >= lib or any(lo <= a < hi for lo, hi in lib_ranges)
+        g = LIBRARY if in_lib else group_of(cls[a], groups)
         r = rows[g]
         sz = sizes.get(a, 0)
         r["fns"] += 1

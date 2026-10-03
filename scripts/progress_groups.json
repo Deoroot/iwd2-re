@@ -1,6 +1,8 @@
 {
   "_comment": "Subsystems for scripts/progress_badges.py. Ordered: the FIRST group whose regex matches a function's class wins. Run `progress_badges.py --classes` to see what each group caught and what fell to Unclassified.",
-  "library_start": "0x7DE120",
+  "library_start": "0x7DA0D0",
+  "_library_ranges_comment": "zlib 1.1.2 linked in below library_start, half-open [lo, hi): deflate.c + inflate.c, and compress/uncompress. InitOpenGL..audioClose (0x7D8E80..0x7DA0D0) sits between the first range and library_start and is game code.",
+  "library_ranges": [["0x7C8830", "0x7C8980"], ["0x7D70F0", "0x7D8E80"]],
   "groups": [
     {
       "name": "Creatures",
