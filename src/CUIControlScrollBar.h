@@ -12,6 +12,7 @@
 class CUIControlButtonScrollBar;
 class CVidInf;
 
+#pragma pack(push, 2)
 class CUIControlScrollBar : public CUIControlBase {
 public:
     CUIControlScrollBar(CUIPanel* panel, UI_CONTROL_SCROLLBAR* controlInfo);
@@ -50,6 +51,7 @@ public:
     /* 0146 */ unsigned char field_146;
     /* 0148 */ short field_148;
 };
+#pragma pack(pop)
 
 class CUIControlEditScrollBar : public CUIControlScrollBar {
 public:
@@ -64,6 +66,7 @@ public:
     void OnPageDown(DWORD nLines) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonScrollBar : public CUIControlButton {
 public:
     CUIControlButtonScrollBar(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo, CUIControlScrollBar* scrollBar, BYTE nDirection);
@@ -79,5 +82,6 @@ public:
     /* 066A */ BYTE m_nDirection;
     /* 066C */ SHORT m_nAUCounter;
 };
+#pragma pack(pop)
 
 #endif /* CUICONTROLSCROLLBAR_H_ */

@@ -25,6 +25,7 @@ public:
     SHORT m_nLine;
 };
 
+#pragma pack(push, 2)
 class CUIControlTextDisplay : public CUIControlBase {
 public:
     static const CString NAME_SEPARATOR;
@@ -83,7 +84,7 @@ public:
     /* 0A66 */ unsigned char field_A66;
     /* 0A67 */ unsigned char field_A67;
     /* 0A68 */ short field_A68;
-    /* 0A6C */ short m_nVisibleLines;
+    /* 0A6A */ short m_nVisibleLines;
     /* 0A6C */ short field_A6C;
     /* 0A6E */ DWORD m_nScrollBarID;
     /* 0A72 */ COLORREF m_rgbLabelColor;
@@ -101,5 +102,6 @@ public:
     /* 0AB6 */ BOOLEAN field_AB6;
     /* 0AB7 */ unsigned char field_AB7;
 };
+#pragma pack(pop)
 
 #endif /* CUICONTROLTEXTDISPLAY_H_ */

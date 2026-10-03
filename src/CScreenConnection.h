@@ -265,6 +265,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlEditConnectionWithDefault : public CUIControlEdit {
 public:
     CUIControlEditConnectionWithDefault(CUIPanel* panel, UI_CONTROL_EDIT* controlInfo, BYTE nField);
@@ -272,8 +273,9 @@ public:
     void OnKeyDown(SHORT nKey) override;
     void OnEditReturn(CString sText) override;
 
-    /* 0892 */ BYTE m_nField;
+    /* 08A2 */ BYTE m_nField;
 };
+#pragma pack(pop)
 
 class CUIControlButtonConnectionCreateGameNewGame : public CUIControlButton {
 public:

@@ -127,6 +127,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonMultiPlayerPortrait : public CUIControlButton {
 public:
     CUIControlButtonMultiPlayerPortrait(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -140,6 +141,7 @@ public:
 
     /* 0666 */ CResRef m_portraitResRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonMultiPlayerPlayer : public CUIControlButton {
 public:
@@ -183,6 +185,7 @@ public:
     void OnEditReturn(CString sText) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonMultiPlayerPermissionsPermission : public CUIControlButton3State {
 public:
     CUIControlButtonMultiPlayerPermissionsPermission(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -192,6 +195,7 @@ public:
 
     /* 066E */ SHORT m_nDisabledSelectedFrame;
 };
+#pragma pack(pop)
 
 class CUIControlButtonMultiPlayerPermissionsKick : public CUIControlButton {
 public:
@@ -207,6 +211,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonMultiPlayerPermissionsListen : public CUIControlButton3State {
 public:
     CUIControlButtonMultiPlayerPermissionsListen(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -216,6 +221,7 @@ public:
 
     /* 066E */ SHORT m_nDisabledSelectedFrame;
 };
+#pragma pack(pop)
 
 class CUIControlButtonMultiPlayerPermissionsDone : public CUIControlButton {
 public:
@@ -224,6 +230,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonMultiPlayerOptionsImport : public CUIControlButton3State {
 public:
     CUIControlButtonMultiPlayerOptionsImport(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -233,6 +240,7 @@ public:
 
     /* 066E */ SHORT m_nDisabledSelectedFrame;
 };
+#pragma pack(pop)
 
 class CUIControlButtonMultiPlayerOptionsCancel : public CUIControlButton {
 public:
@@ -304,6 +312,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonMultiPlayerSelection : public CUIControlButton3State {
 public:
     CUIControlButtonMultiPlayerSelection(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -313,5 +322,6 @@ public:
 
     /* 066E */ SHORT m_nDisabledSelectedFrame;
 };
+#pragma pack(pop)
 
 #endif /* CSCREENMULTIPLAYER_H_ */

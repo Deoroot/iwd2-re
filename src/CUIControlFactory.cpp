@@ -4741,9 +4741,9 @@ CUIControlEditLua::CUIControlEditLua(CUIPanel* panel, UI_CONTROL_EDIT* controlIn
 {
     CString sKey(_T("String0"));
 
-    m_nHistorySize = 10;
+    field_873 = 10;
 
-    for (BYTE nIndex = 0; nIndex < m_nHistorySize; nIndex++) {
+    for (BYTE nIndex = 0; nIndex < field_873; nIndex++) {
         sKey.SetAt(sKey.GetLength() - 1, nIndex + '0');
         GetPrivateProfileStringA("Lua Edit",
             sKey,

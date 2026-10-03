@@ -6,6 +6,7 @@
 #include "CVidFont.h"
 #include "CVidMosaic.h"
 
+#pragma pack(push, 2)
 class CUIControlEdit : public CUIControlBase {
 public:
     CUIControlEdit(CUIPanel* panel, UI_CONTROL_EDIT* controlInfo, int a3);
@@ -49,5 +50,6 @@ public:
     /* 08A0 */ unsigned char field_8A0;
     /* 08A1 */ unsigned char field_8A1;
 };
+#pragma pack(pop)
 
 #endif /* CUICONTROLEDIT_H_ */

@@ -366,6 +366,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonCharacter5EBC60 : public CUIControlButton3State {
 public:
     CUIControlButtonCharacter5EBC60(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -376,6 +377,7 @@ public:
     /* 066E */ CResRef field_66E;
     /* 0676 */ CResRef field_676;
 };
+#pragma pack(pop)
 
 class CUIControlButtonCharacterPopupDone : public CUIControlButton {
 public:

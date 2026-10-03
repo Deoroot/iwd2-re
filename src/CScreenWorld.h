@@ -285,6 +285,7 @@ public:
     void InvalidateSlots();
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonWorldContainerIcon : public CUIControlButton {
 public:
     CUIControlButtonWorldContainerIcon(CUIPanel* pPanel, UI_CONTROL_BUTTON* controlInfo);
@@ -293,6 +294,7 @@ public:
 
     /* 0666 */ CResRef m_resRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonWorldContainerClose : public CUIControlButton {
 public:
@@ -301,6 +303,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonClock : public CUIControlButton3State {
 public:
     CUIControlButtonClock(CUIPanel* pPanel, UI_CONTROL_BUTTON* controlInfo);
@@ -313,6 +316,7 @@ public:
     /* 066E */ CVidCell m_vcGear;
     /* 0748 */ CVidCell field_748;
 };
+#pragma pack(pop)
 
 class CUIControlButtonWorldDeathLoad : public CUIControlButton {
 public:

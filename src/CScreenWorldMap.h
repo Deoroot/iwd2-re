@@ -127,6 +127,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonWorldMapWorldMap : public CUIControlButton {
 public:
     CUIControlButtonWorldMapWorldMap(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -136,8 +137,10 @@ public:
     void OnLButtonUp(CPoint pt) override;
     BOOL Render(BOOL bForce) override;
 
+    /* 0666 */ unsigned char field_666[16]; // NOTE: No reader or writer found; `operator new(0x67E)` ahead of the ctor call at 0x7741F3.
     /* 0676 */ int field_676;
     /* 067A */ int field_67A;
 };
+#pragma pack(pop)
 
 #endif /* CSCREENWORLDMAP_H_ */

@@ -5,6 +5,7 @@
 #include "CVidCell.h"
 #include "CVidFont.h"
 
+#pragma pack(push, 2)
 class CUIControlButton : public CUIControlBase {
 public:
     static const BYTE LBUTTON;
@@ -51,7 +52,7 @@ public:
     /* 063E */ int field_63E;
     /* 0642 */ int field_642;
     /* 0646 */ BOOL m_bEnabled;
-    /* 064A */ int m_nTextLines;
+    /* 064A */ BYTE m_nTextLines;
     /* 064C */ int field_64C;
     /* 0650 */ BOOL m_bValid;
     /* 0654 */ short field_654;
@@ -62,5 +63,13 @@ public:
     /* 0660 */ unsigned char field_660;
     /* 0662 */ int field_662;
 };
+#pragma pack(pop)
+
+static_assert(offsetof(CUIControlButton, m_nTextLines) == 0x64A,
+    "a BYTE: 0x4D49AD, 0x4D599D and 0x4D5655 all touch one byte");
+static_assert(offsetof(CUIControlButton, field_662) == 0x662,
+    "0x4D4913: mov dword ptr [esi+0x662], 1");
+static_assert(sizeof(CUIControlButton) == 0x666,
+    "CUIControlButton3State's first member is at 0x666 (0x4D5A02)");
 
 #endif /* CUICONTROLBUTTON_H_ */

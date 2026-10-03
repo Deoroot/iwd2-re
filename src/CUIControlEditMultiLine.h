@@ -6,6 +6,7 @@
 #include "CVidFont.h"
 #include "CVidMosaic.h"
 
+#pragma pack(push, 2)
 class CUIControlEditMultiLine : public CUIControlBase {
 public:
     CUIControlEditMultiLine(CUIPanel* panel, UI_CONTROL_EDIT* controlInfo, int a3);
@@ -48,17 +49,20 @@ public:
     /* 086A */ int field_86A;
     /* 086E */ int m_nTopLine;
     /* 0872 */ int field_872;
-    /* 0876 */ int field_876;
+    /* 0876 */ unsigned char field_876;
     /* 0877 */ unsigned char field_877;
     /* 0878 */ short m_nVisibleLines;
     /* 087A */ short m_nTotalLines;
     /* 087C */ COLORREF m_rgbForegroundColor;
     /* 0880 */ COLORREF m_rgbBackgroundColor;
+    /* 0884 */ unsigned char field_884[4]; // NOTE: No reader or writer found.
     /* 0888 */ unsigned char field_888;
     /* 088A */ int field_88A;
     /* 088E */ int field_88E;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlEditMultiLineScroller : public CUIControlEditMultiLine {
 public:
     CUIControlEditMultiLineScroller(CUIPanel* panel, UI_CONTROL_EDIT* controlInfo);
@@ -77,5 +81,6 @@ public:
     /* 0898 */ unsigned char field_898;
     /* 0899 */ unsigned char field_899;
 };
+#pragma pack(pop)
 
 #endif /* CUICONTROLEDITMULTILINE_H_ */

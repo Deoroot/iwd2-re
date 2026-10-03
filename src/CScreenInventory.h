@@ -195,6 +195,7 @@ public:
     /* 1476 */ C2DArray m_tSubRace;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonInventorySlot : public CUIControlButton {
 public:
     CUIControlButtonInventorySlot(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -213,6 +214,7 @@ public:
     /* 0666 */ BOOL field_666;
     /* 066A */ BOOL field_66A;
 };
+#pragma pack(pop)
 
 class CUIControlButtonInventoryAppearance : public CUIControlButton {
 public:
@@ -229,6 +231,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonInventoryColor : public CUIControlButton {
 public:
     CUIControlButtonInventoryColor(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -239,7 +242,9 @@ public:
     /* 0666 */ CVidCell* m_pDecal;
     /* 066A */ CVidPalette* m_pPalette;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButtonInventoryColorChoice : public CUIControlButton {
 public:
     CUIControlButtonInventoryColorChoice(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -252,6 +257,7 @@ public:
     /* 0666 */ CVidCell* m_pDecal;
     /* 066A */ CVidPalette* m_pPalette;
 };
+#pragma pack(pop)
 
 class CUIControlScrollBarInventoryGround : public CUIControlScrollBar {
 public:
@@ -265,6 +271,7 @@ public:
     void UpdateScrollBar();
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonInventoryRequesterItem : public CUIControlButton {
 public:
     CUIControlButtonInventoryRequesterItem(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -273,6 +280,7 @@ public:
 
     /* 0666 */ CResRef m_resRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonInventoryRequesterDone : public CUIControlButton {
 public:
@@ -302,6 +310,7 @@ public:
     void KillFocus() override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonInventoryHistoryIcon : public CUIControlButton {
 public:
     CUIControlButtonInventoryHistoryIcon(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -313,7 +322,9 @@ public:
     /* 0666 */ CItem* m_pItem;
     /* 066A */ CItem m_item;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButtonInventoryAbilitiesAbility : public CUIControlButton3State {
 public:
     CUIControlButtonInventoryAbilitiesAbility(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -325,6 +336,7 @@ public:
 
     /* 066E */ CButtonData m_cButtonData;
 };
+#pragma pack(pop)
 
 class CUIControlButtonInventoryHistoryDone : public CUIControlButton {
 public:
@@ -340,6 +352,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonInventoryHistoryImage : public CUIControlButton {
 public:
     CUIControlButtonInventoryHistoryImage(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -350,6 +363,7 @@ public:
 
     /* 0666 */ CResRef m_imageResRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonInventoryHistoryAbilities : public CUIControlButton {
 public:
@@ -365,6 +379,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlPortraitInventory : public CUIControlPortraitGeneral {
 public:
     CUIControlPortraitInventory(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -374,6 +389,7 @@ public:
 
     /* 0666 */ int field_666;
 };
+#pragma pack(pop)
 
 class CUIControlButtonInventoryError : public CUIControlButton {
 public:

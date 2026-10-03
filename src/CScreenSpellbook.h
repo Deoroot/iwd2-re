@@ -108,6 +108,7 @@ public:
     /* 1670 */ int field_1670;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonSpellbookSpell : public CUIControlButton {
 public:
     CUIControlButtonSpellbookSpell(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -124,6 +125,7 @@ public:
     /* 0676 */ int field_676;
     /* 067A */ int field_67A;
 };
+#pragma pack(pop)
 
 class CUIControlScrollBarSpellbookKnownSpells : public CUIControlScrollBar {
 public:
@@ -137,6 +139,7 @@ public:
     void InvalidateItems();
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonSpellbookSpellInfoIcon : public CUIControlButton {
 public:
     CUIControlButtonSpellbookSpellInfoIcon(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -148,6 +151,7 @@ public:
     /* 0666 */ CResRef m_spellResRef;
     /* 066E */ CResRef m_iconResRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonSpellbookPopupDone : public CUIControlButton {
 public:

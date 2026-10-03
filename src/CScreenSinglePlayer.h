@@ -136,6 +136,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonSinglePlayerPortrait : public CUIControlButton {
 public:
     CUIControlButtonSinglePlayerPortrait(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -147,6 +148,7 @@ public:
 
     /* 0666 */ CResRef m_portraitResRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonSinglePlayerCharacter : public CUIControlButton {
 public:

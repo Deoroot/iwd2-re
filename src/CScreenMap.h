@@ -103,6 +103,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonMapAreaMap : public CUIControlButton {
 public:
     CUIControlButtonMapAreaMap(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -153,6 +154,7 @@ public:
     /* 07BE */ CList<DWORD> field_7BE;
     /* 07DA */ unsigned char field_7DA;
 };
+#pragma pack(pop)
 
 class CUIControlButtonMapError : public CUIControlButton {
 public:
@@ -196,6 +198,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonMapNote : public CUIControlButton {
 public:
     CUIControlButtonMapNote(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -211,7 +214,9 @@ public:
     /* 066C */ CResRef m_areaResRef;
     /* 0674 */ CPoint m_ptWorld;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButtonMapNoteFlagChoice : public CUIControlButton3State {
 public:
     CUIControlButtonMapNoteFlagChoice(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -222,5 +227,6 @@ public:
 
     /* 066E */ BOOL field_66E;
 };
+#pragma pack(pop)
 
 #endif /* CSCREENMAP_H_ */

@@ -7,6 +7,7 @@
 
 class CUIPanel;
 
+#pragma pack(push, 2)
 class CUIControlBase {
 public:
     static CUIControlBase* CreateControl(CUIPanel* pPanel, UI_CONTROL* controlInfo);
@@ -68,5 +69,13 @@ public:
     /* 004C */ USHORT m_nToolTipHotKeyIndex2;
     /* 004E */ CString m_sKey;
 };
+#pragma pack(pop)
+
+// Measured, not assumed: the constructor at 0x4D23B0 writes m_bEnabled as a
+// byte at +4 and m_pPanel at +6 (0x4D2408, 0x4D240B), which only pack(2) gives.
+static_assert(offsetof(CUIControlBase, m_pPanel) == 0x6,
+    "0x4D240B: mov [esi+6], eax");
+static_assert(sizeof(CUIControlBase) == 0x52,
+    "CUIControlButton builds its CVidCell at this+0x52 (0x4D480D)");
 
 #endif /* CUICONTROLBASE_H_ */

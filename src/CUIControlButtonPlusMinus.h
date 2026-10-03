@@ -3,6 +3,7 @@
 
 #include "CUIControlButton.h"
 
+#pragma pack(push, 2)
 class CUIControlButtonPlusMinus : public CUIControlButton {
 public:
     CUIControlButtonPlusMinus(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -15,5 +16,6 @@ public:
 
     /* 0666 */ DWORD m_nAUCounter;
 };
+#pragma pack(pop)
 
 #endif /* CUICONTROLBUTTONPLUSMINUS_H_ */

@@ -371,6 +371,7 @@ public:
     void UpdateScrollBar();
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonStoreStoreItem : public CUIControlButton3State {
 public:
     CUIControlButtonStoreStoreItem(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -382,7 +383,9 @@ public:
 
     /* 066E */ CItem m_item;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButtonStoreGroupItem : public CUIControlButton3State {
 public:
     CUIControlButtonStoreGroupItem(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -394,7 +397,9 @@ public:
 
     /* 066E */ CItem m_item;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButtonStoreStoreSpell : public CUIControlButton3State {
 public:
     CUIControlButtonStoreStoreSpell(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -405,6 +410,7 @@ public:
 
     /* 066E */ CResRef m_resRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonStoreRentRoomRoomSelect : public CUIControlButton3State {
 public:
@@ -460,6 +466,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonStoreRequesterItem : public CUIControlButton {
 public:
     CUIControlButtonStoreRequesterItem(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -468,6 +475,7 @@ public:
 
     /* 0666 */ CResRef m_resRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonStoreRequesterDone : public CUIControlButton {
 public:

@@ -5,6 +5,7 @@
 #include "CVidCell.h"
 #include "CVidMosaic.h"
 
+#pragma pack(push, 2)
 class CUIControlSlider : public CUIControlBase {
 public:
     static const CSize THUMB_SIZE_EXPAND;
@@ -39,5 +40,6 @@ public:
     /* 020E */ BOOL m_bValueChanged;
     /* 0212 */ int m_nDragOffset;
 };
+#pragma pack(pop)
 
 #endif /* CUICONTROLSLIDER_H_ */

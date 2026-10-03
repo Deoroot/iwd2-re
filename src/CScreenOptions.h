@@ -99,6 +99,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonOptionsRadio : public CUIControlButton3State {
 public:
     CUIControlButtonOptionsRadio(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -108,6 +109,7 @@ public:
 
     /* 066E */ SHORT m_nDisabledSelectedFrame;
 };
+#pragma pack(pop)
 
 class CUIControlSliderOptionsSlider : public CUIControlSlider {
 public:

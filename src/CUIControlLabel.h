@@ -5,6 +5,7 @@
 
 #include "CVidFont.h"
 
+#pragma pack(push, 2)
 class CUIControlLabel : public CUIControlBase {
 public:
     static const WORD TYPE_WORD_WRAP;
@@ -29,5 +30,6 @@ public:
     /* 055C */ SHORT m_nTextLines;
     /* 055E */ BYTE m_nMaxLines;
 };
+#pragma pack(pop)
 
 #endif /* CUICONTROLLABEL_H_ */

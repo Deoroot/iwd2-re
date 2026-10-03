@@ -60,6 +60,7 @@ public:
     void OnHotAreaClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonCharGenPortrait : public CUIControlButton {
 public:
     CUIControlButtonCharGenPortrait(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -69,6 +70,7 @@ public:
 
     /* 0666 */ CResRef m_portraitResRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonCharGenAbilitiesHotArea : public CUIControlButtonHotArea {
 public:
@@ -84,6 +86,7 @@ public:
     void OnHotAreaClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonCharGenAppearancePortrait : public CUIControlButton {
 public:
     CUIControlButtonCharGenAppearancePortrait(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -93,6 +96,7 @@ public:
 
     /* 0666 */ CResRef m_portraitResRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonCharGenAppearanceLeft : public CUIControlButton {
 public:
@@ -176,6 +180,7 @@ public:
     void OnRButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonCharacterPortrait : public CUIControlButton {
 public:
     CUIControlButtonCharacterPortrait(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -185,7 +190,9 @@ public:
 
     /* 0666 */ CResRef m_portraitResRef;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlPortraitWorld : public CUIControlPortraitBase {
 public:
     CUIControlPortraitWorld(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -199,6 +206,7 @@ public:
 
     /* 0666 */ int m_bHighlighted;
 };
+#pragma pack(pop)
 
 class CUIControlButtonSelectAll : public CUIControlButton {
 public:
@@ -224,6 +232,7 @@ public:
     void OnRButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButton85C3BC : public CUIControlButton {
 public:
     CUIControlButton85C3BC(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -234,7 +243,9 @@ public:
 
     /* 0666 */ WORD m_nAUCounter;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButton85C434 : public CUIControlButton {
 public:
     CUIControlButton85C434(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -245,6 +256,7 @@ public:
 
     /* 0666 */ WORD m_nAUCounter;
 };
+#pragma pack(pop)
 
 class CUIControlButton85C344 : public CUIControlButton {
 public:
@@ -283,6 +295,7 @@ public:
     /* 0074 */ void OnItemSelected(LONG lMarker) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButton85D3E4 : public CUIControlButton {
 public:
     CUIControlButton85D3E4(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -293,7 +306,9 @@ public:
 
     /* 0666 */ WORD m_nAUCounter;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButton85D45C : public CUIControlButton {
 public:
     CUIControlButton85D45C(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -304,6 +319,7 @@ public:
 
     /* 0666 */ WORD m_nAUCounter;
 };
+#pragma pack(pop)
 
 class CUIControlButtonRest : public CUIControlButton {
 public:
@@ -312,17 +328,21 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlEditLua : public CUIControlEdit {
 public:
     CUIControlEditLua(CUIPanel* panel, UI_CONTROL_EDIT* controlInfo);
     ~CUIControlEditLua() override;
 
-    /* 0873 */ BYTE m_nHistorySize;
-    /* 0874 */ CString m_sHistory[10];
+    // NOTE: The history (count at 0x873, strings at 0x874) is
+    // `CUIControlEdit`'s own `field_873` / `field_874`; 0x77BD56 writes the
+    // base's byte.
     /* 08A2 */ LONG field_8A2;
     /* 08A6 */ unsigned char field_8A6;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlEncumbrance : public CUIControlButton {
 public:
     CUIControlEncumbrance(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -338,7 +358,9 @@ public:
     /* 0B6E */ int field_B6E;
     /* 0B72 */ int field_B72;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButtonGeneralBase : public CUIControlButton3State {
 public:
     CUIControlButtonGeneralBase(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -347,6 +369,7 @@ public:
 
     /* 066E */ CBaldurEngine* field_66E;
 };
+#pragma pack(pop)
 
 class CUIControlButtonGeneralWorld : public CUIControlButtonGeneralBase {
 public:
@@ -405,6 +428,7 @@ public:
     ~CUIControlButtonGeneralMultiPlayer() override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButton77DCC0 : public CUIControlButton {
 public:
     CUIControlButton77DCC0(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -415,5 +439,6 @@ public:
     /* 0666 */ short field_666;
     /* 0668 */ short field_668;
 };
+#pragma pack(pop)
 
 #endif /* CUICONTROLFACTORY_H_ */

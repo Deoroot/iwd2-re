@@ -361,6 +361,7 @@ public:
     BYTE GetAlignment();
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonCharGenKnownArcaneSpellSelection : public CUIControlButton3State {
 public:
     CUIControlButtonCharGenKnownArcaneSpellSelection(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -373,6 +374,7 @@ public:
     /* 066E */ CResRef m_iconResRef;
     /* 0676 */ CResRef m_spellResRef;
 };
+#pragma pack(pop)
 
 class CUIControlButtonCharGenGenderSelection : public CUIControlButton3State {
 public:
@@ -421,6 +423,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonCharGenHairSkinColor : public CUIControlButton {
 public:
     CUIControlButtonCharGenHairSkinColor(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -431,7 +434,9 @@ public:
     /* 0666 */ CVidCell* m_pDecal;
     /* 066A */ CVidPalette* m_pPalette;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButtonCharGenColorChoice : public CUIControlButton {
 public:
     CUIControlButtonCharGenColorChoice(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -444,6 +449,7 @@ public:
     /* 0666 */ CVidCell* m_pDecal;
     /* 066A */ CVidPalette* m_pPalette;
 };
+#pragma pack(pop)
 
 class CUIControlButtonCharGenPopupCancel : public CUIControlButton {
 public:
@@ -479,6 +485,7 @@ public:
     void OnLButtonClick(CPoint pt) override;
 };
 
+#pragma pack(push, 2)
 class CUIControlButtonCharGenMemorizedArcaneSpellSelection : public CUIControlButton3State {
 public:
     CUIControlButtonCharGenMemorizedArcaneSpellSelection(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -491,7 +498,9 @@ public:
     /* 066E */ CResRef m_iconResRef;
     /* 0676 */ CResRef m_spellResRef;
 };
+#pragma pack(pop)
 
+#pragma pack(push, 2)
 class CUIControlButtonCharGenMemorizedDivineSpellSelection : public CUIControlButton3State {
 public:
     CUIControlButtonCharGenMemorizedDivineSpellSelection(CUIPanel* panel, UI_CONTROL_BUTTON* controlInfo);
@@ -504,6 +513,7 @@ public:
     /* 066E */ CResRef m_iconResRef;
     /* 0676 */ CResRef m_spellResRef;
 };
+#pragma pack(pop)
 
 class CUIControlTextDisplayCharGenPortraits : public CUIControlTextDisplay {
 public:
