@@ -170,6 +170,7 @@ Run a bullet below directly only when you need that one tool in isolation.
 ## Code changes
 
 - Recover → context bundle first (above). Verify `// 0xADDR` against Ghidra before touching.
+- **A function marker is `// 0xADDR` at COLUMN 0 in a .cpp** (any indent in a header, for inline members). An indented `// 0xADDR` inside a .cpp body is a NOTE — the map, hooks.csv, `project_status` and `lint_address_markers` all skip it (`reagent_address_map.is_body_note`). Before s54 they did not, and `create-functions` made 153 phantom Ghidra functions out of switch-arm notes; `scripts/ghidra_remove_body_notes.py [--live] [--apply]` finds/removes any that reappear.
 - Prefer named constants over magic numbers when defined in file.
 - `python scripts/vtable_audit.py ClassName` — missing virtual overrides (1-vtable anchor → conflation-blind).
 - `python scripts/ctor_vtable_check.py [ClassName]` — class CONFLATION: ctors install diff vtables = 2 binary classes merged → wrong virtual recovered (the Fireball green bug). Run on classes w/ >1 ctor.

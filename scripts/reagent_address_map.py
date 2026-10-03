@@ -55,6 +55,27 @@ CPP_KEYWORDS = frozenset({
 })
 
 
+# Source files whose function markers sit at column 0.  In a .cpp every
+# definition starts at the margin, so an INDENTED `// 0xADDR` is a note inside a
+# function body -- a switch arm (`// 0x45395C: IsScriptName...`), an inlined
+# callee, the instruction a line reproduces -- and not the start of anything.
+# Headers keep indented markers: an inline member's marker is indented with it.
+BODY_FILE_EXTENSIONS = (".cpp",)
+
+
+def is_body_note(path: Path, line: str) -> bool:
+    """True for a ``// 0xADDR`` line that annotates code inside a body.
+
+    Taking these as function markers put 158 phantom "functions" into the map
+    (s54): ``CAITrigger cause(trigger);`` under a switch-arm note became
+    ``CGameAIBase::cause``, ``gb export create-functions`` then CREATED a Ghidra
+    function at every one of those mid-body addresses, and from there the
+    lint that exists to catch a marker that is not a function start
+    (lint_address_markers.py) confirmed them against Ghidra's own index.
+    """
+    return path.suffix.lower() in BODY_FILE_EXTENSIONS and line[:1] in (" ", "\t")
+
+
 def _signature_line(lines: list[str], start: int) -> str | None:
     """First code line after *start*, skipping the marker's blank/comment doc
     block of any length. Returns None at the next ``// 0xADDR`` marker or EOF, so
@@ -98,6 +119,10 @@ def build_map(source_root: Path) -> tuple[dict, list[tuple[str, int, str]], list
             if not (CODE_MIN <= addr_int <= CODE_MAX):
                 filtered.append((rel, i + 1, line.strip()))
                 continue
+            # ...and notes inside a function body (see is_body_note).
+            if is_body_note(path, line):
+                filtered.append((rel, i + 1, line.strip()))
+                continue
             sig = _signature_line(lines, i)
             if sig is None:
                 unparsed.append((rel, i + 1, line.strip()))
@@ -119,6 +144,14 @@ def build_map(source_root: Path) -> tuple[dict, list[tuple[str, int, str]], list
                 continue
 
             addr_norm = f"{addr_int:08x}"
+            # A header never replaces a .cpp definition: headers are walked
+            # after their .cpp, and a doc comment there that happens to open
+            # with the address (`// 0x56ECF0 (RemoveFromArea) and ...` above a
+            # `#pragma pack`) used to rename IcewindCSpellHitParticle::
+            # RemoveFromArea to "CProjectile::pack".
+            prev = address_map.get(addr_norm)
+            if prev is not None and prev["file"].endswith(".cpp") and path.suffix.lower() != ".cpp":
+                continue
             address_map[addr_norm] = {
                 "name": func,
                 "class": cls,

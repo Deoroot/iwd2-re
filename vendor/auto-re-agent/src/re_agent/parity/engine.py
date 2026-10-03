@@ -199,13 +199,14 @@ def run_parity(
             })
             continue
 
-        # Try address-based lookup first (uses hook_patterns index),
-        # then fall back to class::fn_name lookup.
-        source = None
-        if entry.fn_name:
+        # Address first: the `// 0xADDR` marker names exactly one definition,
+        # where a name can name several -- overloads (CResRef::operator!= is
+        # three functions) and same-named members of another class reached
+        # through the free-function fallback.  The comment here always said
+        # "address first"; the code tried the name first.
+        source = indexer.find_by_address(entry.address)
+        if source is None and entry.fn_name:
             source = indexer.find(entry.class_name, entry.fn_name)
-        if source is None:
-            source = indexer.find_by_address(entry.address)
 
         # Resolve Ghidra data: pre-fetched map > live backend > None
         ghidra: GhidraData | None = None

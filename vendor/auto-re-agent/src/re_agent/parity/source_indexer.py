@@ -16,7 +16,14 @@ from re_agent.utils.text import (
     strip_comments,
 )
 
-FUNC_TOKEN_RE = re.compile(r"([A-Za-z_~][A-Za-z0-9_]*)::([A-Za-z_~][A-Za-z0-9_]*)\s*\(")
+# The member name after `::` is an identifier OR an operator overload --
+# `operator==`, `operator!`, `operator+=`, `operator()`, `operator[]`.  Without
+# the second branch no operator body was ever indexed, and every recovered
+# operator (CResRef's eight, CItem::operator==, CDerivedStats::operator+=) came
+# back "Source function body not found".  Same shape as reagent_address_map's
+# QUAL_RE, so the hook names it emits are the names indexed here.
+MEMBER_NAME_RE = r"(?:operator\s*(?:\(\)|\[\]|[^\s(]+)|[A-Za-z_~][A-Za-z0-9_]*)"
+FUNC_TOKEN_RE = re.compile(rf"([A-Za-z_~][A-Za-z0-9_]*)::({MEMBER_NAME_RE})\s*\(")
 
 # A hand-recovered function carries the binary address it reproduces in a
 # comment on the line above its definition:
@@ -30,9 +37,11 @@ FUNC_TOKEN_RE = re.compile(r"([A-Za-z_~][A-Za-z0-9_]*)::([A-Za-z_~][A-Za-z0-9_]*
 # a hook to its body by ADDRESS, so a rename or a re-classification in source no
 # longer reads as "source function body not found".
 ADDR_MARKER_RE = re.compile(
-    r"//\s*0x([0-9A-Fa-f]{5,8})\s*\n"
+    # Text may follow the address on the marker line (`// 0x56ECF0 (vtable
+    # slot 18). Removes...`), as reagent_address_map's ADDR_RE allows.
+    r"//\s*0x([0-9A-Fa-f]{5,8})\b[^\n]*\n"
     r"(?:\s*//[^\n]*\n)*"
-    r"[^\n{};]*?\b([A-Za-z_~][A-Za-z0-9_]*)::([A-Za-z_~][A-Za-z0-9_]*)\s*\("
+    rf"[^\n{{}};]*?\b([A-Za-z_~][A-Za-z0-9_]*)::({MEMBER_NAME_RE})\s*\("
 )
 
 
@@ -72,6 +81,9 @@ class SourceIndexer:
         self.token_index: dict[tuple[str, str], list[tuple[Path, int]]] = defaultdict(list)
         # Maps address -> (class_name, fn_name) discovered via hook patterns
         self.hook_address_index: dict[str, tuple[str, str]] = {}
+        # address -> (path, class token offset, fn token offset, fn name) of the
+        # definition right under a `// 0xADDR` marker
+        self.addr_def_index: dict[str, tuple[Path, int, int, str]] = {}
         self.lookup_cache: dict[tuple[str, str], SourceMatch | None] = {}
         self.free_lookup_cache: dict[str, SourceMatch | None] = {}
         self._build_index()
@@ -88,11 +100,21 @@ class SourceIndexer:
             txt = self._read_text(path)
             for m in FUNC_TOKEN_RE.finditer(txt):
                 self.token_index[(m.group(1), m.group(2))].append((path, m.start()))
-            # `// 0xADDR` markers above a definition: address -> (class, fn).
+            # `// 0xADDR` markers above a definition: address -> (class, fn),
+            # and address -> WHERE that definition is.  The position is what
+            # tells overloads apart: CResRef::operator!= is three functions at
+            # three addresses, and a lookup by name returns the first body for
+            # all of them.
+            # When two definitions carry the same address the LAST one wins,
+            # and a header never replaces a .cpp -- reagent_address_map's rule,
+            # so the body parity measures is the one hooks.csv names.
             for am in ADDR_MARKER_RE.finditer(txt):
-                self.hook_address_index.setdefault(
-                    normalize_address(am.group(1)), (am.group(2), am.group(3))
-                )
+                addr = normalize_address(am.group(1))
+                prev = self.addr_def_index.get(addr)
+                if prev is not None and prev[0].suffix.lower() == ".cpp" and path.suffix.lower() != ".cpp":
+                    continue
+                self.hook_address_index[addr] = (am.group(2), am.group(3))
+                self.addr_def_index[addr] = (path, am.start(2), am.start(3), am.group(3))
             # Scan hook-install macros to map addresses to function names.
             # Pattern capture groups: group(1) = func_name, group(2) = address.
             if self._hook_patterns:
@@ -411,6 +433,16 @@ class SourceIndexer:
         resolve *address* → *(class_name, fn_name)* and then delegates to
         :meth:`find`.  Returns ``None`` if the address is not in the index.
         """
+        # The definition under the marker itself, when it parses as one.
+        loc = self.addr_def_index.get(normalize_address(address))
+        if loc is not None:
+            path, cls_idx, fn_idx, fn = loc
+            txt = self._read_text(path)
+            open_brace = self._find_function_body_open(txt, fn_idx, fn)
+            if open_brace is not None:
+                close_brace = self._find_matching_brace(txt, open_brace)
+                if close_brace is not None:
+                    return self._make_source_match(path, txt, cls_idx, open_brace, close_brace)
         entry = self.hook_address_index.get(normalize_address(address))
         if entry is None:
             return None

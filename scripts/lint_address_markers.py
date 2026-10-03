@@ -52,6 +52,7 @@ from reagent_address_map import (  # noqa: E402
     INLINE_RE,
     QUAL_RE,
     _signature_line,
+    is_body_note,
 )
 
 REPO = Path(__file__).resolve().parent.parent
@@ -81,6 +82,8 @@ def collect_markers(source_root: Path):
 
             addr = int(m.group(1), 16)
             if not (CODE_MIN <= addr <= CODE_MAX):
+                continue
+            if is_body_note(path, line):
                 continue
 
             sig = _signature_line(lines, i)

@@ -40,6 +40,12 @@ EXPORTS = os.path.join(ROOT, ".ghidra-exports")
 
 ADDR_RE = re.compile(rb"// 0x[0-9A-Fa-f]{5,8}")
 ADDR_VAL_RE = re.compile(rb"// (0x[0-9A-Fa-f]{5,8})")
+# A function MARKER, as reagent_address_map.is_body_note defines it: the comment
+# opens the line, and in a .cpp it opens it at column 0.  An indented one in a
+# .cpp is a note inside a body, and a trailing one annotates the code before it;
+# counting either as "recovered" credited switch arms and unrecovered callees.
+MARKER_CPP_RE = re.compile(rb"(?m)^// (0x[0-9A-Fa-f]{5,8})")
+MARKER_HDR_RE = re.compile(rb"(?m)^[ \t]*// (0x[0-9A-Fa-f]{5,8})")
 TODO_RE = re.compile(rb"TODO|FIXME")
 INCOMPLETE_RE = re.compile(rb"TODO:\s?Incomplete")
 FUN_RE = re.compile(rb"\bFUN_[0-9A-Fa-f]{6,8}\b")
@@ -82,7 +88,8 @@ def scan_source():
             todo_files[rel] = n_todo
         incomplete += len(INCOMPLETE_RE.findall(data))
 
-        file_addrs = ADDR_VAL_RE.findall(data)
+        marker_re = MARKER_CPP_RE if path.endswith(".cpp") else MARKER_HDR_RE
+        file_addrs = marker_re.findall(data)
         if path.endswith(".cpp"):
             addrs_per_file[rel] = len(set(file_addrs))
         for a in file_addrs:
