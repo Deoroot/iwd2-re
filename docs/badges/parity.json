@@ -1,5 +1,5 @@
 {
-"generated": "2026-10-02",
+"generated": "2026-10-03",
 "signals": "decompile-only (asm signals skipped: no PyGhidra); concat-swap skipped",
 "verdicts": {
 "00401090": "GREEN",
@@ -923,9 +923,10 @@
 "0047ae30": "GREEN",
 "0047aee0": "GREEN",
 "0047b040": "GREEN",
-"0047b090": "YELLOW",
+"0047b090": "GREEN",
 "0047b140": "YELLOW",
 "0047b150": "GREEN",
+"0047b330": "YELLOW",
 "0047bad0": "GREEN",
 "0047bb40": "GREEN",
 "0047bb90": "GREEN",
