@@ -1,0 +1,33 @@
+# Cast Spell on a two-source caster: 0x72 -> 0x76 (class picker) -> 0x67
+# (spell picker), then ESC twice pops 0x67 -> 0x76 -> 0x72 (s55).
+#
+# This is the walk that looked like a divergence ("ours falls back to 0x72
+# where the original goes 0x76 -> 0x67 -> 0x76").  It is not one.  In the
+# original, SetState(0x76,1) comes from 0x5944C6 and SetState(0x67,1) from
+# 0x591945; the step back to 0x76 is CInfButtonArray::ResetState popping one
+# level, and what called it in the traces was CGameArea::OnActionButtonDown
+# (0x4755F4, a left click inside the viewport) or CInfGame::WorldEngineActivated
+# (0x5AF83F, the window regaining focus) -- the real mouse and focus, not the
+# bar.  ESC reaches the same ResetState from CScreenWorld::OnKeyDown.
+#
+# Save: 000000007-Staircase Transition (cleric1 at portrait 2; Cast Spell,
+# type 3, is slot 4).  A single-source caster skips 0x76 and goes straight to
+# 0x67 from 0x5944E6.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 2
+sleep 150
+bar
+click 1 10
+sleep 150
+bar
+click 1 6
+sleep 200
+bar
+key 27
+sleep 100
+bar
+key 27
+sleep 100
+bar

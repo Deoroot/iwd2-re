@@ -1,0 +1,57 @@
+# Bind a memorised spell to a quick-spell slot and click it twice -- the
+# 0x5933C3 arm of CInfButtonArray::OnLButtonPressed (types 0x46..0x4E), accept
+# path first and the deselect branch second (s55).
+#
+# No save ships with a bound quick spell, and an empty slot is greyed, which
+# the gate at 0x58FF8C returns on -- so the route has to bind one first.
+#
+# Save: 000000007-Staircase Transition (cleric1 at portrait 2; its 0x72 bar is
+# 07 3C 3D 05 03 48 49 5E 50 51 52 0A).  The ORIGINAL, same route:
+#   frida_orig.py --load-name "000000007-Staircase Transition" \
+#       --click 1:2 --rclick 1:11 --rclick 1:7 --rclick 1:6 --click 1:6 \
+#       --click 1:11 --click 1:11 --click-settle 150 --post-load 150
+#
+#   click 1 2     portrait 2, the cleric                  0x6E -> 0x72
+#   rclick 1 11   slot 5 (type 0x48, quick spell 2)       -> 0x75 customise
+#   rclick 1 7    its slot 1 (type 0x24)                  -> 0x77 class picker
+#   rclick 1 6    slot 0 (type 0x33, cleric)              -> 0x66 spell picker
+#   click 1 6     cell 0: CustomizeQuickSlot(mode 2) from
+#                 0x591659, UseSpellAction(bUseNow 0)     -> 0x72, slot 5 bound
+#   click 1 11    the bound slot: GetSelectedQuickSlotData
+#                 from 0x59341F, CanCast from 0x59348D,
+#                 ReadyQuickSlotByMode(2,2) from 0x59355E -> selected = 0x48
+#   click 1 11    again, selected == type: the deselect
+#                 branch 0x5933CB -> 0x592E59             -> selected = 100
+#
+# All eight bars are 0 of 168 against the original with
+# scripts/probes/actionbar_settings.py.  Not reached by this route: the reject
+# branch (CanCast == 0, 0x5934C8 -- it needs a caster whose stat is under
+# spell level + 10) and the SHIFT branch that calls 0x716770.
+#
+# The original is driven with the real mouse: if its trace shows a
+# World_OnLButtonDown the route did not ask for, or more than one "loaded",
+# somebody touched the window and the run is void.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 2
+sleep 150
+bar
+rclick 1 11
+sleep 150
+bar
+rclick 1 7
+sleep 150
+bar
+rclick 1 6
+sleep 150
+bar
+click 1 6
+sleep 200
+bar
+click 1 11
+sleep 200
+bar
+click 1 11
+sleep 200
+bar
