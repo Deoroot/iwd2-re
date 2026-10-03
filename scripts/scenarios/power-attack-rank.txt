@@ -1,0 +1,45 @@
+# Bind Power Attack to a quick-innate slot, open the rank picker 0x7B from it,
+# and pick rank 1 -- the 0x5935B5 arm of CInfButtonArray::OnLButtonPressed and
+# the modal-feat chain of UpdateButtons' 0x5A..0x62 arm (s54).
+#
+# Save: 000000007-Staircase Transition (fighter1 at portrait 0 has POWER_ATTACK;
+# save_party.py --feat POWER_ATTACK).  The ORIGINAL, same route:
+#   frida_orig.py --load-name "000000007-Staircase Transition" \
+#       --click 1:0 --rclick 1:13 --rclick 1:9 --click 1:6 --click 1:13 \
+#       --click 1:7 --click-settle 150 --post-load 150
+#
+#   click 1 0     portrait 0                              0x6E -> 0x72
+#   rclick 1 13   slot 7 (type 0x5E, quick innate)        -> 0x75 customise
+#   rclick 1 9    its slot 3 (type 0x27; NOT slot 4 on
+#                 this character -- read `bar` first)     -> 0x6B innate picker
+#   click 1 6     cell 0 = SPIN275B, Power Attack          -> 0x72, slot 7 bound
+#   click 1 13    the bound slot: SetState(0x7B,1) from
+#                 0x593698                                -> 0x7B rank picker
+#   click 1 7     rank 1                                  -> 0x72, the modal runs
+#
+# After the last click slot 7 and Special Abilities (slot 11) both show
+# selected, and slot 7's count is the rank.  All seven bars are 0 of 168
+# against the original with scripts/probes/actionbar_settings.py.
+#
+# Launch with a gap after any kill (Frida run of the original included): a
+# launch that follows a kill too closely exits 0xCFFFFFFF before the world.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 0
+sleep 150
+rclick 1 13
+sleep 150
+bar
+rclick 1 9
+sleep 150
+bar
+click 1 6
+sleep 150
+bar
+click 1 13
+sleep 200
+bar
+click 1 7
+sleep 200
+bar
