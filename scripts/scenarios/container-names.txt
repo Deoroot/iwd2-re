@@ -1,0 +1,7 @@
+# Each container in the party's area keeps its ARE name at CGameContainer+0x86C
+# and the ctor built m_typeAI's name from it. Run on a save, then again on a
+# save our build wrote, so the name has been through Marshal (0x480B3D).
+wait world 3000
+waitgo 6000
+sleep 30
+containerchecks

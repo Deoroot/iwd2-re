@@ -10,6 +10,8 @@
 
 class CItem;
 
+#pragma pack(push)
+#pragma pack(2)
 class CGameContainer : public CGameAIBase {
 public:
     static const CResRef RESREF_AR6051;
@@ -58,8 +60,15 @@ public:
     /* 05CA */ WORD m_containerType;
     /* 05CC */ CPoint m_ptWalkToUse;
     /* 05D4 */ CVidCell m_pileVidCell[3];
+    /* 0862 */ BYTE m_nPileVidCell;
     /* 0863 */ BOOLEAN m_bDeleteMe;
     /* 0864 */ RESREF m_scriptRes;
+    // The container's own name, as CGameTrigger and CGameDoor keep theirs: it
+    // hides CGameAIBase::m_scriptName (0x554), which a container never writes.
+    // The file ctor copies CAreaFileContainer's name here (0x47C21C strncpy),
+    // the rect ctor zeroes it (0x47CA0B), Marshal (0x480B3D) and
+    // MarshalMessage (0x480EAC) read it back.
+    /* 086C */ SCRIPTNAME m_scriptName;
     /* 088C */ WORD m_lockDifficulty;
     /* 088E */ DWORD m_dwFlags;
     /* 0892 */ WORD m_trapDetectionDifficulty;
@@ -67,15 +76,37 @@ public:
     /* 0896 */ WORD m_trapActivated;
     /* 0898 */ WORD m_trapDetected;
     /* 089A */ CPoint m_posTrapOrigin;
-    /* 0862 */ BYTE m_nPileVidCell;
     /* 08A2 */ WORD m_triggerRange;
     /* 08A4 */ SCRIPTNAME m_ownedBy;
     /* 08C4 */ CResRef m_keyType;
     /* 08CC */ DWORD m_breakDifficulty;
-    /* 08EA */ CAreaPoint* m_pPolygonPoints;
     /* 08D0 */ SHORT m_drawPoly;
     /* 08D2 */ int field_8D2;
     /* 08D6 */ CArray<CRect*> m_boundingGrid;
+    /* 08EA */ CAreaPoint* m_pPolygonPoints;
 };
+#pragma pack(pop)
+
+// Measured against the binary: the ctors and Marshal address every one of these.
+static_assert(offsetof(CGameContainer, m_lstItems) == 0x5AE,
+    "0x47BFCA lea edi,[esi+0x5ae] builds the item list");
+static_assert(offsetof(CGameContainer, m_ptWalkToUse) == 0x5CC,
+    "0x47C5B2 / Marshal 0x480B0D read [ebx+0x5cc]");
+static_assert(offsetof(CGameContainer, m_nPileVidCell) == 0x862,
+    "the rect ctor clears the BYTE at 0x47C9B0");
+static_assert(offsetof(CGameContainer, m_scriptName) == 0x86C,
+    "0x47C21C strncpy's the CAreaFileContainer name to this+0x86c");
+static_assert(offsetof(CGameContainer, m_lockDifficulty) == 0x88C,
+    "Marshal 0x480B4C reads WORD [ebx+0x88c]");
+static_assert(offsetof(CGameContainer, m_triggerRange) == 0x8A2,
+    "both ctors and Marshal address WORD +0x8a2");
+static_assert(offsetof(CGameContainer, m_drawPoly) == 0x8D0,
+    "both ctors clear WORD +0x8d0");
+static_assert(offsetof(CGameContainer, m_boundingGrid) == 0x8D6,
+    "0x47C785 lea eax,[esi+0x8d6] (SplitRectIntoGrid)");
+static_assert(offsetof(CGameContainer, m_pPolygonPoints) == 0x8EA,
+    "0x47C7A7 mov [esi+0x8ea],ebp");
+static_assert(sizeof(CGameContainer) == 0x8EE,
+    "0x43017C push 0x8ee before the ctor call at 0x4301C0");
 
 #endif /* CGAMECONTAINER_H_ */

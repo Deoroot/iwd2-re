@@ -45,6 +45,8 @@
 //   key <vk>                     stage the VK and run one OnKeyDown tick
 //   shift <1|0>                  hold / release SHIFT for the engine's own
 //                                GetAsyncKeyState poll (CChitin.cpp)
+//   containerchecks              each container in the party's area: its
+//                                0x86C name equals its m_typeAI name
 //   goto <screen>                CBaldurEngine::OnLeftPanelButtonClick
 //   expect screen <screen>
 //   expect controls <panel> <min>
@@ -8556,6 +8558,59 @@ void Tick(CWarp* pActiveEngine)
         Emit("{\"step\":%d,\"op\":\"dooreffectchecks\",\"checks\":%d,\"restored\":true,\"valid\":%s}", nStep, checks, valid ? "true" : "false");
         if (!valid) { Fail(nStep, step.op, "door effect mismatch (state restored)"); return; }
         s_pc++; return;
+    }
+
+    if (strcmp(step.op, "containerchecks") == 0) {
+        // Every container in the party's area keeps its ARE name in its own
+        // m_scriptName (CGameContainer+0x86C), and the ctor built m_typeAI's
+        // name from that same field (0x47C6E5..0x47C718). Run it again after a
+        // save is reloaded and the name has been through Marshal. Read-only.
+        CInfGame* game = g_pBaldurChitin->GetObjectGame();
+        auto* objects = game->GetObjectArray();
+        CGameObject* raw = NULL;
+        LONG id = game->GetFixedOrderCharacterId(0);
+        if (pActiveEngine != g_pBaldurChitin->m_pEngineWorld
+            || objects->GetDeny(id, CGameObjectArray::THREAD_ASYNCH, &raw, INFINITE) != CGameObjectArray::SUCCESS) {
+            Fail(nStep, step.op, "requires loaded party"); return;
+        }
+        CGameArea* area = raw->m_pArea;
+        objects->ReleaseDeny(id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        INT nContainers = 0, nNamed = 0, nMismatch = 0;
+        for (INT i = 0; i < objects->m_nArraySize; ++i) {
+            auto& entry = objects->m_pArray[i];
+            if (entry.m_objectId == -1 || entry.m_objectPtr == NULL
+                || entry.m_objectPtr->GetObjectType() != CGameObject::TYPE_CONTAINER
+                || entry.m_objectPtr->m_pArea != area) continue;
+            CGameObject* object = NULL;
+            LONG containerId = entry.m_objectPtr->GetId();
+            if (objects->GetDeny(containerId, CGameObjectArray::THREAD_ASYNCH, &object, INFINITE) != CGameObjectArray::SUCCESS) continue;
+            auto* container = static_cast<CGameContainer*>(object);
+            CString sName(container->m_scriptName, SCRIPTNAME_SIZE);
+            sName = CString(static_cast<LPCSTR>(sName)); // stop at the first NUL
+            char szName[SCRIPTNAME_SIZE + 1];
+            INT n = 0;
+            for (; n < sName.GetLength() && n < SCRIPTNAME_SIZE; ++n) {
+                char c = sName[n];
+                szName[n] = (c < 0x20 || c > 0x7E || c == '"' || c == '\\') ? '?' : c;
+            }
+            szName[n] = '\0';
+            BOOL same = container->m_typeAI.m_sName == sName;
+            ++nContainers;
+            if (!sName.IsEmpty()) ++nNamed;
+            if (!same) ++nMismatch;
+            Emit("{\"step\":%d,\"op\":\"container\",\"id\":%ld,\"name\":\"%s\",\"typeai_same\":%s}",
+                nStep, container->m_id, szName, same ? "true" : "false");
+            objects->ReleaseDeny(containerId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        Emit("{\"step\":%d,\"op\":\"container-count\",\"containers\":%d,\"named\":%d,\"mismatch\":%d}",
+            nStep, nContainers, nNamed, nMismatch);
+        if (nContainers == 0 || nNamed == 0 || nMismatch != 0) {
+            Fail(nStep, step.op, "need named containers whose m_typeAI name equals m_scriptName"); return;
+        }
+        Emit("{\"step\":%d,\"op\":\"containerchecks\",\"containers\":%d,\"named\":%d,\"status\":\"ok\"}",
+            nStep, nContainers, nNamed);
+        s_pc++;
+        return;
     }
 
     if (strcmp(step.op, "doorchecks") == 0) {
