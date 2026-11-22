@@ -13387,20 +13387,24 @@ void CGameSprite::sub_72DE60()
 // 0x71CFF0
 BOOL CGameSprite::CheckMorale()
 {
-    if ((m_baseStats.field_2F0[3] & 1) != 0) {
+    // m_baseStats sits at sprite+0x5A4, so the binary's [esi+0x89F] is
+    // m_specFlags (0x2FB) and [esi+0x808] is m_morale (0x264).  Read against
+    // a 0x5AC base they look like field_2F0[3] and field_25C -- which made
+    // every party member fail morale on its first AI tick after a load.
+    if ((m_baseStats.m_specFlags & 1) != 0) {
         return TRUE;
     }
 
-    BYTE morale = min(m_baseStats.field_25C, 20);
-    m_baseStats.field_25C = morale;
+    BYTE morale = min(m_baseStats.m_morale, 20);
+    m_baseStats.m_morale = morale;
     if (m_derivedStats.m_nMoraleRecoveryTime == 0) {
-        m_baseStats.field_25C = 10;
+        m_baseStats.m_morale = 10;
     } else if (static_cast<DWORD>(field_44A)
         % (m_derivedStats.m_nMoraleRecoveryTime * 15) == 0) {
         if (morale > 10) {
-            m_baseStats.field_25C = morale - 1;
+            m_baseStats.m_morale = morale - 1;
         } else if (morale < 10) {
-            m_baseStats.field_25C = morale + 1;
+            m_baseStats.m_morale = morale + 1;
         }
     }
 
@@ -13408,7 +13412,7 @@ BOOL CGameSprite::CheckMorale()
         || (m_curAction.m_internalFlags & 1) != 0) {
         return TRUE;
     }
-    return m_derivedStats.m_nMoraleBreak < static_cast<DWORD>(m_baseStats.field_25C);
+    return m_derivedStats.m_nMoraleBreak < static_cast<DWORD>(m_baseStats.m_morale);
 }
 
 // 0x728B70
