@@ -680,10 +680,13 @@ void CDerivedStats::CheckLimits()
     m_nDEX = min(max(m_nDEX, 1), 40);
     m_nCON = min(max(m_nCON, 1), 40);
     m_nCHR = min(max(m_nCHR, 1), 40);
-    m_nXPValue = min(max(m_nXPValue, -1), 0);
-    m_nXP = min(max(m_nXP, -1), 0);
-    m_nGold = min(max(m_nGold, -1), 0);
-    m_nMoraleRecoveryTime = min(max(m_nMoraleRecoveryTime, -1), 0);
+    // 0x446C39..0x446C6E: each of these DWORDs is `cmp eax,-1; jbe; or eax,-1`,
+    // an unsigned cap at 0xFFFFFFFF that never fires.  The previous
+    // min(max(x, -1), 0) promoted -1 to 0xFFFFFFFF and so zeroed all four.
+    m_nXPValue = min(m_nXPValue, 0xFFFFFFFF);
+    m_nXP = min(m_nXP, 0xFFFFFFFF);
+    m_nGold = min(m_nGold, 0xFFFFFFFF);
+    m_nMoraleRecoveryTime = min(m_nMoraleRecoveryTime, 0xFFFFFFFF);
     m_nReputation = min(max(m_nReputation, 10), 200);
     // Upper bound only (0x446C91..0x446C9E: unsigned cmp 0x14, no floor); the
     // 10..200 just above is m_nReputation's.  A floor of 10 made morale break
