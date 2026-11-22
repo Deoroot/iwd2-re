@@ -1940,6 +1940,7 @@ public:
 };
 #pragma pack(pop)
 
+#pragma pack(push, 2)
 class CMessage103 : public CMessage {
 public:
     CMessage103(BOOLEAN a1, PLAYER_ID idPlayer, INT nPortrait, LONG caller, LONG target);
@@ -1954,6 +1955,14 @@ public:
     /* 000E */ PLAYER_ID m_idPlayer;
     /* 0012 */ INT m_nCharacterPortraitSlotNumber;
 };
+#pragma pack(pop)
+
+// CMessage103::CMessage103 (0x4F6D80) stores the BOOLEAN at +0xC (0x4F6D98)
+// and the two dwords at +0xE / +0x12 (0x4F6DA5, 0x4F6DA8); the factory
+// allocates it with `push 0x16` (0x4F3239) before the ctor call at 0x4F3266.
+static_assert(offsetof(CMessage103, m_idPlayer) == 0x0E, "CMessage103::m_idPlayer");
+static_assert(offsetof(CMessage103, m_nCharacterPortraitSlotNumber) == 0x12, "CMessage103::m_nCharacterPortraitSlotNumber");
+static_assert(sizeof(CMessage103) == 0x16, "operator new(0x16) at 0x4F3239");
 
 class CMessage120 : public CMessage {
 public:
