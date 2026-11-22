@@ -102,6 +102,7 @@ static_assert(offsetof(CNetworkWindow, m_nNextEvent) == 0x7C, "CNetworkWindow::m
 static_assert(offsetof(CNetworkWindow, m_nNoMessageTimeout) == 0x84, "CNetworkWindow::m_nNoMessageTimeout");
 static_assert(sizeof(CNetworkWindow) == 0x88, "vector ctor element size 0x88 at 0x7A410A");
 
+#pragma pack(push, 2)
 class CNetwork {
 public:
     static const CString MG;
@@ -311,5 +312,36 @@ public:
     void FreeDirectPlay();
 #endif
 };
+#pragma pack(pop)
+
+// CNetwork::CNetwork (0x7A3FD0): DWORDs at +0xA2/+0xA6 (0x7A41F5, 0x7A41FB),
+// DWORD +0x118 (0x7A441C), BYTEs +0x120/+0x121 (0x7A4242, 0x7A42A3), DWORDs +0x122/+0x126 (0x7A42A9,
+// 0x7A42AF), CString +0x67C / +0x682 (0x7A42E0, 0x7A42F9), DWORD +0x6E2
+// (0x7A4340), DWORD +0x6FA (0x7A435C), CString +0x6FE (0x7A430F), the window
+// array `lea eax,[esi+0x79a]` (0x7A4102) and the system window
+// `lea ecx,[esi+0xaca]` (0x7A4115), the critical sections at +0xF52 / +0xF6A
+// (0x7A412B, 0x7A414F; raw CRITICAL_SECTIONs, InitializeCriticalSection).
+// CChitin's ctor builds CNetwork at +0x952 (0x78E3F0) and the next member at
+// +0x18D4 (0x78E403), so the binary's CNetwork is 0xF82 bytes.
+static_assert(offsetof(CNetwork, m_nModemAddress) == 0xA2, "CNetwork::m_nModemAddress");
+static_assert(offsetof(CNetwork, m_pDirectPlayAddress) == 0x118, "CNetwork::m_pDirectPlayAddress");
+static_assert(offsetof(CNetwork, m_nSession) == 0x122, "CNetwork::m_nSession");
+static_assert(offsetof(CNetwork, m_sSessionNameToMake) == 0x67C, "CNetwork::m_sSessionNameToMake");
+static_assert(offsetof(CNetwork, m_sSessionPassword) == 0x682, "CNetwork::m_sSessionPassword");
+static_assert(offsetof(CNetwork, m_nMaxPlayers) == 0x6E2, "CNetwork::m_nMaxPlayers");
+static_assert(offsetof(CNetwork, m_idLocalPlayer) == 0x6FA, "CNetwork::m_idLocalPlayer");
+static_assert(offsetof(CNetwork, m_sLocalPlayerName) == 0x6FE, "CNetwork::m_sLocalPlayerName");
+static_assert(offsetof(CNetwork, m_pSlidingWindow) == 0x79A, "CNetwork::m_pSlidingWindow");
+static_assert(offsetof(CNetwork, m_SystemWindow) == 0xACA, "CNetwork::m_SystemWindow");
+static_assert(offsetof(CNetwork, m_dwCRC32) == 0xB52, "CNetwork::m_dwCRC32");
+static_assert(offsetof(CNetwork, m_critSectQueue) == 0xF52, "CNetwork::m_critSectQueue");
+static_assert(offsetof(CNetwork, m_critSect) == 0xF6A, "CNetwork::m_critSect");
+#if !DPLAY_COMPAT
+static_assert(sizeof(CNetwork) == 0xF82, "CChitin: cNetwork at +0x952, next member at +0x18D4");
+#else
+// The DPLAY_COMPAT loader members (hDirectPlayDLL and the two entry points)
+// are ours, appended after the binary's last member.
+static_assert(offsetof(CNetwork, hDirectPlayDLL) == 0xF82, "binary CNetwork ends at 0xF82");
+#endif
 
 #endif /* CNETWORK_H_ */
