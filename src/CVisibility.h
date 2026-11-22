@@ -6,6 +6,7 @@
 
 class CGameArea;
 
+#pragma pack(push, 2)
 class CVisibilityMap {
 public:
     static const BYTE EXPLORED_RANGE_0;
@@ -100,5 +101,26 @@ public:
     /* 0040 */ LONG m_aCharacterIds[6];
     /* 0058 */ BYTE* m_pDynamicHeight;
 };
+#pragma pack(pop)
+
+// CVisibilityMap::CVisibilityMap (0x551770): WORDs +0xE/+0x10 (0x5517D7,
+// 0x5517DD), pointers +0x12/+0x16 (0x5517D1, 0x5517D4), BYTEs +0x1A/+0x1B
+// (0x5517B9, 0x5517EC), critical section `lea edi,[esi+0x1c]` (0x55178B),
+// +0x3C (0x5517CE), the id array `lea edi,[esi+0x40]` (0x5517C1).  Init
+// (0x5527E0) stores width*height to +0xA (0x552847).  CGameArea zeroes
+// m_visibility.m_pDynamicHeight at +0x860+0x58 = +0x8B8 (0x469EA0) and builds
+// m_visibility at +0x860 (0x469C15) and the next member at +0x8BC (0x469C25):
+// 0x5C bytes.  Offsets past the critical section are binary - 0x20 + sizeof()
+// because a Debug MFC CCriticalSection is 0x24 (see CInfinity.h).
+static_assert(offsetof(CVisibilityMap, m_nMapSize) == 0x0A, "CVisibilityMap::m_nMapSize");
+static_assert(offsetof(CVisibilityMap, m_nSearchRangeH) == 0x0E, "CVisibilityMap::m_nSearchRangeH");
+static_assert(offsetof(CVisibilityMap, m_pHorzArcPixels) == 0x12, "CVisibilityMap::m_pHorzArcPixels");
+static_assert(offsetof(CVisibilityMap, m_pVertArcPixels) == 0x16, "CVisibilityMap::m_pVertArcPixels");
+static_assert(offsetof(CVisibilityMap, m_nVertArcCount) == 0x1A, "CVisibilityMap::m_nVertArcCount");
+static_assert(offsetof(CVisibilityMap, m_critSect) == 0x1C, "CVisibilityMap::m_critSect");
+static_assert(offsetof(CVisibilityMap, m_pSearchMap) == 0x3C - 0x20 + sizeof(CCriticalSection), "CVisibilityMap::m_pSearchMap");
+static_assert(offsetof(CVisibilityMap, m_aCharacterIds) == 0x40 - 0x20 + sizeof(CCriticalSection), "CVisibilityMap::m_aCharacterIds");
+static_assert(offsetof(CVisibilityMap, m_pDynamicHeight) == 0x58 - 0x20 + sizeof(CCriticalSection), "CVisibilityMap::m_pDynamicHeight");
+static_assert(sizeof(CVisibilityMap) == 0x5C - 0x20 + sizeof(CCriticalSection), "CGameArea: m_visibility 0x860..0x8BC");
 
 #endif /* CVISIBILITY_H_ */
