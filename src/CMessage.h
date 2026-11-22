@@ -1171,6 +1171,7 @@ public:
     /* 000C */ LONG m_nNumTimesTalkedTo;
 };
 
+#pragma pack(push, 2)
 class CMessageSetPath : public CMessage {
 public:
     CMessageSetPath(LONG position, LONG* pPath, SHORT nPath, SHORT currPath, CPoint currDest, LONG caller, LONG target);
@@ -1187,6 +1188,18 @@ public:
     /* 001C */ LONG m_position;
     /* 0020 */ CString m_sAreaString;
 };
+#pragma pack(pop)
+
+// CMessageSetPath::CMessageSetPath (0x507F70): WORD +0xC (0x5080F6), pointer
+// +0xE (0x5080D8), WORD +0x12 (0x5080C4), CPoint +0x14/+0x18 (0x50809A,
+// 0x50809F), LONG +0x1C (0x5080B3), CString `lea ebx,[ebp+0x20]` (0x507FAF);
+// CGameSprite::AIUpdateWalk allocates it with `push 0x24` (0x6F9267).
+static_assert(offsetof(CMessageSetPath, m_pPath) == 0x0E, "CMessageSetPath::m_pPath");
+static_assert(offsetof(CMessageSetPath, m_currPath) == 0x12, "CMessageSetPath::m_currPath");
+static_assert(offsetof(CMessageSetPath, m_currDest) == 0x14, "CMessageSetPath::m_currDest");
+static_assert(offsetof(CMessageSetPath, m_position) == 0x1C, "CMessageSetPath::m_position");
+static_assert(offsetof(CMessageSetPath, m_sAreaString) == 0x20, "CMessageSetPath::m_sAreaString");
+static_assert(sizeof(CMessageSetPath) == 0x24, "operator new(0x24) at 0x6F9267");
 
 class CMessageSetSequence : public CMessage {
 public:
