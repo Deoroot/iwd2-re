@@ -1057,6 +1057,15 @@ def key_steps(value: str) -> list:
         return [["c", value[5:]]]
     if value.startswith("wait:"):
         return [["w", int(value[5:])]]
+    if value[:1] in "+-" and len(value) > 1:
+        # `+SHIFT` holds a key down until a later `-SHIFT`, so a --click in
+        # between is a held-key click (the shift-click arm 0x5934CD).
+        vk = KEY_NAMES.get(value[1:].upper())
+        if vk is None:
+            if len(value) != 2 or not value[1].isalnum():
+                raise ValueError(f"unknown key {value!r}")
+            vk = ord(value[1].upper())
+        return [["d" if value[0] == "+" else "u", vk], ["w", 6]]
     ctrl = value.startswith("^") and len(value) > 1
     name = value[1:] if ctrl else value
     vk = KEY_NAMES.get(name.upper())
@@ -1168,7 +1177,7 @@ def main() -> int:
                     help="press a key once the world engine is up, in the same ordered "
                          "list as --click: 'Q', '=', 'ENTER', '^TAB' (CTRL held), "
                          "'clip:TEXT' (TEXT to the clipboard, paste it with '^V'), "
-                         "'wait:N' (N manager ticks).")
+                         "'wait:N' (N manager ticks), '+SHIFT' / '-SHIFT' (hold / release).")
     ap.add_argument("--click-settle", type=int, default=60,
                     help="manager ticks to wait before each --click")
     ap.add_argument("--hit", help="hook name that must fire, else NOT-EXERCISED")
