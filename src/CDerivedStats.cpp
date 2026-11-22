@@ -685,7 +685,10 @@ void CDerivedStats::CheckLimits()
     m_nGold = min(max(m_nGold, -1), 0);
     m_nMoraleRecoveryTime = min(max(m_nMoraleRecoveryTime, -1), 0);
     m_nReputation = min(max(m_nReputation, 10), 200);
-    m_nMoraleBreak = min(max(m_nMoraleBreak, 10), 200);
+    // Upper bound only (0x446C91..0x446C9E: unsigned cmp 0x14, no floor); the
+    // 10..200 just above is m_nReputation's.  A floor of 10 made morale break
+    // equal to a default morale of 10, so CheckMorale failed for everyone.
+    m_nMoraleBreak = min(m_nMoraleBreak, 20);
     m_nDamageBonus = min(max(m_nDamageBonus, -128), 127);
     m_nSpellFailureArcane = min(max(m_nSpellFailureArcane, 0), 100);
     m_nSpellFailureDivine = min(max(m_nSpellFailureDivine, 0), 100);
