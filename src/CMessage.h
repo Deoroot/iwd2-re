@@ -1291,6 +1291,7 @@ public:
     /* 000C */ BOOLEAN m_bPetrify;
 };
 
+#pragma pack(push, 2)
 class CMessageSpriteUpdate : public CMessage {
 public:
     CMessageSpriteUpdate(CGameSprite* pSprite, LONG caller, LONG target);
@@ -1310,18 +1311,6 @@ public:
     /* 002A */ SHORT m_nFacing;
     /* 002C */ DWORD m_dwState;
     /* 0030 */ std::bitset<256> m_spellStates;
-    /* 0038 */ short field_38;
-    /* 003A */ short field_3A;
-    /* 003C */ short field_3C;
-    /* 003E */ short field_3E;
-    /* 0040 */ short field_40;
-    /* 0042 */ short field_42;
-    /* 0044 */ short field_44;
-    /* 0046 */ short field_46;
-    /* 0048 */ short field_48;
-    /* 004A */ short field_4A;
-    /* 004C */ short field_4C;
-    /* 004E */ short field_4E;
     /* 0050 */ std::bitset<32> m_visualEffects;
     /* 0054 */ BYTE m_nFadeSpeed;
     /* 0055 */ unsigned char field_55;
@@ -1356,6 +1345,26 @@ public:
     /* 0107 */ unsigned char field_107;
     /* 0108 */ int field_108;
 };
+#pragma pack(pop)
+
+// CMessageSpriteUpdate::CMessageSpriteUpdate (0x50C260): CPoint +0x22/+0x26
+// (0x50C3A2, 0x50C3A8), WORD +0x2A (0x50C3B2), DWORD +0x2C (0x50C3BC).  The
+// 256-bit spell-state set fills +0x30..+0x4F on its own: `lea edi,[ebp+0x30]`
+// (0x50C2A4) is cleared by the 8-dword bitset ctor 0x4486D0 and later filled by
+// `lea esi,[ebx+0xa0c]; mov ecx,8; rep movsd` (0x50C34F..0x50C35A), and the
+// 32-bit visual-effect set is the dword at +0x50 (0x50C34C) -- there is nothing
+// between them.  Allocated with `push 0x10c` (0x44E191).
+static_assert(offsetof(CMessageSpriteUpdate, m_ptPosition) == 0x22, "CMessageSpriteUpdate::m_ptPosition");
+static_assert(offsetof(CMessageSpriteUpdate, m_nFacing) == 0x2A, "CMessageSpriteUpdate::m_nFacing");
+static_assert(offsetof(CMessageSpriteUpdate, m_dwState) == 0x2C, "CMessageSpriteUpdate::m_dwState");
+static_assert(offsetof(CMessageSpriteUpdate, m_spellStates) == 0x30, "CMessageSpriteUpdate::m_spellStates");
+static_assert(offsetof(CMessageSpriteUpdate, m_visualEffects) == 0x50, "CMessageSpriteUpdate::m_visualEffects");
+static_assert(offsetof(CMessageSpriteUpdate, field_56) == 0x56, "CMessageSpriteUpdate::field_56");
+static_assert(offsetof(CMessageSpriteUpdate, field_76) == 0x76, "CMessageSpriteUpdate::field_76");
+static_assert(offsetof(CMessageSpriteUpdate, m_nHPCONBonusTotalOld) == 0x80, "CMessageSpriteUpdate::m_nHPCONBonusTotalOld");
+static_assert(offsetof(CMessageSpriteUpdate, m_baseSkills) == 0x86, "CMessageSpriteUpdate::m_baseSkills");
+static_assert(offsetof(CMessageSpriteUpdate, field_108) == 0x108, "CMessageSpriteUpdate::field_108");
+static_assert(sizeof(CMessageSpriteUpdate) == 0x10C, "operator new(0x10c) at 0x44E191");
 
 class CMessageStartFollow : public CMessage {
 public:
