@@ -6104,11 +6104,17 @@ BOOL CUIControlButtonInventoryAppearance::Render(BOOL bForce)
         delete pArea;
 
         renderLock.Unlock();
-
-        pGame->GetObjectArray()->ReleaseShare(nCharacterId,
-            CGameObjectArray::THREAD_1,
-            INFINITE);
     }
+
+    // The share is released whether or not the preview was drawn: the
+    // not-viewable / no-animation branch at 0x62EA75 jumps straight to the
+    // ReleaseShare at 0x62ED84. Releasing only inside the `if` leaked a
+    // THREAD_1 share on the first frame that skipped the preview, and every
+    // later GetDeny on that sprite (CMessageDropPath::Run,
+    // CScreenInventory::TimerAsynchronousUpdate) spun forever.
+    pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+        CGameObjectArray::THREAD_1,
+        INFINITE);
 
     // NOTE: Always returns `FALSE` which is a bit odd.
     return FALSE;
