@@ -2073,6 +2073,7 @@ public:
     /* 0014 */ CAIAction m_action;
 };
 
+#pragma pack(push, 2)
 class CMessageChangeStat : public CMessage {
 public:
     CMessageChangeStat(WORD stat, DWORD value, BOOLEAN modify, LONG caller, LONG target);
@@ -2087,6 +2088,14 @@ public:
     /* 000E */ DWORD m_value;
     /* 0012 */ BOOLEAN m_modify;
 };
+#pragma pack(pop)
+
+// CMessageChangeStat::CMessageChangeStat (0x453740): WORD at +0xC (0x453759),
+// DWORD at +0xE (0x453767), BYTE at +0x12 (0x45376A); allocated with
+// `push 0x14` (0x452428) before the ctor call at 0x452461.
+static_assert(offsetof(CMessageChangeStat, m_value) == 0x0E, "CMessageChangeStat::m_value");
+static_assert(offsetof(CMessageChangeStat, m_modify) == 0x12, "CMessageChangeStat::m_modify");
+static_assert(sizeof(CMessageChangeStat) == 0x14, "operator new(0x14) at 0x452428");
 
 // ---------------------------------------------------------------------------
 // CMessageProjectileTrailingVFX (vtable 0x84D328)
