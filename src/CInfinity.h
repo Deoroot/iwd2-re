@@ -111,6 +111,7 @@ public:
     TileDefinition* m_pTileDefs;
 };
 
+#pragma pack(push, 2)
 class CInfinity {
 public:
     static const DWORD FXPREP_COPYFROMBACK;
@@ -298,5 +299,29 @@ public:
     /* 0290 */ CPoint m_screenShakeDelta;
     /* 0298 */ CPoint m_screenShakeDecrease;
 };
+#pragma pack(pop)
+
+// CInfinity::CInfinity (0x5CC360): critical section `lea edi,[esi+0x16c]`
+// (0x5CC38F), WORD +0x18C (0x5CC5AA), CPoint +0x18E/+0x192 (0x5CC59B,
+// 0x5CC5B1), DWORD +0x196 (0x5CC492), BYTEs +0x19A/+0x19B (0x5CC5B7,
+// 0x5CC46B), DWORDs +0x19C/+0x1A0 (0x5CC4F9, 0x5CC4FF), BYTE +0x1A4
+// (0x5CC541), COLORREFs +0x1A6..+0x1BA (0x5CC565, 0x5CC523, 0x5CC559,
+// 0x5CC4AD, 0x5CC518, 0x5CC55F), +0x1BE (0x5CC5BD), +0x1C2 (0x5CC5C7),
+// CVidBitmap `lea ebp,[esi+0x1c6]` (0x5CC3B1), +0x280..+0x29C (0x5CC6BB..
+// 0x5CC6ED).  CGameArea's ctor builds CInfinity at +0x4CC (0x469BF5) and the
+// next member at +0x76C (0x469C05): 0x2A0 bytes.
+// The binary's CCriticalSection is 0x20; a Debug MFC one is 0x24 (_DEBUG-only
+// m_strName), so offsets past it are written as binary - 0x20 + sizeof().
+static_assert(offsetof(CInfinity, m_currentPosCritSect) == 0x16C, "CInfinity::m_currentPosCritSect");
+static_assert(offsetof(CInfinity, m_autoScrollSpeed) == 0x18C - 0x20 + sizeof(CCriticalSection), "CInfinity::m_autoScrollSpeed");
+static_assert(offsetof(CInfinity, m_ptScrollDest) == 0x18E - 0x20 + sizeof(CCriticalSection), "CInfinity::m_ptScrollDest");
+static_assert(offsetof(CInfinity, field_196) == 0x196 - 0x20 + sizeof(CCriticalSection), "CInfinity::field_196");
+static_assert(offsetof(CInfinity, m_bStartLightning) == 0x19C - 0x20 + sizeof(CCriticalSection), "CInfinity::m_bStartLightning");
+static_assert(offsetof(CInfinity, m_rgbRainColor) == 0x1A6 - 0x20 + sizeof(CCriticalSection), "CInfinity::m_rgbRainColor");
+static_assert(offsetof(CInfinity, m_pArea) == 0x1C2 - 0x20 + sizeof(CCriticalSection), "CInfinity::m_pArea");
+static_assert(offsetof(CInfinity, m_vbMessageScreen) == 0x1C6 - 0x20 + sizeof(CCriticalSection), "CInfinity::m_vbMessageScreen");
+static_assert(offsetof(CInfinity, m_strMessageText) == 0x280 - 0x20 + sizeof(CCriticalSection), "CInfinity::m_strMessageText");
+static_assert(offsetof(CInfinity, m_screenShakeDecrease) == 0x298 - 0x20 + sizeof(CCriticalSection), "CInfinity::m_screenShakeDecrease");
+static_assert(sizeof(CInfinity) == 0x2A0 - 0x20 + sizeof(CCriticalSection), "CGameArea: m_cInfinity 0x4CC..0x76C");
 
 #endif /* CINFINITY_H_ */
