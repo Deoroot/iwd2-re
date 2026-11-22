@@ -11867,7 +11867,7 @@ void Tick(CWarp* pActiveEngine)
         auto savedState = source->m_derivedStats.m_generalState;
         auto savedBaseState = source->m_baseStats.m_generalState;
         auto savedSpells = source->m_derivedStats.m_spellStates;
-        auto savedImmunity = source->m_baseStats.field_2F0[3];
+        auto savedImmunity = source->m_baseStats.m_specFlags;
         auto savedFlags = source->field_3428;
         auto& messages = g_pBaldurChitin->GetMessageHandler()->m_messageList;
         INT before = messages.GetCount();
@@ -11885,7 +11885,7 @@ void Tick(CWarp* pActiveEngine)
             source->m_bSelected = FALSE;
             source->m_baseStats.m_generalState = source->m_derivedStats.m_generalState = 0;
             source->m_derivedStats.m_spellStates.reset();
-            source->m_baseStats.field_2F0[3] |= 1;
+            source->m_baseStats.m_specFlags |= 1;
             source->field_3428 = 7;
             source->m_active = test != 6;
             source->m_activeAI = source->m_activeImprisonment = TRUE;
@@ -12071,7 +12071,7 @@ void Tick(CWarp* pActiveEngine)
         source->m_baseStats.m_generalState = savedBaseState;
         source->m_derivedStats.m_spellStates = savedSpells;
         source->SetSequence(static_cast<BYTE>(savedSequence));
-        source->m_baseStats.field_2F0[3] = savedImmunity;
+        source->m_baseStats.m_specFlags = savedImmunity;
         source->field_3428 = savedFlags;
         game->GetWorldTimer()->m_active = savedActive;
         objects->ReleaseDeny(id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
@@ -12262,7 +12262,7 @@ void Tick(CWarp* pActiveEngine)
         auto savedSpells = source->m_derivedStats.m_spellStates;
         auto savedHold = source->m_derivedStats.m_bCasterHold;
         auto savedFlags = source->m_baseStats.m_flags;
-        auto savedImmunity = source->m_baseStats.field_2F0[3];
+        auto savedImmunity = source->m_baseStats.m_specFlags;
         auto savedStart = source->m_posStart;
         auto savedTargetPoint = source->m_targetPoint;
         auto savedGroupMove = source->m_groupMove;
@@ -12330,7 +12330,7 @@ void Tick(CWarp* pActiveEngine)
             source->m_interrupt = FALSE;
             source->m_nLastActionReturn = CGameAIBase::ACTION_DONE;
             source->m_baseStats.m_flags = savedFlags & 0x7FFFFFFF;
-            source->m_baseStats.field_2F0[3] |= 1;
+            source->m_baseStats.m_specFlags |= 1;
             source->m_baseStats.m_generalState = state;
             source->m_derivedStats.m_generalState = state;
             source->m_derivedStats.m_spellStates.reset();
@@ -13602,7 +13602,7 @@ void Tick(CWarp* pActiveEngine)
         source->m_derivedStats.m_spellStates = savedSpells;
         source->m_derivedStats.m_bCasterHold = savedHold;
         source->m_baseStats.m_flags = savedFlags;
-        source->m_baseStats.field_2F0[3] = savedImmunity;
+        source->m_baseStats.m_specFlags = savedImmunity;
         source->m_posStart = savedStart;
         source->m_targetPoint = savedTargetPoint;
         source->m_groupMove = savedGroupMove;
@@ -13669,14 +13669,14 @@ void Tick(CWarp* pActiveEngine)
         auto savedState = source->m_derivedStats.m_generalState;
         auto savedBaseState = source->m_baseStats.m_generalState;
         auto savedFlags = source->m_baseStats.m_flags;
-        auto savedImmunity = source->m_baseStats.field_2F0[3];
+        auto savedImmunity = source->m_baseStats.m_specFlags;
         auto savedPos = source->m_pos;
         auto savedSequence = source->m_nSequence;
         auto savedSelected = source->m_bSelected;
         auto savedCutscene = game->GetGameSave()->m_cutScene;
         auto savedActive = game->GetWorldTimer()->m_active;
         source->m_bSelected = FALSE;
-        source->m_baseStats.field_2F0[3] |= 1;
+        source->m_baseStats.m_specFlags |= 1;
         game->GetWorldTimer()->m_active = TRUE;
         CRect viewport(source->m_pArea->m_cInfinity.rViewPort);
         INT viewX, viewY;
@@ -13779,7 +13779,7 @@ void Tick(CWarp* pActiveEngine)
         source->m_derivedStats.m_generalState = savedState;
         source->m_baseStats.m_generalState = savedBaseState;
         source->m_baseStats.m_flags = savedFlags;
-        source->m_baseStats.field_2F0[3] = savedImmunity;
+        source->m_baseStats.m_specFlags = savedImmunity;
         source->m_pos = savedPos;
         source->SetSequence(static_cast<BYTE>(savedSequence));
         source->m_bSelected = savedSelected;
@@ -13831,13 +13831,13 @@ void Tick(CWarp* pActiveEngine)
         auto savedSelected = source->m_bSelected;
         auto savedBase = source->m_baseStats.m_generalState;
         auto savedState = source->m_derivedStats.m_generalState;
-        auto savedImmunity = source->m_baseStats.field_2F0[3];
+        auto savedImmunity = source->m_baseStats.m_specFlags;
         auto savedFailure = source->m_moraleFailure;
         auto savedCutscene = game->GetGameSave()->m_cutScene;
         auto savedActive = game->GetWorldTimer()->m_active;
         source->m_bSelected = FALSE;
         source->m_inCutScene = FALSE;
-        source->m_baseStats.field_2F0[3] |= 1;
+        source->m_baseStats.m_specFlags |= 1;
         game->GetGameSave()->m_cutScene = FALSE;
         game->GetWorldTimer()->m_active = TRUE;
         SHORT direction = source->GetDirection(target->GetPos());
@@ -13922,7 +13922,7 @@ void Tick(CWarp* pActiveEngine)
         source->m_bSelected = savedSelected;
         source->m_baseStats.m_generalState = savedBase;
         source->m_derivedStats.m_generalState = savedState;
-        source->m_baseStats.field_2F0[3] = savedImmunity;
+        source->m_baseStats.m_specFlags = savedImmunity;
         source->m_moraleFailure = savedFailure;
         game->GetGameSave()->m_cutScene = savedCutscene;
         game->GetWorldTimer()->m_active = savedActive;
@@ -13950,8 +13950,8 @@ void Tick(CWarp* pActiveEngine)
             Fail(nStep, step.op, "requires idle actor");
             return;
         }
-        auto savedMorale = source->m_baseStats.field_25C;
-        auto savedImmunity = source->m_baseStats.field_2F0[3];
+        auto savedMorale = source->m_baseStats.m_morale;
+        auto savedImmunity = source->m_baseStats.m_specFlags;
         auto savedBreak = source->m_derivedStats.m_nMoraleBreak;
         auto savedRecovery = source->m_derivedStats.m_nMoraleRecoveryTime;
         auto savedBaseState = source->m_baseStats.m_generalState;
@@ -13976,7 +13976,7 @@ void Tick(CWarp* pActiveEngine)
         source->m_inCutScene = FALSE;
         game->GetGameSave()->m_cutScene = FALSE;
         game->GetWorldTimer()->m_active = TRUE;
-        source->m_baseStats.field_2F0[3] &= ~1;
+        source->m_baseStats.m_specFlags &= ~1;
         source->m_derivedStats.m_nMoraleRecoveryTime = 1000;
         source->m_derivedStats.m_nMoraleBreak = 20;
         // Keep action execution blocked while observing ProcessAI selection.
@@ -13984,7 +13984,7 @@ void Tick(CWarp* pActiveEngine)
         for (INT attempt = 0; attempt < 96 && (seen[0] == 0 || seen[1] == 0 || seen[2] == 0); ++attempt) {
             source->ClearActions(FALSE);
             source->m_curAction = CAIAction(CAIAction::WAIT, LONG_MAX);
-            source->m_baseStats.field_25C = 0;
+            source->m_baseStats.m_morale = 0;
             source->m_baseStats.m_generalState = STATE_STONE_DEATH;
             source->m_derivedStats.m_generalState = STATE_STONE_DEATH;
             source->m_moraleFailure = FALSE;
@@ -14013,7 +14013,7 @@ void Tick(CWarp* pActiveEngine)
             while (messages.GetCount() > before) delete messages.RemoveTail();
         }
         check("all-three-selections", seen[0] > 0 && seen[1] > 0 && seen[2] > 0);
-        source->m_baseStats.field_25C = 20;
+        source->m_baseStats.m_morale = 20;
         source->m_derivedStats.m_nMoraleBreak = 0;
         source->m_baseStats.m_generalState = STATE_STONE_DEATH | STATE_PANIC;
         source->m_derivedStats.m_generalState = STATE_STONE_DEATH | STATE_PANIC;
@@ -14043,8 +14043,8 @@ void Tick(CWarp* pActiveEngine)
         }
         source->ClearActions(FALSE);
         source->m_curAction = CAIAction::NULL_ACTION;
-        source->m_baseStats.field_25C = savedMorale;
-        source->m_baseStats.field_2F0[3] = savedImmunity;
+        source->m_baseStats.m_morale = savedMorale;
+        source->m_baseStats.m_specFlags = savedImmunity;
         source->m_derivedStats.m_nMoraleBreak = savedBreak;
         source->m_derivedStats.m_nMoraleRecoveryTime = savedRecovery;
         source->m_baseStats.m_generalState = savedBaseState;
@@ -14073,8 +14073,8 @@ void Tick(CWarp* pActiveEngine)
             return;
         }
         auto* source = static_cast<CGameSprite*>(raw);
-        auto savedMorale = source->m_baseStats.field_25C;
-        auto savedImmunity = source->m_baseStats.field_2F0[3];
+        auto savedMorale = source->m_baseStats.m_morale;
+        auto savedImmunity = source->m_baseStats.m_specFlags;
         auto savedBreak = source->m_derivedStats.m_nMoraleBreak;
         auto savedRecovery = source->m_derivedStats.m_nMoraleRecoveryTime;
         auto savedFrame = source->field_44A;
@@ -14085,15 +14085,15 @@ void Tick(CWarp* pActiveEngine)
         auto check = [&](const char* name, BYTE morale, DWORD recovery, DWORD threshold,
                          LONG frame, BYTE immunity, BOOL cutscene, BYTE flags,
                          BYTE expectedMorale, BOOL expectedResult) {
-            source->m_baseStats.field_25C = morale;
-            source->m_baseStats.field_2F0[3] = immunity;
+            source->m_baseStats.m_morale = morale;
+            source->m_baseStats.m_specFlags = immunity;
             source->m_derivedStats.m_nMoraleBreak = threshold;
             source->m_derivedStats.m_nMoraleRecoveryTime = recovery;
             source->field_44A = frame;
             source->m_curAction.m_internalFlags = flags;
             game->GetGameSave()->m_cutScene = cutscene;
             BOOL result = source->CheckMorale();
-            BOOL passed = result == expectedResult && source->m_baseStats.field_25C == expectedMorale;
+            BOOL passed = result == expectedResult && source->m_baseStats.m_morale == expectedMorale;
             valid = valid && passed;
             ++checks;
             Emit("{\"step\":%d,\"op\":\"combatmorale-case\",\"case\":\"%s\",\"passed\":%s}",
@@ -14113,8 +14113,8 @@ void Tick(CWarp* pActiveEngine)
         check("cutscene-after-recovery", 9, 2, 255, 30, 0, TRUE, 0, 10, TRUE);
         check("action-exemption-after-recovery", 11, 2, 255, 30, 0, FALSE, 1, 10, TRUE);
         check("other-action-flag", 9, 2, 9, 1, 0, FALSE, 2, 9, FALSE);
-        source->m_baseStats.field_25C = savedMorale;
-        source->m_baseStats.field_2F0[3] = savedImmunity;
+        source->m_baseStats.m_morale = savedMorale;
+        source->m_baseStats.m_specFlags = savedImmunity;
         source->m_derivedStats.m_nMoraleBreak = savedBreak;
         source->m_derivedStats.m_nMoraleRecoveryTime = savedRecovery;
         source->field_44A = savedFrame;
