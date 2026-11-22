@@ -274,6 +274,40 @@ Interceptor.replace(ptr(%(play_movie)#x), new NativeCallback(function (thiz, res
 
 # Hooking onLeave, never mid-function: Frida's 5-byte x86 trampoline corrupts a
 # branch cluster and takes the game down with it (docs/frida-differential-tracing.md:101).
+# Pure helpers are also exercised under Node by test_frida_calibration.py.
+CURSOR_CALIBRATION_JS = """
+function fitCursorMap(first, second) {
+  const dx = second.desktop[0] - first.desktop[0];
+  const dy = second.desktop[1] - first.desktop[1];
+  if (dx <= 0 || dy <= 0) return null;
+  if (first.game.concat(second.game).some(v => !Number.isFinite(v) || v < 0)) return null;
+  const ax = (second.game[0] - first.game[0]) / dx;
+  const ay = (second.game[1] - first.game[1]) / dy;
+  // A stale first sample produced a NEGATIVE X scale on native Windows.
+  // Neither negative, zero, nor implausibly large scales can describe a client.
+  if (!(ax > 0 && ay > 0 && ax <= 16 && ay <= 16)) return null;
+  return {ax: ax, ay: ay, bx: first.game[0] - ax * first.desktop[0],
+          by: first.game[1] - ay * first.desktop[1]};
+}
+function mapMatchesSample(map, sample, tolerance) {
+  return Math.abs(map.ax * sample.desktop[0] + map.bx - sample.game[0]) <= tolerance &&
+         Math.abs(map.ay * sample.desktop[1] + map.by - sample.game[1]) <= tolerance;
+}
+function stableCursorSample(state, point, desktopReady, now) {
+  state.polls++;
+  if (!desktopReady || point.some(v => !Number.isFinite(v) || v < 0) ||
+      state.polls < 4 || now - state.started < 150) {
+    state.stable = 0; state.last = null;
+    return null;
+  }
+  if (state.last && Math.abs(point[0] - state.last[0]) <= 1 && Math.abs(point[1] - state.last[1]) <= 1) {
+    state.stable++;
+  } else state.stable = 1;
+  state.last = point;
+  return state.stable >= 3 ? point : null;
+}
+"""
+
 DRIVER_JS = """
 const LOAD_SLOT = %(slot)d;
 const LOAD_NAME = %(load_name)s;    // MPSave folder name, or null
@@ -348,69 +382,147 @@ function readPointer() {
 // exactly on a control. Aiming blind lands elsewhere -- the first run put
 // (645,295) at game (402,205) and the click hit no control at all.
 //
-// The probe points cannot be FIXED, because m_ptPointer reads (-1,-1) for a
-// cursor that is off the window and a WINDOWED game covers only part of the
-// desktop.  Hardcoded (200,200)/(600,400) calibrated one sentinel against one
-// real reading on a box whose window sat near (563,230): it produced ax=0.095
-// and every aim after it missed, reporting only "cursor never reached the
-// control".  So sweep a grid of the desktop and keep the first two readings
-// that are REAL and differ on both axes.  Grid spacing is an eighth of the
-// screen, which is also the minimum separation the linear fit ever sees.
-const GetSystemMetrics = new NativeFunction(user32.getExportByName('GetSystemMetrics'),
-                                            'int', ['int'], 'stdcall');
-let calibrated = false, calPts = null, calIdx = 0, calPlaced = false, calP1 = null;
-let mapAx = 1, mapBx = 0, mapAy = 1, mapBy = 0;
+// The probe points cannot be FIXED desktop points: m_ptPointer reads (-1,-1)
+// for a cursor off the window and a WINDOWED game covers only part of the
+// desktop. (Hardcoded (200,200)/(600,400) produced ax=0.095; the desktop grid
+// sweep that replaced it read m_ptPointer one tick after SetCursorPos, so it
+// could pair a stale reading with a fresh one.) So find the game's OWN window
+// -- the largest visible client belonging to this PID -- and probe
+// client-relative interior points, each one only once it is stable (upstream
+// 7820ef22).
+const EnumWindows = new NativeFunction(user32.getExportByName('EnumWindows'), 'int', ['pointer', 'pointer'], 'stdcall');
+const GetWindowThreadProcessId = new NativeFunction(user32.getExportByName('GetWindowThreadProcessId'), 'uint32', ['pointer', 'pointer'], 'stdcall');
+const IsWindowVisible = new NativeFunction(user32.getExportByName('IsWindowVisible'), 'int', ['pointer'], 'stdcall');
+const GetClientRect = new NativeFunction(user32.getExportByName('GetClientRect'), 'int', ['pointer', 'pointer'], 'stdcall');
+const ClientToScreen = new NativeFunction(user32.getExportByName('ClientToScreen'), 'int', ['pointer', 'pointer'], 'stdcall');
+const GetCursorPos = new NativeFunction(user32.getExportByName('GetCursorPos'), 'int', ['pointer'], 'stdcall');
+const SetForegroundWindow = new NativeFunction(user32.getExportByName('SetForegroundWindow'), 'int', ['pointer'], 'stdcall');
+// IWD2 is x86: POINT is two 32-bit integers passed by value on the stack.
+const WindowFromPoint = new NativeFunction(user32.getExportByName('WindowFromPoint'), 'pointer', ['int', 'int'], 'stdcall');
+let driveFailed = false, gameWindow = null;
 
-function calGrid() {
-  const w = GetSystemMetrics(0), h = GetSystemMetrics(1);
-  const cx = w / 2, cy = h / 2;
-  const pts = [];
-  for (let iy = 1; iy <= 7; iy++) {
-    for (let ix = 1; ix <= 7; ix++) {
-      pts.push([Math.round(w * ix / 8), Math.round(h * iy / 8)]);
-    }
-  }
-  // Nearest the middle first: a windowed game is usually centred, so this
-  // finds two live points in a handful of ticks instead of forty.
-  pts.sort(function (a, b) {
-    const da = (a[0] - cx) * (a[0] - cx) + (a[1] - cy) * (a[1] - cy);
-    const db = (b[0] - cx) * (b[0] - cx) + (b[1] - cy) * (b[1] - cy);
-    return da - db;
-  });
-  return pts;
+function desktopPointer() {
+  const point = Memory.alloc(8);
+  if (!GetCursorPos(point)) return null;
+  return [point.readS32(), point.add(4).readS32()];
+}
+function ownedPoint(point) {
+  if (!point) return false;
+  const hwnd = WindowFromPoint(point[0], point[1]);
+  if (hwnd.isNull()) return false;
+  const pid = Memory.alloc(4);
+  GetWindowThreadProcessId(hwnd, pid);
+  return pid.readU32() === Process.id;
+}
+function clientBounds(hwnd) {
+  const rect = Memory.alloc(16), origin = Memory.alloc(8), pid = Memory.alloc(4);
+  GetWindowThreadProcessId(hwnd, pid);
+  if (pid.readU32() !== Process.id || !IsWindowVisible(hwnd) || !GetClientRect(hwnd, rect)) return null;
+  const width = rect.add(8).readS32() - rect.readS32();
+  const height = rect.add(12).readS32() - rect.add(4).readS32();
+  if (width < 100 || height < 100) return null;
+  origin.writeS32(0); origin.add(4).writeS32(0);
+  if (!ClientToScreen(hwnd, origin)) return null;
+  return {hwnd: hwnd, left: origin.readS32(), top: origin.add(4).readS32(), width: width, height: height};
+}
+function findGameWindow() {
+  let best = null;
+  const callback = new NativeCallback(function(hwnd, unused) {
+    const rect = clientBounds(hwnd);
+    if (rect && (!best || rect.width * rect.height > best.width * best.height)) best = rect;
+    return 1;
+  }, 'int', ['pointer', 'pointer'], 'stdcall');
+  EnumWindows(callback, ptr(0));
+  return best;
+}
+function insideClient(point) {
+  const rect = gameWindow ? clientBounds(gameWindow.hwnd) : null;
+  return rect && point[0] >= rect.left && point[0] < rect.left + rect.width &&
+         point[1] >= rect.top && point[1] < rect.top + rect.height;
+}
+function newSample() { return {started: Date.now(), polls: 0, stable: 0, last: null}; }
+function pollSample(state, target) {
+  const desktop = desktopPointer();
+  const ready = desktop && Math.abs(desktop[0] - target[0]) <= 1 &&
+                Math.abs(desktop[1] - target[1]) <= 1 && ownedPoint(desktop) && insideClient(desktop);
+  return stableCursorSample(state, readPointer(), ready, Date.now());
 }
 
-function calibrate() {
-  if (calPts === null) { calPts = calGrid(); }
-  if (calIdx >= calPts.length) {
-    send({ tag: 'drive', step: 'clickFailed',
-           why: 'cursor map is degenerate -- no two probe points landed on the window' });
-    return null;
+// Each probe position settles for >=150ms/four polls and three stable engine
+// samples. A third point validates the fitted map; no negative/stale map
+// reaches a click. Three failed attempts in a row end the drive (driveFailed).
+let calibrated = false, calStep = 0, calAttempts = 0, calPoints = [], calSamples = [], calSample = null;
+let mapAx = 1, mapBx = 0, mapAy = 1, mapBy = 0;
+function calibrationFailed(why) {
+  const desktop = desktopPointer();
+  send({tag: 'drive', step: 'calibrationRetry', attempt: ++calAttempts, why: why,
+        desktop: desktop, engine: readPointer(), owned: ownedPoint(desktop),
+        inside: desktop ? !!insideClient(desktop) : false,
+        expected: calStep > 0 ? calPoints[calStep - 1] : null});
+  calStep = 0;
+  if (calAttempts >= 3) {
+    driveFailed = true;
+    send({tag: 'drive', step: 'clickFailed', why: 'cursor calibration failed: ' + why});
   }
-  if (!calPlaced) {
-    SetCursorPos(calPts[calIdx][0], calPts[calIdx][1]);
-    calPlaced = true;
-    return false;
-  }
-  const d = calPts[calIdx];
-  const g = readPointer();
-  calIdx++; calPlaced = false;
-  // (-1,-1) means the cursor was off the window, not that the map is wrong.
-  if (g[0] < 0 || g[1] < 0) { return false; }
-  if (calP1 === null) { calP1 = [d[0], d[1], g[0], g[1]]; return false; }
-  const ddx = d[0] - calP1[0], ddy = d[1] - calP1[1];
-  const dgx = g[0] - calP1[2], dgy = g[1] - calP1[3];
-  if (ddx === 0 || ddy === 0 || dgx === 0 || dgy === 0) { return false; }
-  mapAx = dgx / ddx; mapBx = calP1[2] - mapAx * calP1[0];
-  mapAy = dgy / ddy; mapBy = calP1[3] - mapAy * calP1[1];
-  calibrated = true;
-  send({ tag: 'drive', step: 'calibrated', ax: mapAx, bx: mapBx, ay: mapAy, by: mapBy,
-         p1: calP1, p2: [d[0], d[1], g[0], g[1]] });
   return false;
 }
+function calibrate() {
+  if (calStep === 0) {
+    gameWindow = findGameWindow();
+    if (!gameWindow) return calibrationFailed('no visible client belonging to original PID');
+    SetForegroundWindow(gameWindow.hwnd);
+    calPoints = [0.25, 0.75, 0.5].map(fraction =>
+      [gameWindow.left + Math.round(gameWindow.width * fraction),
+       gameWindow.top + Math.round(gameWindow.height * fraction)]);
+    calSamples = []; calSample = newSample(); calStep = 1;
+    send({tag: 'drive', step: 'calibrationWindow', pid: Process.id, hwnd: gameWindow.hwnd.toString(),
+          left: gameWindow.left, top: gameWindow.top, width: gameWindow.width, height: gameWindow.height});
+    // DDrawCompat 0.5.4 reports FALSE from the process-local SetCursorPos hook
+    // even when its virtual cursor moves. The stable GetCursorPos, HWND-owner,
+    // and engine m_ptPointer checks below are the authoritative result.
+    SetCursorPos(calPoints[0][0], calPoints[0][1]);
+    return false;
+  }
+  const g = pollSample(calSample, calPoints[calStep - 1]);
+  if (!g) {
+    if (Date.now() - calSample.started > 3000) return calibrationFailed('cursor/client sample never stabilized');
+    return false;
+  }
+  const sample = {desktop: calPoints[calStep - 1], game: g};
+  calSamples.push(sample);
+  send({tag: 'drive', step: 'calibrationSample', sample: calStep, desktop: sample.desktop, game: sample.game});
+  if (calStep < 3) {
+    const next = calPoints[calStep++];
+    calSample = newSample();
+    SetCursorPos(next[0], next[1]);
+    return false;
+  }
+  const map = fitCursorMap(calSamples[0], calSamples[1]);
+  if (!map || !mapMatchesSample(map, calSamples[2], 2)) return calibrationFailed('nonpositive or inconsistent cursor map');
+  mapAx = map.ax; mapBx = map.bx; mapAy = map.ay; mapBy = map.by;
+  calibrated = true;
+  send({ tag: 'drive', step: 'calibrated', ax: mapAx, bx: mapBx, ay: mapAy, by: mapBy });
+  return false;
+}
+// Forget the map so the next manager tick measures it again (stale after a
+// screen/display-mode change; see the 'aim' state).
+function resetCalibration() {
+  calibrated = false; calStep = 0; calAttempts = 0; calSamples = []; calSample = null;
+}
+// Returns the desktop point aimed at, or null when it would leave the game's
+// client. A correction (dx,dy) is an error in GAME units, so it goes through the
+// map's scale before it is added to the current desktop cursor.
 function aimAt(x, y, dx, dy) {
-  SetCursorPos(Math.round((x - mapBx) / mapAx) + (dx | 0),
-               Math.round((y - mapBy) / mapAy) + (dy | 0));
+  const point = [Math.round((x - mapBx) / mapAx), Math.round((y - mapBy) / mapAy)];
+  if (dx || dy) {
+    const current = desktopPointer();
+    if (!current) return null;
+    point[0] = Math.round(current[0] + dx / mapAx);
+    point[1] = Math.round(current[1] + dy / mapAy);
+  }
+  if (!insideClient(point)) return null;
+  SetCursorPos(point[0], point[1]);
+  return point;
 }
 
 // Clicks to drive once the world engine is up, as [panel, control, button]
@@ -450,28 +562,25 @@ function runJob() {
     job.y = panel.add(%(panel_origin)#x + 4).readS32()
           + ctrl.add(%(ctrl_origin)#x + 4).readS32()
           + (ctrl.add(%(ctrl_size)#x + 4).readS32() >> 1);
-    aimAt(job.x, job.y, 0, 0);
+    job.desktop = aimAt(job.x, job.y, 0, 0);
+    if (!job.desktop) { recalibrateJob('target maps outside the game client'); return; }
+    job.sample = newSample();
     job.state = 'aim';
     send({ tag: 'drive', step: 'aim', target: job.label, x: job.x, y: job.y });
     return;
   }
 
   if (job.state === 'aim') {
-    const at = readPointer();
-    if (at[0] < 0 || at[1] < 0) {
-      // (-1,-1) is the off-the-window sentinel, not a small aiming error: the
-      // map is stale because the game moved or changed display mode between
-      // screens (loading a save does exactly that).  Nudging by an error
-      // computed from the sentinel would shove the cursor a further ~640px
-      // away, which is what "cursor never reached the control" used to mean.
-      // Measure the map again instead, then re-resolve and re-aim.
-      if (++job.recals > 2) {
-        finishJob('cursor is off the window and recalibrating did not help');
+    const at = pollSample(job.sample, job.desktop);
+    if (!at) {
+      if (Date.now() - job.sample.started <= 3000) return;
+      const raw = readPointer();
+      if (raw[0] < 0 || raw[1] < 0) {
+        recalibrateJob('cursor is off the window');
         return;
       }
-      calibrated = false; calPts = null; calIdx = 0; calPlaced = false; calP1 = null;
-      job.state = 'resolve'; job.aimTries = 0;
-      send({ tag: 'drive', step: 'recalibrate', target: job.label, tries: job.recals });
+      finishJob('cursor aim never stabilized inside the game (wanted ' + job.x + ',' + job.y
+                + ' got ' + raw[0] + ',' + raw[1] + ')');
       return;
     }
     if (Math.abs(at[0] - job.x) > 2 || Math.abs(at[1] - job.y) > 2) {
@@ -482,7 +591,9 @@ function runJob() {
                   + ' got ' + at[0] + ',' + at[1] + ')');
         return;
       }
-      aimAt(job.x, job.y, job.x - at[0], job.y - at[1]);
+      job.desktop = aimAt(job.x, job.y, job.x - at[0], job.y - at[1]);
+      if (!job.desktop) { recalibrateJob('corrected aim lies outside the game client'); return; }
+      job.sample = newSample();
       return;
     }
     mouse_event(job.btn === 'R' ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN,
@@ -504,7 +615,27 @@ function runJob() {
   }
 }
 
+// (-1,-1), or a target the map puts outside the client, is not a small aiming
+// error: the map is stale because the game moved or changed display mode
+// between screens (loading a save does exactly that).  Nudging by an error
+// computed from the sentinel would shove the cursor a further ~640px away,
+// which is what "cursor never reached the control" used to mean.  Measure the
+// map again instead -- on this job's own screen, the only one still ticking --
+// then re-resolve and re-aim.
+function recalibrateJob(why) {
+  if (++job.recals > 2) {
+    finishJob(why + ' and recalibrating did not help');
+    return;
+  }
+  resetCalibration();
+  job.state = 'resolve'; job.aimTries = 0;
+  send({ tag: 'drive', step: 'recalibrate', target: job.label, tries: job.recals, why: why });
+}
+
 function finishJob(why) {
+  // Never leave a button held down behind a failed job.
+  if (why && job && job.state === 'press')
+    mouse_event(job.btn === 'R' ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP, 0, 0, 0, NULL);
   if (why) send({ tag: 'drive', step: 'clickFailed', target: job.label, why: why });
   job = null;
 }
@@ -549,12 +680,15 @@ Interceptor.attach(ptr(%(mp_activated)#x), {
 Interceptor.attach(ptr(%(uimgr_update)#x), {
   onEnter() { this.mgr = this.context.ecx; },
   onLeave() {
-    if (LOAD_SLOT < 0) return;
+    if (LOAD_SLOT < 0 || driveFailed) return;
     if (!calibrated) {
-      // Calibration only needs a screen that is ticking; the connection screen is
-      // the first one up.
-      if (connThis === null || !this.mgr.equals(connThis.add(%(uimgr_off)#x))) return;
-      if (calibrate() === null) { job = null; }
+      // Calibration only needs a screen that is ticking: the connection screen,
+      // the first one up, or -- for a recalibration -- the screen of the job
+      // that asked for it, since the connection screen no longer ticks after
+      // a load.
+      const owner = job !== null ? job.thiz : connThis;
+      if (owner === null || !this.mgr.equals(owner.add(%(uimgr_off)#x))) return;
+      calibrate();
       return;
     }
     if (job !== null) {
@@ -849,7 +983,7 @@ def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True,
              load_name: str | None = None, load_index: int = -1,
              ignore_asserts: bool = False, assert_log: str = "") -> str:
     hooks = spec["hooks"]
-    blocks = ["'use strict';", PRELUDE, CRASH_JS,
+    blocks = ["'use strict';", PRELUDE, CRASH_JS, CURSOR_CALIBRATION_JS,
               ASSERT_JS % {"util_assert": UTIL_ASSERT,
                            "chitin_shutdown": CHITIN_SHUTDOWN,
                            "ignore_asserts": int(ignore_asserts),
