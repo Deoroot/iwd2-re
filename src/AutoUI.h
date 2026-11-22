@@ -15,6 +15,13 @@ namespace Iwd2AutoUI {
 // this module is unreachable when this returns false.
 bool IsEnabled();
 
+// True while a script holds SHIFT (`shift 1` ... `shift 0`). Read by the
+// GetAsyncKeyState(VK_SHIFT) poll in CChitin::AsynchronousUpdate, which is the
+// only place the keyboard reaches the engine's shift state: the poll then
+// calls SetSystemKeyShift exactly as it does for a real key, every tick.
+// False unless a script set it, so it is inert outside AutoUI runs.
+bool IsShiftHeld();
+
 // A test action borrows live UI/stats and can lock the back surface. Finish an
 // in-flight frame first, and let the main thread skip frames while it runs so
 // that thread can still process window messages. Inert outside AutoUI runs.

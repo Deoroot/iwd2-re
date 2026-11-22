@@ -43,6 +43,8 @@
 //                                m_ptMousePos, not the click point.
 //   hover <x> <y>                move the cursor without clicking
 //   key <vk>                     stage the VK and run one OnKeyDown tick
+//   shift <1|0>                  hold / release SHIFT for the engine's own
+//                                GetAsyncKeyState poll (CChitin.cpp)
 //   goto <screen>                CBaldurEngine::OnLeftPanelButtonClick
 //   expect screen <screen>
 //   expect controls <panel> <min>
@@ -5522,6 +5524,13 @@ bool IsEnabled()
 {
     char szPath[MAX_PATH];
     return GetEnv("IWD2_RE_UI_SCRIPT", szPath, sizeof(szPath)) > 0;
+}
+
+static bool s_bShiftHeld = false;
+
+bool IsShiftHeld()
+{
+    return s_bShiftHeld;
 }
 
 SynchronousUpdateGuard::SynchronousUpdateGuard() // re-lint: disable RE006 -- test scaffolding
@@ -15030,6 +15039,18 @@ void Tick(CWarp* pActiveEngine)
 
         Emit("{\"step\":%d,\"op\":\"key\",\"vk\":%d,\"status\":\"ok\"}",
             nStep, Num(step, 0, 0));
+        s_pc++;
+        return;
+    }
+
+    if (strcmp(step.op, "shift") == 0) {
+        // Hold or release SHIFT. Nothing is called here: the engine's own
+        // poll (CChitin::AsynchronousUpdate) sees the key down on its next
+        // pass and every pass after, the way a held key is seen, so a click
+        // issued a few ticks later reads GetShiftKey() == 1.
+        s_bShiftHeld = Num(step, 0, 1) != 0;
+        Emit("{\"step\":%d,\"op\":\"shift\",\"held\":%d,\"status\":\"ok\"}",
+            nStep, s_bShiftHeld ? 1 : 0);
         s_pc++;
         return;
     }

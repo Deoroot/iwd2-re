@@ -1,0 +1,43 @@
+# SHIFT-click a bound quick spell -- the 0x5934CD arm of
+# CInfButtonArray::OnLButtonPressed that calls 0x716770 (s56).
+#
+# Same bind as quick-spell-arm.txt (save 000000007-Staircase Transition,
+# cleric1 at portrait 2, cleric spell into quick slot 5), then the bound slot
+# is clicked with SHIFT held. `shift 1` is read by the engine's own
+# GetAsyncKeyState(VK_SHIFT) poll (CChitin::AsynchronousUpdate), so the
+# click's GetShiftKey() (vcall +0x44 at 0x5934F2) returns 1 exactly as it
+# would for a held key.
+#
+# The binary (0x5934CD..0x59350B): state 0x72, byte[bd+0x36] == 3,
+# word[bd+0x38] == 0, GetShiftKey() == 1, byte[bd+0x3A] == 0 -> call 0x716770
+# with the button data, then jmp 0x593581 (delete + exit), skipping SetState /
+# SetSelectedButton / SetModalState.  So the bar stays 0x72 with selected 100,
+# where an unshifted click selects 72.  0x716770 itself is not recovered: our
+# build takes the same exit without the call.
+#
+# The ORIGINAL cannot be driven with SHIFT: frida_orig has no keys.
+wait world 3000
+waitgo 6000
+sleep 30
+click 1 2
+sleep 150
+bar
+rclick 1 11
+sleep 150
+rclick 1 7
+sleep 150
+rclick 1 6
+sleep 150
+click 1 6
+sleep 200
+bar
+shift 1
+sleep 10
+click 1 11
+sleep 200
+bar
+shift 0
+sleep 10
+click 1 11
+sleep 200
+bar

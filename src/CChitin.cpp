@@ -1509,7 +1509,9 @@ void CChitin::AsynchronousUpdate(UINT nTimerID, UINT uMsg, DWORD dwUser, DWORD d
             }
 
             if (pActiveEngine->CheckSystemKeyShift()) {
-                if (GetAsyncKeyState(VK_SHIFT)) {
+                // TEST SCAFFOLDING (AutoUI.h): a scripted `shift 1` reads as a
+                // held key here, and only here. Always false outside AutoUI.
+                if (GetAsyncKeyState(VK_SHIFT) || Iwd2AutoUI::IsShiftHeld()) {
                     pActiveEngine->SetSystemKeyShift(TRUE);
                 } else {
                     pActiveEngine->SetSystemKeyShift(FALSE);
