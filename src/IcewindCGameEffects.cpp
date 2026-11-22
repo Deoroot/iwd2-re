@@ -624,7 +624,7 @@ BOOL IcewindCGameEffectSlowPoison::ApplyEffect(CGameSprite* pSprite)
     while (pos != NULL) {
         CGameEffect* pEffect = pSprite->GetTimedEffectList()->GetNext(pos);
         if (pEffect->m_effectID == CGAMEEFFECT_POISON) {
-            switch (m_dwFlags) {
+            switch (pEffect->m_dwFlags) {
             case 2:
                 pEffect->m_dwFlags = 4;
                 pEffect->m_duration = 8 * pEffect->m_duration
@@ -636,7 +636,7 @@ BOOL IcewindCGameEffectSlowPoison::ApplyEffect(CGameSprite* pSprite)
                     - 7 * g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime;
                 break;
             case 4:
-                m_dwFlags = 5;
+                pEffect->m_dwFlags = 5;
                 pEffect->m_duration = 8 * pEffect->m_duration
                     - 7 * g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime;
                 break;
@@ -978,54 +978,21 @@ CGameEffect* CGameEffectVisualSpellHitIWD::Copy()
     return copy;
 }
 
+// Opcode 233: local school impact plus owner-gated multiplayer replication.
 // 0x5601E0
-//
-// CGameEffectVisualSpellHitIWD::ApplyEffect -- opcode #233 ("Graphics:
-// Icewind Visual Spell Hit").  Plays the school-specific spell-hit overlay on
-// the target -- the impact flash + sound for Icewind spells (Magic Missile uses
-// Type 3 = Invocation -> the "InvocH" overlay + the EFF_M06 hit sound).
-// Previously inherited the base no-op stub, so spell impacts had no VFX or sound.
-//
-// m_dwFlags carries the graphic Type (the effect's param2); the third character
-// of m_sourceRes selects the positive (priest, 'P') vs negative sound variant.
-// The original spawns the school overlay projectile via
-// CProjectileSummonVFX::DecodeSpellHitProjectile and Fire()s it directly at the
-// target.  It also queues a CMessageFireProjectile of type (Type + 0x1000) -- the
-// multiplayer replication of the hit overlay -- but that message's Run (0x5007F0)
-// skips on the single-player casting owner, so in SP only the directly-fired
-// overlay above is shown.  Our CMessageFireProjectile::Run does not yet make the
-// SP owner skip (the multiplayer-owner game state is unrecovered), so queueing it
-// would actually fire the +0x1000 overlay (which the factory DOES cover: the
-// 0x1000+ path resolves to a different, wrong-school SummonVFX -> a spurious extra
-// impact sound, e.g. EFF_M08 layered over Magic Missile's EFF_M06).  We omit the
-// queue to match SP, exactly as the ForceSpellAction launch path does.
 BOOL CGameEffectVisualSpellHitIWD::ApplyEffect(CGameSprite* pSprite)
 {
     if (pSprite->m_pArea == NULL) {
         m_done = TRUE;
         return FALSE;
     }
-
-    BOOL bPositive = FALSE;
     const BYTE* res = m_sourceRes.GetResRef();
-    if (res[2] == 'P' || res[2] == 'p') {
-        bPositive = TRUE;
-    }
-
-    CProjectile* pVFX = CProjectileSummonVFX::DecodeSpellHitProjectile(m_dwFlags, pSprite, bPositive);
-
-    // The original's secondary (Type + 0x1000) CMessageFireProjectile -- the
-    // multiplayer replication layer -- is omitted here; its Run skips on the SP
-    // casting owner, and firing it in our build would add a spurious wrong-school
-    // overlay/sound (see the note above).
-
-    // The school overlay, fired directly at the target.  Guarded against the
-    // unrecovered DecodeSpellHitProjectile types (which return NULL) -- the
-    // original assumes a valid projectile because all its cases are implemented.
-    if (pVFX != NULL) {
-        pVFX->Fire(pSprite->m_pArea, pSprite->m_id, pSprite->m_id, pSprite->GetPos(), 0, 0);
-    }
-
+    BOOL positive = res[2] == 'P' || res[2] == 'p';
+    CProjectile* projectile = CProjectileSummonVFX::DecodeSpellHitProjectile(m_dwFlags, pSprite, positive);
+    CMessage* message = new CMessageFireProjectile(static_cast<WORD>(m_dwFlags + 0x1000),
+        pSprite->m_id, pSprite->GetPos(), 0, pSprite->m_id, pSprite->m_id, 0);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    projectile->Fire(pSprite->m_pArea, pSprite->m_id, pSprite->m_id, pSprite->GetPos(), 0, 0);
     m_done = TRUE;
     return FALSE;
 }
@@ -1192,14 +1159,13 @@ CGameEffect* IcewindCGameEffectCallLightning::Copy()
     return copy;
 }
 
-// 0x586220.  Load the sub-spell named by the resource (EffCL) and return its
-// level-appropriate ability's effects -- the per-strike payload (the EffCL
-// visual + electrical damage) each Call Lightning bolt carries.  The spell
-// stores one ability per caster level; the highest whose minimum level is still
-// reached is chosen.  Each built effect is stamped with the caster's position
-// and id before delivery.
-static std::list<CGameEffect*> BuildSubSpellEffects(CGameSprite* pCaster,
-    const CResRef& spellRes, BYTE level)
+// 0x586220. Load a sub-spell for a strike, on-hit spell or effects-list payload.
+// Select the last ability whose minimum level is reached, comparing against
+// the full signed level argument. Stamp each effect with the caster's position
+// and id before delivery. The selected ability's level is not forwarded as the
+// BuildAbilityEffect level argument; that call computes its own caster level.
+std::list<CGameEffect*> BuildSubSpellEffects(CGameSprite* pCaster,
+    const CResRef& spellRes, INT level)
 {
     std::list<CGameEffect*> effects;
 
@@ -1215,6 +1181,7 @@ static std::list<CGameEffect*> BuildSubSpellEffects(CGameSprite* pCaster,
             if (level < pAbility->minCasterLevel) {
                 break;
             }
+            cSpell.GetAbility(i);
             ++abilityNum;
             i = abilityNum;
             count = cSpell.GetAbilityCount();
@@ -2046,7 +2013,7 @@ BOOL IcewindCGameEffectProtectionFromEvil::ApplyEffect(CGameSprite* pSprite)
         // NOTE: Uninline.
         AddPortraitIcon(pSprite, 9);
 
-        pSprite->GetDerivedStats()->m_naturalImmunities.insert(ICEWIND_CGAMEEFFECT_CHARM);
+        pSprite->GetDerivedStats()->m_activeEffectOpcodes.insert(ICEWIND_CGAMEEFFECT_CHARM);
         SetMinNaturalAC(pSprite, 2);
         pSprite->GetDerivedStats()->m_nSaveVSFortitude += 2;
         pSprite->GetDerivedStats()->m_nSaveVSReflex += 2;
@@ -2755,12 +2722,12 @@ BOOL IcewindCGameEffectFreeAction::ApplyEffect(CGameSprite* pSprite)
 
         AddColorEffect(pSprite, 128, 96, 96, 30);
 
-        pSprite->GetDerivedStats()->m_naturalImmunities.insert(CGAMEEFFECT_ENTANGLE);
-        pSprite->GetDerivedStats()->m_naturalImmunities.insert(CGAMEEFFECT_GREASEPOOL);
-        pSprite->GetDerivedStats()->m_naturalImmunities.insert(CGAMEEFFECT_WEBHOLD);
-        pSprite->GetDerivedStats()->m_naturalImmunities.insert(CGAMEEFFECT_HOLDCREATURE);
-        pSprite->GetDerivedStats()->m_naturalImmunities.insert(CGAMEEFFECT_SLOW);
-        pSprite->GetDerivedStats()->m_naturalImmunities.insert(CGAMEEFFECT_MOVEMENTRATE_176);
+        pSprite->GetDerivedStats()->m_activeEffectOpcodes.insert(CGAMEEFFECT_ENTANGLE);
+        pSprite->GetDerivedStats()->m_activeEffectOpcodes.insert(CGAMEEFFECT_GREASEPOOL);
+        pSprite->GetDerivedStats()->m_activeEffectOpcodes.insert(CGAMEEFFECT_WEBHOLD);
+        pSprite->GetDerivedStats()->m_activeEffectOpcodes.insert(CGAMEEFFECT_HOLDCREATURE);
+        pSprite->GetDerivedStats()->m_activeEffectOpcodes.insert(CGAMEEFFECT_SLOW);
+        pSprite->GetDerivedStats()->m_activeEffectOpcodes.insert(CGAMEEFFECT_MOVEMENTRATE_176);
 
         m_done = FALSE;
     }
@@ -3104,6 +3071,23 @@ CGameEffect* IcewindCGameEffectWhenStruck::Copy()
     return copy;
 }
 
+// 0x56A5A0
+BOOL IcewindCGameEffectWhenStruck::ApplyEffect(CGameSprite* pSprite)
+{
+    COnHitSpell spell;
+    spell.m_sourceRes = m_sourceRes;
+    spell.m_spellRes = m_res;
+    spell.m_level = static_cast<BYTE>(m_casterLevel);
+    spell.m_target = m_target;
+    pSprite->m_derivedStats.m_onHitSpells.push_back(spell);
+
+    if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL) {
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessage117(m_sourceRes,
+            m_res, static_cast<BYTE>(m_casterLevel), m_target, pSprite->m_id, pSprite->m_id), FALSE);
+    }
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // 0x4A1C30
@@ -3120,6 +3104,30 @@ CGameEffect* IcewindCGameEffectProjectile::Copy()
     delete effect;
     copy->CopyFromBase(this);
     return copy;
+}
+
+// 0x56A730
+BOOL IcewindCGameEffectProjectile::ApplyEffect(CGameSprite* pSprite)
+{
+    CGameObjectArray* objects = g_pBaldurChitin->GetObjectGame()->GetObjectArray();
+    CGameObject* pSource;
+    if (objects->GetShare(m_sourceID, CGameObjectArray::THREAD_ASYNCH,
+            &pSource, INFINITE) == CGameObjectArray::SUCCESS) {
+        CProjectile* projectile = CProjectile::DecodeProjectile(m_dwFlags + 1, pSprite, 0);
+        std::list<CGameEffect*> effects = BuildSubSpellEffects(
+            static_cast<CGameSprite*>(pSource), m_res, 1);
+        for (CGameEffect* effect : effects) {
+            effect->m_sourceRes = m_res;
+            effect->m_target = m_target;
+            effect->m_casterLevel = m_casterLevel;
+            projectile->AddEffect(effect);
+        }
+        projectile->Fire(pSprite->m_pArea, pSource->m_id, pSprite->m_id,
+            pSprite->GetPos(), 0, 0);
+        objects->ReleaseShare(m_sourceID, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+    m_done = TRUE;
+    return TRUE;
 }
 
 // -----------------------------------------------------------------------------

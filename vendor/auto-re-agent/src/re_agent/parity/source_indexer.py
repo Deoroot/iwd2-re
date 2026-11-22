@@ -85,6 +85,7 @@ class SourceIndexer:
         # definition right under a `// 0xADDR` marker
         self.addr_def_index: dict[str, tuple[Path, int, int, str]] = {}
         self.lookup_cache: dict[tuple[str, str], SourceMatch | None] = {}
+        self.address_lookup_cache: dict[str, SourceMatch | None] = {}
         self.free_lookup_cache: dict[str, SourceMatch | None] = {}
         self._build_index()
 
@@ -429,12 +430,16 @@ class SourceIndexer:
     def find_by_address(self, address: str) -> SourceMatch | None:
         """Look up a source function body by its hook address.
 
-        Uses the ``hook_address_index`` built from hook-install macros to
-        resolve *address* → *(class_name, fn_name)* and then delegates to
-        :meth:`find`.  Returns ``None`` if the address is not in the index.
+        An adjacent ``// 0xADDR`` marker resolves directly to its definition,
+        which disambiguates overloads. Hook-install entries fall back to the
+        name index. Returns ``None`` if the address is not indexed.
         """
+        normalized = normalize_address(address)
+        if normalized in self.address_lookup_cache:
+            return self.address_lookup_cache[normalized]
+
         # The definition under the marker itself, when it parses as one.
-        loc = self.addr_def_index.get(normalize_address(address))
+        loc = self.addr_def_index.get(normalized)
         if loc is not None:
             path, cls_idx, fn_idx, fn = loc
             txt = self._read_text(path)
@@ -442,14 +447,20 @@ class SourceIndexer:
             if open_brace is not None:
                 close_brace = self._find_matching_brace(txt, open_brace)
                 if close_brace is not None:
-                    return self._make_source_match(path, txt, cls_idx, open_brace, close_brace)
-        entry = self.hook_address_index.get(normalize_address(address))
+                    match = self._make_source_match(path, txt, cls_idx, open_brace, close_brace)
+                    self.address_lookup_cache[normalized] = match
+                    return match
+        entry = self.hook_address_index.get(normalized)
         if entry is None:
+            self.address_lookup_cache[normalized] = None
             return None
         cls, fn = entry
         if not fn:
+            self.address_lookup_cache[normalized] = None
             return None
-        return self.find(cls, fn)
+        match = self.find(cls, fn)
+        self.address_lookup_cache[normalized] = match
+        return match
 
     def _find_free_function(self, fn_name: str) -> SourceMatch | None:
         if not fn_name:

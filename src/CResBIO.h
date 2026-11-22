@@ -17,6 +17,9 @@ public:
     CResBIO();
     ~CResBIO();
 
+    void* Demand();
+    int Release();
+
     /* 0050 */ BOOL m_bParsed;
 };
 

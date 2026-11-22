@@ -18,6 +18,9 @@ const SHORT CAIAction::MOVETOOBJECT = 22;
 // 0x8477B0
 const SHORT CAIAction::MOVETOPOINT = 23;
 
+// 0x8477B2
+const SHORT CAIAction::PANIC = 24;
+
 // 0x8477B8
 const SHORT CAIAction::PROTECTPOINT = 27;
 
@@ -147,6 +150,9 @@ const SHORT CAIAction::TAKEPARTYGOLD = 117;
 // 0x847860
 const SHORT CAIAction::GIVEPARTYGOLD = 118;
 
+// 0x84786C
+const SHORT CAIAction::BERSERK = 124;
+
 // 0x847880
 const SHORT CAIAction::ATTACKREEVALUATE = 134;
 
@@ -204,6 +210,8 @@ const SHORT CAIAction::BACKGROUND = -2;
 // 0x8C6118
 const CAIAction CAIAction::NULL_ACTION;
 
+const SHORT CAIAction::RUNAWAYFROM = 23;
+
 // 0x403A40
 CAIAction::CAIAction()
 {
@@ -213,6 +221,19 @@ CAIAction::CAIAction()
     m_specificID3 = 0;
     m_string1 = "";
     m_string2 = "";
+    m_internalFlags = 0;
+}
+
+// 0x75AAC0
+CAIAction::CAIAction(SHORT actionID, LONG specificID)
+{
+    {
+        CAIAction action;
+    }
+    m_actionID = actionID;
+    m_specificID = specificID;
+    m_specificID2 = 0;
+    m_specificID3 = 0;
     m_internalFlags = 0;
 }
 

@@ -1,0 +1,14 @@
+# Install combat_payload_fixture.py first; isolated save, two party members.
+# Deals 32 total base damage to portrait 1; no saving. Payload effects excluded.
+waitgo
+wait world
+enddialog
+center
+sleep 15
+expect partyvisible 0
+expect partyvisible 1
+combathit
+weapondamage ZRCMELEE
+weapondamage ZRCARROW ZRCBOW
+weapondamage ZRCBOLT ZRCXBOW
+weapondamage ZRCSTONE ZRCSLING

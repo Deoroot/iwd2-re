@@ -27,6 +27,7 @@
 #include "CPathSearch.h"
 #include "CProjectile.h"
 #include "CScreenCharacter.h"
+#include "CScreenInventory.h"
 #include "CScreenChapter.h"
 #include "CScreenInventory.h"
 #include "CScreenWorld.h"
@@ -213,29 +214,6 @@ const BYTE* CGameAIBase::GetVisibleTerrainTable()
 const BYTE* CGameAIBase::GetTerrainTable()
 {
     return CGameObject::DEFAULT_TERRAIN_TABLE;
-}
-
-// 0x44CBC0
-// HACK: the binary inherits CGameObject::CanSaveGame here (slot 0x28 == 0x44CBC0,
-// which sets strError=16502 and returns FALSE). But CGameDoor/CGameContainer/
-// HACK: CGameAIBase does not override CanSaveGame at all -- its vtable slot
-// 0x0028 holds 0x44CBC0, i.e. the inherited CGameObject::CanSaveGame
-// (strError = 16502, return FALSE). We return TRUE instead, because
-// CGameArea::CanSaveGame walks the area's vert-sort lists and blocks the save
-// if ANY object answers FALSE, so a faithful FALSE here blocks all saving.
-// -- replaces 0x44CBC0
-//
-// Blocker, narrowed 2026-07-31: of the seven CGameAIBase subclasses, five
-// override slot 0x0028 to 0x47C830 (strError = -1, return TRUE) and
-// CGameSprite has its own at 0x75E890. CGameContainer, CGameDoor and
-// CGameTrigger were the three still missing and are now declared, so the only
-// subclass left inheriting the FALSE is CGameTiledObject. Its vtable
-// (0x84C700) resolves from a single anchor, which is too weak to bet saving
-// on -- confirm that table, then delete this override and let the base answer.
-BOOLEAN CGameAIBase::CanSaveGame(STRREF& strError)
-{
-    strError = -1;
-    return TRUE;
 }
 
 // 0x44D120
@@ -454,9 +432,13 @@ BOOL CGameAIBase::EvaluateStatusTrigger(const CAITrigger& trigger)
             return FALSE;
         }
 
-        // DEFERRED: doors (TYPE 0x21) use the door-center helper 0x48B2C0; the
-        // plain position is close enough until that helper is recovered.
-        CPoint ptTarget = pObject->GetPos();
+        CPoint ptTarget;
+        if (pObject->GetObjectType() == CGameObject::TYPE_DOOR) {
+            // The PE passes this default-constructed point before writing it.
+            ptTarget = static_cast<CGameDoor*>(pObject)->GetMoveDest(ptTarget);
+        } else {
+            ptTarget = pObject->GetPos();
+        }
         CPoint gridTarget(ptTarget.x / CPathSearch::GRID_SQUARE_SIZEX,
             ptTarget.y / CPathSearch::GRID_SQUARE_SIZEY);
 
@@ -5837,8 +5819,77 @@ void CGameAIBase::InsertResponse(CAIResponse& response, BOOL checkCurrentRespons
     }
 }
 
-// 0x45CA10
+// 0x45C730
 void CGameAIBase::ProcessAI()
+{
+    if (!InControl()) {
+        return;
+    }
+
+    if (m_curAction.GetActionID() == CAIAction::NO_ACTION) {
+        if (!m_queuedActions.IsEmpty()) {
+            SetCurrAction(GetNextAction(m_aiAction));
+            m_interrupt = FALSE;
+        }
+        if (m_curAction.GetActionID() == CAIAction::NO_ACTION) {
+            m_inCutScene = FALSE;
+        }
+    }
+    m_randValue = rand() % 0x7FFF;
+
+    if (!g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active && !m_firstCall) {
+        if (m_curAction.GetActionID() == CAIAction::NO_ACTION) {
+            SetCurrAction(GetNextAction(m_aiAction));
+            m_interrupt = FALSE;
+        }
+        while (g_pBaldurChitin->GetObjectGame()->GetRuleTables().m_lInstantActions.Find(m_curAction.GetActionID()) != NULL) {
+            if (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA) {
+                break;
+            }
+            DoAction();
+        }
+        return;
+    }
+
+    field_44A++;
+    if (((field_44A ^ m_id) & 0xF) == 0) {
+        CheckTimers(1);
+    }
+    if (((field_44A ^ m_id) & 0xF) == 0 || m_firstCall || m_forceActionPick) {
+        field_54C++;
+        m_firstCall = FALSE;
+        m_forceActionPick = FALSE;
+        if (m_curAction.GetActionID() != CAIAction::NO_ACTION
+            && m_pendingTriggers.IsEmpty() && field_550 < 120 && field_552 <= 0) {
+            field_550++;
+        } else {
+            if (!m_pendingTriggers.IsEmpty()) {
+                field_552 = 5;
+            }
+            ProcessScripts();
+            if (field_552 > 0) {
+                field_552--;
+            }
+            field_550 = 0;
+        }
+    }
+
+    if (m_curAction.GetActionID() == CAIAction::NO_ACTION) {
+        SetCurrAction(GetNextAction(m_aiAction));
+        m_interrupt = FALSE;
+    }
+    if (m_posVertList != NULL) {
+        do {
+            DoAction();
+        } while (g_pBaldurChitin->GetObjectGame()->GetRuleTables().m_lInstantActions.Find(m_curAction.GetActionID()) != NULL
+            && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA));
+    }
+}
+
+// 0x45CA10
+void CGameAIBase::ProcessScripts()
 {
     // TODO: 0x57 action sentinel meaning not yet identified.
 
@@ -5846,31 +5897,6 @@ void CGameAIBase::ProcessAI()
         return;
     }
     if (m_nLastActionReturn == 0) {
-        return;
-    }
-
-    // TODO INCOMPLETE: the binary drives CGameAIArea queued actions outside the
-    // recovered ProcessAI body. Until that caller is recovered, drain the active
-    // area response before allowing a new script response to interrupt it.
-    BOOL bAreaActionFallback = m_objectType == CGameObject::TYPE_AIBASE;
-    if (bAreaActionFallback
-        && (m_curAction.m_actionID != CAIAction::NO_ACTION || !m_queuedActions.IsEmpty())) {
-        if (m_curAction.m_actionID == CAIAction::NO_ACTION) {
-            CAIAction action;
-            SetCurrAction(GetNextAction(action));
-            ResetCurrResponse();
-        }
-
-        BOOL bCanDoAction = m_curAction.m_actionID != CAIAction::NO_ACTION;
-        if (bCanDoAction && !g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active) {
-            bCanDoAction = g_pBaldurChitin->GetObjectGame()
-                               ->GetRuleTables()
-                               .m_lInstantActions.Find(m_curAction.GetActionID()) != NULL;
-        }
-
-        if (bCanDoAction) {
-            DoAction();
-        }
         return;
     }
 
@@ -5968,22 +5994,7 @@ void CGameAIBase::ProcessAI()
         delete found;
     }
 
-    if (bAreaActionFallback && m_curAction.m_actionID == CAIAction::NO_ACTION && !m_queuedActions.IsEmpty()) {
-        CAIAction action;
-        SetCurrAction(GetNextAction(action));
-        ResetCurrResponse();
-    }
 
-    BOOL bCanDoAreaAction = bAreaActionFallback && m_curAction.m_actionID != CAIAction::NO_ACTION;
-    if (bCanDoAreaAction && !g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_active) {
-        bCanDoAreaAction = g_pBaldurChitin->GetObjectGame()
-                               ->GetRuleTables()
-                               .m_lInstantActions.Find(m_curAction.GetActionID()) != NULL;
-    }
-
-    if (bCanDoAreaAction) {
-        DoAction();
-    }
 }
 
 // 0x45D130
@@ -6025,12 +6036,12 @@ void CGameAIBase::AddAction(const CAIAction& action)
 // 0x44CE20
 void CGameAIBase::AddEffect(CGameEffect* pEffect, BYTE list, BOOL noSave, BOOL immediateApply)
 {
-    // The base handler for the non-sprite CGameAIBase leaves -- doors, containers,
-    // triggers, regions, the AI-area/-game singletons (the binary COMDAT-folds the
-    // eight identical overrides into one body). Those objects cannot hold effects,
-    // so an effect delivered to them is simply discarded. CGameSprite overrides this
-    // virtual (slot 0x78, 0x733050) with the real timed/equipped list management, so
-    // a sprite victim never reaches here. The earlier stopgap wrongly ran the sprite
+    // The base handler discards effects on AI objects without a specific override.
+    // CGameSprite overrides slot 0x78 (0x733050) with timed/equipped list management;
+    // doors, containers and triggers also have distinct handlers in the binary.
+    // CGameDoor's handler (0x486860) handles knock, trap detection, forced casting
+    // and summoning; it does not store arbitrary sprite effects.
+    // The earlier stopgap wrongly ran the sprite
     // list path in this base, static_cast-ing a non-sprite to CGameSprite and
     // AddTail-ing onto a garbage list -- the Fireball-on-non-sprite heap fault
     // (GatherTargets(ANYONE) strikes any blast object; the original discards here).
@@ -6379,7 +6390,7 @@ void CGameAIBase::ApplyEffectToParty(CGameEffect* pEffect)
                     pGame->GetObjectArray()->ReleaseShare(nCharacterId,
                         CGameObjectArray::THREAD_ASYNCH,
                         INFINITE);
-                    message = new CMessageAddEffect(pEffect, m_id, nCharacterId);
+                    message = new CMessageAddEffect(pEffect->Copy(), m_id, nCharacterId);
                     g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
                 } else {
                     pGame->GetObjectArray()->ReleaseShare(nCharacterId,
@@ -6388,7 +6399,7 @@ void CGameAIBase::ApplyEffectToParty(CGameEffect* pEffect)
                 }
             }
         } else {
-            message = new CMessageAddEffect(pEffect, m_id, nCharacterId);
+            message = new CMessageAddEffect(pEffect->Copy(), m_id, nCharacterId);
             g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
         }
     }
@@ -6999,7 +7010,7 @@ SHORT CGameAIBase::SetGlobal()
     return ACTION_DONE;
 }
 
-// 0x45D3E0 - decodes a numeric spell id into a resref string of the form
+// Decodes a numeric spell id into a resref string of the form
 // "SP" + family + "%03d" where family is one of:
 //   1xxx -> SPPR (priest)
 //   2xxx -> SPWI (wizard / arcane)
@@ -7008,6 +7019,7 @@ SHORT CGameAIBase::SetGlobal()
 // spell id); if both are zero the output is the empty string.  Invalid
 // family ids fall through to an empty prefix and the binary logs an
 // "Invalid or missing spell ID" assert -- skipped here.
+// 0x45D3E0
 void CGameAIBase::SpellIdToResRef(int spellId, CString& outResRef)
 {
     if (spellId == 0 && field_588 == 0) {
@@ -7352,6 +7364,17 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         // and deliver on arrival instead of at cast.  Fired directly after the loop.
         CProjectile* pProj = CProjectile::DecodeProjectile(pAbility->missileType, this, 0);
 
+        BYTE nSpellClass = 0;
+        DWORD nSpellSpecialization = 0;
+        BYTE nSpellLevel = 0;
+        BOOL bFoundSpell = pSprite->FindAvailableSpell(resRef, nSpellClass, nSpellSpecialization, nSpellLevel);
+        if (pProj != NULL) {
+            if (bFoundSpell) {
+                pProj->m_nSpellLevel = nSpellLevel;
+            }
+            pProj->m_casterResRef = resRef;
+        }
+
         for (LONG e = 0; e < static_cast<LONG>(pAbility->effectCount); ++e) {
             CGameEffect* pEffect = pSpell->BuildAbilityEffect(
                 nAbilityIndex, e, this, nClass, nSpec, nLevel);
@@ -7421,8 +7444,8 @@ SHORT CGameAIBase::ForceSpellAction(CGameObject* target)
         // arrival rather than at cast.  The original ALSO queues a broadcast
         // CMessageFireProjectile here, but its Run() skips on the casting owner and
         // only fires the visual on remote machines -- that MP replication is deferred
-        // with the rest of MP.  The caster-class stamp (proj +0x186 via FUN_00727720)
-        // for damage scaling is likewise still deferred.  Fire ignores nHeight.
+        // with the rest of MP. The spell-level stamp at +0x186 is set above.
+        // Fire ignores nHeight.
         if (pProj != NULL) {
             LONG nMissileTarget = (target != NULL)
                 ? target->m_id : CGameObjectArray::INVALID_INDEX;
@@ -7598,6 +7621,17 @@ SHORT CGameAIBase::ForceSpellPointAction()
         // spells -- Fireball: damage targetType-2 + missile 38 -- never fired.
         CProjectile* pProj = CProjectile::DecodeProjectile(pAbility->missileType, this, 0);
 
+        BYTE nSpellClass = 0;
+        DWORD nSpellSpecialization = 0;
+        BYTE nSpellLevel = 0;
+        BOOL bFoundSpell = pSprite->FindAvailableSpell(resRef, nSpellClass, nSpellSpecialization, nSpellLevel);
+        if (pProj != NULL) {
+            if (bFoundSpell) {
+                pProj->m_nSpellLevel = nSpellLevel;
+            }
+            pProj->m_casterResRef = resRef;
+        }
+
         for (LONG e = 0; e < static_cast<LONG>(pAbility->effectCount); ++e) {
             CGameEffect* pEffect = pSpell->BuildAbilityEffect(
                 nAbilityIndex, e, this, nClass, nSpec, nLevel);
@@ -7658,9 +7692,8 @@ SHORT CGameAIBase::ForceSpellPointAction()
         // target object, so the missile homes on the destination point with an
         // invalid target id.  The original ALSO queues a broadcast
         // CMessageFireProjectile (its Run() only fires the visual on remote
-        // machines) and stamps the caster-class scaling byte (proj +0x186 via
-        // FUN_00727720); both are deferred with the rest of MP.  Fire ignores
-        // nHeight.
+        // machines), deferred with the rest of MP. The spell level and resref
+        // are stamped above (binary 0x46214E-0x46217B). Fire ignores nHeight.
         if (pProj != NULL) {
             pProj->Fire(pSprite->m_pArea, m_id, CGameObjectArray::INVALID_INDEX,
                 targetPos, 0x1E, 0);

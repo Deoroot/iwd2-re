@@ -40,6 +40,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from runtime_paths import python_executable
+
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
 SYM = REPO / "scripts" / "sym.py"
@@ -53,6 +55,7 @@ CALL_RE = re.compile(r"\bcall\b.*?;\s*(\S+)")        # call ... ; Class::Method
 LINE_ADDR_RE = re.compile(r"^0x([0-9a-fA-F]+):")     # disasm line address
 ADDR_COMMENT_RE = re.compile(r"//\s*0x([0-9A-Fa-f]+)\b")  # `// 0xADDR` recovery markers
 MOV_THIS_RE = re.compile(r"\bmov\s+(e[a-z][a-z]),\s+ecx\b")
+ECX_WRITE_RE = re.compile(r"\b(?:mov|lea|xor|and|or|add|sub|pop|inc|dec)\s+(?:ecx|cx|cl|ch)\b")
 DECL_RE = re.compile(r"/\*\s*([0-9A-Fa-f]+)\s*\*/\s*[^;{]*?\bm_(\w+)\s*(?:\[[^\]]*\])?\s*;")
 # member method call: m_foo.Bar(  /  m_foo->Bar(
 MEMBER_CALL_RE = re.compile(r"\bm_(\w+)\s*(?:\.|->)\s*(\w+)\s*\(")
@@ -63,7 +66,7 @@ def run(cmd: list[str]) -> str:
 
 
 def disasm(addr: int, count: int) -> list[str]:
-    out = run([str(REPO / ".venv-reagent/bin/python"), str(SYM), "disasm", hex(addr), str(count)])
+    out = run([python_executable(), str(SYM), "disasm", hex(addr), str(count)])
     return out.splitlines()
 
 
@@ -74,12 +77,21 @@ def binary_call_pairs(addr: int, count: int, end_addr: int | None) -> tuple[Coun
     function and invents pairs it never makes.
     """
     lines = disasm(addr, count)
-    this_reg = "esi"
-    for ln in lines[:14]:
+    this_reg = None
+    for ln in lines[:32]:
+        am = LINE_ADDR_RE.match(ln)
+        if end_addr is not None and am and int(am.group(1), 16) >= end_addr:
+            break
         m = MOV_THIS_RE.search(ln)
         if m and m.group(1) in THIS_REGS:
             this_reg = m.group(1)
             break
+        if ECX_WRITE_RE.search(ln) or re.search(r"\b(?:call|ret)\b", ln):
+            break
+    if this_reg is None:
+        # An unused receiver need not be saved. ESI may hold an unrelated game
+        # object, as in ResetAbility; guessing it invents wrong-member findings.
+        return Counter(), "unknown"
 
     pairs: Counter = Counter()
     pending = None  # this-offset staged for the next call
@@ -120,27 +132,47 @@ def _is_noise_callee(callee: str) -> bool:
 def header_offset_map(class_name: str) -> dict[str, int]:
     """member-name -> declared offset, from `/* 0xNNN */ ... m_name;` comments.
 
-    Walks the class header + (shallow) base headers it includes.
+    Walks the class header and its transitive base-class headers.
     """
     out: dict[str, int] = {}
-    seen: set[Path] = set()
+    seen: set[tuple[Path, str]] = set()
 
-    def absorb(hpath: Path):
-        if hpath in seen or not hpath.exists():
+    def absorb(hpath: Path, name: str):
+        key = (hpath, name)
+        if key in seen or not hpath.exists():
             return
-        seen.add(hpath)
+        seen.add(key)
         text = hpath.read_text(errors="replace")
-        for m in DECL_RE.finditer(text):
+        # Headers can define several unrelated classes. Follow only this class's
+        # definition and bases; a sibling control's CVidCell is not an engine base.
+        masked = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',
+                        lambda m: re.sub(r"[^\n]", " ", m.group()), text)
+        definition = re.search(rf"\b(?:class|struct)\s+{re.escape(name)}\b([^;{{]*)\{{", masked)
+        if definition is None:
+            return
+        depth = 1
+        direct = []
+        for i in range(definition.end(), len(text)):
+            char = masked[i]
+            if char == "}" and depth == 1:
+                break
+            direct.append(text[i] if depth == 1 else ("\n" if char == "\n" else " "))
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+        for m in DECL_RE.finditer("".join(direct)):
             out.setdefault(f"m_{m.group(2)}", int(m.group(1), 16))
+        bases = definition.group(1).partition(":")[2]
+        for base in bases.split(","):
+            bm = re.match(r"\s*(?:(?:public|protected|private|virtual)\s+)*(\w+)", base)
+            if bm:
+                absorb(SRC / f"{bm.group(1)}.h", bm.group(1))
 
     # primary header
     cands = list(SRC.glob(f"{class_name}.h"))
     for c in cands:
-        absorb(c)
-    # base headers (best-effort: any `: public Base` in the .cpp/.h)
-    for c in cands:
-        for bm in re.finditer(r":\s*(?:public|protected|private)?\s*(\w+)", c.read_text(errors="replace")):
-            absorb(SRC / f"{bm.group(1)}.h")
+        absorb(c, class_name)
     return out
 
 
@@ -149,7 +181,7 @@ def resolve_source(addr: int):
     out = run(["python3", str(SRC_FIND), hex(addr)])
     m = re.search(r"(\S+\.cpp):(\d+)\s+0x[0-9a-fA-F]+\s+\[(\d+)-(\d+)\]", out)
     cls = None
-    cm = re.search(r"\b(\w+)::\w+", out)
+    cm = re.search(r"\b(\w+)::~?\w+", out)
     if cm:
         cls = cm.group(1)
     if not m:

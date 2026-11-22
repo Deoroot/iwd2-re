@@ -2,6 +2,7 @@
 
 #include <mbstring.h>
 
+#include "CAIScript.h"
 #include "CBaldurChitin.h"
 #include "CGameAIBase.h"
 #include "CGameArea.h"
@@ -24,13 +25,16 @@
 #include "CScreenCreateChar.h"
 #include "CScreenInventory.h"
 #include "CScreenLoad.h"
+#include "CScreenInventory.h"
 #include "CScreenMultiPlayer.h"
 #include "CScreenSinglePlayer.h"
 #include "CScreenStore.h"
 #include "CScreenWorld.h"
+#include "CSpell.h"
 #include "CStore.h"
 #include "CUIPanel.h"
 #include "CUtil.h"
+#include "Icewind586B70.h"
 
 // NOTE: Might be static in `CMessage`.
 //
@@ -232,11 +236,11 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE = 50;
 // 0x84CF0B
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_TRIGGER = 52;
 
-// 0x84CF06
-const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_LAST_OBJECT = 47;
-
 // 0x84CF0C
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_VARIABLE = 53;
+
+// 0x84CF06
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_LAST_OBJECT = 47;
 
 // 0x84CF0D
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SPRITE_DEATH = 54;
@@ -334,6 +338,9 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PROJECTILE_TRAILING_VFX = 86;
 // 0x84CF2E
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_STORE_RELEASE = 87;
 
+// 0x84CF30
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_UNSUMMON = 89;
+
 // 0x84CF31
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_90 = 90;
 
@@ -348,6 +355,9 @@ const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_PROTAGONIST = 93;
 
 // 0x84CF35
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_START_COMBAT_MUSIC = 94;
+
+// 0x84CF37
+const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_SUMMON_LINK = 96;
 
 // 0x84CF3A
 const BYTE CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SCREENSHAKE = 99;
@@ -5148,7 +5158,7 @@ BOOLEAN CBaldurMessage::GetDialogRequestPending()
     return m_bDialogRequestPending;
 }
 
-// 0x4F4F50
+// 0x4F4F60
 BOOLEAN CBaldurMessage::GetDialogReplyReturned()
 {
     return m_bDialogReplyReturned;
@@ -5236,10 +5246,11 @@ CMessageHandler::CMessageHandler()
 // 0x4F7490
 CMessageHandler::~CMessageHandler()
 {
-    while (!m_messageList.IsEmpty()) {
-        CMessage* pMsg = m_messageList.RemoveHead();
-        if (pMsg != NULL) {
-            delete pMsg;
+    POSITION pos = m_messageList.GetHeadPosition();
+    while (pos != NULL) {
+        CMessage* message = m_messageList.GetNext(pos);
+        if (message != NULL) {
+            delete message;
         }
     }
     m_messageList.RemoveAll();
@@ -5250,14 +5261,167 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType);
 // 0x4EE020
 void CMessageHandler::AsynchronousUpdate()
 {
-    while (!m_messageList.IsEmpty()) {
-        CMessage* pMsg = m_messageList.RemoveHead();
-        if (pMsg != NULL) {
-            if (!Iwd2MessageRunHeldBack(pMsg->GetMsgSubType())) {
-                pMsg->Run();
+    // PARTIAL: Incoming inventory, effect and projectile factories; remaining ready-player handlers below are unimplemented.
+    CNetwork& network = g_pChitin->cNetwork;
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    CBaldurMessage* baldurMessage = g_pBaldurChitin->GetBaldurMessage();
+    if (network.GetServiceProvider() == CNetwork::SERV_PROV_NULL || !game->field_4BD4) {
+        while (!m_messageList.IsEmpty()) {
+            CMessage* pMsg = m_messageList.RemoveHead();
+            if (pMsg != NULL) {
+                if (!Iwd2MessageRunHeldBack(pMsg->GetMsgSubType())) {
+                    pMsg->Run();
+                }
+                delete pMsg;
             }
-            delete pMsg;
         }
+    }
+
+    while (network.m_bConnectionEstablished == TRUE && network.PeekMessage_() == TRUE) {
+        INT from, to;
+        DWORD size;
+        BYTE* data = network.FetchMessage(from, to, size);
+        if (data[CNetwork::SPEC_MSG_FLAG] != CNetwork::SPEC_MSG_FLAG_ENABLED) {
+            baldurMessage->OnChatMessage(from, data, size);
+        } else if (game->GetMultiplayerSettings()->GetPlayerReady(network.m_idLocalPlayer) != TRUE) {
+            if (data[CNetwork::SPEC_MSG_TYPE] == CBaldurMessage::MSG_TYPE_MPSETTINGS
+                && data[CNetwork::SPEC_MSG_SUBTYPE] == CBaldurMessage::MSG_SUBTYPE_MPSETTINGS_FULLSET) {
+                baldurMessage->OnSettingsFullSet(from, data, size);
+            }
+            if (data[CNetwork::SPEC_MSG_TYPE] == CBaldurMessage::MSG_TYPE_VERSION
+                && data[CNetwork::SPEC_MSG_SUBTYPE] == CBaldurMessage::MSG_SUBTYPE_VERSION_SERVER) {
+                baldurMessage->OnVersionServer(from, data, size);
+            }
+            if (data[CNetwork::SPEC_MSG_TYPE] == CBaldurMessage::MSG_TYPE_PLAYERCHAR
+                && data[CNetwork::SPEC_MSG_SUBTYPE] == CBaldurMessage::MSG_SUBTYPE_PLAYERCHAR_DEMAND_REPLY) {
+                baldurMessage->OnDemandCharacterSlotReply(from, data, size);
+            }
+        } else if (data[CNetwork::SPEC_MSG_TYPE] == CBaldurMessage::MSG_TYPE_CMESSAGE) {
+            BOOL immediate = network.GetServiceProvider() == CNetwork::SERV_PROV_NULL || !game->field_4BD4;
+            switch (data[CNetwork::SPEC_MSG_SUBTYPE]) {
+            case 1:
+                if (immediate) {
+                    CMessageAddEffect message(NULL, 0, 0);
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessageAddEffect(NULL, 0, 0);
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            case 2:
+                if (immediate) {
+                    CMessageAddItem message(CItem(), 0, 0);
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessageAddItem(CItem(), 0, 0);
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            case 26:
+                if (immediate) {
+                    CMessageFireProjectile message(0, 0, CPoint(0, 0), 0, 0, 0, 0);
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessageFireProjectile(0, 0, CPoint(0, 0), 0, 0, 0, 0);
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            case 34:
+                if (immediate) {
+                    CMessageRemoveItem message(0, 0, 0);
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessageRemoveItem(0, 0, 0);
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            case 86:
+                if (immediate) {
+                    CMessageProjectileTrailingVFX message(CResRef(), CString(), CPoint(0, 0), CPoint(0, 0), 0, 0, 0);
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessageProjectileTrailingVFX(CResRef(), CString(), CPoint(0, 0), CPoint(0, 0), 0, 0, 0);
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            case 89:
+                if (immediate) {
+                    CMessageUnsummon message(0, 0, 0);
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessageUnsummon(0, 0, 0);
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            case 96:
+                if (immediate) {
+                    CMessageRemoveSummonLink message(0, 0, 0);
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessageRemoveSummonLink(0, 0, 0);
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            case 97:
+                if (immediate) {
+                    CMessage97 message(0, 0, 0, CResRef());
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessage97(0, 0, 0, CResRef());
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            case 105: {
+                CMessage105::Node head = { &head, &head, NULL };
+                if (immediate) {
+                    CMessage105 message(&head, 0, 0);
+                    if (message.UnmarshalMessage(data, size)) message.Run();
+                } else {
+                    CMessage* message = new CMessage105(&head, 0, 0);
+                    if (message->UnmarshalMessage(data, size)) m_messageList.AddTail(message);
+                    else delete message;
+                }
+                break;
+            }
+            case 117:
+                if (immediate) {
+                    CMessage117 message(CResRef(), CResRef(), 0, CPoint(0, 0), 0, 0);
+                    if (message.UnmarshalMessage(data, size)) {
+                        message.Run();
+                    } else {
+                        // The original retries on the heap only after an
+                        // immediate decode failure; blocked reception is dropped.
+                        CMessage* retry = new CMessage117(CResRef(), CResRef(), 0, CPoint(0, 0), 0, 0);
+                        if (retry->UnmarshalMessage(data, size)) m_messageList.AddTail(retry);
+                        else delete retry;
+                    }
+                }
+                break;
+            default:
+                // TODO: Remaining incoming CMessage factories are unimplemented.
+                break;
+            }
+        } else {
+            // TODO: Remaining ready-player protocol handlers are unimplemented.
+        }
+        delete data;
+    }
+
+    if (network.GetSessionHosting() == TRUE) {
+        baldurMessage->PurgeDroppedPlayers();
+        baldurMessage->ObjectControl();
+    }
+    if (baldurMessage->GetDialogRequestPending() == TRUE && baldurMessage->GetDialogReplyReturned() == TRUE) {
+        baldurMessage->SetDialogReplyUpdates(static_cast<INT>(static_cast<DWORD>(baldurMessage->GetDialogReplyUpdates()) - 1));
+        if (baldurMessage->GetDialogReplyUpdates() < 0) baldurMessage->CancelDialogRequestToServer();
     }
 }
 
@@ -5437,7 +5601,6 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_STATUS
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_DOOR_STATUS
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FADE_COLOR
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_PROJECTILE_TRAILING_VFX
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_ACTIVE
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_AREA_EXPLORED
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SET_COMMAND_PAUSE
@@ -5457,9 +5620,6 @@ static BOOL Iwd2MessageRunHeldBack(BYTE subType)
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_COLOR_RESET
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_CONTAINER_ITEMS
         || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_SCREENSHAKE
-
-    // CALLS-STUB -- Run() is faithful, its payload callee is still unimplemented
-        || subType == CBaldurMessage::MSG_SUBTYPE_CMESSAGE_MOVE_GLOBAL
 
     // NULLDEREF -- Run() casts the target to CGameTrigger with no type check
     // and writes m_dwFlags / m_trapActivated / m_trapDetected at +0x5D6,
@@ -5894,6 +6054,122 @@ BYTE CMessageAddEffect::GetMsgSubType()
     return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_ADD_EFFECT;
 }
 
+// 0x4F8470
+void CMessageAddEffect::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    CResRef res;
+    CString effectRes, sourceRes;
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+    CGameObject* object;
+    auto* objects = g_pBaldurChitin->GetObjectGame()->GetObjectArray();
+    BYTE rc;
+    do {
+        rc = objects->GetShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        *dwSize = 0;
+        return;
+    }
+    PLAYER_ID targetPlayer = object->m_remotePlayerID;
+    LONG targetObject = object->m_remoteObjectID;
+    objects->ReleaseShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    res = m_effect->m_res; res.CopyToString(effectRes);
+    res = m_effect->m_sourceRes; res.CopyToString(sourceRes);
+    *dwSize = 89;
+    UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+    DWORD cnt = 0;
+    auto write = [&](const void* value, DWORD size) { memcpy(*pData + cnt, value, size); cnt += size; };
+    write(&targetPlayer, sizeof(targetPlayer)); write(&targetObject, sizeof(targetObject));
+    WORD opcode = static_cast<WORD>(m_effect->m_effectID);
+    BYTE targetType = static_cast<BYTE>(m_effect->m_targetType), level = static_cast<BYTE>(m_effect->m_spellLevel);
+    WORD durationType = static_cast<WORD>(m_effect->m_durationType);
+    BYTE upper = static_cast<BYTE>(m_effect->m_probabilityUpper), lower = static_cast<BYTE>(m_effect->m_probabilityLower);
+    write(&opcode, sizeof(opcode)); write(&targetType, sizeof(targetType)); write(&level, sizeof(level));
+    write(&m_effect->m_effectAmount, sizeof(LONG)); write(&m_effect->m_dwFlags, sizeof(DWORD));
+    write(&durationType, sizeof(durationType)); write(&m_effect->m_duration, sizeof(DWORD));
+    write(&upper, sizeof(upper)); write(&lower, sizeof(lower));
+    memset(*pData + cnt, 0, RESREF_SIZE);
+    memcpy(*pData + cnt, effectRes.GetBuffer(effectRes.GetLength()), effectRes.GetLength()); cnt += RESREF_SIZE;
+    memset(*pData + cnt, 0, RESREF_SIZE);
+    memcpy(*pData + cnt, sourceRes.GetBuffer(sourceRes.GetLength()), sourceRes.GetLength()); cnt += RESREF_SIZE;
+    if (m_effect->UsesDice()) {
+        write(&m_effect->m_numDice, sizeof(DWORD)); write(&m_effect->m_diceSize, sizeof(DWORD));
+    } else {
+        write(&m_effect->m_maxLevel, sizeof(DWORD)); write(&m_effect->m_minLevel, sizeof(DWORD));
+    }
+    write(&m_effect->m_savingThrow, sizeof(DWORD)); write(&m_effect->m_saveMod, sizeof(LONG));
+    write(&m_effect->m_special, sizeof(DWORD)); write(&m_effect->m_source, sizeof(CPoint));
+    do {
+        rc = objects->GetShare(m_effect->m_sourceID, CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    PLAYER_ID sourcePlayer = 0;
+    LONG sourceObject = CGameObjectArray::INVALID_INDEX;
+    if (rc == CGameObjectArray::SUCCESS) {
+        sourcePlayer = object->m_remotePlayerID; sourceObject = object->m_remoteObjectID;
+        objects->ReleaseShare(m_effect->m_sourceID, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+    write(&sourcePlayer, sizeof(sourcePlayer)); write(&sourceObject, sizeof(sourceObject));
+    write(&m_effect->m_target, sizeof(CPoint));
+    BYTE field188 = static_cast<BYTE>(m_effect->field_188); write(&field188, sizeof(field188));
+    UTIL_ASSERT(cnt == *dwSize);
+}
+
+// 0x4F8880
+BOOL CMessageAddEffect::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    UTIL_ASSERT(pData != NULL);
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+    auto read = [&](void* value, DWORD size) { memcpy(value, pData + cnt, size); cnt += size; };
+    PLAYER_ID player; LONG remote, local;
+    read(&player, sizeof(player)); read(&remote, sizeof(remote));
+    auto* game = g_pBaldurChitin->GetObjectGame();
+    if (game->GetRemoteObjectArray()->Find(player, remote, local) != TRUE) return FALSE;
+    m_targetId = local;
+    ITEM_EFFECT effect;
+    read(&effect.effectID, sizeof(WORD)); read(&effect.targetType, sizeof(BYTE)); read(&effect.spellLevel, sizeof(BYTE));
+    read(&effect.effectAmount, sizeof(LONG)); read(&effect.dwFlags, sizeof(DWORD));
+    read(&effect.durationType, sizeof(WORD)); read(&effect.duration, sizeof(DWORD));
+    read(&effect.probabilityUpper, sizeof(BYTE)); read(&effect.probabilityLower, sizeof(BYTE));
+    read(effect.res, RESREF_SIZE);
+    RESREF sourceRes; read(sourceRes, RESREF_SIZE);
+    read(&effect.numDice, sizeof(DWORD)); read(&effect.diceSize, sizeof(DWORD));
+    read(&effect.savingThrow, sizeof(DWORD)); read(&effect.saveMod, sizeof(LONG)); read(&effect.special, sizeof(DWORD));
+    CPoint source, target;
+    read(&source, sizeof(CPoint)); read(&player, sizeof(player)); read(&remote, sizeof(remote));
+    if (player == 0 && remote == CGameObjectArray::INVALID_INDEX) local = CGameObjectArray::INVALID_INDEX;
+    else if (!game->GetRemoteObjectArray()->Find(player, remote, local)) return FALSE;
+    read(&target, sizeof(CPoint));
+    BYTE field188; read(&field188, sizeof(field188));
+    m_effect = CGameEffect::DecodeEffect(&effect, source, local, target);
+    if (effect.effectID == CGAMEEFFECT_DAMAGE) m_effect->m_special = effect.special;
+    CResRef res(sourceRes);
+    CSpell spell;
+    spell.SetResRef(res, TRUE, TRUE);
+    CGameObject* object;
+    BYTE rc;
+    do {
+        rc = game->GetObjectArray()->GetDeny(m_effect->m_sourceID,
+            CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc == CGameObjectArray::SUCCESS) {
+        if ((object->GetObjectType() & CGameObject::TYPE_AIBASE) != 0
+            && object->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            auto* sprite = static_cast<CGameSprite*>(object);
+            m_effect->m_casterLevel = static_cast<LONG>(sprite->GetCasterLevel(&spell, 0, 0));
+            m_effect->m_firstCall = static_cast<DWORD>(sprite->GetFeatValue(0x40)) << 1;
+        } else {
+            m_effect->m_casterLevel = 1;
+        }
+        game->GetObjectArray()->ReleaseDeny(m_effect->m_sourceID, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    } else {
+        m_effect->m_casterLevel = 1;
+    }
+    m_effect->m_sourceRes = sourceRes;
+    m_effect->field_188 = field188;
+    UTIL_ASSERT(cnt == dwSize);
+    return TRUE;
+}
+
 // 0x4F8CA0
 void CMessageAddEffect::Run()
 {
@@ -5921,11 +6197,18 @@ void CMessageAddEffect::Run()
 
 // -----------------------------------------------------------------------------
 
-// NOTE: Inlined.
+// 0x4F5130
+// Not a copy of the item: the binary default-constructs m_item, then
+// SetResRef(item.cResRef, TRUE) and copies the use counts, wear and flags.
 CMessageAddItem::CMessageAddItem(const CItem& item, LONG caller, LONG target)
-    : CMessage(caller, target)
+    : CMessage(caller, target), m_item()
 {
-    m_item = item;
+    m_item.SetResRef(item.cResRef, TRUE);
+    m_item.m_useCount1 = item.m_useCount1;
+    m_item.m_useCount2 = item.m_useCount2;
+    m_item.m_useCount3 = item.m_useCount3;
+    m_item.m_wear = item.m_wear;
+    m_item.m_flags = item.m_flags;
 }
 
 // 0x4641A0
@@ -12134,7 +12417,7 @@ CMessageSetVariable::CMessageSetVariable(const CString& sGlobalName, const CStri
     m_sGlobalName = sGlobalName;
     m_nValue = nValue;
     m_bIncrement = bIncrement;
-    field_001A = a7;
+    m_flags = a7;
 }
 
 // 0x43E170
@@ -12219,7 +12502,7 @@ void CMessageSetVariable::MarshalMessage(BYTE** pData, DWORD* dwSize)
         *reinterpret_cast<BYTE*>(*pData + cnt) = m_bIncrement;
         cnt += sizeof(BYTE);
 
-        *reinterpret_cast<LONG*>(*pData + cnt) = field_001A;
+        *reinterpret_cast<LONG*>(*pData + cnt) = m_flags;
         cnt += sizeof(LONG);
 
         // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
@@ -12270,7 +12553,7 @@ BOOL CMessageSetVariable::UnmarshalMessage(BYTE* pData, DWORD dwSize)
     m_bIncrement = *reinterpret_cast<BYTE*>(pData + cnt);
     cnt += sizeof(BYTE);
 
-    field_001A = *reinterpret_cast<LONG*>(pData + cnt);
+    m_flags = *reinterpret_cast<LONG*>(pData + cnt);
     cnt += sizeof(LONG);
 
     // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
@@ -12321,17 +12604,17 @@ void CMessageSetVariable::Run()
             INFINITE);
     } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
-    if (pObject != NULL && (field_001A & 6) != 0) {
+    if (pObject != NULL && (m_flags & 6) != 0) {
         // The named-creature form: it drops the creature's entry from one or
         // both name stores instead of writing a variable at all.
-        if ((field_001A & 2) != 0) {
+        if ((m_flags & 2) != 0) {
             CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(m_sAreaName);
             if (pArea != NULL) {
                 pArea->GetNamedCreatures()->RemoveKey(m_sGlobalName, TRUE, pObject->GetId());
             }
         }
 
-        if ((field_001A & 4) != 0) {
+        if ((m_flags & 4) != 0) {
             g_pBaldurChitin->GetObjectGame()->GetNamedCreatures()->RemoveKey(m_sGlobalName,
                 TRUE,
                 pObject->GetId());
@@ -15008,6 +15291,276 @@ void CMessageStartTextScreen::Run()
 
 // -----------------------------------------------------------------------------
 
+// 0x4F6B60
+CMessageUnsummon::CMessageUnsummon(LONG summonedId, LONG caller, LONG target)
+    : CMessage(caller, target)
+{
+    m_summonedId = summonedId;
+}
+
+// 0x453510
+SHORT CMessageUnsummon::GetCommType()
+{
+    return BROADCAST;
+}
+
+// 0x40A0E0
+BYTE CMessageUnsummon::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x4AD380
+BYTE CMessageUnsummon::GetMsgSubType()
+{
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_UNSUMMON;
+}
+
+// 0x512830
+void CMessageUnsummon::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+    // __LINE__: 28616
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+
+    CGameObject* pObject;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_summonedId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        PLAYER_ID remotePlayerID = pObject->m_remotePlayerID;
+        LONG remoteObjectID = pObject->m_remoteObjectID;
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_summonedId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        *dwSize = sizeof(PLAYER_ID)
+            + sizeof(LONG);
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+        // __LINE__: 28634
+        UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+
+        DWORD cnt = 0;
+
+        *reinterpret_cast<PLAYER_ID*>(*pData + cnt) = remotePlayerID;
+        cnt += sizeof(PLAYER_ID);
+
+        *reinterpret_cast<LONG*>(*pData + cnt) = remoteObjectID;
+        cnt += sizeof(LONG);
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+        // __LINE__: 28654
+        UTIL_ASSERT(cnt == *dwSize);
+    } else {
+        *dwSize = 0;
+    }
+}
+
+// 0x512950
+BOOL CMessageUnsummon::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+    // __LINE__: 28668
+    UTIL_ASSERT(pData != NULL);
+
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+
+    PLAYER_ID remotePlayerID = *reinterpret_cast<PLAYER_ID*>(pData + cnt);
+    cnt += sizeof(PLAYER_ID);
+
+    LONG remoteObjectID = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+
+    // Unlike most receivers, an unknown remote object is kept as an invalid
+    // id instead of rejecting the message.
+    LONG localObjectID;
+    if (g_pBaldurChitin->GetObjectGame()->GetRemoteObjectArray()->Find(remotePlayerID, remoteObjectID, localObjectID) == TRUE) {
+        m_summonedId = localObjectID;
+    } else {
+        m_summonedId = CGameObjectArray::INVALID_INDEX;
+    }
+
+    return TRUE;
+}
+
+// 0x5129D0
+void CMessageUnsummon::Run()
+{
+    CGameObject* pObject;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_summonedId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        // The owning machine already did the work locally.
+        if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+            && g_pChitin->cNetwork.m_idLocalPlayer != pObject->m_remotePlayerID) {
+            if (pObject->GetObjectType() != CGameObject::TYPE_SPRITE) {
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_summonedId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+                return;
+            }
+
+            Icewind586B70::Instance()->Unsummon(static_cast<CGameSprite*>(pObject));
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_summonedId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+}
+
+// -----------------------------------------------------------------------------
+
+// 0x4F6BC0
+CMessageRemoveSummonLink::CMessageRemoveSummonLink(LONG summonedId, LONG caller, LONG target)
+    : CMessage(caller, target)
+{
+    m_summonedId = summonedId;
+}
+
+// 0x453510
+SHORT CMessageRemoveSummonLink::GetCommType()
+{
+    return BROADCAST;
+}
+
+// 0x40A0E0
+BYTE CMessageRemoveSummonLink::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x4AD390
+BYTE CMessageRemoveSummonLink::GetMsgSubType()
+{
+    return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_REMOVE_SUMMON_LINK;
+}
+
+// 0x512FE0
+void CMessageRemoveSummonLink::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+    // __LINE__: 28957
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+
+    CGameObject* pObject;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_summonedId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        PLAYER_ID remotePlayerID = pObject->m_remotePlayerID;
+        LONG remoteObjectID = pObject->m_remoteObjectID;
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_summonedId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+
+        *dwSize = sizeof(PLAYER_ID)
+            + sizeof(LONG);
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+        // __LINE__: 28975
+        UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+
+        DWORD cnt = 0;
+
+        *reinterpret_cast<PLAYER_ID*>(*pData + cnt) = remotePlayerID;
+        cnt += sizeof(PLAYER_ID);
+
+        *reinterpret_cast<LONG*>(*pData + cnt) = remoteObjectID;
+        cnt += sizeof(LONG);
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+        // __LINE__: 28995
+        UTIL_ASSERT(cnt == *dwSize);
+    } else {
+        *dwSize = 0;
+    }
+}
+
+// 0x513100
+BOOL CMessageRemoveSummonLink::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CMessage.cpp
+    // __LINE__: 29009
+    UTIL_ASSERT(pData != NULL);
+
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+
+    PLAYER_ID remotePlayerID = *reinterpret_cast<PLAYER_ID*>(pData + cnt);
+    cnt += sizeof(PLAYER_ID);
+
+    LONG remoteObjectID = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+
+    // Unlike most receivers, an unknown remote object is kept as an invalid
+    // id instead of rejecting the message.
+    LONG localObjectID;
+    if (g_pBaldurChitin->GetObjectGame()->GetRemoteObjectArray()->Find(remotePlayerID, remoteObjectID, localObjectID) == TRUE) {
+        m_summonedId = localObjectID;
+    } else {
+        m_summonedId = CGameObjectArray::INVALID_INDEX;
+    }
+
+    return TRUE;
+}
+
+// 0x513180
+void CMessageRemoveSummonLink::Run()
+{
+    CGameObject* pObject;
+
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_summonedId,
+            CGameObjectArray::THREAD_ASYNCH,
+            &pObject,
+            INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+    if (rc == CGameObjectArray::SUCCESS) {
+        // The owning machine already did the work locally.
+        if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+            && g_pChitin->cNetwork.m_idLocalPlayer != pObject->m_remotePlayerID) {
+            if (pObject->GetObjectType() != CGameObject::TYPE_SPRITE) {
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_summonedId,
+                    CGameObjectArray::THREAD_ASYNCH,
+                    INFINITE);
+                return;
+            }
+
+            Icewind586B70::Instance()->Remove(static_cast<CGameSprite*>(pObject));
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_summonedId,
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+    }
+}
+
+// -----------------------------------------------------------------------------
+
 // 0x453600
 CMessage90::CMessage90(LONG caller, LONG target, int a3)
     : CMessage(caller, target)
@@ -16578,8 +17131,65 @@ BYTE CMessageFireProjectile::GetMsgSubType()
     return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_FIRE_PROJECTILE;
 }
 
-// 0x5007F0
-//
+// 0x5004D0
+void CMessageFireProjectile::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+    auto* objects = g_pBaldurChitin->GetObjectGame()->GetObjectArray();
+    CGameObject* object;
+    BYTE rc;
+    do {
+        rc = objects->GetShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        *dwSize = 0;
+        return;
+    }
+    PLAYER_ID player = object->m_remotePlayerID;
+    LONG remote = object->m_remoteObjectID;
+    objects->ReleaseShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    *dwSize = 35;
+    UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+    DWORD cnt = 0;
+    auto write = [&](const void* value, DWORD size) { memcpy(*pData + cnt, value, size); cnt += size; };
+    write(&player, sizeof(player)); write(&remote, sizeof(remote)); write(&m_projectileType, sizeof(WORD));
+    do {
+        rc = objects->GetShare(m_projectileTargetId, CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc == CGameObjectArray::SUCCESS) {
+        player = object->m_remotePlayerID; remote = object->m_remoteObjectID;
+        objects->ReleaseShare(m_projectileTargetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    } else {
+        player = 0; remote = CGameObjectArray::INVALID_INDEX;
+    }
+    write(&player, sizeof(player)); write(&remote, sizeof(remote));
+    write(&m_projectileTarget, sizeof(CPoint)); write(&m_height, sizeof(LONG));
+    write(&field_20, sizeof(field_20)); write(&field_1E, sizeof(field_1E));
+    UTIL_ASSERT(cnt == *dwSize);
+}
+
+// 0x5006C0
+BOOL CMessageFireProjectile::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    UTIL_ASSERT(pData != NULL);
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+    auto read = [&](void* value, DWORD size) { memcpy(value, pData + cnt, size); cnt += size; };
+    PLAYER_ID player; LONG remote, local;
+    read(&player, sizeof(player)); read(&remote, sizeof(remote));
+    auto* remotes = g_pBaldurChitin->GetObjectGame()->GetRemoteObjectArray();
+    m_targetId = remotes->Find(player, remote, local) == TRUE ? local : CGameObjectArray::INVALID_INDEX;
+    read(&m_projectileType, sizeof(WORD)); read(&player, sizeof(player)); read(&remote, sizeof(remote));
+    if (remotes->Find(player, remote, local) != TRUE) {
+        if (player != 0 || remote != CGameObjectArray::INVALID_INDEX) return FALSE;
+        local = CGameObjectArray::INVALID_INDEX;
+    }
+    m_projectileTargetId = local;
+    read(&m_projectileTarget, sizeof(CPoint)); read(&m_height, sizeof(LONG));
+    read(&field_20, sizeof(field_20)); read(&field_1E, sizeof(field_1E));
+    UTIL_ASSERT(cnt == dwSize);
+    return TRUE;
+}
+
 // The deferred projectile launch. The cast queues this message with caller ==
 // target == the caster id, so m_targetId resolves the caster. After an MP-
 // ownership / world-state gate it builds the projectile from the factory and
@@ -16588,8 +17198,8 @@ BYTE CMessageFireProjectile::GetMsgSubType()
 //
 // The original calls Fire unconditionally; our factory still returns NULL for
 // the projectile types whose leaves are unrecovered, so the launch is guarded (a
-// NULL here would call through a null vtable). The projType 0x130 seed
-// (projectile +0x356) is not modelled and is skipped.
+// NULL here would call through a null vtable).
+// 0x5007F0
 void CMessageFireProjectile::Run()
 {
     CGameObject* pCaster;
@@ -16620,6 +17230,9 @@ void CMessageFireProjectile::Run()
     CProjectile* pProjectile = CProjectile::DecodeProjectile(
         m_projectileType, pProjCaster, field_1E);
     if (pProjectile != NULL) {
+        if (pProjectile->m_projectileType == 0x130) {
+            static_cast<CProjectileWhirlwind*>(pProjectile)->m_wanderSeed = field_20;
+        }
         pProjectile->Fire(pCaster->m_pArea, pCaster->m_id, m_projectileTargetId,
             m_projectileTarget, m_height, 0);
     }
@@ -17214,6 +17827,98 @@ void CMessageStartCombatMusic::Run()
 }
 
 // -----------------------------------------------------------------------------
+
+// 0x4F6C50
+CMessage97::CMessage97(LONG caller, LONG target, INT nScript, const CResRef& resScript)
+    : CMessage(caller, target)
+    , m_nScript(nScript)
+    , m_resScript(resScript)
+{
+}
+
+// 0x4088A0
+SHORT CMessage97::GetCommType()
+{
+    return BROADCAST_OTHERS;
+}
+
+// 0x40A0E0
+BYTE CMessage97::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x4F6C80
+BYTE CMessage97::GetMsgSubType()
+{
+    return 97;
+}
+
+// 0x513F00
+void CMessage97::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+    CGameObject* pObject;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        *dwSize = 0;
+        return;
+    }
+    PLAYER_ID player = pObject->m_remotePlayerID;
+    LONG remote = pObject->m_remoteObjectID;
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    *dwSize = 20;
+    UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+    *reinterpret_cast<PLAYER_ID*>(*pData) = player;
+    *reinterpret_cast<LONG*>(*pData + 4) = remote;
+    *reinterpret_cast<INT*>(*pData + 8) = m_nScript;
+    memcpy(*pData + 12, m_resScript.GetResRef(), RESREF_SIZE);
+    UTIL_ASSERT(*dwSize == 20);
+}
+
+// 0x514040
+BOOL CMessage97::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    UTIL_ASSERT(pData != NULL);
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+    PLAYER_ID player = *reinterpret_cast<PLAYER_ID*>(pData + cnt);
+    LONG remote = *reinterpret_cast<LONG*>(pData + cnt + 4);
+    LONG local;
+    if (g_pBaldurChitin->GetObjectGame()->GetRemoteObjectArray()->Find(player, remote, local) != TRUE) {
+        return FALSE;
+    }
+    m_targetId = local;
+    m_nScript = *reinterpret_cast<INT*>(pData + cnt + 8);
+    memcpy(&m_resScript, pData + cnt + 12, RESREF_SIZE);
+    // Native code ignores dwSize and keeps the caller's source ID.
+    return TRUE;
+}
+
+// 0x5140D0
+void CMessage97::Run()
+{
+    CGameObject* pObject;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pObject, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc == CGameObjectArray::SUCCESS) {
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            CAIScript* pScript = new CAIScript;
+            pScript->SetResRef(m_resScript);
+            pScript->Read(m_resScript, TRUE);
+            static_cast<CGameSprite*>(pObject)->SetScript(static_cast<WORD>(m_nScript), pScript);
+        }
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+}
 
 // 0x4F6CC0
 CMessageStoreDemand::CMessageStoreDemand(const CResRef& store, LONG caller, LONG target)
@@ -17884,12 +18589,11 @@ void CMessageProjectileImmumityUpdate::Run()
 
 // -----------------------------------------------------------------------------
 
-// 0x5152C0
-//
 // Build the message and take over the source list's sub-messages.  The source
 // list is the engine's circular sentinel+count list (see the class comment);
 // pSourceHead is its sentinel node.  Only the CMessage* pointers are copied --
 // this message owns them from here on.
+// 0x5152C0
 CMessage105::CMessage105(Node* pSourceHead, LONG caller, LONG target)
     : CMessage(caller, target)
 {
@@ -17957,13 +18661,11 @@ BYTE CMessage105::GetMsgSubType()
     return CBaldurMessage::MSG_SUBTYPE_CMESSAGE_105;
 }
 
-// 0x5154E0
-//
 // Network form: resolve the target's remote ids, write a 13-byte header (remote
 // player id, remote object id, sub-message count, per-sub-message marshalled
 // size), then let each sub-message marshal its own bytes after it.  The
-// per-sub-message serialisation belongs to CMessageAddEffect (vtable slot 0x10,
-// not yet recovered); this routine only frames the list.
+// per-sub-message serialisation belongs to CMessageAddEffect (vtable slot 0x10).
+// 0x5154E0
 void CMessage105::MarshalMessage(BYTE** pData, DWORD* dwSize)
 {
     UTIL_ASSERT(pData != NULL && dwSize != NULL);
@@ -18010,22 +18712,22 @@ void CMessage105::MarshalMessage(BYTE** pData, DWORD* dwSize)
     *reinterpret_cast<DWORD*>(*pData + cnt) = SUBMESSAGE_SIZE;
     cnt += sizeof(DWORD);
 
+    BYTE* pSubData = *pData + cnt;
     for (Node* pNode = m_pNodeHead->m_pNext; pNode != m_pNodeHead; pNode = pNode->m_pNext) {
-        BYTE* pSubData = *pData + cnt;
         DWORD subSize = 0;
         pNode->m_pMessage->MarshalMessage(&pSubData, &subSize);
+        pSubData += subSize;
         cnt += subSize;
     }
 
     UTIL_ASSERT(cnt == *dwSize);
 }
 
-// 0x515670
-//
 // Inverse of MarshalMessage: resolve the local target id, then rebuild one
 // CMessageAddEffect per serialised entry.  Each entry's bytes are copied into a
 // scratch buffer past the spec-message header that the sub-message's own
 // UnmarshalMessage (vtable slot 0x14) skips.
+// 0x515670
 BOOL CMessage105::UnmarshalMessage(BYTE* pData, DWORD dwSize)
 {
     UTIL_ASSERT(pData != NULL);
@@ -18945,7 +19647,7 @@ void CMessage107::Run()
 
     BYTE rc;
     do {
-        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
             CGameObjectArray::THREAD_ASYNCH,
             &pObject,
             INFINITE);
@@ -18956,7 +19658,7 @@ void CMessage107::Run()
             static_cast<CGameSprite*>(pObject)->field_580 = field_C;
         }
 
-        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
             CGameObjectArray::THREAD_ASYNCH,
             INFINITE);
     }
@@ -19286,21 +19988,18 @@ void CMessageChangeStat::Run()
 // CMessageProjectileTrailingVFX (vtable 0x84D328)
 // ---------------------------------------------------------------------------
 
-// 0x554D20 (factory stub â€” see CProjectile.cpp)
-CMessageProjectileTrailingVFX::CMessageProjectileTrailingVFX(LONG target, LONG flightDistSq,
-    const CResRef& resRef, LONG launchX, LONG launchY,
-    LONG nHeight, LONG nType, SHORT launchHeight)
-    : CMessage(target, target)
+// 0x4F69B0
+CMessageProjectileTrailingVFX::CMessageProjectileTrailingVFX(const CResRef& resRef,
+    const CString& area, const CPoint& launch, CPoint targetPoint,
+    SHORT launchHeight, LONG caller, LONG target)
+    : CMessage(caller, target)
 {
-    // m_sourceId is repurposed as m_flightDistSq.
-    m_sourceId = flightDistSq;
-
     m_resRef = resRef;
-    m_resRef2 = "";
-    m_launchX = launchX;
-    m_launchY = launchY;
-    m_nHeight = nHeight;
-    m_nType = nType;
+    m_resRef2 = area;
+    m_launchX = launch.x;
+    m_launchY = launch.y;
+    m_targetX = targetPoint.x;
+    m_targetY = targetPoint.y;
     m_launchHeight = launchHeight;
 }
 
@@ -19325,16 +20024,91 @@ BYTE CMessageProjectileTrailingVFX::GetMsgSubType()
 // 0x511D00
 void CMessageProjectileTrailingVFX::MarshalMessage(BYTE** pData, DWORD* dwSize)
 {
-    // STUB: network serialisation not yet recovered (0x511D00, ~100 bytes).
-    // Not exercised by single-player / local-object messages.
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+    PLAYER_ID remotePlayerID = 0;
+    LONG remoteObjectID = CGameObjectArray::INVALID_INDEX;
+    CGameObject* object;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc == CGameObjectArray::SUCCESS) {
+        remotePlayerID = object->m_remotePlayerID;
+        remoteObjectID = object->m_remoteObjectID;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    CString resName;
+    m_resRef.CopyToString(resName);
+    DWORD resLength = resName.GetLength();
+    DWORD areaLength = m_resRef2.GetLength();
+    *dwSize = 28 + resLength + areaLength;
+    UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+    DWORD cnt = 0;
+    *reinterpret_cast<PLAYER_ID*>(*pData + cnt) = remotePlayerID;
+    cnt += sizeof(PLAYER_ID);
+    *reinterpret_cast<LONG*>(*pData + cnt) = remoteObjectID;
+    cnt += sizeof(LONG);
+    (*pData)[cnt++] = static_cast<BYTE>(resLength);
+    memcpy(*pData + cnt, resName.GetBuffer(resLength), resLength);
+    cnt += resLength;
+    (*pData)[cnt++] = static_cast<BYTE>(areaLength);
+    memcpy(*pData + cnt, m_resRef2.GetBuffer(areaLength), areaLength);
+    cnt += areaLength;
+    *reinterpret_cast<LONG*>(*pData + cnt) = m_launchX;
+    cnt += sizeof(LONG);
+    *reinterpret_cast<LONG*>(*pData + cnt) = m_launchY;
+    cnt += sizeof(LONG);
+    *reinterpret_cast<LONG*>(*pData + cnt) = m_targetX;
+    cnt += sizeof(LONG);
+    *reinterpret_cast<LONG*>(*pData + cnt) = m_targetY;
+    cnt += sizeof(LONG);
+    *reinterpret_cast<SHORT*>(*pData + cnt) = m_launchHeight;
+    cnt += sizeof(SHORT);
+    UTIL_ASSERT(cnt == *dwSize);
 }
 
 // 0x511F40
 BOOL CMessageProjectileTrailingVFX::UnmarshalMessage(BYTE* pData, DWORD dwSize)
 {
-    // STUB: network deserialisation not yet recovered (0x511F40, ~111 bytes).
-    // Not exercised by single-player / local-object messages.
-    return FALSE;
+    CString unusedString;
+    CAIObjectType unusedType;
+    UTIL_ASSERT(pData != NULL);
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+    PLAYER_ID remotePlayerID = *reinterpret_cast<PLAYER_ID*>(pData + cnt);
+    cnt += sizeof(PLAYER_ID);
+    LONG remoteObjectID = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+    LONG localObjectID;
+    if (g_pBaldurChitin->GetObjectGame()->GetRemoteObjectArray()->Find(remotePlayerID, remoteObjectID, localObjectID) == TRUE)
+        m_targetId = localObjectID;
+    else
+        m_targetId = CGameObjectArray::INVALID_INDEX;
+
+    BYTE resLength = pData[cnt++];
+    CHAR resName[9] = {};
+    memcpy(resName, pData + cnt, resLength);
+    cnt += resLength;
+    CString resString(resName, resLength);
+    m_resRef = resString;
+    BYTE areaLength = pData[cnt++];
+    CHAR areaName[9] = {};
+    memcpy(areaName, pData + cnt, areaLength);
+    cnt += areaLength;
+    CString areaString(areaName, areaLength);
+    m_resRef2 = areaString;
+    m_launchX = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+    m_launchY = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+    m_targetX = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+    m_targetY = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+    m_launchHeight = *reinterpret_cast<SHORT*>(pData + cnt);
+    return TRUE;
 }
 
 // 0x799CA0
@@ -19351,3 +20125,124 @@ static_assert(offsetof(CMessageAddItem, m_item) == 0x0C, "CMessageAddItem::m_ite
 static_assert(offsetof(CMessageContainerAddItem, m_item) == 0x0C, "CMessageContainerAddItem::m_item");
 static_assert(offsetof(CMessageContainerAddItem, m_slotNum) == 0xFA, "CMessageContainerAddItem::m_slotNum");
 static_assert(offsetof(CMessageContainerAddItem, m_bCompressContainer) == 0xFC, "CMessageContainerAddItem::m_bCompressContainer");
+// Constructor inlined in IcewindCGameEffectWhenStruck::ApplyEffect.
+// 0x4F6EF0
+CMessage117::CMessage117(const CResRef& sourceRes, const CResRef& spellRes,
+    DWORD level, const CPoint& targetPoint, LONG caller, LONG target)
+    : CMessage(caller, target)
+{
+    m_sourceRes = sourceRes;
+    m_spellRes = spellRes;
+    m_level = level;
+    m_target = targetPoint;
+}
+
+// 0x4536E0
+SHORT CMessage117::GetCommType()
+{
+    return BROADCAST_FORCED_OTHERS;
+}
+
+// 0x40A0E0
+BYTE CMessage117::GetMsgType()
+{
+    return CBaldurMessage::MSG_TYPE_CMESSAGE;
+}
+
+// 0x4F6FA0
+BYTE CMessage117::GetMsgSubType()
+{
+    return 117;
+}
+
+// 0x516910
+void CMessage117::MarshalMessage(BYTE** pData, DWORD* dwSize)
+{
+    UTIL_ASSERT(pData != NULL && dwSize != NULL);
+    CGameObject* object;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        *dwSize = 0;
+        return;
+    }
+    PLAYER_ID player = object->m_remotePlayerID;
+    LONG remote = object->m_remoteObjectID;
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    *dwSize = 36;
+    UTIL_ASSERT(*dwSize <= STATICBUFFERSIZE);
+    DWORD cnt = 0;
+    *reinterpret_cast<PLAYER_ID*>(*pData + cnt) = player;
+    cnt += sizeof(PLAYER_ID);
+    *reinterpret_cast<LONG*>(*pData + cnt) = remote;
+    cnt += sizeof(LONG);
+    memcpy(*pData + cnt, m_sourceRes.GetResRef(), RESREF_SIZE);
+    cnt += RESREF_SIZE;
+    memcpy(*pData + cnt, m_spellRes.GetResRef(), RESREF_SIZE);
+    cnt += RESREF_SIZE;
+    *reinterpret_cast<DWORD*>(*pData + cnt) = m_level;
+    cnt += sizeof(DWORD);
+    *reinterpret_cast<LONG*>(*pData + cnt) = m_target.x;
+    cnt += sizeof(LONG);
+    *reinterpret_cast<LONG*>(*pData + cnt) = m_target.y;
+    cnt += sizeof(LONG);
+    UTIL_ASSERT(cnt == *dwSize);
+}
+
+// 0x516A80
+BOOL CMessage117::UnmarshalMessage(BYTE* pData, DWORD dwSize)
+{
+    UTIL_ASSERT(pData != NULL);
+    DWORD cnt = CNetwork::SPEC_MSG_HEADER_LENGTH;
+    PLAYER_ID player = *reinterpret_cast<PLAYER_ID*>(pData + cnt);
+    cnt += sizeof(PLAYER_ID);
+    LONG remote = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+    LONG local;
+    if (g_pBaldurChitin->GetObjectGame()->GetRemoteObjectArray()->Find(player, remote, local) != TRUE) {
+        return FALSE;
+    }
+    m_targetId = local;
+    m_sourceRes = pData + cnt;
+    cnt += RESREF_SIZE;
+    m_spellRes = pData + cnt;
+    cnt += RESREF_SIZE;
+    m_level = *reinterpret_cast<DWORD*>(pData + cnt);
+    cnt += sizeof(DWORD);
+    m_target.x = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+    m_target.y = *reinterpret_cast<LONG*>(pData + cnt);
+    cnt += sizeof(LONG);
+    UTIL_ASSERT(cnt == dwSize);
+    return TRUE;
+}
+
+// 0x516B70
+void CMessage117::Run()
+{
+    CGameObject* object;
+    BYTE rc;
+    do {
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+    if (object->GetObjectType() == CGameObject::TYPE_SPRITE) {
+        CGameSprite* sprite = static_cast<CGameSprite*>(object);
+        sprite->m_derivedStats.m_onHitSpells.clear();
+        COnHitSpell spell;
+        spell.m_sourceRes = m_sourceRes;
+        spell.m_spellRes = m_spellRes;
+        spell.m_level = m_level;
+        spell.m_target = m_target;
+        sprite->m_derivedStats.m_onHitSpells.push_back(spell);
+    }
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+}

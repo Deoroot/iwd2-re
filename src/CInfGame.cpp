@@ -17,8 +17,11 @@
 #include "CMessage.h"
 #include "CPathSearch.h"
 #include "CResFile.h"
+#include "CResCHR.h"
+#include "CResBIO.h"
 #include "CScreenChapter.h"
 #include "CScreenCharacter.h"
+#include "CScreenCreateChar.h"
 #include "CScreenInventory.h"
 #include "CScreenJournal.h"
 #include "CScreenLoad.h"
@@ -1598,118 +1601,105 @@ BOOL CInfGame::CacheResFileWithResource(const CString& areaName)
 }
 
 // 0x5A0F50
-LONG CInfGame::ImportCharacter(const CString& sFileName, INT nIndex)
+LONG CInfGame::ImportCharacter(CString sFileName, INT nIndex)
 {
-    CString sPath = sFileName;
-    if (sPath.Right(4).CompareNoCase(".chr") != 0) {
-        sPath += ".chr";
+    CResHelper<CResCHR, 1018> character;
+    CResHelper<CResBIO, 1022> biography;
+    STR_RES text;
+    character.SetResRef(CResRef(sFileName), TRUE, TRUE);
+    BOOLEAN bTemporaryKey = character.GetResRef() == "";
+    if (bTemporaryKey) {
+        g_pChitin->cDimm.AddTemporaryKey(m_sCharactersDir, CResRef(sFileName), 1018);
+        character.SetResRef(CResRef(sFileName), TRUE, TRUE);
     }
-
-    FILE* stream = fopen(GetDirCharacters() + sPath, "rb");
-    if (stream == NULL) {
-        stream = fopen(sPath, "rb");
+    BYTE* pData = character.pRes != NULL ? static_cast<BYTE*>(character.pRes->Demand()) : NULL;
+    DWORD nSize = 0;
+    if (character.pRes != NULL && character.pRes->Demand() != NULL) {
+        nSize = character.pRes->m_nResSizeActual;
+        character.pRes->Release();
     }
-
-    if (stream == NULL) {
-        return 0;
-    }
-
-    fseek(stream, 0, SEEK_END);
-    LONG nChrSize = ftell(stream);
-    fseek(stream, 0, SEEK_SET);
-
-    if (nChrSize <= 0) {
-        fclose(stream);
-        return 0;
-    }
-
-    BYTE* pChrData = new BYTE[nChrSize];
-    size_t nRead = fread(pChrData, 1, nChrSize, stream);
-    fclose(stream);
-
-    if (nRead != static_cast<size_t>(nChrSize)) {
-        delete[] pChrData;
-        return 0;
-    }
-
-    if (nChrSize < 0x30 || memcmp(pChrData, "CHR V2.2", 8) != 0) {
-        delete[] pChrData;
-        return 0;
-    }
-
-    DWORD nCreatureOffset = *reinterpret_cast<DWORD*>(pChrData + 0x28);
-    DWORD nCreatureSize = *reinterpret_cast<DWORD*>(pChrData + 0x2C);
-
-    if (nCreatureOffset == 0 || nCreatureSize == 0 || nCreatureOffset + nCreatureSize > static_cast<DWORD>(nChrSize)) {
-        if (nChrSize > 0x224) {
-            nCreatureOffset = 0x224;
-            nCreatureSize = nChrSize - 0x224;
-        } else {
-            delete[] pChrData;
-            return 0;
+    if (pData == NULL || memcmp(pData, "CHR V2.2", 8) != 0) {
+        if (character.pRes != NULL) character.pRes->Release();
+        if (bTemporaryKey) {
+            g_pChitin->cDimm.RemoveTemporaryKey(m_sCharactersDir, CResRef(sFileName), 1018);
+            if (character.pRes != NULL) character.pRes->Release();
         }
-    }
-
-    if (nCreatureSize < 8 || memcmp(pChrData + nCreatureOffset, "CRE V2.2", 8) != 0) {
-        delete[] pChrData;
         return 0;
     }
 
-    CGameSprite* pSprite = new CGameSprite(pChrData + nCreatureOffset,
-        nCreatureSize,
-        0,
-        0,
-        -1,
-        0,
-        0,
-        INT_MAX,
-        CPoint(-1, -1),
-        0);
-
-    if (pSprite == NULL) {
-        delete[] pChrData;
-        return 0;
-    }
-
-    char szName[33];
-    memcpy(szName, pChrData + 0x8, 32);
-    szName[32] = '\0';
-    for (INT nIndex = 31; nIndex >= 0; nIndex--) {
-        if (szName[nIndex] == '\0' || szName[nIndex] == ' ') {
-            szName[nIndex] = '\0';
-        } else {
-            break;
-        }
-    }
-
-    if (pSprite->m_baseStats.m_name == -1 && szName[0] != '\0') {
-        pSprite->m_sName = szName;
-    }
-
-    if (nChrSize >= 0x164) {
-        memcpy(pSprite->field_3D14, pChrData + 0x13E, sizeof(pSprite->field_3D14));
-        pSprite->m_nLastSpellbookClassIndex = pChrData[0x162];
-        pSprite->m_nLastSpellbookSpellLevel = pChrData[0x163];
-    }
-
-    if (nChrSize >= 0x1A4) {
-        pSprite->m_secondarySounds = CResRef(pChrData + 0x17C);
-        memcpy(pSprite->field_725A, pChrData + 0x184, sizeof(pSprite->field_725A));
-        pSprite->field_725A[sizeof(pSprite->field_725A) - 1] = '\0';
-    }
-
-    pSprite->m_bGlobal = TRUE;
+    CCharacterFileHeader* pHeader = reinterpret_cast<CCharacterFileHeader*>(pData);
+    LONG nRemaining = nSize - sizeof(CCharacterFileHeader);
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+    // __LINE__: 4172
+    UTIL_ASSERT(nRemaining > 0);
+    nRemaining -= pHeader->m_creatureSize;
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+    // __LINE__: 4175
+    UTIL_ASSERT(nRemaining >= 0);
+    CGameSprite* pSprite = new CGameSprite(pData + pHeader->m_creatureOffset,
+        pHeader->m_creatureSize, 0, 0, -1, 0, 0, INT_MAX, CPoint(-1, -1), 0);
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+    // __LINE__: 4180
+    UTIL_ASSERT(pSprite != NULL);
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+    // __LINE__: 4181
+    UTIL_ASSERT(nRemaining == 0);
     pSprite->SetResRef(CResRef(sFileName));
+    char name[33] = {};
+    strncpy(name, pHeader->m_name, SCRIPTNAME_SIZE);
+    pSprite->m_sName = CString(name);
+    for (INT nSlot = 0; nSlot < 8; nSlot++) {
+        pSprite->InitQuickItemData(pHeader->m_quickWeaponsItemNum[nSlot],
+            pHeader->m_quickWeaponsAbilityNum[nSlot], pHeader->field_1A4[nSlot], pSprite->m_quickWeapons[nSlot]);
+    }
+    for (INT nSlot = 0; nSlot < 9; nSlot++) {
+        pSprite->InitQuickSpellData(CResRef(pHeader->m_quickSpellsSpellId[nSlot]), 1,
+            pSprite->m_quickSpells[nSlot], pHeader->m_quickSpellsClass[nSlot],
+            pHeader->field_164[nSlot], pHeader->field_16D[nSlot]);
+    }
+    for (INT nSlot = 0; nSlot < 3; nSlot++) {
+        pSprite->InitQuickItemData(pHeader->m_quickItemsItemNum[nSlot],
+            pHeader->m_quickItemsAbilityNum[nSlot], 0, pSprite->m_quickItems[nSlot]);
+    }
+    for (INT nSlot = 0; nSlot < 9; nSlot++) {
+        pSprite->InitQuickSpellData(CResRef(pHeader->m_quickInnatesSpellId[nSlot]), 2, pSprite->m_quickInnates[nSlot], 0, 0, 0);
+    }
+    for (INT nSlot = 0; nSlot < 9; nSlot++) {
+        pSprite->InitQuickSpellData(CResRef(pHeader->m_quickSongsSpellId[nSlot]), 3, pSprite->m_quickSongs[nSlot], 0, 0, 0);
+    }
+    memcpy(pSprite->field_3D14, pHeader->field_13E, sizeof(pSprite->field_3D14));
+    pSprite->m_nLastSpellbookClassIndex = pHeader->m_nLastSpellbookClassIndex;
+    pSprite->m_nLastSpellbookSpellLevel = pHeader->m_nLastSpellbookSpellLevel;
+    if (bTemporaryKey) {
+        g_pChitin->cDimm.RemoveTemporaryKey(m_sCharactersDir, CResRef(sFileName), 1018);
+    }
+    biography.SetResRef(CResRef(sFileName), TRUE, TRUE);
+    if (biography.GetResRef() != "") {
+        STRREF strref = 0xF240 + static_cast<BYTE>(nIndex);
+        text.szText = CString(static_cast<const char*>(biography.pRes->Demand()));
+        text.szText = text.szText.Left(biography.pRes->nSize);
+        g_pBaldurChitin->GetTlkTable().m_override.AddUserEntry(strref, text);
+        pSprite->m_baseStats.m_biography = strref;
+        biography.pRes->Release();
+    } else {
+        pSprite->m_baseStats.m_biography = -1;
+    }
     pSprite->AddKnownDivineSpells(CAIObjectType::C_CLERIC);
     pSprite->AddKnownDivineSpells(CAIObjectType::C_DRUID);
     pSprite->AddKnownDivineSpells(CAIObjectType::C_PALADIN);
     pSprite->AddKnownDivineSpells(CAIObjectType::C_RANGER);
-    AddPartyGold(GetRuleTables().GetStartingGold(pSprite));
-
-    LONG nCharacterId = pSprite->m_id;
-    delete[] pChrData;
-
-    return nCharacterId;
+    AddPartyGold(g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetStartingGold(pSprite));
+    CString sounds(reinterpret_cast<const char*>(pHeader->m_soundSet));
+    DWORD nSoundsLength = sounds.GetAllocLength();
+    memcpy(pSprite->field_725A, sounds.GetBuffer(nSoundsLength), min(nSoundsLength, 32UL));
+    if (nSoundsLength < 32) pSprite->field_725A[nSoundsLength] = 0;
+    g_pChitin->cDimm.AddToDirectoryList(g_pBaldurChitin->GetObjectGame()->GetDirSounds() + sounds + "\\", TRUE);
+    pSprite->m_secondarySounds = CResRef(pHeader->m_secondarySounds);
+    character.pRes->dwFlags |= CRes::RES_FLAG_0x100;
+    character.pRes->Release();
+    pSprite->m_bGlobal = TRUE;
+    pSprite->SetWeaponSet(pSprite->m_nWeaponSet);
+    return pSprite->m_id;
 }
 
 // 0x5A1A80
@@ -1721,7 +1711,100 @@ CString CInfGame::GetDirSounds()
 // 0x5A1AB0
 void CInfGame::CharacterExport(LONG nCharacterId, CString sFileName)
 {
-    // TODO: Incomplete.
+    CResHelper<CResCHR, 1018> character;
+    CResHelper<CResBIO, 1022> biography;
+    CGameSprite* pSprite;
+    if (m_cObjectArray.GetShare(nCharacterId, CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite), INFINITE) != CGameObjectArray::SUCCESS) {
+        return;
+    }
+
+    BYTE* pCreature;
+    LONG nCreature;
+    WORD facing;
+    pSprite->Marshal(&pCreature, &nCreature, &facing, FALSE, FALSE);
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+    // __LINE__: 4302
+    UTIL_ASSERT(pCreature != NULL);
+
+    DWORD nCharacter = nCreature + sizeof(CCharacterFileHeader);
+    BYTE* pCharacter = new BYTE[nCharacter];
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+    // __LINE__: 4307
+    UTIL_ASSERT(pCharacter != NULL);
+    memset(pCharacter, 0, nCharacter);
+    CCharacterFileHeader* pHeader = reinterpret_cast<CCharacterFileHeader*>(pCharacter);
+    memcpy(&pHeader->m_header, "CHR V2.2", 8);
+    strncpy(pHeader->m_name, pSprite->GetName(), SCRIPTNAME_SIZE);
+    for (INT nIndex = 0; nIndex < 8; nIndex++) {
+        pHeader->m_quickWeaponsItemNum[nIndex] = pSprite->m_quickWeapons[nIndex].m_abilityId.m_itemNum;
+        pHeader->m_quickWeaponsAbilityNum[nIndex] = pSprite->m_quickWeapons[nIndex].m_abilityId.m_abilityNum;
+        pHeader->field_1A4[nIndex] = pSprite->field_3D3A[nIndex];
+    }
+    for (INT nIndex = 0; nIndex < 9; nIndex++) {
+        const CAbilityId& ability = pSprite->m_quickSpells[nIndex].m_abilityId;
+        ability.m_res.GetResRef(pHeader->m_quickSpellsSpellId[nIndex]);
+        pHeader->m_quickSpellsClass[nIndex] = ability.m_nClass;
+        pHeader->field_164[nIndex] = ability.m_bCanUse;
+        pHeader->field_16D[nIndex] = static_cast<BYTE>(ability.m_nTooltip);
+    }
+    for (INT nIndex = 0; nIndex < 3; nIndex++) {
+        pHeader->m_quickItemsItemNum[nIndex] = pSprite->m_quickItems[nIndex].m_abilityId.m_itemNum;
+        pHeader->m_quickItemsAbilityNum[nIndex] = pSprite->m_quickItems[nIndex].m_abilityId.m_abilityNum;
+    }
+    for (INT nIndex = 0; nIndex < 9; nIndex++) {
+        pSprite->m_quickInnates[nIndex].m_abilityId.m_res.GetResRef(pHeader->m_quickInnatesSpellId[nIndex]);
+    }
+    for (INT nIndex = 0; nIndex < 9; nIndex++) {
+        pSprite->m_quickSongs[nIndex].m_abilityId.m_res.GetResRef(pHeader->m_quickSongsSpellId[nIndex]);
+    }
+    for (INT nIndex = 0; nIndex < 9; nIndex++) {
+        pHeader->field_13E[nIndex] = pSprite->field_3D14[nIndex];
+    }
+    pHeader->m_nLastSpellbookClassIndex = pSprite->m_nLastSpellbookClassIndex;
+    pHeader->m_nLastSpellbookSpellLevel = pSprite->m_nLastSpellbookSpellLevel;
+    pHeader->m_nLastSong = pSprite->m_nLastSong;
+    pHeader->m_creatureOffset = sizeof(CCharacterFileHeader);
+    pHeader->m_creatureSize = nCreature;
+    CResRef secondarySounds(pSprite->m_secondarySounds);
+    secondarySounds.GetResRef(pHeader->m_secondarySounds);
+    CString soundSet(reinterpret_cast<const char*>(pSprite->field_725A));
+    memcpy(pHeader->m_soundSet, soundSet.GetString(), soundSet.GetLength());
+    memcpy(pCharacter + sizeof(CCharacterFileHeader), pCreature, nCreature);
+    delete[] pCreature;
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+    // __LINE__: 4364
+    UTIL_ASSERT(nCreature + sizeof(CCharacterFileHeader) == nCharacter);
+
+    character.SetResRef(CResRef(sFileName), TRUE, TRUE);
+    BOOLEAN bTemporaryKey = character.GetResRef() == "";
+    if (bTemporaryKey) {
+        g_pChitin->cDimm.AddTemporaryKey(m_sCharactersDir, CResRef(sFileName), 1018);
+        character.SetResRef(CResRef(sFileName), TRUE, TRUE);
+    }
+    character.pRes->Write(m_sCharactersDir, pCharacter, nCharacter);
+    if (bTemporaryKey) {
+        g_pChitin->cDimm.RemoveTemporaryKey(m_sCharactersDir, CResRef(sFileName), 1018);
+    }
+    delete[] pCharacter;
+
+    STR_RES text;
+    g_pBaldurChitin->GetTlkTable().Fetch(pSprite->m_baseStats.m_biography, text);
+    biography.SetResRef(CResRef(sFileName), TRUE, TRUE);
+    bTemporaryKey = biography.GetResRef() == "";
+    if (bTemporaryKey) {
+        g_pChitin->cDimm.AddTemporaryKey(m_sCharactersDir, CResRef(sFileName), 1022);
+        biography.SetResRef(CResRef(sFileName), TRUE, TRUE);
+    }
+    DWORD nText = text.szText.GetLength();
+    if (nText > 0) {
+        nText++;
+    }
+    biography.pRes->Write(m_sCharactersDir, text.szText.GetBuffer(0), nText);
+    if (bTemporaryKey) {
+        g_pChitin->cDimm.RemoveTemporaryKey(m_sCharactersDir, CResRef(sFileName), 1022);
+    }
+    m_cObjectArray.ReleaseShare(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
 }
 
 // 0x5A24D0
@@ -4362,66 +4445,59 @@ BOOL CInfGame::SelectCharacter(LONG characterId, BOOLEAN bPlaySelectSound)
 // 0x5ADAE0
 void CInfGame::SelectToolbar()
 {
-    // TODO: Incomplete.
-
     m_nState = 0;
     m_cButtonArray.SetSelectedButton(100);
 
     BYTE nGroupCount = m_group.GetCount();
-    if (nGroupCount == 0) {
-        m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
-        return;
-    }
-
-    if (nGroupCount > 1) {
-        m_cButtonArray.SetState(0x6E, 0);
-        return;
-    }
-
-    LONG* pGroupList = m_group.GetGroupList();
-    if (pGroupList == NULL) {
-        m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
-        return;
-    }
-
-    LONG nCharacterId = pGroupList[0];
-    delete[] pGroupList;
-
-    CGameSprite* pSprite = NULL;
-    BYTE rc;
-    do {
-        rc = m_cObjectArray.GetShare(nCharacterId,
-            CGameObjectArray::THREAD_ASYNCH,
-            reinterpret_cast<CGameObject**>(&pSprite),
-            INFINITE);
-    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-
-    if (rc != CGameObjectArray::SUCCESS || pSprite == NULL) {
-        m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
-        return;
-    }
-
-    if (IcewindMisc::IsPC(pSprite)) {
-        // Matches Ghidra SelectToolbar (0x5ADAE0): the nine custom button slots
-        // come straight from the sprite (offset 0x3D14, read via
-        // GetCustomButtonValue).  No ResetQuickSlots / fallback here — the slots
-        // are populated at character creation.
-        INT customButtons[9];
-        for (BYTE nButton = 0; nButton < 9; nButton++) {
-            customButtons[nButton] = pSprite->GetCustomButtonValue(nButton);
+    if (nGroupCount != 1) {
+        m_cButtonArray.SetState(nGroupCount == 0 ? CInfButtonArray::STATE_NONE : 0x6E, 0);
+    } else {
+        LONG* pGroupList = m_group.GetGroupList();
+        if (pGroupList == NULL) {
+            m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
+            delete[] pGroupList;
+            return;
         }
 
-        m_cButtonArray.SetCustomButtonTypes(customButtons);
-        m_cButtonArray.SetQuickWeaponSlot(pSprite->m_nWeaponSet);
-        m_cButtonArray.SetState(0x72, 0);
-    } else {
-        m_cButtonArray.SetQuickWeaponSlot(pSprite->m_nWeaponSet);
-        m_cButtonArray.SetState(0x6E, 0);
+        CGameSprite* pSprite = NULL;
+        BYTE rc;
+        do {
+            rc = m_cObjectArray.GetShare(pGroupList[0],
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            m_cButtonArray.SetState(CInfButtonArray::STATE_NONE, 0);
+            delete[] pGroupList;
+            return;
+        }
+
+        if (IcewindMisc::IsPC(pSprite)) {
+            // The nine custom button slots come straight from the sprite.
+            INT customButtons[9];
+            for (BYTE nButton = 0; nButton < 9; nButton++) {
+                customButtons[nButton] = pSprite->GetCustomButtonValue(nButton);
+            }
+
+            m_cButtonArray.SetCustomButtonTypes(customButtons);
+            m_cButtonArray.SetQuickWeaponSlot(pSprite->m_nWeaponSet);
+            m_cButtonArray.SetState(0x72, 0);
+        } else {
+            m_cButtonArray.SetQuickWeaponSlot(pSprite->m_nWeaponSet);
+            m_cButtonArray.SetState(0x6E, 0);
+        }
+
+        m_cObjectArray.ReleaseShare(pGroupList[0],
+            CGameObjectArray::THREAD_ASYNCH,
+            INFINITE);
+        delete[] pGroupList;
     }
 
-    m_cObjectArray.ReleaseShare(nCharacterId,
-        CGameObjectArray::THREAD_ASYNCH,
-        INFINITE);
+    if (g_pBaldurChitin->m_pEngineWorld->GetPopupState() == 8) {
+        g_pBaldurChitin->m_pEngineWorld->StopContainer();
+    }
 }
 
 // 0x5ADC90
@@ -8315,7 +8391,71 @@ void CInfGame::SetReputation(int a1, BOOL a2)
 // 0x5BDC00
 void CInfGame::ReputationAdjustment(SHORT reputationAdjustment, BOOL set)
 {
-    // TODO: Incomplete.
+    if (set) {
+        reputationAdjustment -= m_nReputation;
+    }
+
+    if (!g_pBaldurChitin->GetBaldurMessage()->m_bInReputationChange) {
+        CMessageReputationChange* pMessage = new CMessageReputationChange(reputationAdjustment,
+            GetProtagonist(),
+            GetProtagonist());
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+    }
+
+    m_nReputation += reputationAdjustment;
+    m_nReputation = min(m_nReputation, 200);
+    m_nReputation = max(m_nReputation, 10);
+
+    ITEM_EFFECT effect;
+    CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_REPUTATION);
+    effect.effectAmount = m_nReputation;
+    effect.dwFlags = 1;
+    // 0x8491AA
+    effect.durationType = 1;
+
+    for (INT nIndex = 0; nIndex < m_nCharacters; nIndex++) {
+        LONG nCharacterId = GetCharacterId(static_cast<SHORT>(nIndex));
+
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = m_cObjectArray.GetDeny(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            continue;
+        }
+
+        if (g_pChitin->cNetwork.m_nServiceProvider == CNetwork::SERV_PROV_NULL
+            || g_pChitin->cNetwork.m_idLocalPlayer == pSprite->m_remotePlayerID) {
+            // Happiness columns: good, neutral, evil.
+            SHORT nColumn = 0;
+            if ((pSprite->GetAIType().m_nAlignment & 0xF) == 2) {
+                nColumn = 1;
+            } else if ((pSprite->GetAIType().m_nAlignment & 0xF) == 3) {
+                nColumn = 2;
+            }
+
+            INT nRow = static_cast<SHORT>(m_nReputation / REPUTATION_MULTIPLIER - 1);
+            SHORT nHappiness = static_cast<SHORT>(atol(m_ruleTables.m_tHappiness.GetAt(CPoint(nColumn, nRow))));
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSetHappiness(nHappiness, nCharacterId, nCharacterId), FALSE);
+
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+            LONG nTargetId = GetCharacterId(static_cast<SHORT>(nIndex));
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, nTargetId, nTargetId), FALSE);
+
+            pSprite->ApplyFallenStatus();
+        }
+
+        m_cObjectArray.ReleaseDeny(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    if (!g_pChitin->cNetwork.m_bConnectionEstablished || g_pChitin->cNetwork.m_bIsHost == TRUE) {
+        FeedBack(FEEDBACK_REPUTATION, reputationAdjustment / 10, TRUE);
+    }
 }
 
 // 0x5BDF80
@@ -9480,7 +9620,51 @@ BYTE CInfGame::GetCharactersControlled()
 // 0x5C1160
 BOOLEAN CInfGame::RestParty(int a2, unsigned char a3)
 {
-    // TODO: Incomplete.
+    if (a3) {
+        for (INT nPortrait = 0; nPortrait < m_nCharacters; nPortrait++) {
+            LONG nCharacterId = GetCharacterId(static_cast<SHORT>(nPortrait));
+            CMessage101* pMessage = new CMessage101(FALSE, nCharacterId, nCharacterId, TRUE);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
+        }
+    }
+
+    if (!g_pChitin->cNetwork.m_bConnectionEstablished) {
+        return RestPartyPrivate(a2, a3);
+    }
+
+    if (g_pChitin->cNetwork.m_bConnectionEstablished == TRUE) {
+        if (!g_pChitin->cNetwork.m_bIsHost) {
+            if (g_pBaldurChitin->GetBaldurMessage()->m_bInOnRestAnnounce) {
+                return RestPartyPrivate(a2, a3);
+            }
+
+            // TODO: Multiplayer only. 0x436290 sends the client rest request
+            // (a2, a3, m_bHealPartyOnRest) to the host and is not recovered.
+            return TRUE;
+        }
+
+        if (g_pChitin->cNetwork.m_bIsHost == TRUE) {
+            CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+
+            BOOLEAN bStartNow = TRUE;
+            if (pGame->m_gameSave.m_mode == 0x182 || pGame->m_gameSave.m_mode == 0x502) {
+                bStartNow = FALSE;
+            }
+
+            if (pGame->m_multiplayerSettings.m_bHostPermittedDialog == TRUE) {
+                bStartNow = FALSE;
+            }
+
+            CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
+            if (static_cast<BYTE>(pWorld->m_bHardPaused) != TRUE && bStartNow) {
+                pWorld->StartRestMultiplayerHost(a2, a3, static_cast<BOOLEAN>(m_bHealPartyOnRest));
+                return TRUE;
+            }
+
+            pWorld->SetPendingRest(a2, a3, FALSE);
+            return TRUE;
+        }
+    }
 
     return FALSE;
 }
@@ -9488,17 +9672,248 @@ BOOLEAN CInfGame::RestParty(int a2, unsigned char a3)
 // 0x5C1350
 BOOLEAN CInfGame::RestPartyPrivate(INT nHP, BOOLEAN bRenting)
 {
-    // TODO: Incomplete.
+    BOOLEAN bAllHealed = TRUE;
 
-    return FALSE;
+    CAIAction restAction;
+    // 0x847834
+    restAction.m_actionID = 96;
+
+    CAITrigger restTrigger(0x93, 0);
+
+    g_pBaldurChitin->GetObjectGame()->MarkAliveCharacters();
+
+    if (!g_pChitin->cNetwork.m_bConnectionEstablished || g_pChitin->cNetwork.m_bIsHost == TRUE) {
+        // The chapter lookup's result is never used.
+        g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(CHAPTER_GLOBAL);
+
+        // TODO: Multiplayer only. 0x436500 sends the host rest announcement
+        // (nHP, bRenting, FALSE) and returns FALSE without a hosted session;
+        // it is not recovered.
+
+        if (bRenting || !m_gameAreas[m_visibleArea]->CheckRestEncounter()) {
+            INT nCharacters = m_nCharacters;
+            INT nTotal = 0;
+            INT nRate = nHP;
+
+            if (m_bHealPartyOnRest) {
+                CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+                for (INT nIndex = 0; nIndex < nCharacters; nIndex++) {
+                    LONG nCharacterId = pGame->GetCharacterId(static_cast<SHORT>(nIndex));
+
+                    CGameSprite* pSprite;
+                    BYTE rc;
+                    do {
+                        rc = pGame->GetObjectArray()->GetShare(nCharacterId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            reinterpret_cast<CGameObject**>(&pSprite),
+                            INFINITE);
+                    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+                    if (rc == CGameObjectArray::SUCCESS) {
+                        if ((pSprite->m_baseStats.m_generalState & 0x800) == 0) {
+                            INT nMissing = static_cast<WORD>(pSprite->m_baseStats.m_maxHitPointsBase)
+                                - pSprite->m_baseStats.m_hitPoints;
+                            if (nMissing > 1) {
+                                bAllHealed = FALSE;
+                            }
+                            nTotal += nMissing;
+
+                            INT nLevel = static_cast<INT>(pSprite->m_derivedStats.GetClassMaskLevel(CLASSMASK_CLERIC | CLASSMASK_DRUID));
+                            if (nLevel > 0) {
+                                nRate += nLevel * 19 + 5;
+                            }
+
+                            nLevel = static_cast<INT>(pSprite->m_derivedStats.GetClassMaskLevel(CLASSMASK_PALADIN | CLASSMASK_RANGER));
+                            if (nLevel > 9) {
+                                nRate += nLevel * 19 - 147;
+                            }
+                        }
+
+                        pGame->GetObjectArray()->ReleaseShare(nCharacterId,
+                            CGameObjectArray::THREAD_ASYNCH,
+                            INFINITE);
+                    }
+                }
+            } else {
+                nTotal = nHP;
+            }
+
+            if (nRate > 0) {
+                INT nUnits = nTotal / nRate;
+                if (nTotal % nRate != 0) {
+                    nUnits++;
+                }
+                nTotal = nUnits * nRate;
+            }
+
+            if (!m_bHealPartyOnRest || (nTotal <= nRate && bAllHealed == TRUE)) {
+                m_worldTime.AddCurrentTime(CRuleTables::TIME_RESTING);
+                FeedBack(FEEDBACK_TIMEPASSEDREST, CRuleTables::TIME_RESTING, TRUE);
+            } else if (nTotal <= nRate) {
+                m_worldTime.AddCurrentTime(2 * CRuleTables::TIME_RESTING);
+                FeedBack(FEEDBACK_TIMEPASSEDREST, 2 * CRuleTables::TIME_RESTING, TRUE);
+            } else {
+                DWORD nDivisor = static_cast<DWORD>(nRate) * 100;
+                m_worldTime.AddCurrentTime(CRuleTables::TIME_RESTING * static_cast<DWORD>(nTotal) * 100 / nDivisor
+                    + CRuleTables::TIME_RESTING);
+                FeedBack(FEEDBACK_TIMEPASSEDREST,
+                    CRuleTables::TIME_RESTING * static_cast<DWORD>(nTotal) * 100 / nDivisor + CRuleTables::TIME_RESTING,
+                    TRUE);
+            }
+
+            for (INT nIndex = 0; nIndex < nCharacters; nIndex++) {
+                LONG nCharacterId = GetCharacterId(static_cast<SHORT>(nIndex));
+
+                CGameEffectHeal* pHeal = new CGameEffectHeal();
+                pHeal->m_effectAmount = m_bHealPartyOnRest ? 1000 : nTotal;
+
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pHeal, nCharacterId, nCharacterId), FALSE);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddAction(restAction, nCharacterId, nCharacterId), FALSE);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSetTrigger(restTrigger, nCharacterId, nCharacterId), FALSE);
+            }
+
+            // 0x847908, 0x847F84
+            CAIAction leaderAction(203, CPoint(0x23, 0), 0, -1);
+            g_pBaldurChitin->GetObjectGame()->GetGroup()->GroupAction(CAIAction(CAIAction::NO_ACTION, CPoint(-1, -1), 0, -1),
+                TRUE,
+                &leaderAction);
+        }
+    }
+
+    BOOLEAN bResult = FALSE;
+    if (!bRenting) {
+        CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
+
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+        // __LINE__: 18368
+        UTIL_ASSERT(pWorld != NULL);
+
+        if (g_pBaldurChitin->GetActiveEngine() != pWorld) {
+            g_pBaldurChitin->GetActiveEngine()->SelectEngine(pWorld);
+        }
+    } else {
+        bResult = TRUE;
+    }
+
+    if (g_pChitin->cNetwork.m_bConnectionEstablished == TRUE && !bRenting) {
+        g_pBaldurChitin->GetBaldurMessage()->SendSignal(CBaldurMessage::SIGNAL_SERVER,
+            CBaldurMessage::SIGNAL_END_MAJOR_EVENT);
+    }
+
+    CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\InfGame.cpp
+    // __LINE__: 18481
+    UTIL_ASSERT(pWorld != NULL);
+
+    if (g_pBaldurChitin->GetActiveEngine() != pWorld) {
+        CCacheStatus::dword_8D0BA8 = TRUE;
+        g_pBaldurChitin->GetActiveEngine()->SelectEngine(pWorld);
+
+        if (bRenting
+            && !g_pChitin->cNetwork.m_bIsHost
+            && g_pChitin->cNetwork.m_nServiceProvider != CNetwork::SERV_PROV_NULL) {
+            // TODO: Multiplayer only. 0x436C00 (m_cBaldurMessage) is not recovered.
+        }
+    }
+
+    g_pBaldurChitin->GetObjectGame()->m_cButtonArray.ResetState();
+
+    return bResult;
 }
 
 // 0x5C1E30
 BOOL CInfGame::CanRestParty(STRREF& strError, unsigned char a2, unsigned char a3, unsigned char a4)
 {
-    // TODO: Incomplete.
+    BOOL bResult = FALSE;
+    BOOL bBlocked = FALSE;
+    BOOL bDangerous = FALSE;
+    BOOL bNobodyActive = TRUE;
+    CResRef areaResRef("");
+    CPoint ptFirst;
 
-    return FALSE;
+    // NOTE: The binary also folds every active member's area type bit 0x20
+    // into a flag that is never read afterwards.
+
+    strError = 10309;
+
+    for (SHORT nIndex = 0; nIndex < m_nCharacters && !bBlocked; nIndex++) {
+        LONG nCharacterId = GetCharacterId(nIndex);
+
+        CGameSprite* pSprite;
+        BYTE rc;
+        do {
+            rc = m_cObjectArray.GetDeny(nCharacterId,
+                CGameObjectArray::THREAD_ASYNCH,
+                reinterpret_cast<CGameObject**>(&pSprite),
+                INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+
+        if (rc != CGameObjectArray::SUCCESS) {
+            bBlocked = TRUE;
+            continue;
+        }
+
+        CGameArea* pArea = pSprite->GetArea();
+        if (pArea != NULL && (pArea->m_header.m_flags & 0x2) != 0 && !a2 && !a4) {
+            bDangerous = TRUE;
+        }
+
+        if (pSprite->Animate()) {
+            bNobodyActive = FALSE;
+
+            CPoint pt = pSprite->GetPos();
+            if (areaResRef == "") {
+                areaResRef = pArea->m_resRef;
+                ptFirst = pt;
+            } else {
+                LONG dy = ptFirst.y - pt.y;
+                LONG dx = ptFirst.x - pt.x;
+                if (((pSprite->m_baseStats.m_generalState & 0x800) == 0 && areaResRef != pArea->m_resRef)
+                    || dy * dy * 16 / 9 + dx * dx > CScreenInventory::RANGE_SWAPITEM) {
+                    bBlocked = TRUE;
+                }
+            }
+        }
+
+        m_cObjectArray.ReleaseDeny(nCharacterId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    if (bDangerous == TRUE) {
+        strError = 10309;
+        return FALSE;
+    }
+
+    if (a3 == TRUE && !bBlocked) {
+        return TRUE;
+    }
+
+    if (!bNobodyActive) {
+        if (!CanSaveGame(strError, TRUE, FALSE)) {
+            if (strError == 16501) {
+                strError = 16500;
+            } else {
+                strError = 10309;
+            }
+            bResult = FALSE;
+        } else if (bBlocked) {
+            strError = 16457;
+            bResult = FALSE;
+        } else if (!g_pBaldurChitin->GetObjectGame()->m_singlePlayerPermissions.m_bPermissions[CGamePermission::LEADER]) {
+            strError = 17198;
+            bResult = FALSE;
+        } else {
+            strError = 15358;
+            bResult = TRUE;
+        }
+    }
+
+    if (!m_cObjectArray.HasNoRestBlockingSpellStates()) {
+        bResult = FALSE;
+        strError = 10309;
+    }
+
+    return bResult;
 }
 
 // 0x5C3010
@@ -9684,7 +10099,48 @@ STRREF CInfGame::GetAreaStrRef(CString a1)
 // 0x5C3790
 void CInfGame::ChangeBiography(BYTE nFixedPartyId, CString szBiography)
 {
-    // TODO: Incomplete.
+    CBaldurMessage* pMessage = g_pBaldurChitin->GetBaldurMessage();
+    if (g_pChitin->cNetwork.GetSessionOpen() == TRUE) {
+        if (g_pChitin->cNetwork.GetSessionHosting() == FALSE) {
+            if (pMessage->m_bInOnAnnounceBiography == FALSE) {
+                pMessage->SendBiographyToServer(nFixedPartyId, szBiography);
+                return;
+            }
+        } else {
+            pMessage->AnnounceBiography(nFixedPartyId, szBiography);
+        }
+    }
+    CScreenCharacter* pScreen = g_pBaldurChitin->m_pEngineCharacter;
+    CString sTitle = CBaldurEngine::FetchString(0x3E0A);
+    CString sDone = CBaldurEngine::FetchString(0x2E57);
+    LONG nId = nFixedPartyId < 6 ? m_characters[nFixedPartyId] : CGameObjectArray::INVALID_INDEX;
+    if (nId == -1) {
+        if (g_pBaldurChitin->GetActiveEngine() != g_pBaldurChitin->m_pEngineCreateChar) return;
+        nId = g_pBaldurChitin->m_pEngineCreateChar->m_nGameSprite;
+    }
+    CGameSprite* pSprite;
+    BYTE rc;
+    do {
+        rc = m_cObjectArray.GetShare(nId, CGameObjectArray::THREAD_ASYNCH,
+            reinterpret_cast<CGameObject**>(&pSprite), INFINITE);
+    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+    if (rc == CGameObjectArray::SUCCESS) {
+        STR_RES strRes;
+        CTlkFileOverride& overrideFile = g_pBaldurChitin->GetTlkTable().m_override;
+        if (overrideFile.Fetch(pSprite->m_baseStats.m_biography, strRes)) {
+            overrideFile.Remove(pSprite->m_baseStats.m_biography);
+        }
+        pSprite->m_baseStats.m_biography = 0xF240 + nFixedPartyId;
+        strRes.szText = szBiography;
+        overrideFile.AddUserEntry(pSprite->m_baseStats.m_biography, strRes);
+        m_cObjectArray.ReleaseShare(nId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+    if (g_pChitin->cNetwork.GetSessionOpen() == TRUE && g_pBaldurChitin->GetActiveEngine() == pScreen) {
+        CUIPanel* pPanel = pScreen->GetTopPopup();
+        if (pPanel != NULL && pPanel->m_nID == 12) {
+            pScreen->GetManager()->GetPanel(12)->GetControl(0);
+        }
+    }
 }
 
 // 0x5C72D0
@@ -10155,6 +10611,32 @@ void CInfGame::ResetMultiPlayerPermissions()
         CMultiplayerSettings::IMPORT_ALL,
         g_pBaldurChitin->GetIniFileName()));
     pSettings->SetImportingCharacterOption(nImportingBitField);
+}
+
+// 0x5C9300
+BOOL CGameObjectArray::HasNoRestBlockingSpellStates()
+{
+    CSingleLock lock(&m_cs, FALSE);
+    lock.Lock(INFINITE);
+
+    for (INT nIndex = 0; nIndex < m_nMaxArrayIndex; nIndex++) {
+        CGameObjectArrayEntry* pEntry = &(m_pArray[nIndex]);
+        if (pEntry->m_objectId != -1
+            && pEntry->m_objectPtr != reinterpret_cast<CGameObject*>(-1)) {
+            CGameObject* pObject = pEntry->m_objectPtr;
+            if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                CGameSprite* pSprite = static_cast<CGameSprite*>(pObject);
+                if (pSprite->m_derivedStats.m_spellStates.test(SPLSTATE_MOLD_TOUCH)
+                    || pSprite->m_derivedStats.m_spellStates.test(SPLSTATE_SHROUD_OF_FLAME)) {
+                    lock.Unlock();
+                    return FALSE;
+                }
+            }
+        }
+    }
+
+    lock.Unlock();
+    return TRUE;
 }
 
 // 0x5C9720
@@ -10697,7 +11179,7 @@ CSpellResRefList* CInfGame::GetInnateSpells()
 // 0x5F6800
 CSpellResRefList* CInfGame::GetShapeshifts()
 {
-    return &m_innateSpells;
+    return &m_shapeshifts;
 }
 
 // 0x64D660

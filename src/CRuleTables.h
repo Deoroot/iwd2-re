@@ -13,6 +13,7 @@ class CDerivedStats;
 class CGameSprite;
 class CItem;
 
+#pragma pack(push, 2)
 class CRuleTables {
 public:
     static const DWORD TIME_RESTING;
@@ -92,6 +93,7 @@ public:
     static const CString CHARACTER_SOUNDS;
     static const CString RT_NORM;
     static const CString RT_FURY;
+    static const CString ITEM_GRADES;
     static const CString INTERACTION_DIALOG;
     static const CString INTELLIGENCE_MODIFIERS;
     static const CString DONATE_RUMOR;
@@ -385,7 +387,10 @@ public:
     INT FindSavingThrow(CDerivedStats& stats, const CString& sSavingThrow) const;
     INT GetSavingThrow(const CAIObjectType& typeAI, CDerivedStats& DStats, BYTE nCON, const CString& sSavingThrow) const;
     INT GetHPCONBonusTotal(const CAIObjectType& typeAI, CDerivedStats& DStats, BYTE nCON) const;
-    INT GetStartingHitPoints(const CAIObjectType& typeAI, CDerivedStats& DStats, BYTE nCON) const;
+    INT RollHitPoints(INT nSides, INT nRolls, INT nLevel, INT nMinRoll, INT nModifier) const;
+    INT RollHitPoints(const C2DArray& table, BYTE nOldLevel, BYTE nNewLevel, INT nMinRoll, INT nDivisor, BOOL bOverrideSides, INT nSides) const;
+    INT RollHitPoints(INT nClass, CDerivedStats& oldStats, CDerivedStats& newStats, INT nMinRoll, INT nDivisor) const;
+    INT GetStartingHitPoints(const CAIObjectType& typeAI, CDerivedStats& oldStats, CDerivedStats& newStats, BYTE nCON) const;
     INT GetStartingGold(CGameSprite* pSprite) const;
     INT GetStartingExperiencePoints(CGameSprite* pSprite) const;
     INT GetMaxKnownSpells(const BYTE& nClass, const CAIObjectType& typeAI, CDerivedStats& DStats, DWORD nSpecialization, UINT nLevel, INT& nMaxSpells) const;
@@ -432,16 +437,19 @@ public:
     DWORD GetSkillName(DWORD id) const;
     DWORD GetSkillId(DWORD index) const;
     DWORD GetSkillDescription(DWORD id) const;
+    CResRef GetAutoPickSpell(BYTE nLevel, BYTE nIndex) const;
     INT GetLoadingHint(INT nHintNumber) const;
     INT GetNumLoadingHints() const;
     const C2DArray* GetClassAbilityTable(BYTE nClass, DWORD nSpecialist) const;
-    void GetRandomItem(CString& sResRef) const;
+    CString GetUpgradedItem(const CString& sItem, const CString& sUpgrade) const; /*#guess: descriptive name*/
+    BOOL GetRandomItem(CString& sResRef) const;
     STRREF GetSpeechStringRef(CString& sSoundSet, INT nSpeech) const;
     BOOLEAN IsHatedRace(const CAIObjectType& typeAI, const CCreatureFileHeader& BStats) const;
     BOOLEAN IsHatedRace(BYTE& nRace, const CCreatureFileHeader& BStats) const;
     INT GetHatedRaceBonus(BYTE& nRace, const CCreatureFileHeader& BStats) const;
     INT GetEncumbranceMod(CGameSprite* pSprite) const;
     void GetBaseCombatValues(CGameSprite* pSprite, int& a2, int& a3, int& a4, BOOL a5) const;
+    INT GetIterativeAttackBonus(INT nBaseAttack, INT nAttackStep, INT nAttackIndex) const;
     DWORD GetMaxSpellLevel(const BYTE& nClass, const UINT& nLevel) const;
     static int GetSpellAbilityValue(CGameSprite* pSprite, const CResRef& resRef, int nSaveMod, BYTE nClass, DWORD nSpecialization, BYTE nCasterLevel);
     // #guess name: the only field read is m_derivedStats.m_nSkills[1] -- the Animal
@@ -643,5 +651,6 @@ public:
     /* 1B10 */ C2DArray m_tHelp03;
     /* 1B34 */ C2DArray m_tHelp04;
 };
+#pragma pack(pop)
 
 #endif /* CRULETABLES_H_ */

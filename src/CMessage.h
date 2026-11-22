@@ -25,6 +25,7 @@ class CGameContainer;
 class CGameDoor;
 class CGameEffect;
 
+#pragma pack(push, 2)
 class CBaldurMessage {
 public:
     static const BYTE MSG_TYPE_PROGRESSBAR;
@@ -82,8 +83,8 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_NUM_TIMES_TALKED_TO;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_PATH;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_SEQUENCE;
-    static const BYTE MSG_SUBTYPE_CMESSAGE_SET_TRIGGER;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_VARIABLE;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_SET_TRIGGER;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SPRITE_DEATH;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SPRITE_EQUIPMENT;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SPRITE_PETRIFY;
@@ -115,11 +116,13 @@ public:
     static const BYTE MSG_SUBTYPE_CMESSAGE_STOP_ESCAPE_AREA;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_TIME_STOP;
     static const BYTE MSG_SUBTYPE_CMESSAGE_STORE_RELEASE;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_UNSUMMON;
     static const BYTE MSG_SUBTYPE_CMESSAGE_90;
     static const BYTE MSG_SUBTYPE_CMESSAGE_FLOAT_TEXT;
     static const BYTE MSG_SUBTYPE_CMESSAGE_92;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SET_PROTAGONIST;
     static const BYTE MSG_SUBTYPE_CMESSAGE_START_COMBAT_MUSIC;
+    static const BYTE MSG_SUBTYPE_CMESSAGE_REMOVE_SUMMON_LINK;
     static const BYTE MSG_SUBTYPE_CMESSAGE_SCREENSHAKE;
     static const BYTE MSG_SUBTYPE_CMESSAGE_STORE_DEMAND;
     static const BYTE MSG_SUBTYPE_CMESSAGE_WEAPON_IMMUNITIES_UPDATE;
@@ -422,6 +425,7 @@ public:
     /* 00F5 */ BOOLEAN m_bInReputationChange;
     /* 00F6 */ BOOLEAN m_bInMessageSetDrawPoly;
 };
+#pragma pack(pop)
 
 class CMessage {
 public:
@@ -447,6 +451,7 @@ public:
     /* 0008 */ LONG m_sourceId;
 };
 
+#pragma pack(push, 2)
 class CMessageHandler {
 public:
     CMessageHandler();
@@ -462,6 +467,7 @@ public:
     /* 0000 */ CTypedPtrList<CPtrList, CMessage*> m_messageList;
     /* 001C */ BOOLEAN m_bLastArbitrationLockStatus;
 };
+#pragma pack(pop)
 
 class CMessageAddAction : public CMessage {
 public:
@@ -475,6 +481,7 @@ public:
     /* 000C */ CAIAction m_action;
 };
 
+#pragma pack(push, 2)
 class CMessageAddEffect : public CMessage {
 public:
     CMessageAddEffect(CGameEffect* effect, LONG caller, LONG target);
@@ -482,10 +489,13 @@ public:
     SHORT GetCommType() override;
     BYTE GetMsgType() override;
     BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
     void Run() override;
 
     /* 000C */ CGameEffect* m_effect;
 };
+#pragma pack(pop)
 
 class CMessageAddItem : public CMessage {
 public:
@@ -1199,7 +1209,7 @@ public:
 // this class still inherits `CMessage::Run`.  In the binary the vtable slot
 // holds 0x50A820, which re-applies the value to the same three variable scopes
 // this message travels for, and additionally purges the named-creature hashes
-// when bit 1 or bit 2 of `field_001A` is set.
+// when bit 1 or bit 2 of `m_flags` is set.
 #pragma pack(push)
 #pragma pack(2)
 class CMessageSetVariable : public CMessage {
@@ -1216,7 +1226,7 @@ public:
     /* 0010 */ CString m_sGlobalName;
     /* 0014 */ LONG m_nValue;
     /* 0018 */ BYTE m_bIncrement;
-    /* 001A */ LONG field_001A;
+    /* 001A */ LONG m_flags;
 };
 #pragma pack(pop)
 
@@ -1539,6 +1549,34 @@ public:
     /* 000C */ CResRef m_screen;
 };
 
+// Remote half of Icewind586B70::Unsummon: other machines replay the poof.
+class CMessageUnsummon : public CMessage {
+public:
+    CMessageUnsummon(LONG summonedId, LONG caller, LONG target);
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ LONG m_summonedId;
+};
+
+// Remote half of the summon-registry unlink (Icewind586B70::Remove).
+class CMessageRemoveSummonLink : public CMessage {
+public:
+    CMessageRemoveSummonLink(LONG summonedId, LONG caller, LONG target);
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ LONG m_summonedId;
+};
+
 class CMessage90 : public CMessage {
 public:
     CMessage90(LONG caller, LONG target, int a3);
@@ -1691,12 +1729,15 @@ public:
     /* 0015 */ BYTE m_nLevel;
 };
 
+#pragma pack(push, 2)
 class CMessageFireProjectile : public CMessage {
 public:
     CMessageFireProjectile(WORD projectileType, LONG projectileTargetId, const CPoint& projectileTarget, LONG height, LONG caller, LONG target, unsigned char a7);
     SHORT GetCommType() override;
     BYTE GetMsgType() override;
     BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
     void Run() override;
 
     /* 000C */ WORD m_projectileType;
@@ -1706,6 +1747,7 @@ public:
     /* 001E */ unsigned char field_1E;
     /* 0020 */ int field_20;
 };
+#pragma pack(pop)
 
 class CMessageStopEscapeArea : public CMessage {
 public:
@@ -1769,6 +1811,23 @@ public:
 
     /* 000C */ int m_slot;
 };
+
+#pragma pack(push, 2)
+// Native subtype 97: replace an AI script on a sprite.
+class CMessage97 : public CMessage {
+public:
+    CMessage97(LONG caller, LONG target, INT nScript, const CResRef& resScript);
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ INT m_nScript;
+    /* 0010 */ CResRef m_resScript;
+};
+#pragma pack(pop)
 
 class CMessageStoreDemand : public CMessage {
 public:
@@ -1851,6 +1910,7 @@ public:
 // CTypedPtrList, which is 28 bytes and would not fit the 0x18-byte message.  It
 // is modelled here with explicit nodes so the 8-byte header (m_pNodeHead@0x10,
 // m_nCount@0x14) stays binary-faithful.
+#pragma pack(push, 2)
 class CMessage105 : public CMessage {
 public:
     struct Node {
@@ -1874,9 +1934,11 @@ public:
     void Run() override;
 
     /* 000C */ BYTE field_C;
+    /* 000D */ BYTE m_paddingD[3];
     /* 0010 */ Node* m_pNodeHead;
     /* 0014 */ INT m_nCount;
 };
+#pragma pack(pop)
 
 class CMessage103 : public CMessage {
 public:
@@ -2025,15 +2087,15 @@ public:
 // (0x5794CF-0x5796BC).  Carries the launch parameters to the trailing
 // visual-effect object created by the factory at 0x554D20.
 //
-// The Run() virtual is a no-op (0x799CA0) -- the message is a data-carrier;
-// the actual attachment work happens in the factory + the post-dispatch
-// object-flag modification (set +0x82 = projectile type, +0x9A |= 1).
+// The Run() virtual is a no-op (0x799CA0). Fire creates the controller locally,
+// then copies the signed projectile velocity to +0x82 and sets +0x9A bit 0.
 // ---------------------------------------------------------------------------
+#pragma pack(push, 2)
 class CMessageProjectileTrailingVFX : public CMessage {
 public:
-    CMessageProjectileTrailingVFX(LONG target, LONG flightDistSq,
-        const CResRef& resRef, LONG launchX, LONG launchY,
-        LONG nHeight, LONG nType, SHORT launchHeight);
+    CMessageProjectileTrailingVFX(const CResRef& resRef, const CString& area,
+        const CPoint& launch, CPoint targetPoint, SHORT launchHeight,
+        LONG caller, LONG target);
 
     SHORT GetCommType() override;       // returns SEND (3)
     BYTE GetMsgType() override;         // returns MSG_TYPE_CMESSAGE (0x43)
@@ -2042,16 +2104,35 @@ public:
     BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
     void Run() override;                // no-op
 
-    // m_sourceId (at +0x08, inherited from CMessage) is repurposed as the
-    // projectile's flight distance^2 for the trailing-object factory.
-    // Own data fields follow the base (12 bytes):
+    // The caller is the projectile's ID before Fire registers it.
     /* 000C */ CResRef m_resRef;        // resource name from field_17E (8 bytes)
-    /* 0014 */ CString m_resRef2;       // secondary resref — empty-string sentinel (4 bytes; CString ptr, not CResRef)
+    /* 0014 */ CString m_resRef2;       // area resource name
     /* 0018 */ LONG m_launchX;          // launch position x
     /* 001C */ LONG m_launchY;          // launch position y
-    /* 0020 */ LONG m_nHeight;          // launch height (from DetermineHeight)
-    /* 0024 */ LONG m_nType;            // projectile type
+    /* 0020 */ LONG m_targetX;          // original Fire target point x
+    /* 0024 */ LONG m_targetY;          // original Fire target point y
     /* 0028 */ SHORT m_launchHeight;    // launch height (from DetermineHeight, SHORT copy)
 };
+#pragma pack(pop)
+
+#pragma pack(push, 2)
+// Vtable 0x84D45C; constructor 0x4F6EF0 also inlined in WhenStruck::ApplyEffect.
+class CMessage117 : public CMessage {
+public:
+    CMessage117(const CResRef& sourceRes, const CResRef& spellRes,
+        DWORD level, const CPoint& targetPoint, LONG caller, LONG target);
+    SHORT GetCommType() override;
+    BYTE GetMsgType() override;
+    BYTE GetMsgSubType() override;
+    void MarshalMessage(BYTE** pData, DWORD* dwSize) override;
+    BOOL UnmarshalMessage(BYTE* pData, DWORD dwSize) override;
+    void Run() override;
+
+    /* 000C */ CResRef m_sourceRes;
+    /* 0014 */ CResRef m_spellRes;
+    /* 001C */ DWORD m_level;
+    /* 0020 */ CPoint m_target;
+};
+#pragma pack(pop)
 
 #endif /* CMESSAGE_H_ */

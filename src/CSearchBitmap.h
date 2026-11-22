@@ -7,6 +7,7 @@
 
 class CGameArea;
 
+#pragma pack(push, 2)
 class CSearchBitmap {
 public:
     static const BYTE COST_BASE_MELEE;
@@ -53,6 +54,7 @@ public:
     /* 00F3 */ BYTE m_sourceSide;
 };
 
+#pragma pack(pop)
 class CSearchRequest {
 public:
     static const BYTE STATE_WAITING;

@@ -8,6 +8,8 @@
 #include "CBaldurEngine.h"
 #include "CBlood.h"
 #include "CGameAnimationType.h"
+#include "CGameAnimationTypeMonsterIcewind.h"
+#include "CGameAnimationTypeMonsterIcewindNew.h"
 #include "CGameArea.h"
 #include "CGameButtonList.h"
 #include "CGameContainer.h"
@@ -36,10 +38,15 @@
 #include "CUtil.h"
 #include "CVariableHash.h"
 #include "CVidInf.h"
+#include "CVisualEffect.h"
 #include "Icewind586B70.h"
 #include "IcewindCGameEffects.h"
 #include "IcewindCVisualEffect.h"
 #include "IcewindMisc.h"
+
+#include <ctype.h>
+#include <mbstring.h>
+#include <string.h>
 
 // 0x85BB38
 const BYTE CGameSprite::DIR_S = 0;
@@ -109,6 +116,9 @@ const BYTE CGameSprite::SPRITE_EFFECT_INTENSITY_LOW = 0;
 
 // 0x85BB69
 const BYTE CGameSprite::SOUND_DAMAGE = 6;
+
+// 0x85BB64
+const BYTE CGameSprite::SOUND_MORALE = 1;
 
 // 0x85BB6A
 const BYTE CGameSprite::SOUND_DYING = 7;
@@ -1900,6 +1910,7 @@ void CGameSprite::AIUpdate()
                 if (InControl() && !m_timedEffectList.IsTypeOnList(ICEWIND_CGAMEEFFECT_DAYBLINDNESS)) {
                     ITEM_EFFECT effect;
                     CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_DAYBLINDNESS);
+                    effect.durationType = 1;
 
                     // ClearItemEffect zeroes durationType, which ResolveEffect
                     // would convert into an absolute expiry of "now" -- the
@@ -2196,7 +2207,7 @@ void CGameSprite::AIUpdate()
                     SHORT lSlot;
                     CItem* pItem = m_equipment.m_items[m_equipment.m_selectedWeapon];
                     pItem->Demand();
-                    sub_756930(pItem, GetLauncher(pItem->GetAbility(m_equipment.m_selectedWeaponAbility), lSlot));
+                    DecodeSwingSound(pItem, GetLauncher(pItem->GetAbility(m_equipment.m_selectedWeaponAbility), lSlot));
                     pItem->Release();
                 }
                 switch (m_nSequence) {
@@ -2537,6 +2548,7 @@ void CGameSprite::AIUpdate()
                             && (m_baseStats.m_generalState & STATE_NONDETECTION) == 0) {
                             ITEM_EFFECT effect;
                             CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_NONDETECTION);
+                            effect.durationType = 1;
 
                             // Same missing store as the day blindness grant
                             // above: ClearItemEffect zeroes durationType, and a
@@ -7027,7 +7039,65 @@ void CGameSprite::RenderSpriteCover(CVidMode* pVidMode, INT nSurface, CVidCell* 
 // 0x708FC0
 void CGameSprite::RenderDamageArrow(CGameArea* pArea, CVidMode* pVidMode, INT nSurface)
 {
-    // TODO: Incomplete.
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    DWORD level = pGame->GetOptions()->m_nLocatorFeedbackLevel;
+    if (pGame->GetCharacterPortraitNum(m_id) == -1) return;
+    switch (level) {
+    case 2:
+        if (!m_bBloodFlashOn || m_nDamageLocatorTime == 0
+            || g_pBaldurChitin->nAUCounter % CMarker::PICKED_FLASH_PERIOD < CMarker::PICKED_FLASH_PERIOD / 2) return;
+        // Fall through to the picked-or-flashing rule.
+    case 3:
+        if ((!m_bBloodFlashOn || m_nDamageLocatorTime == 0
+                || g_pBaldurChitin->nAUCounter % CMarker::PICKED_FLASH_PERIOD < CMarker::PICKED_FLASH_PERIOD / 2)
+            && m_id != pArea->m_iPicked) return;
+        break;
+    case 4:
+    case 5:
+        break;
+    default:
+        return;
+    }
+    if (!m_active || !m_activeAI || !m_activeImprisonment
+        || m_baseStats.m_bStealthMode == 1 || (m_derivedStats.m_generalState & STATE_DEAD) != 0
+        || m_pArea != pArea) return;
+
+    const CRect& viewport = m_pArea->m_cInfinity.rViewPort;
+    CRect worldView(m_pArea->m_cInfinity.nCurrentX, m_pArea->m_cInfinity.nCurrentY,
+        m_pArea->m_cInfinity.nCurrentX + viewport.Width(), m_pArea->m_cInfinity.nCurrentY + viewport.Height());
+    CPoint pos = m_pos;
+    pos.y += m_pArea->GetHeightOffset(m_pos, m_listType);
+    CRect fx, bounds, visible;
+    CPoint reference;
+    m_animation.CalculateFxRect(fx, reference, m_posZ);
+    m_animation.CalculateGCBoundsRect(bounds, pos, reference, m_posZ, fx.Width(), fx.Height());
+    visible.IntersectRect(worldView, bounds);
+    if (!visible.IsRectEmpty()) return;
+
+    LONG x, y;
+    SHORT sequence;
+    LONG anchorY = pos.y + m_posZ;
+    if (pos.x < worldView.left) {
+        x = viewport.left;
+        if (anchorY < worldView.top) { y = viewport.top; sequence = 3; }
+        else if (anchorY > worldView.bottom) { y = viewport.bottom; sequence = 5; }
+        else { y = viewport.top - worldView.top + pos.y; sequence = 4; }
+    } else if (pos.x > worldView.right) {
+        x = viewport.right;
+        if (anchorY < worldView.top) { y = viewport.top; sequence = 1; }
+        else if (anchorY > worldView.bottom) { y = viewport.bottom; sequence = 7; }
+        else { y = viewport.top - worldView.top + pos.y; sequence = 0; }
+    } else {
+        x = viewport.left - worldView.left + pos.x;
+        if (anchorY < worldView.top) { y = viewport.top; sequence = 2; }
+        else if (anchorY > worldView.bottom) { y = viewport.bottom; sequence = 6; }
+        else return;
+    }
+    pGame->m_vcLocator.SequenceSet(sequence);
+    pGame->m_vcLocator.FrameSet(0);
+    COLORREF color = m_bBloodFlashOn && m_nDamageLocatorTime > 0 ? m_nDamageLocatorColor : m_marker.m_rgbColor;
+    pGame->m_vcLocator.SetTintColor(g_pChitin->GetCurrentVideoMode()->ApplyFadeAmount(color));
+    pGame->m_vcLocator.Render(nSurface, x, y, viewport, NULL, 0, 0x20000, -1);
 }
 
 // 0x7093E0
@@ -8254,7 +8324,7 @@ void CGameSprite::Unmarshal(CSavedGamePartyCreature* pCreature, BOOLEAN bPartyMe
             m_baseStats.m_resistMagicBase = 50;
         }
 
-        sub_71E760(m_derivedStats, TRUE);
+        AddNewSpecialAbilities(m_derivedStats, TRUE);
 
         for (UINT nClassIndex = 0; nClassIndex < CSPELLLIST_NUM_CLASSES; nClassIndex++) {
             for (UINT nLevel = 0; nLevel < CSPELLLIST_MAX_LEVELS; nLevel++) {
@@ -10181,6 +10251,113 @@ BOOL CGameSprite::BuildAbilityButtonData(const CResRef& res, BYTE nClass, DWORD 
     return bResult;
 }
 
+// 0x71F860
+void CGameSprite::ApplyWeaponEffects(CProjectile* pProjectile, CItem* pWeapon, SHORT abilityNum, const CPoint& target)
+{
+    if (pWeapon == NULL) {
+        return;
+    }
+
+    pWeapon->Demand();
+    ITEM_ABILITY* ability = pWeapon->GetAbility(abilityNum);
+    if (ability == NULL) {
+        pWeapon->Release();
+        return;
+    }
+
+    SHORT launcherSlot;
+    CItem* pLauncher = GetLauncher(ability, launcherSlot);
+    ITEM_ABILITY* launcherAbility = NULL;
+    if (pLauncher != NULL) {
+        pLauncher->Demand();
+        launcherAbility = pLauncher->GetAbility(0);
+    }
+
+    for (LONG effectIndex = 0; effectIndex < ability->effectCount; ++effectIndex) {
+        CGameEffect* effect = pWeapon->GetAbilityEffect(abilityNum, effectIndex, this);
+        effect->m_source = m_pos;
+        effect->m_sourceID = m_id;
+        effect->m_target = target;
+        IcewindMisc::ApplyDamageModifiers(this, effect);
+
+        switch (effect->m_targetType) {
+        case 1: {
+            CMessage* message = new CMessageAddEffect(effect, m_id, m_id);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+            continue;
+        }
+        case 2:
+            pProjectile->AddEffect(effect);
+            continue;
+        case 3:
+            ApplyEffectToParty(effect);
+            break;
+        case 4:
+            m_pArea->ApplyEffect(effect, FALSE, FALSE, 0, NULL);
+            break;
+        case 5:
+            m_pArea->ApplyEffect(effect, TRUE, FALSE, 0, NULL);
+            break;
+        case 6:
+            m_pArea->ApplyEffect(effect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
+            break;
+        case 7:
+            break;
+        case 8:
+            m_pArea->ApplyEffect(effect, FALSE, FALSE, 0, this);
+            break;
+        default:
+            UTIL_ASSERT(FALSE);
+        }
+        delete effect;
+    }
+
+    pWeapon->Release();
+    if (launcherAbility != NULL) {
+        for (LONG effectIndex = 0; effectIndex < launcherAbility->effectCount; ++effectIndex) {
+            CGameEffect* effect = pLauncher->GetAbilityEffect(0, effectIndex, this);
+            effect->m_source = m_pos;
+            effect->m_sourceID = m_id;
+            effect->m_target = target;
+            IcewindMisc::ApplyDamageModifiers(this, effect);
+
+            switch (effect->m_targetType) {
+            case 1: {
+                CMessage* message = new CMessageAddEffect(effect, m_id, m_id);
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+                continue;
+            }
+            case 2:
+                pProjectile->AddEffect(effect);
+                continue;
+            case 3:
+                ApplyEffectToParty(effect);
+                break;
+            case 4:
+                m_pArea->ApplyEffect(effect, FALSE, FALSE, 0, NULL);
+                break;
+            case 5:
+                m_pArea->ApplyEffect(effect, TRUE, FALSE, 0, NULL);
+                break;
+            case 6:
+                m_pArea->ApplyEffect(effect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
+                break;
+            case 7:
+                break;
+            case 8:
+                m_pArea->ApplyEffect(effect, FALSE, FALSE, 0, this);
+                break;
+            default:
+                UTIL_ASSERT(FALSE);
+            }
+            delete effect;
+        }
+    }
+    if (pLauncher != NULL) {
+        pLauncher->Release();
+    }
+}
+
 // 0x718650
 CItem* CGameSprite::GetLauncher(const ITEM_ABILITY* ability, SHORT& launcherSlot)
 {
@@ -11350,13 +11527,72 @@ SHORT CGameSprite::GetLayOnHandsAmount()
 // 0x71B9C0
 void CGameSprite::AddSpecialAbility(const CResRef& cResInnateSpell, BOOL feedBack)
 {
-    // TODO: Incomplete.
+    if (g_pBaldurChitin->cDimm.m_cKeyTable.FindKey(cResInnateSpell, 1006, TRUE) == NULL) {
+        return;
+    }
+
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    WORD feedbackId = FEEDBACK_GAINEDSPECIALABILITY;
+    UINT id = 0;
+    UINT maximum = 1, current = 1, shared = 0;
+    if (game->GetMasterSongLookup().Find(cResInnateSpell, id) == TRUE) {
+        feedbackId = FEEDBACK_GAINEDBARDSONG;
+        id = 0;
+        if (game->GetMasterSongLookup().Find(cResInnateSpell, id) == TRUE) {
+            m_songs.Add(id, maximum, current, shared);
+        }
+    } else if (game->GetShapeshifts()->Find(cResInnateSpell, id) == TRUE) {
+        maximum = current = shared = 0;
+        id = 0;
+        if (game->GetShapeshifts()->Find(cResInnateSpell, id) == TRUE) {
+            m_shapeshifts.Add(id, maximum, current, shared);
+        }
+    } else if (game->GetInnateSpells()->Find(cResInnateSpell, id) == TRUE) {
+        id = 0;
+        if (game->GetInnateSpells()->Find(cResInnateSpell, id) == TRUE) {
+            m_innateSpells.Add(id, maximum, current, shared);
+        }
+    }
+
+    if (feedBack == TRUE) {
+        CSpell spell;
+        spell.SetResRef(cResInnateSpell, TRUE, TRUE);
+        spell.Demand();
+        if (spell.pRes != NULL) {
+            FeedBack(feedbackId, 0, 0, 0, spell.GetGenericName(), 0, 0);
+        }
+        spell.Release();
+    }
 }
 
 // 0x71BC60
 void CGameSprite::RemoveSpecialAbility(const CResRef& cResInnateSpell)
 {
-    // TODO: Incomplete.
+    CString name;
+    cResInnateSpell.CopyToString(name);
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    UINT id = 0, maximum = 0, current = 0;
+    if (game->GetMasterSongLookup().Find(cResInnateSpell, id) == TRUE) {
+        id = 0;
+        if (game->GetMasterSongLookup().Find(cResInnateSpell, id) == TRUE) {
+            m_songs.Remove(id, TRUE, maximum, current);
+        }
+    } else if (game->GetShapeshifts()->Find(cResInnateSpell, id) == TRUE) {
+        id = 0;
+        if (game->GetShapeshifts()->Find(cResInnateSpell, id) == TRUE) {
+            m_shapeshifts.Remove(id, TRUE, maximum, current);
+        }
+    } else if (game->GetInnateSpells()->Find(cResInnateSpell, id) == TRUE) {
+        id = 0;
+        if (game->GetInnateSpells()->Find(cResInnateSpell, id) == TRUE) {
+            m_innateSpells.Remove(id, TRUE, maximum, current);
+        }
+    }
+
+    CAbilityId ability;
+    ability.m_itemType = 1;
+    ability.m_res = name;
+    UpdateQuickButtons(ability, -1, FALSE, FALSE);
 }
 
 // 0x71BE80
@@ -12920,11 +13156,11 @@ INT CGameSprite::GetAC()
         + nShieldBonus
         + m_derivedStats.m_nACDodgeBonus
         + nDexBonus
-        + GetAttacksPerRound();
+        + GetMonkACBonus();
 }
 
 // 0x723F60
-INT CGameSprite::GetAttacksPerRound()
+INT CGameSprite::GetMonkACBonus()
 {
     if (GetClassLevel(CAIOBJECTTYPE_C_MONK) == 0) {
         return 0;
@@ -12950,19 +13186,248 @@ INT CGameSprite::GetAttacksPerRound()
     return nWisBonus;
 }
 
+// 0x73C490
+BOOL CGameSprite::CheckConcealment(CGameSprite* pTarget)
+{
+    UTIL_ASSERT(pTarget != NULL);
+
+    INT nMissChance;
+    if ((m_derivedStats.m_generalState & STATE_BLIND) == 0
+        && ((pTarget->m_derivedStats.m_generalState & 0x10) == 0
+            || (pTarget->m_baseStats.m_visible & 1) == 0)) {
+        if ((pTarget->m_derivedStats.m_generalState & 0x20000000) == 0
+            && pTarget->m_bHiding != TRUE) {
+            return TRUE;
+        }
+        nMissChance = 20;
+    } else {
+        nMissChance = 50;
+    }
+
+    BOOL bHit = CUtil::UtilRandInt(100, m_derivedStats.m_nLuck) >= nMissChance;
+    if (HasFeat(CGAMESPRITE_FEAT_BLIND_FIGHT) == TRUE) {
+        CString sText;
+        CBaldurEngine* pEngine = g_pBaldurChitin->GetActiveEngine();
+        if (!bHit && CUtil::UtilRandInt(100, m_derivedStats.m_nLuck) >= nMissChance) {
+            bHit = TRUE;
+        }
+        if (pEngine != NULL && pEngine == g_pBaldurChitin->m_pEngineWorld) {
+            COLORREF rgbNameColor = CVidPalette::RANGE_COLORS[m_baseStats.m_colors[CVIDPALETTE_RANGE_MAIN_CLOTH]];
+            sText.Format(_T("%s: %s - %s"),
+                (LPCTSTR)CBaldurEngine::FetchString(0x9B8F),
+                (LPCTSTR)CBaldurEngine::FetchString(0x8BC2),
+                (LPCTSTR)CBaldurEngine::FetchString(bHit ? 0x83D9 : 0x83D8));
+            g_pBaldurChitin->m_pEngineWorld->DisplayText(GetName(), sText,
+                rgbNameColor, 0xBED7D7, -1, FALSE);
+        }
+    }
+    return bHit;
+}
+
+// 0x73CD00
+INT CGameSprite::GetSpecialWeaponHitBonus(CGameSprite* pTarget, CItem* pWeapon, const ITEM_ABILITY* pAbility)
+{
+    UTIL_ASSERT(pTarget != NULL);
+    UTIL_ASSERT(pWeapon != NULL);
+    UTIL_ASSERT(pAbility != NULL);
+
+    SHORT nLauncherSlot;
+    CItem* pLauncher = GetLauncher(pAbility, nLauncherSlot);
+    if (pLauncher != NULL) {
+        pLauncher->Demand();
+        pLauncher->GetAbility(0);
+    }
+
+    static BOOL bSpecialWeapon;
+    static char sSpecialWeapon[9];
+    bSpecialWeapon = FALSE;
+    if (_strnicmp(reinterpret_cast<const char*>(pWeapon->GetResRef().GetResRef()), "ZZ", 2) == 0) {
+        bSpecialWeapon = TRUE;
+        strncpy(sSpecialWeapon,
+            reinterpret_cast<const char*>(pWeapon->GetResRef().GetResRef()),
+            8);
+    }
+    if (pLauncher != NULL) {
+        if (_strnicmp(reinterpret_cast<const char*>(pLauncher->GetResRef().GetResRef()), "ZZ", 2) == 0) {
+            bSpecialWeapon = TRUE;
+            strncpy(sSpecialWeapon,
+                reinterpret_cast<const char*>(pLauncher->GetResRef().GetResRef()),
+                8);
+        }
+        pLauncher->Release();
+    }
+
+    if (!bSpecialWeapon) {
+        return 0;
+    }
+
+    const unsigned char nTargetCode = static_cast<unsigned char>(sSpecialWeapon[2]);
+    const unsigned char nBonusCode = static_cast<unsigned char>(sSpecialWeapon[3]);
+    UTIL_ASSERT(isdigit(nBonusCode));
+
+    BOOL bMatches = FALSE;
+    if (isalpha(nTargetCode)) {
+        static const BYTE RACE_BY_CODE[26] = {
+            156, 157, 164, 152, 160, 161, 165, 153, 168, 167, 166, 155, 2,
+            4, 6, 5, 3, 1, 116, 150, 108, 159, 162, 117, 113, 115
+        };
+        INT nIndex = toupper(nTargetCode) - 'A';
+        bMatches = nIndex >= 0 && nIndex < 26
+            && RACE_BY_CODE[nIndex] == pTarget->m_typeAI.m_nRace;
+    } else if (isdigit(nTargetCode)) {
+        static const DWORD ALIGNMENT_MASK[6] = { 0xF0, 0xF0, 0xF0, 0x0F, 0x0F, 0x0F };
+        static const DWORD ALIGNMENT_VALUE[6] = { 1, 2, 3, 1, 2, 3 };
+        INT nIndex = nTargetCode - '0';
+        // Codes 6..9 read the following PE constants, whose comparison values
+        // exceed any BYTE alignment; those comparisons always fail.
+        bMatches = nIndex < 6
+            && (ALIGNMENT_MASK[nIndex] & pTarget->m_typeAI.m_nAlignment)
+                == ALIGNMENT_VALUE[nIndex];
+    } else {
+        UTIL_ASSERT(FALSE);
+    }
+
+    if (!bMatches) {
+        return 0;
+    }
+    return nBonusCode < '5' ? nBonusCode - '5' : nBonusCode - '4';
+}
+
+// 0x73CF10
+SHORT CGameSprite::GetWeaponProficiencyHitBonus(CItem* pWeapon, const ITEM_ABILITY* pAbility)
+{
+    UTIL_ASSERT(pWeapon != NULL);
+    UTIL_ASSERT(pAbility != NULL);
+
+    const CRuleTables& rules = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+    SHORT nLauncherSlot;
+    CItem* pLauncher = GetLauncher(pAbility, nLauncherSlot);
+    if (pLauncher != NULL) {
+        pLauncher->Demand();
+        pLauncher->GetAbility(0);
+    }
+    SHORT nRank = GetProficiencyTHAC0Bonus(pWeapon);
+    if (pLauncher != NULL) {
+        if (nRank < GetProficiencyTHAC0Bonus(pLauncher)) {
+            nRank = GetProficiencyTHAC0Bonus(pLauncher);
+        }
+        pLauncher->Release();
+    }
+    if (nRank < 0) {
+        return nRank;
+    }
+    if (nRank == 0
+        && (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1
+            || g_pBaldurChitin->GetActiveEngine() == g_pBaldurChitin->m_pEngineCreateChar)) {
+        return (pAbility->abilityFlags & 0x10000) != 0 ? 0 : -4;
+    }
+    return static_cast<SHORT>(atol(rules.m_tWeaponSpecialization.GetAt(CPoint(0, nRank))));
+}
+
+// 0x73D1B0
+INT CGameSprite::GetSituationalAttackBonus(CGameSprite* pTarget, const ITEM_ABILITY* pAbility)
+{
+    UTIL_ASSERT(pTarget != NULL);
+    UTIL_ASSERT(pAbility != NULL);
+
+    INT nBonus = 0;
+    if (static_cast<BYTE>(pAbility->type) == 2) {
+        CPoint targetPos = pTarget->GetPos();
+        CPoint sourcePos = GetPos();
+        INT dx = sourcePos.x / CPathSearch::GRID_SQUARE_SIZEX - targetPos.x / CPathSearch::GRID_SQUARE_SIZEX;
+        INT dy = sourcePos.y / CPathSearch::GRID_SQUARE_SIZEY - targetPos.y / CPathSearch::GRID_SQUARE_SIZEY;
+        BYTE nSpace = static_cast<BYTE>(((m_animation.GetPersonalSpace() - 1) >> 1)
+            + ((pTarget->m_animation.GetPersonalSpace() - 1) >> 1) - 1);
+        INT nDistanceSquared = dx * dx + dy * dy - nSpace;
+        // The original writes only the low word of an initially zero DWORD.
+        if (nDistanceSquared < 3 * 3) {
+            nBonus = static_cast<WORD>(-8);
+            if (HasFeat(CGAMESPRITE_FEAT_PRECISE_SHOT)) {
+                nBonus += 4;
+            }
+        } else if (nDistanceSquared > 64 * 64) {
+            nBonus = static_cast<WORD>(-5);
+        } else if (nDistanceSquared > 32 * 32) {
+            nBonus = static_cast<WORD>(-2);
+        }
+    }
+    if ((m_derivedStats.m_generalState & (0x10 | 0x400000)) != 0
+        && (!pTarget->HasFeat(CGAMESPRITE_FEAT_BLIND_FIGHT) || static_cast<BYTE>(pAbility->type) == 2)) {
+        // PE 0x85BB86 is read as a DWORD, overlapping the next range modifier.
+        nBonus += static_cast<INT>(0xFFFB0002);
+    }
+    if (HasFeat(CGAMESPRITE_FEAT_FIENDSLAYER)) {
+        switch (pTarget->m_typeAI.m_nRace) {
+        case 0xBA:
+        case 0xA4:
+        case 0x76:
+        case 0x9A:
+        case 0xBB:
+        case 0xBC:
+            nBonus += 2;
+            break;
+        }
+    }
+    if (HasFeat(CGAMESPRITE_FEAT_HERETICS_BANE)
+        && (pTarget->GetAIType().m_nClassMask & 0xC) != 0) {
+        nBonus++;
+    }
+    if ((pTarget->m_derivedStats.m_generalState & 8) != 0) {
+        nBonus += 2;
+    }
+    return nBonus + m_derivedStats.m_cToHitBonusList.GetBonus(pTarget->GetAIType());
+}
+
 // 0x72DE60
 void CGameSprite::sub_72DE60()
 {
     ProcessEffectList();
 }
 
+// 0x71CFF0
+BOOL CGameSprite::CheckMorale()
+{
+    if ((m_baseStats.field_2F0[3] & 1) != 0) {
+        return TRUE;
+    }
+
+    BYTE morale = min(m_baseStats.field_25C, 20);
+    m_baseStats.field_25C = morale;
+    if (m_derivedStats.m_nMoraleRecoveryTime == 0) {
+        m_baseStats.field_25C = 10;
+    } else if (static_cast<DWORD>(field_44A)
+        % (m_derivedStats.m_nMoraleRecoveryTime * 15) == 0) {
+        if (morale > 10) {
+            m_baseStats.field_25C = morale - 1;
+        } else if (morale < 10) {
+            m_baseStats.field_25C = morale + 1;
+        }
+    }
+
+    if (g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_cutScene != 0
+        || (m_curAction.m_internalFlags & 1) != 0) {
+        return TRUE;
+    }
+    return m_derivedStats.m_nMoraleBreak < static_cast<DWORD>(m_baseStats.field_25C);
+}
+
+// 0x728B70
+void CGameSprite::ProcessPendingTriggers()
+{
+    if ((m_derivedStats.m_generalState & STATE_PANIC) == 0
+        && !m_inCutScene
+        && !g_pBaldurChitin->GetObjectGame()->GetGameSave()->m_cutScene
+        && CanAct()
+        && (m_baseStats.m_flags & 0x80000000) == 0) {
+        CGameAIBase::ProcessScripts();
+    }
+}
+
 // 0x72B9A0 (virtual)
 void CGameSprite::ProcessAI()
 {
-    if (!ProcessEffectList()) {
-        return;
-    }
-
+    // Function-local scratch at 0x8F9928, distinct from m_aiDoAction (0x8F9A18).
+    static CAIAction controlAction;
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
 
@@ -12972,11 +13437,55 @@ void CGameSprite::ProcessAI()
         pWorld->TogglePauseGame(0, 1, 0);
     }
 
+    // 0x72BAD7..0x72BB9A: arena opponents no longer reveal the local map.
+    if (pGame->m_gameSave.m_bArenaMode
+        && g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+        && g_pChitin->cNetwork.m_idLocalPlayer != m_remotePlayerID) {
+        if (m_pArea != NULL && m_pArea->m_visibility.IsCharacterIdOnMap(m_id)) {
+            m_pArea->m_visibility.RemoveCharacter(m_pos, m_id, m_visibleTerrainTable);
+        }
+        if (m_typeAI.m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
+            m_typeAI.m_nEnemyAlly = CAIObjectType::EA_ARENAPC;
+            m_liveTypeAI.m_nEnemyAlly = CAIObjectType::EA_ARENAPC;
+            m_startTypeAI.m_nEnemyAlly = CAIObjectType::EA_ARENAPC;
+        }
+    }
+
     if (m_userCommandPause > 0) {
         m_baseStats.m_flags &= 0x7FFFFFFF;
     }
-    if (m_nCommandPause > 0) {
-        m_nCommandPause--;
+    if (m_poisonSoundTimer > 0) {
+        m_poisonSoundTimer--;
+    }
+
+    // 0x72BBC3..0x72C0CF: mode 0x142 temporarily fixes the walk scale at six.
+    auto updateMoveDelta = [this]() {
+        INT dx = m_posDest.x - m_pos.x;
+        INT dy = m_posDest.y - m_pos.y;
+        INT distance = static_cast<INT>(sqrt(static_cast<double>(dx * dx + dy * dy * 16 / 9)) + 0.5);
+        if (distance == 0) {
+            m_posDelta = CPoint(0, 0);
+        } else {
+            m_posDelta.x = (dx << EXACT_SCALE) * m_animation.GetMoveScale() / distance;
+            m_posDelta.y = ((dy * 4 / 3) << EXACT_SCALE) * m_animation.GetMoveScale() / distance;
+        }
+    };
+    if (pGame->m_gameSave.m_mode == 0x142) {
+        if (!field_72AA) {
+            field_72A8 = m_animation.GetMoveScale();
+            field_72AA = TRUE;
+            m_animation.SetMoveScale(6);
+            if (field_72A8 != 6) updateMoveDelta();
+        } else if (m_animation.GetMoveScale() != 6) {
+            field_72AA = TRUE;
+            m_animation.SetMoveScale(6);
+            updateMoveDelta();
+        }
+    } else if (field_72AA) {
+        field_72AA = FALSE;
+        m_animation.SetMoveScale(field_72A8);
+        field_562C = 1;
+        if (field_72A8 != 6) updateMoveDelta();
     }
 
     m_randValue = rand() % 0x7FFF;
@@ -12988,16 +13497,37 @@ void CGameSprite::ProcessAI()
         SetSequence(SEQ_TWITCH);
     }
 
-    if (m_pPath == NULL && m_nSequence == SEQ_WALK) {
-        if (m_animation.m_animation != NULL
-            && m_animation.m_nSequence != SEQ_WALK) {
-            SetIdleSequence();
+    if (m_pArea == NULL && (m_derivedStats.m_generalState & STATE_DEAD) != 0) {
+        if (!ProcessEffectList()) return;
+        BOOL instant = pGame->GetRuleTables().m_lInstantActions.Find(m_curAction.GetActionID()) != NULL;
+        if (!instant || (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                           && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA)) {
+            SetCurrAction(GetNextAction(controlAction));
+            m_interrupt = FALSE;
+        } else {
+            do {
+                ResolveInstants(FALSE);
+                instant = pGame->GetRuleTables().m_lInstantActions.Find(m_curAction.GetActionID()) != NULL;
+            } while (instant && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                                     && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA));
         }
+        return;
+    }
+
+    if (m_pPath == NULL && m_nSequence == SEQ_WALK
+        && GetVertListType() != CGameObject::LIST_FLIGHT) {
+        SetIdleSequence();
     }
 
     if (m_bSelected && !Orderable(FALSE)) {
         Unselect();
         pGame->SelectToolbar();
+    }
+
+    // 0x72C247..0x72C268: only the owning player processes networked actions.
+    if (g_pChitin->cNetwork.GetServiceProvider() != CNetwork::SERV_PROV_NULL
+        && g_pChitin->cNetwork.m_idLocalPlayer != m_remotePlayerID) {
+        return;
     }
 
     SHORT curActionId = m_curAction.GetActionID();
@@ -13020,94 +13550,455 @@ void CGameSprite::ProcessAI()
         m_dialogWait = 0;
     }
 
+    if (m_dialogWait > 0 && !m_pendingTriggers.IsEmpty()) {
+        SHORT triggerId = m_pendingTriggers.GetHead()->m_triggerID;
+        if (triggerId == CAITRIGGER_ATTACKEDBY || triggerId == CAITRIGGER_HITBY) {
+            m_dialogWait = 0;
+        }
+    }
+
+    if (m_curAction.GetActionID() == CAIAction::PROTECTPOINT
+        && GetAIType().m_nEnemyAlly >= CAIObjectType::EA_EVILCUTOFF) {
+        ClearActions(FALSE);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageDropPath(m_id, m_id), FALSE);
+        CAIAction emptyAction;
+        emptyAction.m_specificID2 = -1;
+        emptyAction.m_dest = CPoint(-1, -1);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddAction(emptyAction, m_id, m_id), FALSE);
+    }
+
     if (m_curAction.GetActionID() == CAIAction::NO_ACTION
         && !m_queuedActions.IsEmpty()) {
-        SetCurrAction(GetNextAction(m_aiDoAction));
+        SetCurrAction(GetNextAction(controlAction));
         m_interrupt = FALSE;
         m_actionCount = 0;
         m_nCommandPause = 0;
     }
 
+    if (m_curAction.GetActionID() == CAIAction::NO_ACTION) {
+        m_inCutScene = FALSE;
+        m_nCommandPause = 0;
+    }
+
+    SHORT portrait = pGame->GetCharacterPortraitNum(m_id);
+    if (((portrait != -1 && static_cast<DWORD>(field_44A) % 16 == static_cast<DWORD>(m_id) % 16)
+            || static_cast<DWORD>(field_44A) % 2048 == static_cast<DWORD>(m_id) % 2048)
+        && (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+            || g_pChitin->cNetwork.m_idLocalPlayer == m_remotePlayerID)) {
+        if (pGame->GetCharacterPortraitNum(m_id) != -1 && m_nSequence != SEQ_WALK) {
+            JumpToPoint(m_pos, FALSE);
+        }
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(
+            new CMessageSpriteUpdate(this, m_id, m_id), FALSE);
+    }
+
+    if (pGame->GetCharacterPortraitNum(m_id) != -1
+        && static_cast<DWORD>(field_44A) % 2051 == static_cast<DWORD>(m_id) % 2051) {
+        CheckFatigue();
+    }
+
     BOOL bWorldTimerActive = pGame->GetWorldTimer()->m_active;
-    if (!bWorldTimerActive || m_inCutScene) {
+    if (bWorldTimerActive && m_nUnselectableCounter > 0) {
+        m_nUnselectableCounter--;
+    }
+    if (!bWorldTimerActive) {
         if (m_curAction.GetActionID() == CAIAction::NO_ACTION
             && !m_queuedActions.IsEmpty()) {
-            SetCurrAction(GetNextAction(m_aiDoAction));
+            SetCurrAction(GetNextAction(controlAction));
             m_interrupt = FALSE;
         }
 
-        ResolvePausedAction(&m_curAction, m_queuedActions.GetHeadPosition());
+        if (!m_interrupt || (m_baseStats.m_flags & 0x80000000) != 0
+            || (m_userCommandPause <= 0 && m_nCommandPause <= 0)) {
+            ResolvePausedAction(&m_curAction, m_queuedActions.GetHeadPosition());
+        } else {
+            POSITION pos = m_queuedActions.GetHeadPosition();
+            if (pos != NULL) {
+                CAIAction* nextAction = m_queuedActions.GetNext(pos);
+                ResolvePausedAction(nextAction, pos);
+            }
+        }
 
         if (m_interrupt && (m_baseStats.m_flags & 0x80000000) == 0) {
-            SetCurrAction(GetNextAction(m_aiDoAction));
+            SetCurrAction(GetNextAction(controlAction));
             m_interrupt = FALSE;
         }
 
-        BOOL bResolveAction = bWorldTimerActive;
-        if (!bWorldTimerActive) {
-            bResolveAction = g_pBaldurChitin->GetObjectGame()
+        BOOL bResolveAction = g_pBaldurChitin->GetObjectGame()
                                  ->GetRuleTables()
                                  .m_lInstantActions.Find(m_curAction.GetActionID())
                 != NULL;
-        }
 
         if (bResolveAction
             && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
                 && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA)) {
-            // TODO INCOMPLETE: this cutscene fast path stands in for the
-            // unrecovered active branch at 0x72DAC5. Runtime traces show active
-            // cutscene sprites use dropNonInstants=TRUE; paused/timer-stopped
-            // instant-only resolution still uses FALSE.
-            ResolveInstants(bWorldTimerActive);
+            ResolveInstants(FALSE);
         }
 
-        if (!m_groupMove) {
-            ResolveTargetPoint(&m_curAction, m_queuedActions.GetHeadPosition());
-        }
         return;
     }
 
-    if (m_nUnselectableCounter > 0) {
-        m_nUnselectableCounter--;
+    if (!m_active || !m_activeAI || !m_activeImprisonment) {
+        if (static_cast<DWORD>(field_44A) % 16 == static_cast<DWORD>(m_id) % 16
+            && m_userCommandPause <= 0 && m_nCommandPause <= 0
+            && (field_3428 & 7) == 0
+            && ((m_derivedStats.m_generalState & STATE_DEAD) == 0 || field_558E != 0)) {
+            field_54C++;
+            field_558E = TRUE;
+            BOOL bProcessScripts = m_curAction.GetActionID() == CAIAction::NO_ACTION
+                || !m_pendingTriggers.IsEmpty() || field_550 >= 120 || field_552 > 0;
+            if (!bProcessScripts) {
+                CRect view(m_pArea->m_cInfinity.rViewPort);
+                INT viewX, viewY;
+                m_pArea->m_cInfinity.GetViewPosition(viewX, viewY);
+                view.OffsetRect(viewX, viewY);
+                bProcessScripts = view.PtInRect(m_pos);
+            }
+            if (bProcessScripts) {
+                if ((m_derivedStats.m_generalState & STATE_DEAD) != 0) field_558E = FALSE;
+                if (!m_pendingTriggers.IsEmpty()) field_552 = 5;
+                ProcessPendingTriggers();
+                if (field_552 > 0) field_552--;
+                field_550 = 0;
+            } else {
+                field_550++;
+            }
+            m_userCommandPause = 0;
+            m_nCommandPause = 0;
+        }
+        if (m_curAction.GetActionID() == CAIAction::NO_ACTION && !m_queuedActions.IsEmpty()) {
+            SetCurrAction(GetNextAction(controlAction));
+            m_interrupt = FALSE;
+        }
+        BOOL bInstant = pGame->GetRuleTables().m_lInstantActions.Find(m_curAction.GetActionID()) != NULL;
+        if (!bInstant || (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                            && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA)) {
+            SetCurrAction(GetNextAction(controlAction));
+            m_interrupt = FALSE;
+        } else {
+            do {
+                ResolveInstants(FALSE);
+                bInstant = pGame->GetRuleTables().m_lInstantActions.Find(m_curAction.GetActionID()) != NULL;
+            } while (bInstant && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                                     && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA));
+        }
+        return;
     }
 
     m_userCommandPause--;
     m_nCommandPause--;
     field_44A++;
 
-    // TODO INCOMPLETE: 0x72B9A0 still has unrecovered active-combat branches
-    // for morale failure, modal actions, berserk, panic and invisibility. The
-    // recovered path below keeps the exact paused action loop used by chapter
-    // text before delegating active script selection to the recovered
-    // CGameAIBase implementation until those branches are ported.
-    CGameAIBase::ProcessAI();
-
-    // 0x72DA32: script timers tick every 16th AI frame, staggered per id, so
-    // TimerActive() expires and the 00AMVW wander loop repaces (2-5s).
-    if (((m_id ^ field_44A) & 0xF) == 0) {
-        CheckTimers(1);
+    BOOL bControlledAction = FALSE;
+    if ((m_derivedStats.m_generalState & STATE_DEAD) == 0 && !CheckMorale()) {
+        if (!m_moraleFailure) {
+            m_moraleFailure = TRUE;
+            if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                || g_pChitin->cNetwork.m_idLocalPlayer == m_remotePlayerID) {
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageSpriteUpdate(this, m_id, m_id), FALSE);
+            }
+            PlaySound(SOUND_MORALE, TRUE, FALSE, FALSE);
+            BYTE choice = static_cast<BYTE>(rand() % 100);
+            if (choice < 10) {
+                FeedBack(FEEDBACK_MORALEFAILURE_PANIC, 0, 0, 0, -1, 0, 0);
+                controlAction.m_actionID = CAIAction::PANIC;
+                controlAction.m_specificID = 0;
+                controlAction.m_specificID2 = -1;
+                m_baseStats.m_generalState |= STATE_PANIC;
+            } else if (choice < 90) {
+                FeedBack(FEEDBACK_MORALEFAILURE_RUN, 0, 0, 0, -1, 0, 0);
+                controlAction.m_actionID = CAIAction::RUNAWAYFROMNOINTERRUPT;
+                controlAction.m_specificID = LONG_MAX;
+                controlAction.m_specificID2 = 0;
+                m_baseStats.m_generalState |= STATE_PANIC;
+            } else {
+                FeedBack(FEEDBACK_MORALEFAILURE_BERSERK, 0, 0, 0, -1, 0, 0);
+                m_berserkActive = TRUE;
+                controlAction.m_actionID = CAIAction::BERSERK;
+                controlAction.m_specificID = LONG_MAX;
+                controlAction.m_specificID2 = 0;
+            }
+            controlAction.m_specificID3 = 0;
+            controlAction.m_dest = CPoint(-1, -1);
+            controlAction.m_string1 = "";
+            controlAction.m_string2 = "";
+            controlAction.m_internalFlags = 0;
+            ClearActions(FALSE);
+            m_interrupt = TRUE;
+            AddAction(controlAction);
+        }
+        bControlledAction = TRUE;
+    } else {
+        if (m_moraleFailure) {
+            m_moraleFailure = FALSE;
+            if (g_pChitin->cNetwork.GetServiceProvider() == CNetwork::SERV_PROV_NULL
+                || g_pChitin->cNetwork.m_idLocalPlayer == m_remotePlayerID) {
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageSpriteUpdate(this, m_id, m_id), FALSE);
+            }
+            ClearActions(FALSE);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageDropPath(m_id, m_id), FALSE);
+            SetCurrAction(GetNextAction(controlAction));
+            m_baseStats.m_generalState &= ~STATE_PANIC;
+            m_derivedStats.m_generalState &= ~STATE_PANIC;
+        }
+        BOOL bDialogPause = m_dialogWait > 0
+            && m_typeAI.m_nEnemyAlly < CAIObjectType::EA_EVILCUTOFF
+            && (m_derivedStats.m_generalState & STATE_SLEEPING) == 0
+            && m_bAllowDialogInterrupt
+            && !m_derivedStats.m_bIgnoreDialogPause;
+        if (bDialogPause) {
+            m_dialogWait--;
+            if (m_nSequence != GetIdleSequence()
+                && m_nSequence != SEQ_DIE
+                && m_nSequence != SEQ_SLEEP
+                && m_nSequence != SEQ_TWITCH) {
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageSetSequence(static_cast<BYTE>(GetIdleSequence()), m_id, m_id), FALSE);
+            }
+            CGameObject* pTarget = NULL;
+            CGameObjectArray* pObjects = pGame->GetObjectArray();
+            if (pObjects->GetShare(m_dialogWaitTarget, CGameObjectArray::THREAD_ASYNCH,
+                    &pTarget, INFINITE) == CGameObjectArray::SUCCESS) {
+                if (m_nDirection != GetDirection(pTarget->GetPos()) && m_nSequence != SEQ_SLEEP) {
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                        new CMessageSetDirection(pTarget->GetPos(), m_id, m_id), FALSE);
+                }
+                pObjects->ReleaseShare(m_dialogWaitTarget, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+            if (m_pPath != NULL) {
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                    new CMessageDropPath(m_id, m_id), FALSE);
+            }
+            bControlledAction = TRUE;
+        } else if (((m_id ^ field_44A) & 0xF) == 0) {
+            CheckTimers(1);
+        }
     }
 
-    // 0x72D816: per-round modal / passive-ability update (bard song, search,
-    // stealth, turn undead).  The binary also runs a nearest-enemy acquisition
-    // pass (0x72FBF0) immediately before this; that remains unrecovered.
-    CheckModal();
+    BOOL bCanAct = CanAct();
+    if (!bControlledAction && bCanAct && (m_derivedStats.m_generalState & STATE_HELPLESS) != 0) {
+        if (m_curAction.GetActionID() != CAIAction::NO_ACTION) {
+            controlAction = CAIAction::NULL_ACTION;
+            ClearActions(FALSE);
+            DropPath();
+            m_interrupt = TRUE;
+            AddAction(controlAction);
+        }
+        field_727E = TRUE;
+        ApplyTriggers();
+        bControlledAction = TRUE;
+    } else if (!bControlledAction && bCanAct
+        && (m_derivedStats.m_generalState & STATE_BERSERK) != 0
+        && m_berserkActive) {
+        UpdateBerserkActive();
+        if (m_curAction.GetActionID() != CAIAction::ATTACK
+            && m_curAction.GetActionID() != CAIAction::BERSERK) {
+            controlAction.m_actionID = CAIAction::BERSERK;
+            controlAction.m_specificID = LONG_MAX;
+            controlAction.m_specificID2 = 0;
+            controlAction.m_specificID3 = 0;
+            controlAction.m_dest = CPoint(-1, -1);
+            controlAction.m_string1 = "";
+            controlAction.m_string2 = "";
+            controlAction.m_internalFlags = 0;
+            ClearActions(FALSE);
+            DropPath();
+            m_interrupt = TRUE;
+            AddAction(controlAction);
+        }
+        field_727E = TRUE;
+        ApplyTriggers();
+        bControlledAction = TRUE;
+    } else if (!bControlledAction && bCanAct
+        && (m_derivedStats.m_generalState & STATE_FEEBLEMINDED) != 0) {
+        if (m_curAction.GetActionID() != CAIAction::NO_ACTION) {
+            controlAction = CAIAction::NULL_ACTION;
+            ClearActions(FALSE);
+            DropPath();
+            m_interrupt = TRUE;
+            AddAction(controlAction);
+        }
+        field_727E = TRUE;
+        ApplyTriggers();
+        bControlledAction = TRUE;
+    }
+
+    if (!bControlledAction && bCanAct
+        && (m_derivedStats.m_generalState & STATE_CONFUSED) != 0) {
+        if (static_cast<DWORD>(field_44A) % 100 == static_cast<DWORD>(m_id) % 100) {
+            INT choice = rand() % 10;
+            if (choice < 3) {
+                controlAction.m_actionID = 184; // Original action at 0x8478E4.
+                controlAction.m_specificID = LONG_MAX;
+                controlAction.m_dest = CPoint(-1, -1);
+            } else if (choice < 6) {
+                controlAction = CAIAction::NULL_ACTION;
+            } else {
+                controlAction.m_actionID = CAIAction::GROUPATTACK;
+                controlAction.m_acteeID.Set(CAIObjectType::ANYONE);
+                controlAction.m_specificID = 0;
+            }
+            if (choice < 3 || choice >= 6) {
+                controlAction.m_specificID2 = 0;
+                controlAction.m_specificID3 = 0;
+                controlAction.m_string1 = "";
+                controlAction.m_string2 = "";
+                controlAction.m_internalFlags = 0;
+            }
+            ClearActions(FALSE);
+            DropPath();
+            m_interrupt = TRUE;
+            AddAction(controlAction);
+        }
+        field_727E = TRUE;
+        ApplyTriggers();
+        bControlledAction = TRUE;
+    } else if (!bControlledAction && bCanAct
+        && m_derivedStats.m_spellStates[SPLSTATE_ANIMAL_RAGE]) {
+        SHORT actionId = m_curAction.GetActionID();
+        BYTE enemyAlly = m_typeAI.m_nEnemyAlly;
+        BOOL bReplaceAction = FALSE;
+        BYTE targetEnemyAlly = 0;
+        if (actionId != 149) { // Original exempt action at 0x84789E.
+            if (enemyAlly < CAIObjectType::EA_EVILCUTOFF) {
+                if (enemyAlly <= CAIObjectType::EA_GOODCUTOFF
+                    && (actionId != CAIAction::ATTACKREEVALUATE
+                        || m_curAction.m_acteeID.m_nEnemyAlly < CAIObjectType::EA_EVILCUTOFF)) {
+                    bReplaceAction = TRUE;
+                    targetEnemyAlly = CAIObjectType::EA_EVILCUTOFF;
+                }
+            } else if (actionId != CAIAction::ATTACKREEVALUATE
+                || m_curAction.m_acteeID.m_nEnemyAlly > CAIObjectType::EA_GOODCUTOFF) {
+                bReplaceAction = TRUE;
+                targetEnemyAlly = CAIObjectType::EA_GOODCUTOFF;
+            }
+        }
+        if (bReplaceAction) {
+            controlAction.m_actionID = CAIAction::ATTACKREEVALUATE;
+            controlAction.m_specificID = 0;
+            controlAction.m_specificID2 = -1;
+            controlAction.m_specificID3 = 0;
+            controlAction.m_dest = CPoint(-1, -1);
+            controlAction.m_string1 = "";
+            controlAction.m_string2 = "";
+            controlAction.m_internalFlags = 0;
+            CAIObjectType target(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+            target.m_nEnemyAlly = targetEnemyAlly;
+            controlAction.m_acteeID.Set(target);
+            controlAction.m_specificID = 45;
+            ClearActions(FALSE);
+            DropPath();
+            m_interrupt = TRUE;
+            AddAction(controlAction);
+        }
+        field_727E = TRUE;
+        ApplyTriggers();
+        bControlledAction = TRUE;
+    } else if (!bControlledAction && bCanAct
+        && (m_derivedStats.m_spellStates[SPLSTATE_179]
+            || ((m_derivedStats.m_generalState & STATE_CHARMED) != 0
+                && m_startTypeAI.m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF
+                && m_typeAI.m_nEnemyAlly == CAIObjectType::EA_CHARMED_PC))) {
+        if (m_curAction.GetActionID() != CAIAction::NO_ACTION) {
+            controlAction = CAIAction::NULL_ACTION;
+            ClearActions(FALSE);
+            DropPath();
+            m_interrupt = TRUE;
+            AddAction(controlAction);
+        }
+        field_727E = TRUE;
+        ApplyTriggers();
+        bControlledAction = TRUE;
+    }
+
+    if (!bControlledAction && field_727E != 0) {
+        field_727E = FALSE;
+        if (m_curAction.GetActionID() != CAIAction::NO_ACTION) {
+            controlAction = CAIAction::NULL_ACTION;
+            ClearActions(FALSE);
+            DropPath();
+            m_interrupt = TRUE;
+            AddAction(controlAction);
+        }
+        ApplyTriggers();
+        bControlledAction = TRUE;
+    }
+
+    if (!bControlledAction) {
+        UpdateBerserkActive();
+        CheckModal();
+        if (m_userCommandPause > 0 || m_nCommandPause > 0) {
+            ClearTriggers();
+        }
+        if (static_cast<DWORD>(field_44A) % 16 == static_cast<DWORD>(m_id) % 16
+            && m_userCommandPause <= 0
+            && m_nCommandPause <= 0
+            && (field_3428 & 7) == 0
+            && ((m_derivedStats.m_generalState & STATE_DEAD) == 0 || field_558E != 0)) {
+            field_54C++;
+            field_558E = TRUE;
+            BOOL bProcessScripts = m_curAction.GetActionID() == CAIAction::NO_ACTION
+                || !m_pendingTriggers.IsEmpty()
+                || field_550 >= 120
+                || field_552 > 0;
+            if (!bProcessScripts) {
+                CRect view(m_pArea->m_cInfinity.rViewPort);
+                INT viewX, viewY;
+                m_pArea->m_cInfinity.GetViewPosition(viewX, viewY);
+                view.OffsetRect(viewX, viewY);
+                bProcessScripts = view.PtInRect(m_pos);
+            }
+            if (bProcessScripts) {
+                if ((m_derivedStats.m_generalState & STATE_DEAD) != 0) {
+                    field_558E = FALSE;
+                }
+                if (!m_pendingTriggers.IsEmpty()) {
+                    field_552 = 5;
+                }
+                ProcessPendingTriggers();
+                if (field_552 > 0) {
+                    field_552--;
+                }
+                field_550 = 0;
+            } else {
+                field_550++;
+            }
+            m_userCommandPause = 0;
+            m_nCommandPause = 0;
+        }
+        if (m_curAction.GetActionID() == CAIAction::NO_ACTION && !m_queuedActions.IsEmpty()) {
+            SetCurrAction(GetNextAction(controlAction));
+            m_interrupt = FALSE;
+        }
+    }
 
     if (ProcessEffectList()
-        && m_pArea != NULL
+        && m_posVertList != NULL
         && (m_dialogWait < 1
-            || m_typeAI.m_nEnemyAlly >= CAIObjectType::EA_GOODCUTOFF
-            || m_bAllowDialogInterrupt == FALSE)) {
+            || m_typeAI.m_nEnemyAlly >= CAIObjectType::EA_EVILCUTOFF
+            || m_bAllowDialogInterrupt == FALSE
+            || m_derivedStats.m_bIgnoreDialogPause)) {
         BOOL bCanResolveInstants = (m_derivedStats.m_generalState & STATE_DEAD) == 0;
         bCanResolveInstants = bCanResolveInstants
             && IsHelpless() == FALSE
-            && (m_derivedStats.m_generalState & (STATE_STONE_DEATH | STATE_FROZEN_DEATH)) == 0;
+            && !m_derivedStats.m_bCasterHold
+            && (m_derivedStats.m_generalState & (STATE_STONE_DEATH | STATE_FROZEN_DEATH)) == 0
+            && (pGame->m_nTimeStop == 0 || pGame->m_nTimeStopCaster == m_id);
 
         BOOL bCurrentInstant = g_pBaldurChitin->GetObjectGame()
                                    ->GetRuleTables()
                                    .m_lInstantActions.Find(m_curAction.GetActionID())
             != NULL;
-        if (bCanResolveInstants) {
+        if ((m_derivedStats.m_generalState & STATE_DEAD) != 0
+            && (!bCurrentInstant
+                || (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                    && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA))) {
+            SetCurrAction(GetNextAction(controlAction));
+            m_interrupt = FALSE;
+        } else if (bCanResolveInstants) {
             do {
                 ResolveInstants(TRUE);
                 bCurrentInstant = g_pBaldurChitin->GetObjectGame()
@@ -13118,35 +14009,314 @@ void CGameSprite::ProcessAI()
                 && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
                     && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA));
         } else {
-            while (bCurrentInstant
-                && !(g_pChitin->cNetwork.GetSessionOpen() == TRUE
-                    && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA)) {
+            BOOL bSkipNetworkLeave = (m_derivedStats.m_generalState & STATE_DEAD) == 0
+                && g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA
+                && IsHelpless() == FALSE;
+            while (bCurrentInstant && !bSkipNetworkLeave) {
                 ResolveInstants(FALSE);
                 bCurrentInstant = g_pBaldurChitin->GetObjectGame()
                                       ->GetRuleTables()
                                       .m_lInstantActions.Find(m_curAction.GetActionID())
                     != NULL;
+                if (g_pChitin->cNetwork.GetSessionOpen() == TRUE
+                    && m_curAction.GetActionID() == CAIAction::LEAVEAREALUA) {
+                    break;
+                }
             }
         }
     }
 
-    // Keep the destination ground marker in sync with the current action. The
-    // binary's ProcessAI (0x72b9a0) resolves m_targetPoint each tick (via
-    // ResolvePausedAction, 0x72dd64); the recovered stub omitted it, so once a
-    // member stopped (action advanced to FACE/idle) m_targetPoint kept the old
-    // move destination and RenderMarkers (m_targetPoint.x != -1) drew the marker
-    // forever. ResolveTargetPoint is the side-effect-free core of that resolve:
-    // it sets the marker to the pending move's destination, or clears it (-1)
-    // for FACE/idle, so the marker disappears on arrival.
-    if (!m_groupMove) {
-        ResolveTargetPoint(&m_curAction, m_queuedActions.GetHeadPosition());
+}
+
+// 0x71D0B0
+void CGameSprite::CheckFatigue()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    ULONG now = pGame->GetWorldTimer()->m_gameTime;
+    ULONG period = 4 * CTimerWorld::TIMESCALE_MSEC_PER_SEC
+        * CTimerWorld::TIMESCALE_SEC_PER_MIN * CTimerWorld::TIMESCALE_MIN_PER_HOUR;
+    LONG fatigue = static_cast<LONG>((now - field_722A) / period);
+    if (fatigue > m_baseStats.m_fatigue) {
+        ITEM_EFFECT itemEffect;
+        CGameEffect::ClearItemEffect(&itemEffect, CGAMEEFFECT_FATIGUE);
+        itemEffect.effectAmount = fatigue;
+        itemEffect.dwFlags = 1;
+        itemEffect.durationType = 1;
+        CGameEffect* effect = CGameEffect::DecodeEffect(&itemEffect, m_pos, m_id, CPoint(-1, -1));
+        if (!m_derivedStats.m_cImmunitiesEffect.OnList(effect)
+            && m_derivedStats.m_activeEffectOpcodes.find(effect->m_effectID)
+                == m_derivedStats.m_activeEffectOpcodes.end()) {
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(effect, m_id, m_id), FALSE);
+            signed char modifier = static_cast<signed char>(atoi(pGame->GetRuleTables().m_tFatigueMod.GetAt(CPoint(0, fatigue))));
+            m_derivedStats.m_nLuck += modifier;
+            if (modifier != 0 && m_portraitIcons.Find(reinterpret_cast<int*>(39)) == NULL) {
+                m_portraitIcons.AddTail(reinterpret_cast<int*>(39));
+            }
+            if (fatigue > 6) {
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessagePlaySound(3, TRUE, TRUE, m_id, m_id), FALSE);
+            }
+        }
+    } else if (fatigue < m_baseStats.m_fatigue) {
+        field_722A = now - period * m_baseStats.m_fatigue;
+        if (m_baseStats.m_fatigue > 6) {
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessagePlaySound(3, TRUE, TRUE, m_id, m_id), FALSE);
+        }
+    }
+}
+
+// 0x71E750
+void CGameSprite::ApplyNewSkillBonuses(const CCreatureFileHeader& previousBase, CDerivedStats& previousStats)
+{
+    // The original is RET 8, folded with unrelated empty methods by the linker.
+}
+
+// 0x722820
+void CGameSprite::AddRacialAbilities()
+{
+    CAIObjectType typeAI(m_startTypeAI);
+    switch (typeAI.m_nRace) {
+    case CAIOBJECTTYPE_R_HUMAN:
+        if (typeAI.m_nSubRace == 1 || typeAI.m_nSubRace == 2) {
+            m_baseStats.m_generalState |= STATE_INFRAVISION;
+        }
+        break;
+    case CAIOBJECTTYPE_R_ELF:
+        UTIL_ASSERT(typeAI.m_nSubRace <= 2);
+        if (typeAI.m_nSubRace == 1) {
+            m_baseStats.m_generalState |= STATE_INFRAVISION;
+        }
+        break;
+    case CAIOBJECTTYPE_R_HALF_ELF:
+        UTIL_ASSERT(typeAI.m_nSubRace == 0);
+        break;
+    case CAIOBJECTTYPE_R_DWARF:
+        m_baseStats.m_generalState |= STATE_INFRAVISION;
+        UTIL_ASSERT(typeAI.m_nSubRace <= 2);
+        break;
+    case CAIOBJECTTYPE_R_HALFLING:
+        UTIL_ASSERT(typeAI.m_nSubRace <= 2);
+        break;
+    case CAIOBJECTTYPE_R_GNOME:
+        UTIL_ASSERT(typeAI.m_nSubRace <= 1);
+        if (typeAI.m_nSubRace == 1) {
+            m_baseStats.m_generalState |= STATE_INFRAVISION | STATE_NONDETECTION;
+            m_baseStats.field_3E = 14;
+        }
+        break;
+    case CAIOBJECTTYPE_R_HALF_ORC:
+        m_baseStats.m_generalState |= STATE_INFRAVISION;
+        UTIL_ASSERT(typeAI.m_nSubRace == 0);
+        break;
+    default:
+        UTIL_ASSERT(FALSE);
+    }
+
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    CString race = game->GetRuleTables().GetRaceString(typeAI.m_nRace, typeAI.m_nSubRace);
+    CString file = game->GetRuleTables().m_tRaceSpAb.GetAt(CRuleTables::SPECIAL_ABILITIES_FILE, race);
+    if (file != "*") {
+        C2DArray abilities;
+        abilities.Load(CResRef(file));
+        for (UINT row = 0; row < static_cast<UINT>(abilities.GetHeight()); ++row) {
+            CResRef spell(abilities.GetAt(CPoint(0, row)));
+            if (spell.GetResRefStr() != "*") {
+                UINT count = atol(abilities.GetAt(CPoint(1, row)));
+                if (count == 1) {
+                    UINT id = 0;
+                    if (game->m_innateSpells.Find(spell, id) == TRUE) {
+                        BOOL found = FALSE;
+                        for (const auto& entry : m_innateSpells.m_List) {
+                            if (entry.m_nID == id) {
+                                found = TRUE;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            AddSpecialAbility(spell, FALSE);
+                        }
+                    }
+                } else {
+                    for (UINT index = 0; index < count; ++index) {
+                        AddSpecialAbility(spell, FALSE);
+                    }
+                }
+            }
+        }
     }
 }
 
 // 0x71E760
-void CGameSprite::sub_71E760(CDerivedStats& DStats, int a2)
+void CGameSprite::AddNewSpecialAbilities(CDerivedStats& previousStats, BOOL feedBack)
 {
-    // TODO: Incomplete.
+    for (BYTE nClass = CAIOBJECTTYPE_C_BARBARIAN; nClass <= CAIOBJECTTYPE_C_WIZARD; ++nClass) {
+        if (m_derivedStats.GetClassLevel(nClass) != 0) {
+            INT oldLevel = previousStats.GetClassLevel(nClass);
+            AddClassAbilities(nClass, static_cast<SHORT>(m_derivedStats.GetClassLevel(nClass) - oldLevel), feedBack);
+        }
+    }
+
+    for (INT level = 0; level < m_derivedStats.m_nLevel - previousStats.m_nLevel; ++level) {
+        if ((m_typeAI.m_nRace == CAIOBJECTTYPE_R_ELF || m_typeAI.m_nRace == CAIOBJECTTYPE_R_GNOME)
+            && m_typeAI.m_nSubRace == 1) {
+            ++m_baseStats.m_resistMagicBase;
+        }
+    }
+}
+
+// 0x71E240
+void CGameSprite::ApplyNewFeatBonuses(const CCreatureFileHeader& previousBase, CDerivedStats& previousStats)
+{
+    auto acquired = [&](UINT feat) {
+        DWORD mask = 1u << (feat & 31);
+        return (previousBase.m_feats[feat >> 5] & mask) == 0
+            && (m_baseStats.m_feats[feat >> 5] & mask) != 0;
+    };
+    auto resistance = [](signed char& value) {
+        value = static_cast<signed char>(value + 5);
+        value = static_cast<signed char>(min(max(static_cast<INT>(value), 0), 100));
+    };
+
+    if (acquired(CGAMESPRITE_FEAT_AEGIS_OF_RIME)) resistance(m_baseStats.m_resistColdBase);
+    if (acquired(CGAMESPRITE_FEAT_AQUA_MORTIS)) resistance(m_baseStats.m_resistAcidBase);
+    if (acquired(CGAMESPRITE_FEAT_BULLHEADED)) ++m_baseStats.m_saveVSWillBase;
+    if (acquired(CGAMESPRITE_FEAT_DISCIPLINE)) ++m_baseStats.m_saveVSWillBase;
+    if (acquired(CGAMESPRITE_FEAT_GREAT_FORTITUDE)) m_baseStats.m_saveVSFortitudeBase += 2;
+    if (acquired(CGAMESPRITE_FEAT_IRON_WILL)) m_baseStats.m_saveVSWillBase += 2;
+    if (acquired(CGAMESPRITE_FEAT_LIGHTNING_REFLEXES)) m_baseStats.m_saveVSReflexBase += 2;
+    if (acquired(CGAMESPRITE_FEAT_LUCK_OF_HEROES)) {
+        ++m_baseStats.m_saveVSReflexBase;
+        ++m_baseStats.m_saveVSFortitudeBase;
+        ++m_baseStats.m_saveVSWillBase;
+    }
+    if (acquired(CGAMESPRITE_FEAT_SCION_OF_STORMS)) resistance(m_baseStats.m_resistElectricityBase);
+    if (acquired(CGAMESPRITE_FEAT_SNAKE_BLOOD)) ++m_baseStats.m_saveVSReflexBase;
+    if (acquired(CGAMESPRITE_FEAT_SPIRIT_OF_FLAME)) resistance(m_baseStats.m_resistFireBase);
+    if (acquired(CGAMESPRITE_FEAT_ENVENOM_WEAPON)) AddSpecialAbility(SPIN231, FALSE);
+    if (acquired(CGAMESPRITE_FEAT_MAXIMIZED_ATTACKS)) AddSpecialAbility(SPIN197, FALSE);
+    if (acquired(CGAMESPRITE_FEAT_WILDSHAPE_BOAR)) AddSpecialAbility(SPIN111, FALSE);
+    if (acquired(CGAMESPRITE_FEAT_WILDSHAPE_PANTHER)) AddSpecialAbility(SPIN245, FALSE);
+    if (acquired(CGAMESPRITE_FEAT_WILDSHAPE_SHAMBLER)) AddSpecialAbility(SPIN246, FALSE);
+
+    if (HasFeat(CGAMESPRITE_FEAT_STUNNING_FIST) == TRUE) {
+        INT level = static_cast<INT>(m_derivedStats.GetClassMaskLevel(0xFFF));
+        INT first = acquired(CGAMESPRITE_FEAT_STUNNING_FIST)
+            ? 1 : static_cast<INT>(previousStats.GetClassMaskLevel(0xFFF));
+        for (; first <= level; ++first) {
+            if (first % 4 == 0) AddSpecialAbility(SPIN232, FALSE);
+        }
+    }
+    if (acquired(CGAMESPRITE_FEAT_POWER_ATTACK)) AddSpecialAbility(SPIN275, FALSE);
+    if (acquired(CGAMESPRITE_FEAT_EXPERTISE)) AddSpecialAbility(SPIN276, FALSE);
+    if (acquired(CGAMESPRITE_FEAT_ARTERIAL_STRIKE)) AddSpecialAbility(SPIN277, FALSE);
+    if (acquired(CGAMESPRITE_FEAT_HAMSTRING)) AddSpecialAbility(SPIN278, FALSE);
+    if (acquired(CGAMESPRITE_FEAT_RAPID_SHOT)) AddSpecialAbility(SPIN279, FALSE);
+
+    if ((m_baseStats.m_feats[2] & (1u << (CGAMESPRITE_FEAT_TOUGHNESS & 31))) != 0) {
+        SHORT amount = static_cast<SHORT>(3 * (m_baseStats.m_featToughness - previousBase.m_featToughness));
+        m_baseStats.m_hitPoints += amount;
+        m_baseStats.m_maxHitPointsBase += amount;
+    }
+    if ((m_baseStats.m_feats[0] & (1u << CGAMESPRITE_FEAT_EXTRA_RAGE)) != 0
+        && m_baseStats.m_featExtraRage != previousBase.m_featExtraRage) {
+        CResRef ability;
+        if (m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_BARBARIAN) >= 15
+            && previousStats.GetClassLevel(CAIOBJECTTYPE_C_BARBARIAN) < 15) {
+            ability = SPIN260;
+        } else {
+            ability = SPIN236;
+        }
+        for (INT i = previousBase.m_featExtraRage; i < m_baseStats.m_featExtraRage; ++i) {
+            AddSpecialAbility(ability, FALSE);
+        }
+    }
+    if ((m_baseStats.m_feats[0] & (1u << CGAMESPRITE_FEAT_EXTRA_SMITING)) != 0) {
+        for (INT i = previousBase.m_featExtraSmiting; i < m_baseStats.m_featExtraSmiting; ++i) {
+            AddSpecialAbility(SPIN152, FALSE);
+        }
+    }
+    if ((m_baseStats.m_feats[0] & (1u << CGAMESPRITE_FEAT_EXTRA_TURNING)) != 0) {
+        for (INT i = previousBase.m_featExtraTurning; i < m_baseStats.m_featExtraTurning; ++i) {
+            AddSpecialAbility(SPIN970, FALSE);
+        }
+    }
+}
+
+// 0x722D50
+void CGameSprite::AddClassAbilities(BYTE nClass, SHORT nLevels, BOOL feedBack)
+{
+    CString ability;
+    CString type;
+    const C2DArray* table = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetClassAbilityTable(nClass, GetSpecialization());
+    if (table == NULL) return;
+
+    SHORT current = static_cast<SHORT>(GetActiveStats()->GetClassLevel(nClass));
+    SHORT first = nLevels == -1 ? 0 : static_cast<SHORT>(current - nLevels);
+    for (INT column = first; column < current && column < table->GetWidth(); ++column) {
+        for (INT row = 0; row < table->GetHeight(); ++row) {
+            ability = table->GetAt(CPoint(column, row));
+            if (ability == table->GetDefault()) continue;
+            type = ability.Left(3);
+            ability = ability.Right(ability.GetLength() - 3);
+            if (type == FA) {
+                FeedBack(FEEDBACK_GAINEDSPECIALABILITY, 0, 0, 0, atol(ability), 0, 0);
+            } else if (type == GA) {
+                AddSpecialAbility(CResRef(ability), feedBack);
+            } else if (type == RA) {
+                RemoveSpecialAbility(CResRef(ability));
+            } else if (type == AP) {
+                auto effects = BuildSubSpellEffects(this, CResRef(ability), 1);
+                for (auto* effect : effects) {
+                    if (effect != NULL) {
+                        effect->m_sourceRes = ability;
+                        if (GetObjectType() == CGameObject::TYPE_SPRITE) {
+                            AddEffect(effect, 1, FALSE, TRUE);
+                        }
+                    }
+                }
+            } else {
+                // __FILE__: C:\Projects\Icewind2\src\Baldur\ObjCreatureAI.cpp
+                // __LINE__: 24151
+                UTIL_ASSERT_MSG(FALSE, "Invalid ability type");
+            }
+        }
+
+        INT level = column + 1;
+        if (nClass == CAIOBJECTTYPE_C_BARBARIAN) {
+            if (level >= 11 && (level - 11) % 3 == 0) {
+                ++m_baseStats.m_resistAcidBase;
+                ++m_baseStats.m_resistColdBase;
+                ++m_baseStats.m_resistElectricityBase;
+                ++m_baseStats.m_resistFireBase;
+                ++m_baseStats.m_resistMissileBase;
+                ++m_baseStats.m_resistCrushingBase;
+                ++m_baseStats.m_resistPiercingBase;
+                ++m_baseStats.m_resistSlashingBase;
+            }
+        } else if (nClass == CAIOBJECTTYPE_C_CLERIC) {
+            if ((m_baseStats.m_specialization & SPECMASK_CLERIC) == SPECMASK_CLERIC_MASK && level == 1) {
+                CCreatureFileHeader previous = m_baseStats;
+                SetFeatValue(CGAMESPRITE_FEAT_BLIND_FIGHT, 1);
+                ApplyNewFeatBonuses(previous, m_derivedStats);
+            }
+        } else if (nClass == CAIOBJECTTYPE_C_MONK) {
+            if (level == 2 || level == 9) {
+                CCreatureFileHeader previous = m_baseStats;
+                SetFeatValue(level == 2 ? CGAMESPRITE_FEAT_DEFLECT_ARROWS : CGAMESPRITE_FEAT_IMPROVED_EVASION, 1);
+                ApplyNewFeatBonuses(previous, m_derivedStats);
+            } else if (level == 13) {
+                m_baseStats.m_resistMagicBase += 23;
+            } else if (level > 13) {
+                ++m_baseStats.m_resistMagicBase;
+            }
+            if (level % 5 == 0) ++m_baseStats.field_3E;
+        }
+    }
+    if (nClass == CAIOBJECTTYPE_C_MONK) SetMonkAbilities();
+    GetAIType();
+    INT attack = 0, attacks = 0, interval = 0;
+    g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetBaseCombatValues(this, attack, attacks, interval, FALSE);
+    m_baseStats.m_numberOfAttacksBase = static_cast<BYTE>(min(static_cast<BYTE>(attacks), 5));
 }
 
 // 0x71F480
@@ -13260,6 +14430,70 @@ CString CGameSprite::GetRaceLabel(BYTE nRace)
     case 0xFF: sRace = "NO_RACE"; break;
     }
     return sRace;
+}
+
+// 0x75A4B0
+SHORT CGameSprite::Berserk()
+{
+    m_curAction.m_specificID--;
+    if (!m_berserkActive || m_curAction.m_specificID <= 0) {
+        return ACTION_DONE;
+    }
+
+    CAIObjectType target(0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0);
+    CAIAction action;
+    if (rand() % 100 < 25) {
+        BOOL seeInvisible = GetCanSeeInvisible();
+        SHORT range = GetVisualRange();
+        LONG nearest = m_pArea->GetNearest(m_id, CAIObjectType::ANYONE, range,
+            m_terrainTable, TRUE, seeInvisible, FALSE, 0, FALSE);
+        if (nearest != CGameObjectArray::INVALID_INDEX) {
+            AddAction(m_curAction);
+            target.m_nInstance = nearest;
+            action = CAIAction(CAIAction::ATTACK, target, 0, 0, 0);
+        }
+        AddAction(action);
+    } else {
+        CAIObjectType enemy = m_typeAI.GetEnemyOf();
+        BOOL seeInvisible = GetCanSeeInvisible();
+        SHORT range = GetVisualRange();
+        LONG nearest = m_pArea->GetNearest(m_id, enemy, range,
+            m_terrainTable, TRUE, seeInvisible, FALSE, 0, FALSE);
+        AddAction(m_curAction);
+        if (nearest == CGameObjectArray::INVALID_INDEX) {
+            action = CAIAction(CAIAction::WAIT, 6);
+        } else {
+            target.m_nInstance = nearest;
+            action = CAIAction(CAIAction::ATTACK, target, 0, 0, 0);
+        }
+        AddAction(action);
+    }
+    return ACTION_DONE;
+}
+
+// 0x72FBF0
+void CGameSprite::UpdateBerserkActive()
+{
+    if (!CanAct()) {
+        m_berserkActive = FALSE;
+    }
+    if (m_derivedStats.m_spellStates[SPLSTATE_BERSERK_ALWAYS_ACTIVE]) {
+        m_berserkActive = TRUE;
+        return;
+    }
+    if (static_cast<DWORD>(field_44A) % 100 != static_cast<DWORD>(m_id) % 100) {
+        return;
+    }
+    if (GetVertListType() != CGameObject::LIST_FRONT) {
+        m_berserkActive = FALSE;
+        return;
+    }
+    CAIObjectType enemy = m_typeAI.GetEnemyOf();
+    BOOL seeInvisible = GetCanSeeInvisible();
+    SHORT range = GetVisualRange();
+    LONG nearest = m_pArea->GetNearest(m_id, enemy, range, m_terrainTable,
+        TRUE, seeInvisible, FALSE, 0, FALSE);
+    m_berserkActive = nearest != CGameObjectArray::INVALID_INDEX;
 }
 
 // 0x72FD20
@@ -13984,8 +15218,6 @@ STRREF CGameSprite::GetNameRef()
     return strName;
 }
 
-// 0x727B80
-//
 // Visibility filter used by every targeting / "find-nearest" path. Returns
 // FALSE if this sprite is hidden from an observer described by
 // `bSeesInvisible`, TRUE otherwise.
@@ -13996,6 +15228,7 @@ STRREF CGameSprite::GetNameRef()
 // re-exposed: bit 0 of `m_baseStats.m_visible` is the force-visible
 // flag CGameEffectForceVisible::ApplyEffect sets on an improved-invisible
 // target and CGameEffectInvisible::ApplyEffect clears.
+// 0x727B80
 BOOL CGameSprite::CheckInvisibility(BOOL bSeesInvisible)
 {
     if (bSeesInvisible == FALSE
@@ -14004,6 +15237,198 @@ BOOL CGameSprite::CheckInvisibility(BOOL bSeesInvisible)
         return FALSE;
     }
     return TRUE;
+}
+
+// 0x764810
+// #guess name: shared target gate for scripted casting and its status trigger.
+BOOL CGameSprite::CheckSpellTarget(CGameSprite* pTarget, DWORD a2)
+{
+    if ((m_derivedStats.m_generalState & STATE_DEAD) != 0
+        || pTarget == NULL
+        || (pTarget->m_derivedStats.m_generalState & STATE_DEAD) != 0
+        || (pTarget->m_baseStats.m_flags & 0x20000) != 0
+        || m_derivedStats.m_spellStates[SPLSTATE_HELD]
+        || (m_derivedStats.m_generalState & STATE_HELPLESS) != 0) {
+        return FALSE;
+    }
+    return pTarget->CheckInvisibility(GetCanSeeInvisible())
+        && !pTarget->m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY];
+}
+
+// 0x764880
+// #guess name: effect usefulness query shared by scripted casting and triggers.
+BOOL CGameSprite::CheckSpellUseful(CGameSprite* pTarget, INT nSpellId, DWORD flags)
+{
+    if (pTarget == NULL) {
+        CString caster(m_scriptName, sizeof(m_scriptName));
+        CString area(m_pArea->m_header.m_areaName);
+        CString diagnostic;
+        diagnostic.Format(_T("Target is NULL -- Area=%s  Caster=%s  SpellId=%d  Flags=%d"),
+            (LPCTSTR)area, (LPCTSTR)caster, nSpellId, flags);
+        return FALSE;
+    }
+    if (nSpellId == 0) {
+        CString caster(m_scriptName, sizeof(m_scriptName));
+        CString target(pTarget->m_scriptName, sizeof(pTarget->m_scriptName));
+        CString area(m_pArea->m_header.m_areaName);
+        CString diagnostic;
+        diagnostic.Format(_T("Spell Id not found -- Area=%s  Caster=%s  Target=%s  Flags==%d"),
+            (LPCTSTR)area, (LPCTSTR)caster, (LPCTSTR)target, flags);
+        return FALSE;
+    }
+    if (!m_derivedStats.m_spellStates.test(SPLSTATE_VOCALIZE)
+        && (m_derivedStats.m_generalState & STATE_SILENCED) != 0
+        && !HasFeat(CGAMESPRITE_FEAT_SUBVOCAL_CASTING)
+        && nSpellId != 2219) {
+        return FALSE;
+    }
+    CString spellName;
+    SpellIdToResRef(nSpellId, spellName);
+    if (spellName == "") {
+        return FALSE;
+    }
+    CSpell spell{CResRef(spellName)};
+    if (!spell.Demand()) {
+        return FALSE;
+    }
+    BYTE level = spell.GetLevel();
+    SHORT casterType = spell.GetCasterType();
+    if (((spell.GetItemFlags() & 0x2000) != 0 && (m_pArea->m_header.m_areaType & 1) == 0)
+        || m_derivedStats.m_disabledSpellTypes[casterType] == TRUE
+        || (casterType == 1 && m_derivedStats.m_nSpellFailureArcane >= 100)
+        || (casterType == 2 && m_derivedStats.m_nSpellFailureDivine >= 100)) {
+        spell.Release();
+        return FALSE;
+    }
+    TString immunityName;
+    immunityName = (LPCTSTR)spellName;
+    if (pTarget->m_derivedStats.m_cImmunitiesSpell.find(immunityName)
+        != pTarget->m_derivedStats.m_cImmunitiesSpell.end()) {
+        spell.Release();
+        return FALSE;
+    }
+    if (level < 9 && pTarget->m_derivedStats.m_cImmunitiesSpellLevel.m_levels[level] != FALSE) {
+        UINT id = 0;
+        CInfGame* game = g_pBaldurChitin->GetObjectGame();
+        if (level != 1
+            || (!game->m_innateSpells.Find(CResRef(spellName), id)
+                && !game->m_songs.Find(CResRef(spellName), id)
+                && !game->m_shapeshifts.Find(CResRef(spellName), id))) {
+            spell.Release();
+            return FALSE;
+        }
+    }
+    const Spell_ability_st* ability = NULL;
+    SHORT casterLevel = GetCasterLevel(&spell, 0, 0);
+    for (INT index = 0; index < spell.GetAbilityCount(); ++index) {
+        if (spell.GetAbility(index)->minCasterLevel > casterLevel) {
+            break;
+        }
+        ability = spell.GetAbility(index);
+    }
+    if (ability == NULL) {
+        spell.Release();
+        return FALSE;
+    }
+    BOOL useful = TRUE;
+    for (INT index = 0; index < ability->effectCount; ++index) {
+        // PE 0x764DFA pushes ability zero, even when the count comes from a
+        // later ability. This query builds effects but never applies them.
+        CGameEffect* effect = spell.BuildAbilityEffect(0, index, this, 0, 0, 0);
+        if (effect == NULL) {
+            continue;
+        }
+        switch (effect->m_effectID) {
+        case CGAMEEFFECT_BERSERK: useful = (pTarget->m_derivedStats.m_generalState & STATE_BERSERK) == 0; break;
+        case CGAMEEFFECT_CHARM: useful = (pTarget->m_derivedStats.m_generalState & STATE_CHARMED) == 0; break;
+        case CGAMEEFFECT_HASTE: useful = (pTarget->m_derivedStats.m_generalState & STATE_HASTED) == 0; break;
+        case CGAMEEFFECT_PANIC: useful = (pTarget->m_derivedStats.m_generalState & STATE_PANIC) == 0; break;
+        case CGAMEEFFECT_POISON: useful = (pTarget->m_derivedStats.m_generalState & STATE_POISONED) == 0; break;
+        case CGAMEEFFECT_SILENCE: useful = (pTarget->m_derivedStats.m_generalState & STATE_SILENCED) == 0; break;
+        case ICEWIND_CGAMEEFFECT_UNCONSCIOUSNESS:
+        case CGAMEEFFECT_SLEEP: useful = (pTarget->m_derivedStats.m_generalState & STATE_SLEEPING) == 0; break;
+        case CGAMEEFFECT_SLOW: useful = (pTarget->m_derivedStats.m_generalState & STATE_SLOWED) == 0; break;
+        case CGAMEEFFECT_STUN: useful = (pTarget->m_derivedStats.m_generalState & STATE_STUNNED) == 0; break;
+        case CGAMEEFFECT_INFRAVISION: useful = (pTarget->m_derivedStats.m_generalState & STATE_INFRAVISION) == 0; break;
+        case CGAMEEFFECT_BLUR: useful = (pTarget->m_derivedStats.m_generalState & STATE_BLUR) == 0; break;
+        case CGAMEEFFECT_NONDETECTION: useful = (pTarget->m_derivedStats.m_generalState & STATE_NONDETECTION) == 0; break;
+        case CGAMEEFFECT_BLINDNESS: useful = (pTarget->m_derivedStats.m_generalState & STATE_BLIND) == 0; break;
+        case CGAMEEFFECT_DISEASE: useful = (pTarget->m_derivedStats.m_generalState & STATE_DISEASED) == 0; break;
+        case CGAMEEFFECT_MIRRORIMAGE: useful = (pTarget->m_derivedStats.m_generalState & STATE_MIRRORIMAGE) == 0; break;
+        case CGAMEEFFECT_CONFUSION: useful = (pTarget->m_derivedStats.m_generalState & STATE_CONFUSED) == 0; break;
+        case CGAMEEFFECT_NON_CUMULATIVEAID: useful = (pTarget->m_derivedStats.m_generalState & STATE_AID) == 0; break;
+        case CGAMEEFFECT_NON_CUMULATIVEBLESS: useful = (pTarget->m_derivedStats.m_generalState & STATE_BLESS) == 0; break;
+        case CGAMEEFFECT_NON_CUMULATIVECHANT: useful = (pTarget->m_derivedStats.m_generalState & STATE_CHANT) == 0; break;
+        case CGAMEEFFECT_DEAFNESS: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_DEAFENED); break;
+        case CGAMEEFFECT_NON_CUMULATIVEDRAWUPONHOLYMIGHT: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_DRAW_UPON_HOLY_MIGHT); break;
+        case CGAMEEFFECT_SANCTUARY: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_SANCTUARY); break;
+        case CGAMEEFFECT_ENTANGLE: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_ENTANGLE); break;
+        case CGAMEEFFECT_WEBHOLD: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_WEB); break;
+        case CGAMEEFFECT_GREASEPOOL: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_GREASE); break;
+        case CGAMEEFFECT_STONESKINS: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_STONESKIN); break;
+        case ICEWIND_CGAMEEFFECT_PRAYER: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_BENEFICIAL_PRAYER); break;
+        case ICEWIND_CGAMEEFFECT_RECITATION: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_BENEFICIAL_RECITATION); break;
+        case ICEWIND_CGAMEEFFECT_CLOAKOFFEAR: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_CLOAK_OF_FEAR); break;
+        case ICEWIND_CGAMEEFFECT_SHROUDOFFLAME: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_SHROUD_OF_FLAME); break;
+        case ICEWIND_CGAMEEFFECT_HOPELESSNESS: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_HOPELESSNESS); break;
+        case ICEWIND_CGAMEEFFECT_PROTECTIONFROMEVIL: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_PROTECTION_FROM_EVIL); break;
+        case ICEWIND_CGAMEEFFECT_ARMOROFFAITH: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_ARMOR_OF_FAITH); break;
+        case ICEWIND_CGAMEEFFECT_NAUSEA: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_NAUSEA); break;
+        case ICEWIND_CGAMEEFFECT_DEATHWARD: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_DEATH_WARD); break;
+        case ICEWIND_CGAMEEFFECT_HOLYPOWER: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_HOLY_POWER); break;
+        case ICEWIND_CGAMEEFFECT_CONTROLUNDEAD:
+        case ICEWIND_CGAMEEFFECT_CHARM: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_CONTROLLED); break;
+        case ICEWIND_CGAMEEFFECT_OTILUKESRESILIENTSPHERE: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_OTILUKES_RESILIENT_SPHERE); break;
+        case ICEWIND_CGAMEEFFECT_BARKSKIN: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_BARKSKIN); break;
+        case ICEWIND_CGAMEEFFECT_FREEACTION: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_FREE_ACTION); break;
+        case ICEWIND_CGAMEEFFECT_ENTROPYSHIELD: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_ENTROPY_SHIELD); break;
+        case ICEWIND_CGAMEEFFECT_STORMSHELL: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_STORM_SHELL); break;
+        case ICEWIND_CGAMEEFFECT_PROTECTIONFROMELEMENTS: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_PROTECTION_FROM_THE_ELEMENTS); break;
+        case ICEWIND_CGAMEEFFECT_HOLDUNDEAD:
+        case CGAMEEFFECT_HOLDCREATURE: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_HELD); break;
+        case ICEWIND_CGAMEEFFECT_AEGIS: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_AEGIS); break;
+        case ICEWIND_CGAMEEFFECT_EXECUTIONERSEYES: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_EXECUTIONERS_EYES); break;
+        case ICEWIND_CGAMEEFFECT_TORTOISESHELL: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_TORTOISE_SHELL); break;
+        case ICEWIND_CGAMEEFFECT_BLINK: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_BLINK); break;
+        case ICEWIND_CGAMEEFFECT_PROTECTIONFORMARROWS: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_PROTECTION_FROM_NORMAL_MISSILES); break;
+        case ICEWIND_CGAMEEFFECT_TENSERSTRANSFORMATION: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_TENSERS_TRANSFORMATION); break;
+        case ICEWIND_CGAMEEFFECT_GLOBEOFINVULNERABILITY: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_GLOBE_OF_INVULNERABILITY); break;
+        case ICEWIND_CGAMEEFFECT_LOWERRESISTANCE: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_LOWER_RESISTANCE); break;
+        case ICEWIND_CGAMEEFFECT_BANE: useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_BANE); break;
+        case CGAMEEFFECT_INVISIBLE:
+            useful = pTarget->CheckInvisibility(FALSE);
+            break;
+        case CGAMEEFFECT_FEEBLEMINDEDNESS:
+        case ICEWIND_CGAMEEFFECT_ENFEEBLEMENT:
+            useful = (pTarget->m_derivedStats.m_generalState & STATE_FEEBLEMINDED) == 0
+                && !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_ENFEEBLED);
+            break;
+        case ICEWIND_CGAMEEFFECT_FIRESHIELD:
+            useful = !pTarget->m_derivedStats.m_spellStates.test(
+                effect->m_dwFlags != 0 ? SPLSTATE_BLUE_FIRESHIELD : SPLSTATE_RED_FIRESHIELD);
+            break;
+        case ICEWIND_CGAMEEFFECT_RIGHTEOUSWRATHOFFAITHFUL:
+            useful = !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_ALLIED_RIGHTEOUS_WRATH_OF_THE_FAITHFUL)
+                && !pTarget->m_derivedStats.m_spellStates.test(SPLSTATE_ALLIED_AND_SAME_ALIGNMENT_RIGHTEOUS_WRATH_OF_THE_FAITHFUL);
+            break;
+        case ICEWIND_CGAMEEFFECT_SETSPELLSTATE:
+            useful = !pTarget->m_derivedStats.m_spellStates.test(effect->m_dwFlags);
+            break;
+        case CGAMEEFFECT_IMMUNITYSPELL:
+        case ICEWIND_CGAMEEFFECT_IMMUNITYSPELL:
+            if (effect->m_dwFlags != 0) {
+                useful = static_cast<CGameEffectImmunitySpell*>(effect)->Evaluate(pTarget) == TRUE;
+            }
+            break;
+        }
+        delete effect;
+        if (!useful) {
+            spell.Release();
+            return FALSE;
+        }
+    }
+    spell.Release();
+    return useful;
 }
 
 // Followup half of `CGameSprite::ApplyCastingEffect`.  Called when the cast
@@ -16363,7 +17788,7 @@ BOOL CGameSprite::ProcessPersistantEffects(LONG deltaT)
 // follow-up to avoid applying the derivation twice.
 void CGameSprite::sub_71C0C0()
 {
-    sub_737990();
+    ApplyFallenStatus();
 
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     const CRuleTables& ruleTables = pGame->GetRuleTables();
@@ -16528,7 +17953,7 @@ void CGameSprite::sub_71C0C0()
 // stripped, the class levels are folded into Fighter, the experience is reset
 // to the start of the current level and the improved saving throws are added to
 // the base saves.  Shared with CInfGame::ReputationAdjustment.
-void CGameSprite::sub_737990()
+void CGameSprite::ApplyFallenStatus()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     UTIL_ASSERT(pGame != NULL);
@@ -16626,539 +18051,274 @@ void CGameSprite::sub_737990()
 }
 
 // 0x737EF0
-//
-// The ATTACK/ATTACKNOSOUND gate: bails out if the target is unreachable
-// (gone, flying off the front vert list, invisible, sanctuaried, or dead --
-// the dead case retargets the nearest same-type enemy instead), resolves the
-// current weapon's ability, flags ammo-out/charge-depleted weapons, then
-// checks range/LOS -- an in-range hit finalizes via ResolveAttack (0x739B60,
-// the real to-hit/damage resolver) or otherwise moves closer first.
 SHORT CGameSprite::Attack(CGameSprite* pTarget)
 {
-    if (pTarget == NULL) {
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    auto unreachable = [&]() {
         AutoPause(0x20);
-        CAITrigger targetUnreachable(CAITRIGGER_TARGETUNREACHABLE, m_curAction.m_acteeID, 0);
-        CMessage* message = new CMessageSetTrigger(targetUnreachable, m_id, m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        CAITrigger trigger(CAITRIGGER_TARGETUNREACHABLE, m_curAction.m_acteeID, 0);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
         return ACTION_ERROR;
-    }
-
-    if (pTarget->m_baseStats.m_bStealthMode == TRUE) {
-        return ACTION_ERROR;
-    }
-
-    UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
-
-    if (pTarget->m_animation.m_animation->GetListType() == CGameObject::LIST_FLIGHT /*#guess*/) {
-        AutoPause(0x20);
-        CAITrigger targetUnreachable(CAITRIGGER_TARGETUNREACHABLE, m_curAction.m_acteeID, 0);
-        CMessage* message = new CMessageSetTrigger(targetUnreachable, m_id, m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-        return ACTION_ERROR;
-    }
-
+    };
+    auto clearLastTarget = [&]() {
+        if (game->m_lastTarget == pTarget->m_id) {
+            game->m_lastClick = CPoint(-1, -1);
+            game->m_lastTarget = CGameObjectArray::INVALID_INDEX;
+        }
+    };
+    if (pTarget == NULL) return unreachable();
+    if (pTarget->m_baseStats.m_bStealthMode == 1) return ACTION_ERROR;
+    if (pTarget->m_animation.GetListType() == 2) return unreachable();
     if (!pTarget->CheckInvisibility(GetCanSeeInvisible())
         || pTarget->m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]) {
-        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-        if (pGame->m_lastTarget == pTarget->m_id) {
-            pGame->m_lastClick = CPoint(-1, -1);
-            pGame->m_lastTarget = CGameObjectArray::INVALID_INDEX;
-        }
-
-        AutoPause(0x20);
-        CAITrigger targetUnreachable(CAITRIGGER_TARGETUNREACHABLE, m_curAction.m_acteeID, 0);
-        CMessage* message = new CMessageSetTrigger(targetUnreachable, m_id, m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-        return ACTION_ERROR;
+        clearLastTarget();
+        return unreachable();
     }
-
-    if (pTarget->m_id == m_id) {
-        return ACTION_DONE;
-    }
-
-    if (pTarget->m_derivedStats.m_generalState & STATE_DEAD) {
-        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
-        if (pGame->m_lastTarget == pTarget->m_id) {
-            pGame->m_lastClick = CPoint(-1, -1);
-            pGame->m_lastTarget = CGameObjectArray::INVALID_INDEX;
-        }
-
+    if (pTarget->m_id == m_id) return ACTION_ERROR;
+    if ((pTarget->m_derivedStats.m_generalState & STATE_DEAD) != 0) {
+        clearLastTarget();
         AutoPause(0x20);
-
-        // The target died mid-swing: look for the nearest replacement of the
-        // same enemy type and queue a fresh attack against it. Either way
-        // this action instance is finished.
-        CAIObjectType enemyType(m_typeAI.GetEnemyOf());
-        LONG nearestId = m_pArea->GetNearest(
-            m_id,
-            enemyType,
-            GetVisualRange(),
-            m_terrainTable,
-            /*checkLOS=*/TRUE,
-            GetCanSeeInvisible(),
-            /*ignoreSleeping=*/FALSE,
-            /*nNearest=*/0,
-            /*ignoreDead=*/FALSE);
-
-        if (nearestId != CGameObjectArray::INVALID_INDEX) {
-            AddAction(CAIAction(CAIAction::ATTACK, enemyType, nearestId, 0, 0));
+        CAIObjectType enemy = m_typeAI.GetEnemyOf();
+        LONG id = m_pArea->GetNearest(m_id, enemy, GetVisualRange(), m_terrainTable,
+            TRUE, GetCanSeeInvisible(), FALSE, 0, FALSE);
+        if (id != CGameObjectArray::INVALID_INDEX) {
+            CAIObjectType target;
+            target.m_nInstance = id;
+            CAIAction action(CAIAction::ATTACK, target, 0, 0, 0);
+            AddAction(action);
         }
         return ACTION_DONE;
     }
-
-    if ((pTarget->m_derivedStats.m_generalState & STATE_SLEEPING)
-        && m_equipment.m_selectedWeapon == CGameSpriteEquipment::SLOT_FIST
-        && !GetAIType().IsClassValid(6 /*#guess -- unnamed class id in this codebase*/)) {
+    if ((pTarget->m_derivedStats.m_generalState & STATE_SLEEPING) != 0
+        && m_equipment.m_selectedWeapon == 10 && !GetAIType().IsClassValid(6)) {
+        clearLastTarget();
         AutoPause(0x20);
         return ACTION_DONE;
     }
-
-    CItem* pWeapon = m_equipment.m_items[m_equipment.m_selectedWeapon];
-    if (pWeapon == NULL) {
+    CItem* weapon = m_equipment.m_items[static_cast<BYTE>(m_equipment.m_selectedWeapon)];
+    if (weapon == NULL) {
         EquipMostDamagingMelee();
         AutoPause(1);
         return ACTION_ERROR;
     }
-
-    pWeapon->Demand();
-    ITEM_ABILITY* ability = pWeapon->GetAbility(m_equipment.m_selectedWeaponAbility);
+    weapon->Demand();
+    const ITEM_ABILITY* ability = weapon->GetAbility(m_equipment.m_selectedWeaponAbility);
     if (ability == NULL) {
         AutoPause(1);
-        pWeapon->Release();
+        weapon->Release();
         return ACTION_ERROR;
     }
-
-    if (ability->type == 4) {
-        // Launcher with no usable ammo.
-        CString itemResRef;
-        // NOTE: built but never consumed below -- same dead-debug-print
-        // idiom already documented in CGameArea::GetNearest.
-        pWeapon->cResRef.CopyToString(itemResRef);
-        CAITrigger trigger(CAITrigger::UNUSABLE, 0);
-        CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-        pWeapon->Release();
+    if (static_cast<BYTE>(ability->type) == 4
+        || (ability->usageFlags == 3 && weapon->GetUsageCount(m_equipment.m_selectedWeaponAbility) == 0
+            && ability->maxUsageCount != 0)) {
+        CString resource;
+        weapon->GetResRef().CopyToString(resource);
+        CAITrigger trigger(CAITRIGGER_UNUSABLE, 0);
+        trigger.m_string1 = resource;
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
+        weapon->Release();
         return ACTION_ERROR;
     }
-
-    if (ability->usageFlags == 3
-        && pWeapon->GetUsageCount(m_equipment.m_selectedWeaponAbility) == 0
-        && ability->maxUsageCount != 0) {
-        // Charge-limited item that's used up.
-        CString itemResRef;
-        pWeapon->cResRef.CopyToString(itemResRef);
-        CAITrigger trigger(CAITrigger::UNUSABLE, 0);
-        CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-        pWeapon->Release();
-        return ACTION_ERROR;
-    }
-
     if (m_lastAttackFeedbackTargetId != pTarget->m_id) {
-        FeedBack(FEEDBACK_ATTACKS, 0, 0, 0, pTarget->GetNameRef(), 0, 0);
+        FeedBack(6, 0, 0, 0, pTarget->GetNameRef(), 0, 0);
         m_lastAttackFeedbackTargetId = pTarget->m_id;
     }
-
-    CString animBodyResRef;
-    UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
-    pTarget->m_animation.m_animation->GetAnimationResRef(animBodyResRef, CGameAnimationType::RANGE_BODY);
-
-    // The battle song is suppressed when the target's body animation is one of
-    // four generic/golem resrefs.  The binary unrolls this as four sequential
-    // _mbscmp calls (0x7E7A54) against the literals at 0x8AA828/0x8AA820/
-    // 0x8AA818/0x8AA810, each one branching straight to the "clear the flag"
-    // block on a match, so it stops at the first hit exactly as this loop does.
-    static const char* const GENERIC_BODY_RESREFS[] = { "MGEN", "MKG1", "MKG2", "MKG3" };
-
-    BOOL bPlayBattleSong = TRUE;
-    for (int i = 0; i < 4; i++) {
-        if (_mbscmp(reinterpret_cast<const unsigned char*>(static_cast<const char*>(animBodyResRef)),
-                reinterpret_cast<const unsigned char*>(GENERIC_BODY_RESREFS[i])) == 0) {
-            bPlayBattleSong = FALSE;
-            break;
-        }
+    CString animationRes;
+    pTarget->m_animation.GetAnimationResRef(animationRes, 0);
+    auto isAnimation = [&](const char* name) {
+        return _mbscmp(reinterpret_cast<const unsigned char*>(static_cast<LPCTSTR>(animationRes)),
+                   reinterpret_cast<const unsigned char*>(name)) == 0;
+    };
+    if (m_pArea != NULL && !isAnimation("MGEN") && !isAnimation("MKG1")
+        && !isAnimation("MKG2") && !isAnimation("MKG3")) {
+        m_pArea->PlaySong(3, 0x101F4);
     }
-
-    if (m_pArea != NULL && bPlayBattleSong) {
-        m_pArea->PlaySong(3, 0x101f4);
+    if (m_actionCount == 0 && m_curAction.m_actionID == CAIAction::ATTACK
+        && (game->GetCharacterPortraitNum(m_id) == -1 || rand() % 6 == 0)) {
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessagePlaySound(5, TRUE, FALSE, m_id, m_id), FALSE);
     }
-
-    LONG distSquares;
-    CItem* pLauncher = NULL;
-    ITEM_ABILITY* launcherAbility = NULL;
-
-    if (ability->type == 2) {
-        CPoint targetPos = pTarget->GetPos();
-        CPoint selfPos = GetPos();
-        LONG dx = (selfPos.x / CPathSearch::GRID_SQUARE_SIZEX) - (targetPos.x / CPathSearch::GRID_SQUARE_SIZEX);
-        LONG dy = (selfPos.y / CPathSearch::GRID_SQUARE_SIZEY) - (targetPos.y / CPathSearch::GRID_SQUARE_SIZEY);
-        distSquares = dx * dx + dy * dy;
-
+    CPoint targetCell(pTarget->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+        pTarget->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
+    CPoint sourceCell(GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+        GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
+    LONG distance;
+    CItem* launcher = NULL;
+    const ITEM_ABILITY* launcherAbility = NULL;
+    if (static_cast<BYTE>(ability->type) == 2) {
+        LONG dx = sourceCell.x - targetCell.x;
+        LONG dy = sourceCell.y - targetCell.y;
+        distance = dx * dx + dy * dy;
         SHORT launcherSlot;
-        pLauncher = GetLauncher(ability, launcherSlot);
-        if (pLauncher != NULL) {
-            pLauncher->Demand();
-            launcherAbility = pLauncher->GetAbility(0);
+        launcher = GetLauncher(ability, launcherSlot);
+        if (launcher != NULL) {
+            launcher->Demand();
+            launcherAbility = launcher->GetAbility(0);
         }
     } else {
-        CPoint targetCell(pTarget->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
-            pTarget->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
-        CPoint selfCell(GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
-            GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
-        distSquares = CAIUtil::CountSquares(selfCell, targetCell);
-        distSquares = distSquares * distSquares;
+        distance = CAIUtil::CountSquares(sourceCell, targetCell);
+        distance *= distance;
     }
-
-    SHORT effectiveRange = ability->range + 1;
-    if (launcherAbility != NULL) {
-        SHORT launcherRange = launcherAbility->range + 1;
-        if (launcherRange > effectiveRange) {
-            effectiveRange = launcherRange;
+    SHORT range = static_cast<SHORT>(ability->range + 1);
+    if (launcherAbility != NULL) range = static_cast<SHORT>(max(launcherAbility->range + 1, ability->range + 1));
+    if (launcher != NULL) launcher->Release();
+    weapon->Release();
+    BYTE sourceSpace = m_animation.GetPersonalSpace();
+    BYTE targetSpace = pTarget->m_animation.GetPersonalSpace();
+    BYTE space = static_cast<BYTE>(((targetSpace - 1) >> 1) + ((sourceSpace - 1) >> 1) - 1);
+    INT reach = space + range;
+    if ((distance <= reach * reach || (field_7118 != 0 && distance <= (reach + 1) * (reach + 1)))
+        && m_pArea->CheckLOS(pTarget->GetPos(), GetPos(), m_visibleTerrainTable, pTarget->Orderable(FALSE))) {
+        if (m_pPath != NULL) {
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageDropPath(m_id, m_id), FALSE);
         }
-    }
-
-    if (pLauncher != NULL) {
-        pLauncher->Release();
-    }
-    pWeapon->Release();
-
-    BYTE combinedSpace = m_animation.GetPersonalSpace();
-    combinedSpace = static_cast<BYTE>(
-        ((pTarget->m_animation.GetPersonalSpace() - 1) >> 1) + ((combinedSpace - 1) >> 1) - 1);
-
-    LONG totalRange = combinedSpace + effectiveRange;
-    BOOL bInRange = distSquares <= totalRange * totalRange
-        || (field_7118 != 0 && distSquares <= (totalRange + 1) * (totalRange + 1));
-
-    if (bInRange) {
-        BOOL bLOS = m_pArea->CheckLOS(pTarget->GetPos(), GetPos(), m_terrainTable, pTarget->Orderable(FALSE));
-        if (bLOS) {
-            if (m_pPath != NULL) {
-                // DEFERRED: post the clear-search message (vtable 0x84C44C @
-                // binary 0x738B30, the same one CGameSprite::MoveToObject
-                // already defers) so a path in progress halts before the
-                // swing lands.
-            }
-
-            if (m_attackFrame == -2) {
-                m_attackFrame = -1;
-            }
-
-            m_lastActionID = CAIAction::ATTACK;
-            return ResolveAttack(pTarget);
+        if (m_attackFrame == -2) m_attackFrame = -1;
+        SHORT result = Swing(pTarget);
+        if (m_attackFrame <= 0 && m_actionCount != 0) {
+            AutoPause(0x40);
+            if (m_curAction.m_actionID == CAIAction::ATTACKONEROUND) return ACTION_DONE;
         }
+        m_lastActionID = 3;
+        return result;
     }
-
-    SHORT moveReturn = MoveToObject(pTarget);
-    if (moveReturn == ACTION_ERROR) {
-        return ACTION_DONE;
-    }
-
-    m_lastActionID = CAIAction::MOVETOOBJECT;
-    return moveReturn == ACTION_DONE ? ACTION_INTERRUPTABLE : moveReturn;
+    SHORT result = MoveToObject(pTarget);
+    if (result == ACTION_DONE) result = ACTION_INTERRUPTABLE;
+    else if (result == ACTION_ERROR) return ACTION_DONE;
+    m_lastActionID = 22;
+    return result;
 }
 
 // 0x738E70
-//
-// ATTACKREEVALUATE(134), reached from ExecuteAction's jump-table case at
-// binary address 0x72A33E (`this->AttackReevaluate()`, no target resolution
-// there -- unlike ATTACK/ATTACKONEROUND/GROUPATTACK, this action carries no actee of its
-// own). Resolves its own target from m_curAction.m_acteeID2, which is seeded
-// from m_curAction.m_acteeID (decoded) the first time this action runs
-// (m_actionCount == 0) and re-seeded from the same filter every time the
-// target has to be abandoned and re-acquired below.
-//
-// Structural sibling of Attack() (0x737EF0): shares the equipment/range/LOS/
-// ResolveAttack tail almost verbatim, but every reason Attack() would abort
-// with a trigger message or AutoPause instead makes this function abandon
-// the current target and re-acquire a new one via CGameArea::GetNearest --
-// consistent with the action's name. This function never calls AutoPause
-// except once, deep in the ATTACKONEROUND stop-check below; it is absent
-// from every other branch (and from the binary's required call set).
 SHORT CGameSprite::AttackReevaluate()
 {
+    CAIObjectType selector;
     if (m_actionCount == 0) {
-        CAIObjectType typeFilter;
-        typeFilter.Set(m_curAction.m_acteeID);
-        typeFilter.Decode(this);
-        m_curAction.m_acteeID2.Set(typeFilter);
+        selector.Set(m_curAction.m_acteeID);
+        selector.Decode(this);
+        m_curAction.m_acteeID2.Set(selector);
     }
-
-    CGameObject* pObj = ResolveActionTarget(m_curAction.m_acteeID2, CGameObject::TYPE_SPRITE);
-
-    // "First hostile encounter with a good-aligned creature" latch -- same
-    // as ExecuteAction's ATTACK/ATTACKONEROUND cases.
-    if (pObj != NULL && (m_baseStats.m_flags & 0x100000) == 0) {
-        if (pObj->GetAIType().m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
-            m_baseStats.m_flags |= 0x100000;
-        }
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    CGameSprite* pTarget = static_cast<CGameSprite*>(ResolveActionTarget(m_curAction.m_acteeID2, CGameObject::TYPE_SPRITE));
+    auto releaseTarget = [&]() {
+        game->GetObjectArray()->ReleaseShare(pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    };
+    if (pTarget != NULL && (m_baseStats.m_flags & 0x100000) == 0
+        && pTarget->GetAIType().m_nEnemyAlly <= CAIOBJECTTYPE_EA_GOODCUTOFF) {
+        m_baseStats.m_flags |= 0x100000;
     }
-
-    CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
     if (pTarget != NULL) {
-        UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
-
-        if (pTarget->m_animation.m_animation->GetListType() != CGameObject::LIST_FLIGHT) {
-            BOOL bAbandonTarget = FALSE;
-
-            if (!pTarget->CheckInvisibility(GetCanSeeInvisible())
-                || pTarget->m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]) {
-                bAbandonTarget = TRUE;
-            }
-            if (pTarget->m_id == m_id) {
-                bAbandonTarget = TRUE;
-            }
-            if (pTarget->m_derivedStats.m_generalState & STATE_DEAD) {
-                bAbandonTarget = TRUE;
-            }
-
-            if ((pTarget->m_derivedStats.m_generalState & STATE_SLEEPING)
-                && m_equipment.m_selectedWeapon == CGameSpriteEquipment::SLOT_FIST) {
-                if (!GetAIType().IsClassValid(6 /*#guess*/)) {
-                    goto abandonTarget;
-                }
-            }
-
-            if (!bAbandonTarget) {
-                // Rare cosmetic feedback: roughly a 1-in-6 chance once this
-                // action starts (or always, for a non-party target). HACK:
-                // the CMessage subclass built here is unrecovered (vtable at
-                // binary address 0x84C348, caller/target = m_id, a single
-                // raw byte payload of 5, no marshal/run override of its own
-                // -- everything it shares is generic CMessage plumbing, so
-                // its concrete identity couldn't be pinned down). Not
-                // constructed; the rand() roll is kept so the PRNG stream
-                // still matches the binary. Replaces binary range
-                // 0x7391b1-0x7391f8.
-                if (m_actionCount == 0
-                    && (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) == -1
-                        || rand() % 6 == 0)) {
-                    // (message intentionally not sent -- see HACK above)
-                }
-
-                if (m_lastAttackFeedbackTargetId != pTarget->m_id) {
-                    FeedBack(FEEDBACK_ATTACKS, 0, 0, 0, pTarget->GetNameRef(), 0, 0);
-                    m_lastAttackFeedbackTargetId = pTarget->m_id;
-                }
-
-                CItem* pWeapon = m_equipment.m_items[m_equipment.m_selectedWeapon];
-                if (pWeapon == NULL) {
-                    EquipMostDamagingMelee();
-                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                        pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
-                    return ACTION_ERROR;
-                }
-
-                pWeapon->Demand();
-                ITEM_ABILITY* ability = pWeapon->GetAbility(m_equipment.m_selectedWeaponAbility);
-                if (ability == NULL) {
-                    // No usable ability at all.
-                    CString itemResRef;
-                    pWeapon->cResRef.CopyToString(itemResRef);
-                    CAITrigger trigger(CAITrigger::UNUSABLE, 0);
-                    trigger.m_string1 = itemResRef;
-                    CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
-                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                        pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
-                    pWeapon->Release();
-                    return ACTION_ERROR;
-                }
-
-                if (ability->type == 4) {
-                    // Launcher with no usable ammo.
-                    CString itemResRef;
-                    pWeapon->cResRef.CopyToString(itemResRef);
-                    CAITrigger trigger(CAITrigger::UNUSABLE, 0);
-                    trigger.m_string1 = itemResRef;
-                    CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
-                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                        pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
-                    pWeapon->Release();
-                    return ACTION_ERROR;
-                }
-
-                if (ability->usageFlags == 3
-                    && pWeapon->GetUsageCount(m_equipment.m_selectedWeaponAbility) == 0
-                    && ability->maxUsageCount != 0) {
-                    // Charge-limited item that's used up.
-                    CString itemResRef;
-                    pWeapon->cResRef.CopyToString(itemResRef);
-                    CAITrigger trigger(CAITrigger::UNUSABLE, 0);
-                    trigger.m_string1 = itemResRef;
-                    CMessage* message = new CMessageSetTrigger(trigger, m_id, m_id);
-                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-                    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                        pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
-                    pWeapon->Release();
-                    return ACTION_ERROR;
-                }
-
-                LONG distSquares;
-                CItem* pLauncher = NULL;
-                ITEM_ABILITY* launcherAbility = NULL;
-
-                if (ability->type == 2) {
-                    CPoint targetPos = pTarget->GetPos();
-                    CPoint selfPos = GetPos();
-                    LONG dx = (selfPos.x / CPathSearch::GRID_SQUARE_SIZEX) - (targetPos.x / CPathSearch::GRID_SQUARE_SIZEX);
-                    LONG dy = (selfPos.y / CPathSearch::GRID_SQUARE_SIZEY) - (targetPos.y / CPathSearch::GRID_SQUARE_SIZEY);
-                    distSquares = dx * dx + dy * dy;
-
-                    SHORT launcherSlot;
-                    pLauncher = GetLauncher(ability, launcherSlot);
-                    if (pLauncher != NULL) {
-                        pLauncher->Demand();
-                        launcherAbility = pLauncher->GetAbility(0);
-                    }
-                } else {
-                    CPoint targetCell(pTarget->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
-                        pTarget->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
-                    CPoint selfCell(GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
-                        GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
-                    distSquares = CAIUtil::CountSquares(selfCell, targetCell);
-                    distSquares = distSquares * distSquares;
-                }
-
-                SHORT effectiveRange = ability->range + 1;
-                if (launcherAbility != NULL) {
-                    SHORT launcherRange = launcherAbility->range + 1;
-                    if (launcherRange > effectiveRange) {
-                        effectiveRange = launcherRange;
-                    }
-                }
-
-                if (pLauncher != NULL) {
-                    pLauncher->Release();
-                }
-                pWeapon->Release();
-
-                // Unlike Attack(), this battle-song check runs AFTER the
-                // range/launcher calculation, not before it -- the binary's
-                // own ordering, not a copy-paste of Attack()'s.
-                CString animBodyResRef;
-                UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
-                pTarget->m_animation.m_animation->GetAnimationResRef(animBodyResRef, CGameAnimationType::RANGE_BODY);
-
-                static const char* const GENERIC_BODY_RESREFS[] = { "MGEN", "MKG1", "MKG2", "MKG3" };
-
-                BOOL bPlayBattleSong = TRUE;
-                for (int i = 0; i < 4; i++) {
-                    if (_mbscmp(reinterpret_cast<const unsigned char*>(static_cast<const char*>(animBodyResRef)),
-                            reinterpret_cast<const unsigned char*>(GENERIC_BODY_RESREFS[i])) == 0) {
-                        bPlayBattleSong = FALSE;
-                        break;
-                    }
-                }
-
-                if (m_pArea != NULL && bPlayBattleSong) {
-                    m_pArea->PlaySong(3, 0x101f4);
-                }
-
-                BYTE combinedSpace = m_animation.GetPersonalSpace();
-                combinedSpace = static_cast<BYTE>(
-                    ((pTarget->m_animation.GetPersonalSpace() - 1) >> 1) + ((combinedSpace - 1) >> 1) - 1);
-
-                LONG totalRange = combinedSpace + effectiveRange;
-                BOOL bInRange = distSquares <= totalRange * totalRange
-                    || (field_7118 != 0 && distSquares <= (totalRange + 1) * (totalRange + 1));
-
-                if (bInRange) {
-                    BOOL bLOS = m_pArea->CheckLOS(pTarget->GetPos(), GetPos(), m_terrainTable, pTarget->Orderable(FALSE));
-                    if (bLOS) {
-                        if (m_pPath != NULL) {
-                            // DEFERRED: post the clear-search message built
-                            // at binary address 0x7399ea (vtable 0x84C44C,
-                            // the same one CGameSprite::MoveToObject and
-                            // Attack() already defer) so a path in progress
-                            // halts before the swing lands.
-                        }
-
-                        if (m_attackFrame == -2) {
-                            m_attackFrame = -1;
-                        }
-
-                        m_lastActionID = CAIAction::ATTACK;
-                        SHORT resolveResult = ResolveAttack(pTarget);
-
-                        // ATTACKONEROUND stop-check: right when the swing
-                        // animation is back at frame 0 and another action is
-                        // queued, force ACTION_DONE for ATTACKONEROUND
-                        // specifically and return immediately -- faithfully
-                        // skipping BOTH the m_specificID check AND the
-                        // ReleaseShare below on this one path, exactly as
-                        // the binary does (looks like a genuine reference
-                        // leak in the original game; reproduced as-is, not
-                        // "fixed").
-                        if (m_attackFrame == 0 && m_actionCount != 0) {
-                            AutoPause(0x40);
-                            if (m_curAction.m_actionID == CAIAction::ATTACKONEROUND) {
-                                return ACTION_DONE;
-                            }
-                        }
-
-                        SHORT sVar5 = resolveResult;
-                        if (m_curAction.m_specificID < static_cast<LONG>(static_cast<SHORT>(m_actionCount))) {
-                            sVar5 = ACTION_DONE;
-                        }
-                        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                            pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
-                        return sVar5;
-                    }
-                }
-
-                SHORT moveReturn = MoveToObject(pTarget);
-                SHORT sVar5 = moveReturn;
-                if (moveReturn == ACTION_DONE) {
-                    sVar5 = ACTION_ERROR;
-                }
-                m_lastActionID = CAIAction::MOVETOOBJECT;
-
-                if (m_curAction.m_specificID < static_cast<LONG>(static_cast<SHORT>(m_actionCount))) {
-                    sVar5 = ACTION_DONE;
-                }
-                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                    pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
-                return sVar5;
+        BOOL invalid = pTarget->m_animation.GetListType() == CGameObject::LIST_FLIGHT;
+        if (!invalid) {
+            invalid = !pTarget->CheckInvisibility(GetCanSeeInvisible())
+                || pTarget->m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]
+                || pTarget->m_id == m_id
+                || (pTarget->m_derivedStats.m_generalState & STATE_DEAD) != 0;
+            if ((pTarget->m_derivedStats.m_generalState & STATE_SLEEPING) != 0
+                && m_equipment.m_selectedWeapon == 10 && !GetAIType().IsClassValid(6)) {
+                invalid = TRUE;
             }
         }
-
-    abandonTarget:
-        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-            pTarget->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        if (!invalid) {
+            if (m_actionCount == 0 && (game->GetCharacterPortraitNum(m_id) == -1 || rand() % 6 == 0)) {
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessagePlaySound(5, TRUE, FALSE, m_id, m_id), FALSE);
+            }
+            if (m_lastAttackFeedbackTargetId != pTarget->m_id) {
+                FeedBack(6, 0, 0, 0, pTarget->GetNameRef(), 0, 0);
+                m_lastAttackFeedbackTargetId = pTarget->m_id;
+            }
+            CItem* weapon = m_equipment.m_items[static_cast<BYTE>(m_equipment.m_selectedWeapon)];
+            if (weapon == NULL) {
+                EquipMostDamagingMelee();
+                releaseTarget();
+                return ACTION_ERROR;
+            }
+            weapon->Demand();
+            const ITEM_ABILITY* ability = weapon->GetAbility(m_equipment.m_selectedWeaponAbility);
+            if (ability == NULL || static_cast<BYTE>(ability->type) == 4
+                || (ability->usageFlags == 3 && weapon->GetUsageCount(m_equipment.m_selectedWeaponAbility) == 0
+                    && ability->maxUsageCount != 0)) {
+                CString resource;
+                weapon->GetResRef().CopyToString(resource);
+                CAITrigger trigger(CAITRIGGER_UNUSABLE, 0);
+                trigger.m_string1 = resource;
+                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
+                releaseTarget();
+                weapon->Release();
+                return ACTION_ERROR;
+            }
+            CPoint targetCell(pTarget->GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+                pTarget->GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
+            CPoint sourceCell(GetPos().x / CPathSearch::GRID_SQUARE_SIZEX,
+                GetPos().y / CPathSearch::GRID_SQUARE_SIZEY);
+            LONG distance;
+            CItem* launcher = NULL;
+            const ITEM_ABILITY* launcherAbility = NULL;
+            if (static_cast<BYTE>(ability->type) == 2) {
+                LONG dx = sourceCell.x - targetCell.x;
+                LONG dy = sourceCell.y - targetCell.y;
+                distance = dx * dx + dy * dy;
+                SHORT launcherSlot;
+                launcher = GetLauncher(ability, launcherSlot);
+                if (launcher != NULL) {
+                    launcher->Demand();
+                    launcherAbility = launcher->GetAbility(0);
+                }
+            } else {
+                distance = CAIUtil::CountSquares(sourceCell, targetCell);
+                distance *= distance;
+            }
+            SHORT range = static_cast<SHORT>(ability->range + 1);
+            if (launcherAbility != NULL) range = static_cast<SHORT>(max(launcherAbility->range + 1, ability->range + 1));
+            if (launcher != NULL) launcher->Release();
+            weapon->Release();
+            CString animationRes;
+            pTarget->m_animation.GetAnimationResRef(animationRes, 0);
+            auto isAnimation = [&](const char* name) {
+                return _mbscmp(reinterpret_cast<const unsigned char*>(static_cast<LPCTSTR>(animationRes)),
+                           reinterpret_cast<const unsigned char*>(name)) == 0;
+            };
+            if (m_pArea != NULL && !isAnimation("MGEN") && !isAnimation("MKG1")
+                && !isAnimation("MKG2") && !isAnimation("MKG3")) {
+                m_pArea->PlaySong(3, 0x101F4);
+            }
+            BYTE sourceSpace = m_animation.GetPersonalSpace();
+            BYTE targetSpace = pTarget->m_animation.GetPersonalSpace();
+            BYTE space = static_cast<BYTE>(((targetSpace - 1) >> 1) + ((sourceSpace - 1) >> 1) - 1);
+            INT reach = space + range;
+            SHORT result;
+            if ((distance <= reach * reach || (field_7118 != 0 && distance <= (reach + 1) * (reach + 1)))
+                && m_pArea->CheckLOS(pTarget->GetPos(), GetPos(), m_visibleTerrainTable, pTarget->Orderable(FALSE))) {
+                if (m_pPath != NULL) {
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageDropPath(m_id, m_id), FALSE);
+                }
+                if (m_attackFrame == -2) m_attackFrame = -1;
+                result = Swing(pTarget);
+                m_lastActionID = 3;
+                if (m_attackFrame == 0 && m_actionCount != 0) {
+                    AutoPause(0x40);
+                    // The original early exit also skips ReleaseShare here (739A75).
+                    if (m_curAction.m_actionID == CAIAction::ATTACKONEROUND) return ACTION_DONE;
+                }
+            } else {
+                result = MoveToObject(pTarget);
+                if (result == ACTION_DONE) result = ACTION_INTERRUPTABLE;
+                m_lastActionID = 22;
+            }
+            if (m_actionCount > m_curAction.m_specificID) result = ACTION_DONE;
+            releaseTarget();
+            return result;
+        }
+        releaseTarget();
     }
-
-    // Current target is gone/invalid: re-acquire against the action's
-    // original type filter (ignoring sleeping creatures this time, unlike
-    // Attack()'s own target-died fallback which does not).
-    CAIObjectType typeFilter;
-    typeFilter.Set(m_curAction.m_acteeID);
-    typeFilter.Decode(this);
-
-    LONG nearestId = m_pArea->GetNearest(
-        m_id,
-        typeFilter,
-        GetVisualRange(),
-        m_terrainTable,
-        /*checkLOS=*/TRUE,
-        GetCanSeeInvisible(),
-        /*ignoreSleeping=*/TRUE,
-        /*nNearest=*/0,
-        /*ignoreDead=*/FALSE);
-
-    if (nearestId == CGameObjectArray::INVALID_INDEX) {
-        return ACTION_DONE;
-    }
-
-    m_curAction.m_acteeID2.Set(typeFilter);
-    CGameObject* pReacquired = ResolveActionTarget(m_curAction.m_acteeID2, CGameObject::TYPE_SPRITE);
-    if (pReacquired == NULL) {
-        return ACTION_ERROR;
-    }
-
-    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-        pReacquired->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    selector.Set(m_curAction.m_acteeID);
+    selector.Decode(this);
+    LONG nearest = m_pArea->GetNearest(m_id, selector, GetVisualRange(), m_visibleTerrainTable,
+        TRUE, GetCanSeeInvisible(), TRUE, 0, FALSE);
+    if (nearest == CGameObjectArray::INVALID_INDEX) return ACTION_DONE;
+    selector.m_nInstance = nearest;
+    m_curAction.m_acteeID2.Set(selector);
+    pTarget = static_cast<CGameSprite*>(ResolveActionTarget(m_curAction.m_acteeID2, CGameObject::TYPE_SPRITE));
+    if (pTarget == NULL) return ACTION_ERROR;
+    releaseTarget();
     return ACTION_INTERRUPTABLE;
 }
 
@@ -17914,7 +19074,7 @@ void CGameSprite::ClearAI(BOOLEAN bSetSequence)
     }
 }
 
-// 0x7338E0
+// SetCurrAction entry: 0x7338E0.
 //
 // CGameSprite override of CGameAIBase::SetCurrAction (0x45D190): in addition to
 // the base copy/decode, the binary resets the sprite's per-action execution
@@ -17927,17 +19087,19 @@ void CGameSprite::ClearAI(BOOLEAN bSetSequence)
 // override, fell through to the base (which never touches m_curDest), so blocked
 // members kept m_curDest == dest and stopped re-pathing.
 //
-// DEFERRED: for non-NULL actions the binary also closes any open container,
-// updates modal-state/quickbar, broadcasts CMessage action-change notifications
-// (0x84D424 / 0x84D22C), tears down the target marker + deny-list reservation
-// (m_targetId), releases the portrait resource request, emits encumbrance
-// feedback, randomizes the move-throttle phase (field_5616 = UtilRandInt) and
-// preloads the spell-action ResRef. Those are orthogonal to the movement
-// re-search and depend on still-unrecovered spell/resource machinery; the
-// recovered behavior is the action-state reset (below) plus the base copy/decode.
+// Spell-action metadata setup is recovered below; runtime coverage remains partial.
 // 0x7338E0
 void CGameSprite::SetCurrAction(const CAIAction& action)
 {
+    // Container gate at 0x7338FD..0x733945; 0x691130 reads popup state (+0xEA4).
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    CScreenWorld* pWorld = g_pBaldurChitin->m_pEngineWorld;
+    if (action.GetActionID() != CAIAction::NO_ACTION
+        && pWorld->m_nPopupState == 8
+        && m_id == pGame->m_iContainerSprite) {
+        pWorld->StopContainer();
+    }
+
     m_curDest.x = -1;
     m_curDest.y = -1;
     field_7118 = 0;
@@ -17952,6 +19114,64 @@ void CGameSprite::SetCurrAction(const CAIAction& action)
     m_moveCount = 0;
     m_bInCasting = FALSE;
 
+    // Modal gate at 0x7339A4..0x733BEB. Preserve the binary's action whitelist.
+    BOOL bPreserveModal = FALSE;
+    const SHORT modalActions[] = {
+        CAIAction::NO_ACTION, CAIAction::MOVETOPOINT, CAIAction::MOVETOOBJECT,
+        CAIAction::FACE, 18, CAIAction::SMALLWAIT, 99, CAIAction::FOLLOW,
+        CAIAction::MOVETOPOINTNORECTICLE, 215, 13, 33, 234, 273, 274, 293,
+        183, 233, 30, CAIAction::WAIT, 10, 257, 236, 249, 252,
+        CAIAction::CONTINUE, CAIAction::RANDOMWALK
+    };
+    for (SHORT nAction : modalActions) {
+        if (action.GetActionID() == nAction) {
+            bPreserveModal = TRUE;
+            break;
+        }
+    }
+    if (m_nModalState != 0 && !bPreserveModal) {
+        BYTE nOldModalState = m_nModalState;
+        SetModalState(0, TRUE);
+        if (nOldModalState == 2 || nOldModalState == 4) {
+            pGame->m_cButtonArray.m_nSelectedButton = 100;
+            SHORT nPortrait = pGame->GetCharacterPortraitNum(m_id);
+            if (g_pBaldurChitin->GetActiveEngine()->GetSelectedCharacter() == nPortrait) {
+                switch (pGame->m_cButtonArray.m_nState) {
+                case 0x66: case 0x65: case 0x68: case 0x67: case 0x69:
+                case 0x70: case 0x73: case 0x74: case 0x75: case 0x76:
+                case 0x77: case 0x78: case 0x79: case 0x7A: case 0x7B:
+                case 0x6A:
+                    break;
+                default:
+                    pGame->m_cButtonArray.ResetState();
+                    break;
+                }
+            }
+        }
+    }
+
+    // 0x733BEB..0x733C14: resolve the incoming action before replacing the old one.
+    if (m_curAction.GetActionID() != CAIAction::NO_ACTION
+        || action.GetActionID() != CAIAction::NO_ACTION) {
+        ResolveTargetPoint(&action, m_queuedActions.GetHeadPosition());
+    }
+
+    // Weapon snapshot and trap-mode messages at 0x733C14..0x733CCD.
+    if (action.GetActionID() != 92) {
+        m_nTempSelectedWeapon = m_equipment.m_selectedWeapon;
+        m_nTempSelectedWeaponAbility = static_cast<BYTE>(m_equipment.m_selectedWeaponAbility);
+    }
+    if (action.GetActionID() == CAIAction::REMOVETRAPS) {
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessage107(TRUE, m_id, m_id), FALSE);
+    }
+    if (m_curAction.GetActionID() == CAIAction::REMOVETRAPS
+        && action.GetActionID() != CAIAction::REMOVETRAPS) {
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessage107(FALSE, m_id, m_id), FALSE);
+    }
+
+    // Inlined action assignment at 0x733CCD..0x733D5E, before notifications.
+    m_curAction = action;
+
     // 0x733D6B / 0x734056: a new action clears the encumbrance feedback latch,
     // then -- for a movement action -- re-announces the sprite's encumbrance so
     // "Encumbered: Slowed/Can not move" prints once per move command (the only
@@ -17960,6 +19180,67 @@ void CGameSprite::SetCurrAction(const CAIAction& action)
     m_bPlayedEncumberedSlowed = 0;
 
     SHORT nActionID = action.GetActionID();
+    // Current-action notification at 0x733D77..0x733E31.
+    if (m_currentActionId != nActionID) {
+        BOOL bNotifyAction = nActionID == 108 || nActionID == 176
+            || nActionID == CAIAction::DIALOGUE
+            || nActionID == CAIAction::STARTDIALOG
+            || nActionID == CAIAction::STARTDIALOGUENOSET;
+        if (bNotifyAction || m_currentActionId != 0) {
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageSetCurrentActionId(bNotifyAction ? nActionID : 0, m_id, m_id), FALSE);
+        }
+    }
+
+    // Target-marker release at 0x733E31..0x733F00, including idle transitions.
+    if (m_targetId != CGameObjectArray::INVALID_INDEX) {
+        if (m_bSelected && Orderable(FALSE)) {
+            CGameObject* pTarget;
+            BYTE rc;
+            do {
+                rc = pGame->GetObjectArray()->GetDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+            if (rc == CGameObjectArray::SUCCESS) {
+                if (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                    static_cast<CGameSprite*>(pTarget)->m_marker.SetType(CMarker::ELLIPSE);
+                }
+                pGame->GetObjectArray()->ReleaseDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
+        m_targetId = CGameObjectArray::INVALID_INDEX;
+    }
+
+    // Resource cleanup at 0x733F00..0x733FA7. The item is borrowed.
+    delete m_curSpell;
+    m_curSpell = NULL;
+    m_curItem = NULL;
+    if (nActionID == CAIAction::NO_ACTION) {
+        return;
+    }
+    field_710C = 0;
+    delete m_curProjectile;
+    m_curProjectile = NULL;
+    field_5618 = 0;
+
+    if (pGame->GetRuleTables().m_lNoDecodeList.Find(nActionID) == NULL) {
+        m_curAction.Decode(this);
+    }
+
+    // Idle phase at 0x733FCE..0x734037; range is the SHORT at 0x85BBA4.
+    field_5616 = static_cast<SHORT>(CUtil::UtilRandInt(8, -m_derivedStats.m_nLuck));
+    m_noActionCount = 0;
+    if (m_nSequence != SEQ_DIE && m_nSequence != SEQ_SLEEP
+        && m_nSequence != SEQ_TWITCH && m_nSequence != SEQ_WALK) {
+        SetIdleSequence();
+    }
+
+    // Command-pause marker at 0x734037..0x734056, on this sprite.
+    if (m_userCommandPause > CTimerWorld::TIMESCALE_MSEC_PER_SEC * 5 - 2) {
+        m_marker.m_nRecticleForceRender = CTimerWorld::TIMESCALE_MSEC_PER_SEC;
+    }
+
     if (nActionID == CAIAction::MOVETOPOINT
         || nActionID == CAIAction::MOVETOOBJECT
         || nActionID == CAIAction::FOLLOW
@@ -17973,7 +19254,52 @@ void CGameSprite::SetCurrAction(const CAIAction& action)
         }
     }
 
-    CGameAIBase::SetCurrAction(action);
+    // Spell metadata at 0x7340BD..0x734522. Only ordinary spells need inference.
+    if (nActionID == CAIAction::SPELL || nActionID == CAIAction::SPELLPOINT
+        || nActionID == CAIAction::FORCESPELL || nActionID == CAIAction::FORCESPELLPOINT
+        || nActionID == CAIAction::REALLYFORCESPELL || nActionID == CAIAction::SPELLNODEC
+        || nActionID == CAIAction::SPELLPOINTNODEC) {
+        CString spellName = m_curAction.GetString1();
+        if (spellName == "") {
+            SpellIdToResRef(m_curAction.m_specificID, spellName);
+        }
+        CResRef resRef(spellName);
+        if (pGame->GetSpellType(resRef) == 1) {
+            BYTE nClass = static_cast<BYTE>(m_curAction.m_specificID2);
+            DWORD specialization = pGame->GetRuleTables().GetSpecializationMask(nClass,
+                static_cast<BYTE>(m_curAction.m_specificID2 >> 8));
+            BYTE level = static_cast<BYTE>(m_curAction.m_specificID3);
+            if (nClass == 0 || level == 0) {
+                m_curSpell = new CSpell(resRef);
+                if (m_curSpell != NULL) {
+                    if (!FindAvailableSpell(resRef, nClass, specialization, level)) {
+                        if (m_curSpell->Demand() == TRUE) {
+                            SHORT casterType = m_curSpell->GetCasterType();
+                            if (casterType == 1) nClass = CAIOBJECTTYPE_C_WIZARD;
+                            else if (casterType == 2) nClass = CAIOBJECTTYPE_C_CLERIC;
+                            else UTIL_ASSERT_MSG(FALSE, "Invalid spell type");
+                            specialization = 0;
+                            level = static_cast<BYTE>(m_curSpell->GetLevel());
+                            m_curSpell->Release();
+                        }
+                        CString error;
+                        error.Format(_T("Error setting action for %s (%s): could not find spell (%s) in any spell casting class."), (LPCTSTR)m_sName,
+                            (LPCTSTR)m_resRef.GetResRefStr(), (LPCTSTR)resRef.GetResRefStr());
+                        UTIL_ASSERT_MSG(nClass == CAIOBJECTTYPE_C_BARD || nClass == CAIOBJECTTYPE_C_CLERIC
+                            || nClass == CAIOBJECTTYPE_C_DRUID || nClass == CAIOBJECTTYPE_C_PALADIN
+                            || nClass == CAIOBJECTTYPE_C_RANGER || nClass == CAIOBJECTTYPE_C_SORCERER
+                            || nClass == CAIOBJECTTYPE_C_WIZARD, (LPCTSTR)error);
+                        UTIL_ASSERT_MSG(level < CSPELLLIST_MAX_LEVELS, "Error setting action: Invalid spell level");
+                    }
+                    m_curAction.m_specificID2 = nClass
+                        | (pGame->GetRuleTables().GetSpecializationIndex(nClass, specialization) << 8);
+                    m_curAction.m_specificID3 = level;
+                }
+                delete m_curSpell;
+                m_curSpell = NULL;
+            }
+        }
+    }
 }
 
 // 0x7238C0
@@ -18072,10 +19398,55 @@ void CGameSprite::DebugDump(const CString& a1, BOOLEAN a2)
 BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
 {
     // TODO INCOMPLETE: original 0x731B30 is a large status-trigger dispatcher.
-    // This recovers the NumTimesTalkedTo block at 0x731F9F..0x731FCD, needed by
-    // the prologue 10HEDRON dialog entry condition, and the TimerActive case
-    // (gates the ambient RandomWalk loop in 00AMVW*.BCS).
+    // Recovered cases include dialogue counts, timers and scripted spell
+    // selection. Other original status-trigger cases remain deferred.
     switch (trigger.m_triggerID) {
+    case CAITRIGGER_HAVESPELL: {
+        // 0x731C09: zero resolves the marked spell, unless both are zero.
+        if (trigger.m_specificID == 0 && field_588 == 0) {
+            return FALSE;
+        }
+        CString resRef;
+        SpellIdToResRef(trigger.m_specificID, resRef);
+        if (resRef == "") {
+            return FALSE;
+        }
+        DWORD classes = 0xFFF;
+        return HasSpell(CResRef(resRef), classes, 9, TRUE) != FALSE;
+    }
+    case CAITRIGGER_ISMARKEDSPELL:
+        return trigger.m_specificID == field_588;
+    case CAITRIGGER_SETMARKEDSPELL: {
+        // 0x731CA6: always true, even when the requested spell is unavailable.
+        if (trigger.m_specificID == 0) {
+            field_588 = 0;
+        } else if (field_588 == 0) {
+            CString resRef;
+            SpellIdToResRef(trigger.m_specificID, resRef);
+            if (resRef != "") {
+                DWORD classes = 0xFFF;
+                if (HasSpell(CResRef(resRef), classes, 9, TRUE)) {
+                    field_588 = trigger.m_specificID;
+                }
+            }
+        }
+        return TRUE;
+    }
+    case CAITRIGGER_FORCEMARKEDSPELL:
+        if (field_588 != trigger.m_specificID) {
+            field_588 = trigger.m_specificID;
+        }
+        return TRUE;
+    case CAITRIGGER_ISSPELLTARGETVALID: {
+        CAIObjectType targetType(trigger.m_triggerCause);
+        targetType.Decode(this);
+        CGameObject* object = ResolveActionTarget(targetType, CGameObject::TYPE_SPRITE);
+        // PE 0x732C40..0x732C9D leaves this ASYNC share unreleased. ASYNC
+        // GetShare/ReleaseShare do not alter the object-array reader count.
+        CGameSprite* target = static_cast<CGameSprite*>(object);
+        return target != NULL && CheckSpellTarget(target, trigger.m_specific2)
+            && CheckSpellUseful(target, trigger.m_specificID, trigger.m_specific2);
+    }
     case CAITRIGGER_TIMERACTIVE: {
         BOOL bActive = FALSE;
         POSITION pos = m_timers.GetHeadPosition();
@@ -18114,12 +19485,115 @@ BOOL CGameSprite::EvaluateStatusTrigger(const CAITrigger& trigger)
     return CGameAIBase::EvaluateStatusTrigger(trigger);
 }
 
-// 0x733660 (vtable 0x70)
-// TODO(vtable-stub): recover CGameSprite::UpdateTarget -- sets m_targetId and
-// toggles the CMarker on the old/new target (gated on m_bSelected + Orderable).
+// 0x733340
+CGameObject* CGameSprite::ResolveCurrentActionTarget()
+{
+    CGameObject* pObject = m_curAction.m_acteeID.GetObject(this, FALSE);
+    if (pObject == NULL) {
+        if (m_targetId == CGameObjectArray::INVALID_INDEX) {
+            return NULL;
+        }
+        if (m_bSelected && Orderable(FALSE)) {
+            CGameObject* pPrevious;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+                    m_targetId, CGameObjectArray::THREAD_ASYNCH, &pPrevious, INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+            if (rc != CGameObjectArray::SUCCESS) {
+                return NULL;
+            }
+            if (pPrevious->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                static_cast<CGameSprite*>(pPrevious)->m_marker.SetType(CMarker::ELLIPSE);
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(
+                m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        m_targetId = CGameObjectArray::INVALID_INDEX;
+        return NULL;
+    }
+
+    if (m_curAction.m_acteeID.m_nInstance == -1) {
+        CAIObjectType type(m_curAction.m_acteeID);
+        type.m_nInstance = pObject->m_id;
+        m_curAction.m_acteeID.Set(type);
+    }
+
+    if (m_targetId != pObject->m_id) {
+        BOOL update = TRUE;
+        if (m_targetId != CGameObjectArray::INVALID_INDEX) {
+            CGameObject* pPrevious;
+            BYTE rc;
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(
+                    m_targetId, CGameObjectArray::THREAD_ASYNCH, &pPrevious, INFINITE);
+            } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+            if (rc == CGameObjectArray::SUCCESS) {
+                if (m_bSelected && Orderable(FALSE)
+                    && pPrevious->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                    static_cast<CGameSprite*>(pPrevious)->m_marker.SetType(CMarker::ELLIPSE);
+                }
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(
+                    m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            } else {
+                update = FALSE;
+            }
+        }
+        if (update) {
+            if (m_bSelected && Orderable(FALSE)
+                && pObject->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                static_cast<CGameSprite*>(pObject)->m_marker.SetType(CMarker::RECTICLE);
+            }
+            m_targetId = pObject->m_id;
+        }
+    }
+
+    if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE
+        && static_cast<CGameSprite*>(pObject)->m_derivedStats.m_cImmunitiesAIType.OnList(m_typeAI)) {
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+            pObject->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return NULL;
+    }
+    return pObject;
+}
+
+// 0x733660
 void CGameSprite::UpdateTarget(CGameObject* pObject)
 {
-    CGameAIBase::UpdateTarget(pObject);
+    if (pObject != NULL && m_targetId == pObject->GetId()) {
+        return;
+    }
+
+    if (m_targetId != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pPrevious = NULL;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+                CGameObjectArray::THREAD_ASYNCH, &pPrevious, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+        if (pPrevious != NULL && pPrevious->GetObjectType() == CGameObject::TYPE_SPRITE
+            && m_bSelected && Orderable(FALSE)) {
+            static_cast<CGameSprite*>(pPrevious)->m_marker.SetType(CMarker::ELLIPSE);
+        }
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    if (pObject != NULL) {
+        if (pObject->GetObjectType() == CGameObject::TYPE_SPRITE && m_bSelected && Orderable(FALSE)) {
+            CGameSprite* pTarget = static_cast<CGameSprite*>(pObject);
+            pTarget->m_marker.SetType(CMarker::RECTICLE);
+            if (m_actionCount == 0 && m_userCommandPause > CTimerWorld::TIMESCALE_MSEC_PER_SEC * 5 - 2) {
+                pTarget->m_marker.m_nRecticleForceRenderTarget = CTimerWorld::TIMESCALE_MSEC_PER_SEC;
+            }
+        }
+        m_targetId = pObject->GetId();
+    } else {
+        m_targetId = CGameObjectArray::INVALID_INDEX;
+    }
 }
 
 // 0x733050 (vtable 0x78)
@@ -18383,9 +19857,8 @@ BOOL CGameSprite::HandleEffects()
         } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
         if (rc == CGameObjectArray::SUCCESS) {
-            // NOTE: unrecovered -- 0x555200 is called here with pObject as
-            // `this`; it walks an id list at +0x232 and ORs 0x20 into +0x86 of
-            // each object it names. The owning class is not identified.
+            // 0x73460C: CVisualEffect::SetAllDelete (0x555200).
+            static_cast<CVisualEffect*>(pObject)->SetAllDelete();
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(field_72E2,
                 CGameObjectArray::THREAD_ASYNCH,
                 INFINITE);
@@ -19576,27 +21049,33 @@ BOOLEAN CGameSprite::CheckWeaponUsability(BOOL a1)
 }
 
 // 0x723DB0
-//
-// Touch-AC variant used when an attack's ability ignores armor (abilityFlags
-// bit 0x10000): the same misc AC bonuses and attacks-per-round as GetAC(),
-// but zeroing the DEX bonus while blind (mirroring GetAC()'s own gate) rather
-// than folding in the armor/shield bonuses touch attacks bypass.
-SHORT CGameSprite::GetTouchAC()
+INT CGameSprite::GetTouchAC()
 {
-    INT nDexBonus = GetMaxDexterityBonus(
-        g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nDEX));
+    INT nBonus = m_derivedStats.m_nACDeflectionBonus
+        + m_derivedStats.m_nACNaturalBonus
+        + m_derivedStats.m_nACDodgeBonus;
+    INT nDexBonus = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nDEX);
+    CItem* pArmor = m_equipment.m_items[CGameSpriteEquipment::SLOT_ARMOR];
+    if (pArmor != NULL) {
+        INT nMaxDexBonus = nDexBonus;
+        switch (pArmor->GetItemType()) {
+        case 60: nMaxDexBonus = 6; break;
+        case 61: nMaxDexBonus = 5; break;
+        case 62: nMaxDexBonus = 2; break;
+        case 63:
+        case 64: nMaxDexBonus = 0; break;
+        case 65: nMaxDexBonus = 1; break;
+        case 66: nMaxDexBonus = 4; break;
+        case 68: nMaxDexBonus = 3; break;
+        }
+        nDexBonus = min(nDexBonus, nMaxDexBonus);
+    }
     if ((m_derivedStats.m_generalState & STATE_BLIND) != 0
         && nDexBonus > 0
-        && !HasFeat(6 /*#guess*/)) {
+        && !HasFeat(CGAMESPRITE_FEAT_BLIND_FIGHT)) {
         nDexBonus = 0;
     }
-
-    return static_cast<SHORT>(10
-        + m_derivedStats.m_nACDodgeBonus
-        + m_derivedStats.m_nACDeflectionBonus
-        + m_derivedStats.m_nACNaturalBonus
-        + GetAttacksPerRound()
-        + nDexBonus);
+    return 10 + nBonus + nDexBonus + GetMonkACBonus();
 }
 
 // 0x73B740
@@ -19862,1361 +21341,1015 @@ SHORT CGameSprite::GetTHAC0Bonuses(CItem* curWeapon, const ITEM_ABILITY* curAtta
 }
 
 // 0x73D080
-//
-// Two-weapon-fighting THAC0 penalty: only applies when both the main and off
-// hand of the current weapon set are populated. Ambidexterity (feat 1) softens
-// the main-hand penalty; Two-Weapon Style (feat 0x46 /*#guess*/) removes the
-// remaining +2 off-hand-only penalty. A couple of ranger-shaped exemptions
-// (druid/no-armor-or-shield class-8 check) skip the penalty entirely.
-SHORT CGameSprite::GetTwoWeaponPenalty(BOOL bMainHand)
+SHORT CGameSprite::GetDualWieldPenalty(INT nOffhand)
 {
-    if (m_equipment.m_selectedWeapon == 0x2a /*#guess -- "no weapon selected" sentinel*/) {
+    if (m_equipment.m_selectedWeapon == 42) {
+        return 0;
+    }
+    INT nWeaponSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet;
+    CItem* pOffhand = m_equipment.m_items[nWeaponSlot + 1];
+    if (m_equipment.m_items[nWeaponSlot] == NULL || pOffhand == NULL) {
+        return 0;
+    }
+    if (pOffhand->GetItemType() == 47
+        || pOffhand->GetItemType() == 53
+        || pOffhand->GetItemType() == 49
+        || pOffhand->GetItemType() == 41) {
         return 0;
     }
 
-    INT nMainSlot = CGameSpriteEquipment::SLOT_WEAPON + 2 * m_nWeaponSet;
-    if (m_equipment.m_items[nMainSlot] == NULL || m_equipment.m_items[nMainSlot + 1] == NULL) {
-        return 0;
+    SHORT nPenalty = nOffhand == 1 ? -10 : -6;
+    BOOL bRanger = m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_RANGER) >= 1
+        && !HasArmorType(3)
+        && !HasArmorType(2);
+    if ((bRanger || HasFeat(CGAMESPRITE_FEAT_AMBIDEXTERITY) == TRUE) && nOffhand == 1) {
+        nPenalty += 4;
     }
-
-    if (m_equipment.m_items[nMainSlot]->GetItemType() == 0x2f
-        || m_equipment.m_items[nMainSlot]->GetItemType() == 0x35
-        || m_equipment.m_items[nMainSlot]->GetItemType() == 0x31
-        || m_equipment.m_items[nMainSlot]->GetItemType() == 0x29) {
-        return 0;
-    }
-
-    SHORT nPenalty = bMainHand ? -10 : -6;
-
-    if (m_derivedStats.GetClassLevel(8) >= 1 && !HasArmorType(3) && !HasArmorType(2)) {
-        // Lightly-armored class-8 (druid/ranger #guess): unconditional +2, no feat check.
-        if (bMainHand) {
-            nPenalty += 4;
-        }
-        nPenalty += 2;
-    } else {
-        if (HasFeat(1 /*#guess Ambidexterity*/) && bMainHand) {
-            nPenalty += 4;
-        }
-        if (HasFeat(0x46 /*#guess Two-Weapon Style*/)) {
-            nPenalty += 2;
-        }
-    }
-
-    if (m_equipment.m_items[nMainSlot + 1]->GetItemType() == 0x10
-        || m_equipment.m_items[nMainSlot + 1]->GetItemType() == 0x13) {
+    if (bRanger || HasFeat(CGAMESPRITE_FEAT_TWO_WEAPON_FIGHTING) == TRUE) {
         nPenalty += 2;
     }
-
+    WORD nType = pOffhand->GetItemType();
+    if (nType == 16 || nType == 19) {
+        nPenalty += 2;
+    }
     return nPenalty;
 }
 
 // 0x739B60
-//
-// The per-attack-frame state machine CGameSprite::Attack calls once range/
-// LOS is confirmed. Re-entered once per tick while m_attackFrame advances
-// through the current weapon's swing/reload animation; the animation
-// type's own CGameAnimation::GetAttackFrameType classifier buckets the
-// current frame into: 0 = idle-transition check, 6/7 = draw-back/loose
-// (queues the shoot/attack sequence), 9 = the hit-resolution frame for the
-// FIRST attack this round, default (frameType > 9) = the same resolution
-// for a subsequent attack in a multi-attack round (frameType - 9 is the
-// attack index), 0xF = windup complete. Selects the weapon (and, for a
-// ranged weapon, its launcher) exactly like CGameSprite::ResolveDamage's
-// own bMainHandRealWeapon check, and on m_attackFrame == -1 (a fresh
-// attack, matching the -2 -> -1 bump CGameSprite::Attack does right
-// before calling this) reseeds m_speedFactor from the ability's own speed
-// factor plus monk/luck/feat adjustments and decodes a fresh projectile if
-// the weapon is a launcher. On the hit-resolution frame(s): rolls to hit,
-// resolves damage, fires/updates the CProjectile message, applies every
-// CGameEffect::m_targetType-dispatched ability effect on both the weapon
-// and (if ranged) its launcher -- the exact same case 1-8 dispatch already
-// established in CGameSprite::ApplyCastingEffect, except case 2 here is
-// reachable (a target-directed CMessageAddEffect) and case 7 reads
-// pTarget's own GetAIType().m_nSpecific rather than the caster's -- then
-// consumes one charge and refreshes the quick-attack button.
-//
-// DEFERRED (raw FUN_ tokens too large for this pass -- each is its own
-// arc): FUN_0071F860 (a second, launcher-ability-effect applicator run
-// after a live-projectile hit); FUN_0075D450 (393 decompile lines -- the
-// ammo/charge-depletion handler that can force ACTION_ERROR and unequip
-// the weapon); FUN_00761AB0 (a melee-only hit VFX helper, driven by
-// IcewindCGameEffects::BuildSubSpellEffects); FUN_006F50A0 (sets a script
-// variable via CInfGame::GetVariables the first time pTarget is hit by an
-// attacker below a level cutoff -- a "first hit" trigger); FUN_007FB089 (a
-// generic safe-release helper that conditionally nulls m_curProjectile
-// after firing). Also deferred: the two CAITrigger-based
-// CMessageSetTrigger notifications built from local scratch fields deep in
-// the case 9 / default hit-confirmation branches -- the binary clearly
-// pre-builds two CAITrigger locals from m_typeAI (CAITRIGGER_ATTACKEDBY
-// and CAITRIGGER_HITBY) at function entry for this, but which of the two
-// feeds which branch could not be pinned down from the decompile alone.
-// None of these gate the core to-hit/damage/message-queue path.
-//
-// SIMPLIFICATION, called out explicitly rather than left silent: case 9
-// (the true first-attack hit-resolution frame) and the >9 "default" case
-// (a subsequent attack in a multi-attack round) are two SEPARATE, only
-// mostly-parallel bodies in the binary -- this recovery merges them into
-// one shared block via fallthrough once the attack-index bookkeeping is
-// done, which reproduces the core RollToHit/ResolveDamage/effect-dispatch
-// path faithfully but drops two case-9-only details the merge couldn't
-// preserve: (1) a second, m_startTypeAI-tagged CAIObjectType::Set call
-// into an effect-template buffer inside case 9's own ranged sub-branch
-// (apuStack_48, distinct from the CMessageSetLastAttacker built earlier),
-// purpose not confirmed; (2) a second CProjectile::DecodeProjectile call
-// at the tail of case 9's ranged sub-branch that reassigns m_curProjectile
-// again after firing. Both are narrow, case-9-only wrinkles on top of the
-// otherwise-shared logic -- flagged for a future dedicated pass rather
-// than guessed at here.
-SHORT CGameSprite::ResolveAttack(CGameSprite* pTarget)
+SHORT CGameSprite::Swing(CGameSprite* pTarget)
 {
-    // Select the weapon ability to resolve with, exactly mirroring
-    // CGameSprite::ResolveDamage's own bMainHandRealWeapon check.
-    SHORT nSelectedWeapon = m_equipment.m_selectedWeapon;
-    SHORT nSelectedAbility = m_equipment.m_selectedWeaponAbility;
-    if (field_5632 != 0
-        && m_equipment.m_selectedWeapon != CGameSpriteEquipment::SLOT_FIST
-        && m_equipment.m_items[GetWeaponSlot() & 0xff] != NULL) {
-        SHORT nMainSlotType = m_equipment.m_items[GetWeaponSlot() & 0xff]->GetItemType();
-        if (nMainSlotType != 0x35 && nMainSlotType != 0x2f && nMainSlotType != 0x31 && nMainSlotType != 0x29) {
-            nSelectedWeapon = static_cast<SHORT>(GetWeaponSlot());
-            nSelectedAbility = 0;
-        }
+    CAITrigger attacked(CAITRIGGER_ATTACKEDBY, m_typeAI, 0);
+    CAITrigger hit(CAITRIGGER_HITBY, m_typeAI, 0);
+    CAbilityId abilityId;
+    WORD nAbility = m_equipment.m_selectedWeaponAbility;
+    WORD nSlot = static_cast<BYTE>(m_equipment.m_selectedWeapon);
+    BOOL bHit = FALSE;
+    CItem* pLauncher = NULL;
+    const ITEM_ABILITY* pLauncherAbility = NULL;
+    if (field_5632 != 0 && m_equipment.m_selectedWeapon != 42
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())] != NULL
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 53
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 47
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 49
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 41) {
+        nSlot = static_cast<BYTE>(GetWeaponSlot());
+        nAbility = 0;
     }
-
-    CItem* pWeapon = m_equipment.m_items[nSelectedWeapon];
-    BOOL bNeedRelease = TRUE;
-    const ITEM_ABILITY* ability;
+    CItem* pWeapon = m_equipment.m_items[nSlot];
+    BOOL bDemanded = TRUE;
+    const ITEM_ABILITY* pAbility;
     if (pWeapon == NULL) {
         EquipMostDamagingMelee();
-        pWeapon = m_equipment.m_items[CGameSpriteEquipment::SLOT_FIST];
+        pWeapon = m_equipment.m_items[10];
         UTIL_ASSERT(pWeapon != NULL);
         pWeapon->Demand();
-        ability = pWeapon->GetAbility(0);
-        nSelectedAbility = 0;
+        pAbility = pWeapon->GetAbility(0);
+        nAbility = 0;
     } else {
         pWeapon->Demand();
-        ability = pWeapon->GetAbility(nSelectedAbility);
+        pAbility = pWeapon->GetAbility(nAbility);
     }
-
-    m_cGameStats.RecordWeaponUse(pWeapon->cResRef);
-
-    static const ITEM_ABILITY s_emptyAbility = {};
-    if (ability == NULL) {
-        ability = &s_emptyAbility;
+    m_cGameStats.RecordWeaponUse(pWeapon->GetResRef());
+    if (pAbility == NULL) {
+        // Default attack record (0x85BBD0).
+        static const ITEM_ABILITY DEFAULT_ATTACK = {
+            1, 1, 0, { 0 }, 1, 1, 1, 0, 0, 0, 0, 0,
+            2, 9, 1, 0, 0, 2, 0, 0, 0xFFFF, 0, 0, 0, { 0 }
+        };
+        pAbility = &DEFAULT_ATTACK;
     }
-
-    if (ability->type == 4) {
-        // Ammo-out launcher: bail without touching the animation state.
+    if (static_cast<BYTE>(pAbility->type) == 4) {
         pWeapon->Release();
         return ACTION_ERROR;
     }
-
-    CItem* pLauncher = NULL;
-    const ITEM_ABILITY* launcherAbility = NULL;
-    SHORT launcherSlot;
-    if (ability->type == 2) {
-        pLauncher = GetLauncher(ability, launcherSlot);
+    BOOL bRanged = static_cast<BYTE>(pAbility->type) == 2;
+    if (bRanged) {
+        SHORT launcherSlot;
+        pLauncher = GetLauncher(pAbility, launcherSlot);
         if (pLauncher != NULL) {
             pLauncher->Demand();
-            launcherAbility = pLauncher->GetAbility(0);
+            pLauncherAbility = pLauncher->GetAbility(0);
         }
     }
-
-    if (pTarget != NULL) {
-        CPoint targetPos = pTarget->GetPos();
-        SHORT nNewDirection = GetDirection(targetPos);
-        if (m_nDirection != nNewDirection) {
-            CMessage* message = new CMessageSetDirection(targetPos, m_id, m_id);
-            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-        }
+    CMessageHandler* messages = g_pBaldurChitin->GetMessageHandler();
+    if (pTarget != NULL && m_nDirection != GetDirection(pTarget->GetPos())) {
+        messages->AddMessage(new CMessageSetDirection(pTarget->GetPos(), m_id, m_id), FALSE);
     }
-
-    // Fresh attack: reseed the speed factor and, for a launcher, decode a
-    // new projectile.
     if (m_attackFrame == -1) {
         m_attackFrame = 0;
-        m_speedFactor = static_cast<SHORT>(static_cast<BYTE>(ability->speedFactor));
-
-        CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
-        // #guess -- unnamed CDerivedStats table entry, byte offset 0x318
-        // (falls inside m_cBounceSpellLevel's own internal layout; no
-        // named field exists for it in this codebase yet).
-        SHORT nSpeedTableValue = *reinterpret_cast<SHORT*>(reinterpret_cast<BYTE*>(&stats) + 0x318);
-        SHORT nAfterTable = static_cast<SHORT>(m_speedFactor - nSpeedTableValue);
-        m_speedFactor = (nAfterTable < 0) ? 0 : nAfterTable;
+        const CDerivedStats& stats = m_bAllowEffectListCall ? m_derivedStats : m_tempStats;
+        m_speedFactor = static_cast<SHORT>(max(static_cast<INT>(pAbility->speedFactor) - stats.m_nPhysicalSpeed, 0));
         m_speedFactor = static_cast<SHORT>(m_speedFactor + CUtil::UtilRandInt(6, -stats.m_nLuck));
-        m_speedFactor -= 3; // DAT_0085bba3 >> 1, DAT_0085bba3 == 6
-        if (m_typeAI.m_nClassMask & 0x20) { // bit 5 = Monk (class id 6, 1-indexed, matches CDerivedStats::GetClassLevel's own indexing)
-            LONG nMonkLevel = m_derivedStats.GetClassLevel(6 /*#guess -- Monk*/);
-            if (nMonkLevel > 7) {
-                m_speedFactor -= 1;
-            }
-            if (nMonkLevel > 0xb) {
-                m_speedFactor -= 1;
-            }
+        m_speedFactor -= 3;
+        if ((m_typeAI.m_nClassMask & CLASSMASK_MONK) != 0) {
+            INT level = m_derivedStats.GetClassLevel(6);
+            if (level >= 8) --m_speedFactor;
+            if (level >= 12) --m_speedFactor;
         }
-        if (HasFeat(0x20)) {
-            m_speedFactor -= 1;
-        }
-        if (m_speedFactor < 0) {
-            m_speedFactor = 0;
-        } else if (m_speedFactor > 10) {
-            m_speedFactor = 10;
-        }
-
+        if (HasFeat(CGAMESPRITE_FEAT_IMPROVED_INITIATIVE) == TRUE) --m_speedFactor;
+        m_speedFactor = max(static_cast<SHORT>(0), min(m_speedFactor, static_cast<SHORT>(10)));
         field_5630 = 0;
-        field_7118 = 0;
         field_5632 = 0;
-
-        if (ability->type == 2) {
-            if (m_curProjectile != NULL) {
+        if (bRanged) {
+            delete m_curProjectile;
+            m_curProjectile = NULL;
+            CProjectile* projectile = CProjectile::DecodeProjectile(pAbility->missileType, this, NULL);
+            CWeaponIdentification identification;
+            pWeapon->LoadWeaponIdentification(identification);
+            m_curProjectile = projectile;
+        }
+    }
+    BYTE frameType = m_derivedStats.m_nNumberOfAttacks > 0
+        ? m_animation.GetAttackFrameType(static_cast<BYTE>(m_derivedStats.m_nNumberOfAttacks),
+              static_cast<BYTE>(m_speedFactor), static_cast<BYTE>(m_attackFrame))
+        : 0;
+    if (m_derivedStats.m_nNumberOfAttacks < field_5636) frameType = 15;
+    if (bRanged) {
+        UTIL_ASSERT(m_animation.m_animation != NULL);
+        if ((m_animation.m_animation->m_animationID & 0xF000) == 0xE000) {
+            auto* animation = static_cast<CGameAnimationTypeMonsterIcewind*>(m_animation.m_animation);
+            if (frameType == 9) frameType = 7;
+            if (animation->field_1CDE != -1
+                && m_attackFrame == animation->field_1CDA + animation->field_1CDE) frameType = 9;
+        } else if ((m_animation.m_animation->m_animationID & 0xFF00) == 0xF100) {
+            auto* animation = static_cast<CGameAnimationTypeMonsterIcewindNew*>(m_animation.m_animation);
+            if (frameType == 9) frameType = 0;
+            if (animation->field_34F8 != -1) {
+                INT impactFrame = animation->field_34F4 + animation->field_34F8;
+                if (m_attackFrame == impactFrame) {
+                    frameType = 9;
+                } else if (m_attackFrame > impactFrame && m_attackFrame < impactFrame + 6) {
+                    frameType = 8;
+                } else if (m_attackFrame == impactFrame + 6) {
+                    frameType = 8;
+                    animation->field_34F8 = -1;
+                }
+            }
+        }
+    }
+    SHORT sequence = m_nSequence;
+    SHORT result = ACTION_NORMAL;
+    auto setSequence = [&](BYTE value) {
+        messages->AddMessage(new CMessageSetSequence(value, m_id, m_id), FALSE);
+    };
+    switch (frameType) {
+    case 0:
+    case 15:
+        field_7118 = 0;
+        result = ACTION_INTERRUPTABLE;
+        if (sequence != GetIdleSequence() && sequence != CGAMESPRITE_SEQ_SHOOT
+            && sequence != CGAMESPRITE_SEQ_ATTACK) setSequence(static_cast<BYTE>(GetIdleSequence()));
+        if (frameType == 15) {
+            if (bRanged) {
                 delete m_curProjectile;
                 m_curProjectile = NULL;
             }
-            CWeaponIdentification weaponId;
-            pWeapon->LoadWeaponIdentification(weaponId);
-            m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
+            m_attackFrame = -2;
         }
-    }
-
-    BYTE frameType = 0;
-    if (m_derivedStats.m_nNumberOfAttacks > 0) {
-        frameType = m_animation.GetAttackFrameType(
-            static_cast<BYTE>(m_derivedStats.m_nNumberOfAttacks),
-            static_cast<BYTE>(m_speedFactor),
-            static_cast<BYTE>(m_attackFrame));
-    }
-
-    SHORT nResult = ACTION_NORMAL;
-    switch (frameType) {
-    case 0:
-        field_7118 = 0;
-        if (m_nSequence != GetIdleSequence() && m_nSequence != 0x1108 /*#guess DAT_0085bbba -- raw sequence constant, could not be named confidently*/
-            && m_nSequence != 0x0100 /*#guess DAT_0085bbb0 -- raw sequence constant, could not be named confidently*/) {
-            CMessage* message = new CMessageSetSequence(static_cast<BYTE>(GetIdleSequence()), m_id, m_id);
-            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-        }
-        nResult = ACTION_INTERRUPTABLE;
         break;
-
-    default:
-    {
-        BYTE nAttackNumber = static_cast<BYTE>(frameType - 9);
-        field_5636 = nAttackNumber;
-        UTIL_ASSERT(m_derivedStats.m_nNumberOfAttacks >= static_cast<SHORT>(nAttackNumber));
-
-        LONG nAttackIndex = frameType - 9;
-        if (nAttackIndex >= 1) {
-            LONG nNumAttacks = m_derivedStats.m_nNumberOfAttacks;
-            if (nNumAttacks < 6) {
-                if (nNumAttacks < nAttackIndex) {
-                    field_7118 = 0;
-                    field_5630 = 0;
-                    field_5632 = 0;
-                } else {
-                    field_7118 = 1;
-                    field_5630 = 1;
-                    if (nAttackIndex == nNumAttacks) {
-                        field_5632 = 1;
-                    }
-                }
-            } else {
-                if (nNumAttacks - 5 <= nAttackIndex) {
-                    field_7118 = 0;
-                    field_5630 = 0;
-                    field_5632 = 0;
-                } else {
-                    field_7118 = 1;
-                    field_5630 = 1;
-                    if (nAttackIndex == nNumAttacks - 6) {
-                        field_5632 = 1;
-                    }
-                }
-            }
-
-            if (ability->type == 2) {
-                if (m_nSequence != 0x1108 /*#guess DAT_0085bbba*/ && field_5630 != 0) {
-                    CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
-                    g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-                    // DEFERRED: the binary also stamps either
-                    // m_animation.m_animation+0x1cde or +0x34f8 with
-                    // m_attackFrame here depending on the animation
-                    // sub-type -- an animation-internal bookkeeping field
-                    // this pass does not have a name for.
-                }
-                break;
-            }
-
-            if (m_nSequence != 0x0100 /*#guess DAT_0085bbb0*/) {
-                CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-            }
-            break;
-        }
-
-        // nAttackIndex == 0: fall through to the same hit-resolution logic
-        // as case 9 below (this is a subsequent attack in the round).
-    }
-    // fallthrough intentional -- see case 9 comment
-    case 9:
-    {
-        nResult = ACTION_NORMAL;
-        field_5636 = static_cast<BYTE>(frameType == 9 ? 0 : frameType - 9);
-
-        CMessage* pAttackerMsg = new CMessageSetLastAttacker(
-            frameType == 9 ? m_startTypeAI : m_typeAI, m_id, pTarget->m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(pAttackerMsg, FALSE);
-
-        if (frameType == 9) {
-            CheckInvisibility(0);
-            // DEFERRED: two CGameEffect::DecodeEffect + CMessageAddEffect
-            // queues here (opcodes 0x88 and 0xA0, the latter gated on
-            // m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL]) --
-            // narrow, self-targeted engine effects not yet named.
-            if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL]) {
-                CGameEffect* pRemoveEffect = IcewindMisc::CreateEffectRemoveAllOfType(this, 0x1be, 0);
-                CMessage* pRemoveMsg = new CMessageAddEffect(pRemoveEffect, m_id, m_id);
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(pRemoveMsg, FALSE);
-            }
-        }
-
-        BOOL bHitLanded = FALSE;
-        SHORT nAbilityIndex = nSelectedAbility;
-        BOOL bCritical = FALSE;
-
-        if (ability->type == 2) {
-            if (m_curProjectile == NULL) {
-                m_curProjectile = CProjectile::DecodeProjectile(ability->missileType, this, 0);
-                CWeaponIdentification weaponIdOuter;
-                pWeapon->LoadWeaponIdentification(weaponIdOuter);
-                if (m_curProjectile != NULL && field_5630 != 0) {
-                    bHitLanded = RollToHit(pTarget, pWeapon, nAbilityIndex, &bCritical, field_5632, field_5636);
-                    if (!bHitLanded) {
-                        m_curProjectile->ClearEffects();
-                    } else {
-                        CWeaponIdentification weaponId;
-                        pWeapon->LoadWeaponIdentification(weaponId);
-                        if ((!pTarget->GetAIType().IsClassValid(6 /*#guess Monk*/)
-                                || m_derivedStats.GetClassLevel(6) < 0x14
-                                || (weaponId.m_itemFlags & 0x40))
-                            && !pTarget->m_derivedStats.m_cImmunitiesWeapon.OnList(weaponId)) {
-                            SHORT nAttackerDir = pTarget->m_nDirection;
-                            SHORT nBearingToTarget = GetDirection(pTarget->GetPos());
-                            CGameEffectDamage* pDamage = ResolveDamage(pWeapon, pLauncher, nAbilityIndex, bCritical,
-                                pTarget->m_typeAI, nAttackerDir, nBearingToTarget, pTarget, field_5632);
-                            m_curProjectile->AddEffect(pDamage);
-                            // DEFERRED: FUN_0071F860(m_curProjectile, pWeapon, ability index, target dir)
-                        } else {
-                            FeedBack(0x25, 0, 0, 0, -1, 0, 0);
-                            m_curProjectile->ClearEffects();
-                        }
-                    }
-
-                    CMessage* pFireMsg = new CMessageFireProjectile(
-                        m_curProjectile->m_projectileType, pTarget->m_id, pTarget->GetPos(),
-                        m_curProjectile->DetermineHeight(this), m_id, pTarget->m_id, 0);
-                    g_pBaldurChitin->GetMessageHandler()->AddMessage(pFireMsg, FALSE);
-
-                    m_curProjectile->Fire(m_pArea, m_id, pTarget->m_id, pTarget->GetPos(),
-                        m_curProjectile->DetermineHeight(this), 6 /*#guess DAT_0084d5e8*/);
-
-                    // DEFERRED: FUN_007FB089-driven conditional
-                    // m_curProjectile = NULL after Fire().
-                }
-            } else if (field_5630 != 0) {
-                bHitLanded = RollToHit(pTarget, pWeapon, nAbilityIndex, &bCritical, field_5632, field_5636);
-                if (!bHitLanded) {
-                    m_curProjectile->ClearEffects();
-                } else {
-                    CWeaponIdentification weaponId;
-                    pWeapon->LoadWeaponIdentification(weaponId);
-                    if ((!pTarget->GetAIType().IsClassValid(6 /*#guess Monk*/)
-                            || m_derivedStats.GetClassLevel(6) < 0x14
-                            || (weaponId.m_itemFlags & 0x40))
-                        && !pTarget->m_derivedStats.m_cImmunitiesWeapon.OnList(weaponId)) {
-                        SHORT nAttackerDir = pTarget->m_nDirection;
-                        SHORT nBearingToTarget = GetDirection(pTarget->GetPos());
-                        CGameEffectDamage* pDamage = ResolveDamage(pWeapon, pLauncher, nAbilityIndex, bCritical,
-                            pTarget->m_typeAI, nAttackerDir, nBearingToTarget, pTarget, field_5632);
-                        m_curProjectile->AddEffect(pDamage);
-                        // DEFERRED: FUN_0071F860(m_curProjectile, pWeapon, ability index, target dir)
-                    } else {
-                        FeedBack(0x25, 0, 0, 0, -1, 0, 0);
-                        m_curProjectile->ClearEffects();
-                    }
-                }
-
-                CMessage* pFireMsg = new CMessageFireProjectile(
-                    m_curProjectile->m_projectileType, pTarget->m_id, pTarget->GetPos(),
-                    m_curProjectile->DetermineHeight(this), m_id, pTarget->m_id, 0);
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(pFireMsg, FALSE);
-            }
-        } else if (field_5630 != 0) {
-            // Melee / instant (non-launcher) resolution.
-            bHitLanded = RollToHit(pTarget, pWeapon, nAbilityIndex, &bCritical, field_5632, field_5636);
-            if (bHitLanded) {
-                // DEFERRED: the CAITrigger-based CMessageSetTrigger AI
-                // notification (CAITRIGGER_ATTACKEDBY or _HITBY, built
-                // from m_typeAI at function entry) is queued here in the
-                // binary -- see the top-of-function comment.
-
-                CWeaponIdentification weaponId;
-                pWeapon->LoadWeaponIdentification(weaponId);
-                SHORT nAttackerDir = pTarget->m_nDirection;
-                SHORT nBearingToTarget = GetDirection(pTarget->GetPos());
-                CGameEffectDamage* pDamage = ResolveDamage(pWeapon, pLauncher, nAbilityIndex, bCritical,
-                    pTarget->m_typeAI, nAttackerDir, nBearingToTarget, pTarget, field_5632);
-                CMessage* pDamageMsg = new CMessageAddEffect(pDamage, m_id, pTarget->m_id);
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(pDamageMsg, FALSE);
-
-                for (LONG i = 0; i < ability->effectCount; ++i) {
-                    CGameEffect* pEffect = pWeapon->GetAbilityEffect(nAbilityIndex, i, this);
-                    pEffect->m_source = m_pos;
-                    pEffect->m_sourceID = m_id;
-                    pEffect->m_target = pTarget->m_pos;
-                    IcewindMisc::ApplyDamageModifiers(this, pEffect);
-                    switch (pEffect->m_targetType) {
-                    case 1: {
-                        CMessage* m = new CMessageAddEffect(pEffect, m_id, m_id);
-                        g_pBaldurChitin->GetMessageHandler()->AddMessage(m, FALSE);
-                        continue;
-                    }
-                    case 2: {
-                        CMessage* m = new CMessageAddEffect(pEffect, m_id, pTarget->m_id);
-                        g_pBaldurChitin->GetMessageHandler()->AddMessage(m, FALSE);
-                        continue;
-                    }
-                    case 3:
-                        ApplyEffectToParty(pEffect);
-                        break;
-                    case 4:
-                        m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, NULL);
-                        break;
-                    case 5:
-                        m_pArea->ApplyEffect(pEffect, TRUE, FALSE, 0, NULL);
-                        break;
-                    case 6:
-                        m_pArea->ApplyEffect(pEffect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
-                        break;
-                    case 7:
-                        m_pArea->ApplyEffect(pEffect, FALSE, TRUE, pTarget->GetAIType().m_nSpecific, NULL);
-                        break;
-                    case 8:
-                        m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, this);
-                        break;
-                    default:
-                        break;
-                    }
-                    delete pEffect;
-                }
-
-                if (pLauncher != NULL && launcherAbility != NULL) {
-                    for (LONG i = 0; i < launcherAbility->effectCount; ++i) {
-                        CGameEffect* pEffect = pLauncher->GetAbilityEffect(0, i, this);
-                        pEffect->m_source = m_pos;
-                        pEffect->m_sourceID = m_id;
-                        pEffect->m_target = pTarget->m_pos;
-                        IcewindMisc::ApplyDamageModifiers(this, pEffect);
-                        switch (pEffect->m_targetType) {
-                        case 1: {
-                            CMessage* m = new CMessageAddEffect(pEffect, m_id, m_id);
-                            g_pBaldurChitin->GetMessageHandler()->AddMessage(m, FALSE);
-                            continue;
-                        }
-                        case 2:
-                            m_curProjectile->AddEffect(pEffect);
-                            break;
-                        case 3:
-                            ApplyEffectToParty(pEffect);
-                            break;
-                        case 4:
-                            m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, NULL);
-                            break;
-                        case 5:
-                            m_pArea->ApplyEffect(pEffect, TRUE, FALSE, 0, NULL);
-                            break;
-                        case 6:
-                            m_pArea->ApplyEffect(pEffect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL);
-                            break;
-                        case 7:
-                            m_pArea->ApplyEffect(pEffect, FALSE, TRUE, pTarget->GetAIType().m_nSpecific, NULL);
-                            break;
-                        case 8:
-                            m_pArea->ApplyEffect(pEffect, FALSE, FALSE, 0, this);
-                            break;
-                        default:
-                            break;
-                        }
-                        delete pEffect;
-                    }
-                }
-
-                if (ability->type == 1) {
-                    // DEFERRED: FUN_00761AB0(this) -- melee hit VFX helper.
-                }
-            }
-        }
-
-        if (field_5630 != 0 && ability->maxUsageCount != 0
-            && (ability->type != 1 || bHitLanded)) {
-            WORD nUsage = pWeapon->GetUsageCount(nAbilityIndex);
-            pWeapon->SetUsageCount(nAbilityIndex, nUsage - 1);
-        }
-
-        if (field_5630 != 0 && ability->maxUsageCount != 0) {
-            CAbilityId buttonAbility;
-            buttonAbility.m_itemType = 2;
-            buttonAbility.m_itemNum = nSelectedWeapon;
-            buttonAbility.m_abilityNum = nSelectedAbility;
-            UpdateQuickButtons(buttonAbility, -1, FALSE, FALSE);
-        }
-
-        if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL]) {
-            CGameEffect* pRemoveEffect = IcewindMisc::CreateEffectRemoveAllOfType(this, 0x1be, 0);
-            CMessage* pRemoveMsg = new CMessageAddEffect(pRemoveEffect, m_id, m_id);
-            g_pBaldurChitin->GetMessageHandler()->AddMessage(pRemoveMsg, FALSE);
-        }
-
-        bNeedRelease = FALSE;
-        pWeapon->Release();
-
-        // DEFERRED: FUN_0075D450(nSelectedWeapon, nSelectedAbility) -- the
-        // ammo/charge-depletion handler. When it reports depletion the
-        // binary calls AutoPause(1) and returns ACTION_ERROR instead of
-        // the CMessageSetTrigger built below.
-        nResult = ACTION_NORMAL;
-
-        // DEFERRED: the second CAITrigger-based CMessageSetTrigger AI
-        // notification (see the top-of-function comment).
-        break;
-    }
-
     case 6:
-        if (ability->type != 2) {
-            if (m_nSequence != 0x0100 /*#guess DAT_0085bbb0*/) {
-                CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-            }
+        result = ACTION_INTERRUPTABLE;
+        if (!bRanged) {
+            if (sequence != CGAMESPRITE_SEQ_ATTACK) setSequence(CGAMESPRITE_SEQ_ATTACK);
+            messages->AddMessage(new CMessageSetLastAttacker(m_typeAI, m_id, pTarget->m_id), FALSE);
         }
         break;
-
     case 7:
         field_7118 = 1;
-        if (ability->type == 2) {
-            if (m_nSequence != 0x1108 /*#guess DAT_0085bbba*/ && field_5630 != 0) {
-                CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
-            }
-        } else if (m_nSequence != 0x0100 /*#guess DAT_0085bbb0*/) {
-            CMessage* message = new CMessageSetSequence(SEQ_ATTACK, m_id, m_id);
-            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        if (!bRanged) {
+            if (sequence != CGAMESPRITE_SEQ_ATTACK) setSequence(CGAMESPRITE_SEQ_ATTACK);
+        } else if (sequence != CGAMESPRITE_SEQ_SHOOT && field_5630 != 0) {
+            setSequence(CGAMESPRITE_SEQ_SHOOT);
         }
         break;
-
     case 8:
         field_7118 = 0;
         break;
-
-    case 0xf:
-        field_7118 = 0;
-        if (m_nSequence != GetIdleSequence() && m_nSequence != 0x1108 /*#guess DAT_0085bbba*/
-            && m_nSequence != 0x0100 /*#guess DAT_0085bbb0*/) {
-            CMessage* message = new CMessageSetSequence(static_cast<BYTE>(GetIdleSequence()), m_id, m_id);
-            g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+    case 9: {
+        field_7118 = 1;
+        UTIL_ASSERT(m_animation.m_animation != NULL);
+        if ((m_animation.m_animation->m_animationID & 0xF000) == 0xE000) {
+            static_cast<CGameAnimationTypeMonsterIcewind*>(m_animation.m_animation)->field_1CDE = -1;
         }
-        if (ability->type == 2 && m_curProjectile != NULL) {
-            delete m_curProjectile;
-            m_curProjectile = NULL;
+        messages->AddMessage(new CMessageSetLastAttacker(m_typeAI, m_id, pTarget->m_id), FALSE);
+        if (CheckInvisibility(FALSE) == FALSE) {
+            ITEM_EFFECT effect;
+            CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_FORCEVISIBLE);
+            effect.durationType = 1;
+            messages->AddMessage(new CMessageAddEffect(CGameEffect::DecodeEffect(&effect,
+                m_pos, m_id, CPoint(-1, -1)), m_id, m_id), FALSE);
         }
-        m_attackFrame = -2;
+        if (m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]) {
+            ITEM_EFFECT effect;
+            CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_DISPELSANCTUARY);
+            effect.durationType = 1;
+            messages->AddMessage(new CMessageAddEffect(CGameEffect::DecodeEffect(&effect,
+                m_pos, m_id, CPoint(-1, -1)), m_id, m_id), FALSE);
+        }
+        if (bRanged) {
+            CAIObjectType startType;
+            startType.Set(m_startTypeAI);
+            if (sequence != CGAMESPRITE_SEQ_SHOOT && field_5630 != 0) setSequence(CGAMESPRITE_SEQ_SHOOT);
+            if (m_curProjectile == NULL) {
+                CProjectile* projectile = CProjectile::DecodeProjectile(pAbility->missileType, this, NULL);
+                CWeaponIdentification identification;
+                pWeapon->LoadWeaponIdentification(identification);
+                m_curProjectile = projectile;
+            }
+            if (m_curProjectile != NULL && field_5630 != 0) {
+                BOOL critical = FALSE;
+                if (!CheckAttackHit(pTarget, pWeapon, nAbility, &critical, field_5632, field_5636)) {
+                    m_curProjectile->ClearEffects();
+                } else {
+                    bHit = TRUE;
+                    CWeaponIdentification identification;
+                    pWeapon->LoadWeaponIdentification(identification);
+                    if ((pTarget->GetAIType().IsClassValid(6)
+                            && pTarget->m_derivedStats.GetClassLevel(6) >= 20
+                            && (identification.m_itemFlags & 0x40) == 0)
+                        || pTarget->m_derivedStats.m_cImmunitiesWeapon.OnList(identification)) {
+                        FeedBack(0x25, 0, 0, 0, -1, 0, 0);
+                        m_curProjectile->ClearEffects();
+                    } else {
+                        m_curProjectile->AddEffect(CreateWeaponDamage(pWeapon, pLauncher, nAbility,
+                            critical, pTarget->m_typeAI, pTarget->m_nDirection,
+                            GetDirection(pTarget->GetPos()), pTarget, field_5632));
+                        ApplyWeaponEffects(m_curProjectile, pWeapon, nAbility, pTarget->GetPos());
+                    }
+                }
+                auto* message = new CMessageFireProjectile(m_curProjectile->m_projectileType,
+                    pTarget->m_id, pTarget->m_pos, m_curProjectile->DetermineHeight(this), m_id, m_id, 0);
+                if (m_curProjectile->m_projectileType == 0x130) {
+                    LONG seed = rand() % 1000000;
+                    static_cast<CProjectileWhirlwind*>(m_curProjectile)->m_wanderSeed = seed;
+                    message->field_20 = seed;
+                }
+                messages->AddMessage(message, FALSE);
+                m_curProjectile->Fire(m_pArea, m_id, pTarget->m_id, pTarget->m_pos,
+                    m_curProjectile->DetermineHeight(this), 6);
+                if (!AfxIsValidAddress(&m_curProjectile, sizeof(m_curProjectile), TRUE)) m_curProjectile = NULL;
+                CProjectile* projectile = CProjectile::DecodeProjectile(pAbility->missileType, this, NULL);
+                CWeaponIdentification identification;
+                pWeapon->LoadWeaponIdentification(identification);
+                m_curProjectile = projectile;
+            }
+        } else {
+            if (sequence != CGAMESPRITE_SEQ_ATTACK) setSequence(CGAMESPRITE_SEQ_ATTACK);
+            if (field_5630 != 0) {
+                BOOL critical = FALSE;
+                if (CheckAttackHit(pTarget, pWeapon, nAbility, &critical, field_5632, field_5636)) {
+                    bHit = TRUE;
+                    if ((pTarget->field_58C & 0x200000) == 0
+                        && GetAIType().m_nEnemyAlly <= CAIOBJECTTYPE_EA_GOODCUTOFF) {
+                        pTarget->field_58C |= 0x200000;
+                        pTarget->SetTeamEnemies();
+                    }
+                    messages->AddMessage(new CMessageSetTrigger(attacked, m_id, pTarget->m_id), FALSE);
+                    CWeaponIdentification identification;
+                    pWeapon->LoadWeaponIdentification(identification);
+                    messages->AddMessage(new CMessageAddEffect(CreateWeaponDamage(pWeapon, pLauncher,
+                        nAbility, critical, pTarget->m_typeAI, pTarget->m_nDirection,
+                        GetDirection(pTarget->GetPos()), pTarget, field_5632), m_id, pTarget->m_id), FALSE);
+                    auto dispatchEffect = [&](CGameEffect* effect, BOOL launcher) {
+                        effect->m_source = m_pos;
+                        effect->m_sourceID = m_id;
+                        effect->m_target = pTarget->m_pos;
+                        IcewindMisc::ApplyDamageModifiers(this, effect);
+                        switch (effect->m_targetType) {
+                        case 1:
+                            messages->AddMessage(new CMessageAddEffect(effect, m_id, m_id), FALSE);
+                            return;
+                        case 2:
+                            if (launcher) m_curProjectile->AddEffect(effect);
+                            else messages->AddMessage(new CMessageAddEffect(effect, m_id, pTarget->m_id), FALSE);
+                            return;
+                        case 3: ApplyEffectToParty(effect); break;
+                        case 4: m_pArea->ApplyEffect(effect, FALSE, FALSE, 0, NULL); break;
+                        case 5: m_pArea->ApplyEffect(effect, TRUE, FALSE, 0, NULL); break;
+                        case 6: m_pArea->ApplyEffect(effect, FALSE, TRUE, m_typeAI.m_nSpecific, NULL); break;
+                        case 7:
+                            if (pTarget != NULL) m_pArea->ApplyEffect(effect, FALSE, TRUE, pTarget->GetAIType().m_nSpecific, NULL);
+                            break;
+                        case 8: m_pArea->ApplyEffect(effect, FALSE, FALSE, 0, this); break;
+                        }
+                        delete effect;
+                    };
+                    for (INT index = 0; index < pAbility->effectCount; ++index) {
+                        dispatchEffect(pWeapon->GetAbilityEffect(nAbility, index, this), FALSE);
+                    }
+                    if (pLauncherAbility != NULL) {
+                        for (INT index = 0; index < pLauncherAbility->effectCount; ++index) {
+                            dispatchEffect(pLauncher->GetAbilityEffect(0, index, this), TRUE);
+                        }
+                    }
+                    if (static_cast<BYTE>(pAbility->type) == 1) pTarget->ApplyOnHitSpells(this);
+                }
+            }
+        }
+        if (field_5630 != 0 && pAbility->maxUsageCount != 0
+            && (static_cast<BYTE>(pAbility->type) != 1 || bHit)) {
+            pWeapon->SetUsageCount(nAbility, pWeapon->GetUsageCount(nAbility) - 1);
+        }
+        if (field_5630 != 0 && pAbility->maxUsageCount != 0) {
+            abilityId.m_itemType = 2;
+            abilityId.m_itemNum = nSlot;
+            abilityId.m_abilityNum = nAbility;
+            UpdateQuickButtons(abilityId, -1, FALSE, FALSE);
+        }
+        if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL]) {
+            messages->AddMessage(new CMessageAddEffect(
+                IcewindMisc::CreateEffectRemoveAllOfType(this, 446, 0), m_id, m_id), FALSE);
+        }
+        bDemanded = FALSE;
+        pWeapon->Release();
+        if (CheckItemDepleted(nSlot, nAbility)) {
+            AutoPause(1);
+            result = ACTION_ERROR;
+        }
+        messages->AddMessage(new CMessageSetTrigger(hit, m_id, pTarget->m_id), FALSE);
         break;
     }
-
-    if (pLauncher != NULL) {
-        pLauncher->Release();
+    default: {
+        field_5636 = static_cast<BYTE>(frameType - 9);
+        UTIL_ASSERT(field_5636 <= m_derivedStats.m_nNumberOfAttacks);
+        INT index = frameType - 9;
+        if (index < 1) break;
+        if (m_derivedStats.m_nNumberOfAttacks < 6) {
+            if (m_derivedStats.m_nNumberOfAttacks < index) {
+                field_7118 = 0;
+                field_5630 = 0;
+                field_5632 = 0;
+            } else {
+                field_7118 = 1;
+                field_5630 = 1;
+                if (index == m_derivedStats.m_nNumberOfAttacks) field_5632 = 1;
+            }
+        } else if (m_derivedStats.m_nNumberOfAttacks - 5 <= index) {
+            field_7118 = 0;
+            field_5630 = 0;
+            field_5632 = 0;
+        } else {
+            field_7118 = 1;
+            field_5630 = 1;
+            if (index == m_derivedStats.m_nNumberOfAttacks - 6) field_5632 = 1;
+        }
+        if (bRanged) {
+            if (sequence != CGAMESPRITE_SEQ_SHOOT && field_5630 != 0) {
+                setSequence(CGAMESPRITE_SEQ_SHOOT);
+                UTIL_ASSERT(m_animation.m_animation != NULL);
+                if ((m_animation.m_animation->m_animationID & 0xF000) == 0xE000) {
+                    static_cast<CGameAnimationTypeMonsterIcewind*>(m_animation.m_animation)->field_1CDE = m_attackFrame;
+                } else if ((m_animation.m_animation->m_animationID & 0xFF00) == 0xF100) {
+                    static_cast<CGameAnimationTypeMonsterIcewindNew*>(m_animation.m_animation)->field_34F8 = m_attackFrame;
+                }
+            }
+        } else if (sequence != CGAMESPRITE_SEQ_ATTACK) {
+            setSequence(CGAMESPRITE_SEQ_ATTACK);
+        }
+        break;
     }
-    if (bNeedRelease) {
-        pWeapon->Release();
     }
-
-    return nResult;
+    if (pLauncher != NULL) pLauncher->Release();
+    if (bDemanded) pWeapon->Release();
+    return result;
 }
 
 // 0x73B760
-//
-// The attack roll: THAC0 (or touch AC for touch-attack abilities) vs. a
-// d20 + every hit-bonus source, with a handful of unconditional auto-hit/
-// auto-miss gates (target berserk, global Time Stop, target Tortoise Shell
-// active, self-inflicted friendly-fire chance, target Sneak Attack immunity
-// chance) ahead of the roll. On a hit it plays the Stunning Blow/Quivering
-// Palm follow-up effect for a monk's unarmed strike.
-//
-// DEFERRED (documented, not guessed -- each references undocumented globals
-// or narration-only UI code with no safe way to verify the exact mechanic
-// from statics alone): the critical/special-roll narration (0x73C490), the
-// racial ammo bonus (0x4E9840), the launcher-vs-weapon proficiency compare
-// (0x73CF10 -- GetProficiencyTHAC0Bonus() alone is used instead), and the
-// melee-range/selective-bonus modifier (0x73D1B0).
-BOOL CGameSprite::RollToHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, BOOL* pCritical, int nSpecialAttackFlag, BYTE nAttackNumber)
+BOOLEAN CGameSprite::CheckAttackHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, BOOL* pCritical, INT nOffhand, BYTE nAttackCount)
 {
-    CItem* pSelectedWeapon = m_equipment.m_items[GetWeaponSlot()];
-    BOOL bOffHand;
-    if (nSpecialAttackFlag != 0
-        && m_equipment.m_selectedWeapon != 0x2a
-        && pSelectedWeapon != NULL
-        && pSelectedWeapon->GetItemType() != 0x2f
-        && pSelectedWeapon->GetItemType() != 0x35
-        && pSelectedWeapon->GetItemType() != 0x31
-        && pSelectedWeapon->GetItemType() != 0x29) {
-        bOffHand = TRUE;
+    BOOL bOffhand;
+    if (nOffhand != 0
+        && m_equipment.m_selectedWeapon != 42
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())] != NULL
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 47
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 53
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 49
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 41) {
+        bOffhand = TRUE;
     } else {
-        bOffHand = (pSelectedWeapon == pWeapon);
+        bOffhand = m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())] == pWeapon;
     }
 
-    UTIL_ASSERT(m_derivedStats.m_nNumberOfAttacks >= nAttackNumber);
-
-    if (pTarget->m_derivedStats.m_generalState & STATE_BERSERK) {
+    UTIL_ASSERT(nAttackCount <= m_derivedStats.m_nNumberOfAttacks);
+    if ((pTarget->m_derivedStats.m_generalState & 0x20) != 0) {
         return TRUE;
     }
-
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
     if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != pTarget->m_id) {
         return TRUE;
     }
-
     if (pTarget->m_derivedStats.m_spellStates[SPLSTATE_TORTOISE_SHELL]) {
         return TRUE;
     }
-
-    if (m_derivedStats.m_spellStates[SPLSTATE_BLINK] && (rand() % 100 < 0x14)) {
-        FeedBack(0x3e, 0, 0, 0, -1, 0, 0);
+    if (m_derivedStats.m_spellStates[SPLSTATE_BLINK] && rand() % 100 < 20) {
+        FeedBack(0x3E, 0, 0, 0, -1, 0, 0);
         return FALSE;
     }
-
-    if (pTarget->m_derivedStats.m_spellStates[SPLSTATE_BLINK] && (rand() % 100 < 0x32)) {
-        FeedBack(0x3f, 0, 0, 0, -1, 0, 0);
+    if (pTarget->m_derivedStats.m_spellStates[SPLSTATE_BLINK] && rand() % 100 < 50) {
+        pTarget->FeedBack(0x3F, 0, 0, 0, -1, 0, 0);
         return FALSE;
     }
-
-    // 0x85BBD0: a zeroed fallback ability used when GetAbility() has nothing.
-    static const ITEM_ABILITY s_emptyAbility = {};
 
     pWeapon->Demand();
-    const ITEM_ABILITY* curAttack = pWeapon->GetAbility(nAbility);
-    if (curAttack == NULL) {
-        curAttack = &s_emptyAbility;
+    const ITEM_ABILITY* pAbility = pWeapon->GetAbility(nAbility);
+    if (pAbility == NULL) {
+        // 0x85BBD0
+        static const ITEM_ABILITY DEFAULT_ATTACK = {
+            1, 1, 0, { 0 }, 1, 1, 1, 0, 0, 0, 0, 0,
+            2, 9, 1, 0, 0, 2, 0, 0, 0xFFFF, 0, 0, 0, { 0 }
+        };
+        pAbility = &DEFAULT_ATTACK;
     }
-
-    if (curAttack->thac0Bonus == static_cast<SHORT>(0x7fff) /*#guess -- "ability can't attack" sentinel*/) {
+    if (pAbility->thac0Bonus == SHORT_MAX) {
         pWeapon->Release();
         return TRUE;
     }
 
-    CAIObjectType typeAI(GetAIType());
-
-    INT nAC = (curAttack->abilityFlags & 0x10000) == 0 ? GetAC() : GetTouchAC();
-
-    if (curAttack->type != 2
-        && (m_derivedStats.m_generalState & (STATE_INVISIBLE | STATE_IMPROVEDINVISIBILITY)) != 0
-        && !HasFeat(6 /*#guess*/)
+    const CRuleTables& rules = pGame->GetRuleTables();
+    CAIObjectType sourceType;
+    sourceType.Set(GetAIType());
+    INT nAC = (pAbility->abilityFlags & 0x10000) != 0 ? pTarget->GetTouchAC() : pTarget->GetAC();
+    if (static_cast<BYTE>(pAbility->type) != 2
+        && (m_derivedStats.m_generalState & 0x400010) != 0
+        && !pTarget->HasFeat(CGAMESPRITE_FEAT_BLIND_FIGHT)
         && pTarget->m_baseStats.m_barbarianLevel < 2
         && pTarget->m_baseStats.m_rogueLevel < 3) {
-        nAC -= g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(pTarget->m_derivedStats.m_nDEX);
+        nAC -= rules.GetAbilityScoreModifier(pTarget->m_derivedStats.m_nDEX);
     }
+    nAC += GetDamageTypeACMod(pTarget, pWeapon, pAbility);
 
-    nAC += GetDamageTypeACMod(pTarget, pWeapon, curAttack);
-
-    // d20, weighted by Luck.
-    SHORT nRoll = static_cast<SHORT>(CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1);
-    CHAR nAttackBaseOverride = static_cast<CHAR>(m_baseStats.m_attackBase);
-
-    INT nBaseTHAC0, nAttacksPerRound, nUnusedFlags;
-    g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetBaseCombatValues(this, nBaseTHAC0, nAttacksPerRound, nUnusedFlags, TRUE);
-
+    INT nRoll = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
+    INT nBaseAttack, nBaseAttacks, nAttackStep;
+    rules.GetBaseCombatValues(this, nBaseAttack, nBaseAttacks, nAttackStep, TRUE);
     if (!IcewindMisc::IsPC(this)) {
-        if (nAttackBaseOverride != 0 && nAttackBaseOverride != nBaseTHAC0) {
-            nBaseTHAC0 = nAttackBaseOverride;
+        INT nCreatureAttack = static_cast<CHAR>(m_baseStats.m_attackBase);
+        if (nCreatureAttack != 0 && nCreatureAttack != nBaseAttack) {
+            nBaseAttack = nCreatureAttack;
         }
-        if (m_derivedStats.m_nNumberOfAttacks != 0 && m_derivedStats.m_nNumberOfAttacks != nAttacksPerRound) {
-            nUnusedFlags = 0;
-            nAttacksPerRound = m_derivedStats.m_nNumberOfAttacks;
+        if (m_derivedStats.m_nNumberOfAttacks != 0 && m_derivedStats.m_nNumberOfAttacks != nBaseAttacks) {
+            nAttackStep = 0;
+            nBaseAttacks = m_derivedStats.m_nNumberOfAttacks;
         }
-        if (m_baseStats.m_specFlags & 1) {
-            nBaseTHAC0 += 15;
-            nAttacksPerRound += 3;
+        if ((m_baseStats.m_specFlags & CRE_SPECFLAG_NIGHTMARE_BOOST) != 0) {
+            nBaseAttack += 15;
+            nBaseAttacks += 3;
         }
     }
-
-    if (bOffHand) {
-        nAttackNumber = 1;
+    if (bOffhand) {
+        nAttackCount = 1;
     }
 
-    BOOL bHasLauncherAbility = FALSE;
+    BOOL bRanged = FALSE;
     SHORT nLauncherSlot;
-    CItem* pLauncher = GetLauncher(curAttack, nLauncherSlot);
+    CItem* pLauncher = GetLauncher(pAbility, nLauncherSlot);
     if (pLauncher != NULL) {
         pLauncher->Demand();
-        if (pLauncher->GetAbility(0) != NULL) {
-            bHasLauncherAbility = TRUE;
-        }
+        bRanged = pLauncher->GetAbility(0) != NULL;
+    }
+    if (static_cast<BYTE>(pAbility->type) == 2) {
+        bRanged = TRUE;
+    }
+    if (pLauncher != NULL) {
         pLauncher->Release();
-    } else if (curAttack->type == 2) {
-        bHasLauncherAbility = TRUE;
     }
-
-    if ((m_derivedStats.m_generalState & 0x1000000) != 0 && bHasLauncherAbility && nAttackNumber == 1) {
-        nBaseTHAC0 -= 5;
+    if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_RAPID_SHOT] && bRanged && nAttackCount == 1) {
+        nBaseAttack -= 5;
     }
-
-    INT nEffectiveTHAC0 = nBaseTHAC0;
-    if ((m_derivedStats.m_generalState & 0x1000000) != 0 && bHasLauncherAbility) {
-        nEffectiveTHAC0 -= 2;
+    nBaseAttack = rules.GetIterativeAttackBonus(nBaseAttack, nAttackStep, nAttackCount - 1);
+    INT nBonus = nBaseAttack;
+    if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_RAPID_SHOT] && bRanged) {
+        nBonus -= 2;
     }
-
-    INT nAbilityHitBonus = GetAbilityHitBonus(pWeapon, curAttack);
-    INT nRacialAttackPenalty = GetRacialAttackPenalty();
-    INT nRacialTargetBonus = GetRacialTargetBonus(pTarget);
-
+    nBonus += GetAbilityHitBonus(pWeapon, pAbility);
+    nBonus += GetRacialAttackPenalty();
+    nBonus += GetRacialTargetBonus(pTarget);
     UTIL_ASSERT(pWeapon != NULL);
-    UTIL_ASSERT(curAttack != NULL);
-
-    INT nDualWieldBonus = 0;
-    if (m_typeAI.m_nClass == 5 && curAttack->type == 2) {
+    UTIL_ASSERT(pAbility != NULL);
+    if (m_typeAI.m_nRace == 5 && pAbility->type == 2) {
         switch (pWeapon->GetItemType()) {
-        case 0xe:
-        case 0x10:
-        case 0x15:
-        case 0x18:
-        case 0x19:
-        case 0x1d:
-            nDualWieldBonus = 1 /*halfling-sling-style dual-wield bonus*/;
+        case 14:
+        case 16:
+        case 21:
+        case 24:
+        case 25:
+        case 29:
+            nBonus += 1;
+            break;
         }
     }
-
     UTIL_ASSERT(pTarget != NULL);
-
-    nEffectiveTHAC0 += nAbilityHitBonus + nRacialAttackPenalty + nRacialTargetBonus + nDualWieldBonus;
-
-    INT nHatedRaceBonus = 0;
-    if (typeAI.IsClassValid(8 /*#guess Ranger*/)
-        && g_pBaldurChitin->GetObjectGame()->GetRuleTables().IsHatedRace(pTarget->m_typeAI, m_baseStats)) {
+    if (sourceType.IsClassValid(CAIOBJECTTYPE_C_RANGER)
+        && rules.IsHatedRace(pTarget->m_typeAI, m_baseStats)) {
         BYTE nRace = pTarget->m_typeAI.m_nRace;
-        nHatedRaceBonus = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetHatedRaceBonus(nRace, m_baseStats);
+        nBonus += rules.GetHatedRaceBonus(nRace, m_baseStats);
     }
-
-    UTIL_ASSERT(curAttack != NULL);
-
-    INT nTHAC0Bonuses = GetTHAC0Bonuses(pWeapon, curAttack);
-    // DEFERRED: FUN_0073CF10's launcher-vs-weapon proficiency compare and
-    // unproficient-PC table lookup -- using the weapon's own proficiency
-    // bonus alone (a real, already-recovered call) instead of guessing at
-    // the launcher comparison.
-    INT nProficiencyBonus = GetProficiencyTHAC0Bonus(pWeapon);
-    // DEFERRED 0x73D080 already covered above via GetTwoWeaponPenalty.
-    INT nArmorCheckPenalty = GetArmorCheckPenalty();
-    INT nShieldCheckPenalty = GetShieldCheckPenalty();
-    INT nTwoWeaponPenalty = GetTwoWeaponPenalty(bOffHand == FALSE);
-    // DEFERRED 0x73D1B0 (melee-range/selective-bonus modifier): undocumented
-    // distance-threshold globals and several unnamed feats -- real risk of
-    // silently-wrong combat math, left at 0.
-    INT nMeleeRangeBonus = 0;
-
-    INT nStunBonus = (m_derivedStats.m_generalState & 2) != 0 ? 2 : 0;
-
-    INT nDifficultyBonus = 0;
-    CAIObjectType targetType(pTarget->GetAIType());
-    if (targetType.m_nEnemyAlly == 2 /*#guess -- EA_FAMILIAR?*/) {
-        CAIObjectType selfType(GetAIType());
-        if (selfType.m_nEnemyAlly != 2) {
-            // #guess -- unnamed CInfGame field (0x4456), likely difficulty setting.
-            switch (*reinterpret_cast<int*>(reinterpret_cast<BYTE*>(g_pBaldurChitin->GetObjectGame()) + 0x4456)) {
-            case 1:
-                nDifficultyBonus = -4;
-                break;
-            case 2:
-                nDifficultyBonus = -2;
-                break;
-            case 4:
-                nDifficultyBonus = 3;
-                break;
-            case 5:
-                nDifficultyBonus = 9;
-                break;
-            }
+    UTIL_ASSERT(pAbility != NULL);
+    nBonus += GetTHAC0Bonuses(pWeapon, pAbility);
+    nBonus += GetSpecialWeaponHitBonus(pTarget, pWeapon, pAbility);
+    nBonus += GetWeaponProficiencyHitBonus(pWeapon, pAbility);
+    nBonus += GetArmorCheckPenalty();
+    nBonus += GetShieldCheckPenalty();
+    nBonus += GetDualWieldPenalty(bOffhand);
+    nBonus += GetSituationalAttackBonus(pTarget, pAbility);
+    if ((m_derivedStats.m_generalState & 2) != 0) {
+        nBonus += 2;
+    }
+    nBonus += static_cast<WORD>(m_derivedStats.m_nTHAC0);
+    UTIL_ASSERT(pTarget != NULL);
+    if (pTarget->GetAIType().m_nEnemyAlly == CAIOBJECTTYPE_EA_PC
+        && GetAIType().m_nEnemyAlly != CAIOBJECTTYPE_EA_PC) {
+        switch (pGame->GetOptions()->m_nDifficultyLevel) {
+        case 1:
+            nBonus -= 4;
+            break;
+        case 2:
+            nBonus -= 2;
+            break;
+        case 4:
+            nBonus += 3;
+            break;
+        case 5:
+            nBonus += 9;
+            break;
         }
     }
-
-    nEffectiveTHAC0 += nHatedRaceBonus + nTHAC0Bonuses + nProficiencyBonus + nArmorCheckPenalty
-        + nShieldCheckPenalty + nTwoWeaponPenalty + nMeleeRangeBonus + nStunBonus + nDifficultyBonus;
-
-    if ((m_derivedStats.m_generalState & 0x8000000) != 0 && !bHasLauncherAbility) {
-        INT nCHRBonus = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nCHR);
-        if (nCHRBonus > 0) {
-            nEffectiveTHAC0 += nCHRBonus;
+    if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL] && !bRanged) {
+        INT nCharisma = rules.GetAbilityScoreModifier(m_derivedStats.m_nCHR);
+        if (nCharisma > 0) {
+            nBonus += nCharisma;
         }
     }
-
     pWeapon->Release();
 
-    BOOL bHit = (nRoll == 20) || (nAC <= nEffectiveTHAC0 + nRoll);
-
-    // DEFERRED 0x73C490: gates whether this attack is even eligible for
-    // combat feedback at all (a target-visibility/concealment-shaped check
-    // with a 20%/50% miss roll of its own) -- stubbed TRUE so the real
-    // to-hit math above always governs; only that extra concealment-based
-    // override is skipped.
-    BOOL bShowFeedback = TRUE;
-
-    if (bShowFeedback) {
-        FeedBack(FEEDBACK_TOHIT, nRoll, static_cast<CHAR>(nDualWieldBonus), nEffectiveTHAC0, -1, bOffHand, nAttackNumber);
-
-        // Critical-hit confirmation: a second, harder roll against the same AC.
-        SHORT nCritThreshold = m_derivedStats.m_nCriticalHitBonus;
-        if (HasFeat(0x1e /*#guess Improved Critical*/)) {
-            nCritThreshold++;
+    BOOLEAN bHit = static_cast<SHORT>(nRoll) == 20
+        || static_cast<SHORT>(nAC) <= static_cast<SHORT>(nBonus) + static_cast<SHORT>(nRoll);
+    BOOL bConcealment = CheckConcealment(pTarget);
+    SHORT nCriticalBonus = m_derivedStats.m_nCriticalHitBonus;
+    if (HasFeat(CGAMESPRITE_FEAT_IMPROVED_CRITICAL)) {
+        nCriticalBonus++;
+    }
+    nCriticalBonus += pWeapon->GetCriticalRangeBonus(pAbility);
+    INT nConfirmation = 0;
+    bool bCritical = false;
+    if (nCriticalBonus + static_cast<SHORT>(nRoll) >= 20
+        && (pTarget->m_baseStats.m_specFlags & 2) == 0) {
+        nConfirmation = CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1;
+        bCritical = static_cast<SHORT>(nAC) <= static_cast<SHORT>(nBonus) + nConfirmation;
+    }
+    if (bConcealment == TRUE) {
+        FeedBack(FEEDBACK_TOHIT, nRoll, bHit, nBonus, -1, bOffhand, nAttackCount);
+        if (nConfirmation != 0) {
+            FeedBack(0x28, nConfirmation, bCritical, nBonus, -1, bOffhand, nAttackCount);
         }
-        // DEFERRED 0x4E9840 (racial ammo bonus to the crit-confirm threshold) -- 0 here.
-        SHORT nRacialAmmoBonus = 0;
-        BOOL bCritConfirmed = FALSE;
-        if (20 <= nRacialAmmoBonus + nCritThreshold + nRoll
-            && (pTarget->m_baseStats.m_specFlags & 2) == 0) {
-            SHORT nCritRoll = static_cast<SHORT>(CUtil::UtilRandInt(20, m_derivedStats.m_nLuck) + 1);
-            FeedBack(0x28, nCritRoll, bCritConfirmed, nEffectiveTHAC0, -1, bOffHand, nAttackNumber);
-            bCritConfirmed = (nAC <= nEffectiveTHAC0 + nCritRoll);
-        }
-
-        if (bCritConfirmed) {
+        if (bCritical) {
             *pCritical = TRUE;
-
-            // DEFERRED: the on-screen portrait-flash ping for a visible PC
-            // attacker (screen-rect/view-position math, cosmetic only).
-
-            if (HasFeat(0xe /*#guess*/)) {
-                BYTE nTargetRace = pTarget->m_typeAI.m_nRace;
-                if (nTargetRace != 0xa7 && nTargetRace != 0x9c && nTargetRace != 0x98 /*#guess -- construct/undead race ids immune to this effect*/) {
-                    WORD nEffectId = (rand() & 1) == 1 ? 0x28 : 0x4a;
+            bHit = TRUE;
+            if (pGame->GetOptions()->m_bCriticalHitScreenShake && m_pArea == pGame->GetVisibleArea()) {
+                CRect rView;
+                CopyRect(&rView, &m_pArea->m_cInfinity.rViewPort);
+                INT x, y;
+                m_pArea->m_cInfinity.GetViewPosition(x, y);
+                OffsetRect(&rView, x, y);
+                if (PtInRect(&rView, m_pos) && pGame->GetCharacterPortraitNum(m_id) != -1) {
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageScreenShake(5, 10, -10, FALSE, m_id, m_id), TRUE);
+                }
+            }
+            if (HasFeat(CGAMESPRITE_FEAT_DIRTY_FIGHTING) == 1) {
+                BYTE nRace = pTarget->GetAIType().m_nRace;
+                if (nRace != 167 && nRace != 156 && nRace != 152) {
                     ITEM_EFFECT effect;
-                    CGameEffect::ClearItemEffect(&effect, nEffectId);
+                    CGameEffect::ClearItemEffect(&effect, rand() % 2 == 1 ? 0x28 : 0x4A);
                     effect.targetType = 1;
                     effect.spellLevel = 1;
+                    effect.effectAmount = 0;
+                    effect.dwFlags = 0;
                     effect.durationType = 0;
-                    effect.duration = 0x23;
+                    effect.duration = 35;
+                    effect.numDice = 0;
+                    effect.diceSize = 0;
                     effect.savingThrow = 4;
                     effect.saveMod = 4;
                     CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
-                    // #guess -- straddles CGameEffect's m_source/m_target CPoint
-                    // fields in the binary; approximated as a single source point.
                     pEffect->m_source = GetPos();
-                    pEffect->m_effectAmount2 &= ~1;
                     pEffect->m_sourceID = m_id;
-                    g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, pTarget->m_id, m_id), FALSE);
+                    pEffect->m_flags &= ~1;
+                    g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, m_id, pTarget->m_id), FALSE);
                 }
             }
         }
-
-        // A clean hit (not a natural 1) skips the Stunning Blow/Quivering
-        // Palm tail below entirely -- that special-attack application
-        // belongs to the damage resolver (0x73D560), not here. This
-        // function only clears the pending flag (with a no-op effect) on
-        // a miss or a natural-1 fumble.
-        if (nRoll == 1) {
+        if (static_cast<SHORT>(nRoll) == 1) {
             bHit = FALSE;
         } else if (bHit) {
             return bHit;
         }
     } else {
-        FeedBack(0x51, 0, 0, 0, -1, 0, 0);
         bHit = FALSE;
+        g_pBaldurChitin->GetTlkTable().SetToken(CString(_T("TARGETNAME")), pTarget->GetName());
+        FeedBack(0x51, 0, 0, 0, -1, 0, 0);
     }
-
     if (pWeapon == m_equipment.m_items[CGameSpriteEquipment::SLOT_FIST]) {
         if (m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70]) {
-            m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70] = FALSE;
+            m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70] = false;
             ITEM_EFFECT effect;
-            CGameEffect::ClearItemEffect(&effect, 0xfe);
+            CGameEffect::ClearItemEffect(&effect, 0xFE);
             effect.targetType = 1;
             effect.spellLevel = 0;
+            effect.effectAmount = 0;
+            effect.dwFlags = 0;
+            memcpy(effect.res, SPIN232.GetResRef(), sizeof(effect.res));
             effect.durationType = 1;
             effect.duration = 0;
-            m_resRef.GetResRef(effect.res);
+            effect.numDice = 0;
+            effect.savingThrow = 0;
+            effect.saveMod = 0;
             CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
-            // #guess -- see straddle note above.
             pEffect->m_source = GetPos();
-            pEffect->m_effectAmount2 &= ~1;
             pEffect->m_sourceID = m_id;
+            pEffect->m_flags &= ~1;
             g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, m_id, m_id), FALSE);
         }
         if (m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM]) {
-            m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM] = FALSE;
+            m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM] = false;
             ITEM_EFFECT effect;
-            CGameEffect::ClearItemEffect(&effect, 0xfe);
+            CGameEffect::ClearItemEffect(&effect, 0xFE);
             effect.targetType = 1;
             effect.spellLevel = 0;
+            effect.effectAmount = 0;
+            effect.dwFlags = 0;
+            memcpy(effect.res, SPIN233.GetResRef(), sizeof(effect.res));
             effect.durationType = 1;
             effect.duration = 0;
-            m_resRef.GetResRef(effect.res);
+            effect.numDice = 0;
+            effect.savingThrow = 0;
+            effect.saveMod = 0;
             CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
             pEffect->m_source = GetPos();
-            pEffect->m_effectAmount2 &= ~1;
             pEffect->m_sourceID = m_id;
+            pEffect->m_flags &= ~1;
             g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, m_id, m_id), FALSE);
         }
     }
-
     return bHit;
 }
 
 // 0x73D560
-//
-// Builds the damage total + damage-type flags for a landed attack, and
-// applies every damage-adjacent side effect the binary attaches at this
-// point: the base weapon dice (Kai gives flat max damage instead of a roll),
-// sneak attack (bonus dice, plus an Arterial Strike/Hamstring style effect
-// when the attacker has picked one), Berserk, the ability's own STR bonus
-// (halved off-hand, floored for a finesse-flagged weapon), Smite Evil,
-// Weapon Focus, the ability's flat bonus, the attacker's main/off-hand
-// CDerivedStats damage bonus, hated race, two smaller feat bonuses, the
-// weapon's CSelectiveBonusList entry, the critical-hit multiplier, and the
-// damage-type flags. Cleave and -- only for a bare-fisted attack -- the
-// Stunning Blow/Quivering Palm monk specials (or, for a real weapon, Poison
-// Coat) are applied directly to pTarget as their own CGameEffects. The
-// returned CGameEffectDamage carries the final amount/flags for
-// CGameSprite::ResolveAttack to apply to pTarget.
-//
-// DEFERRED: the weapon-type-vs-something bonus table (0x73CD00 and its four
-// shared sub-helpers FUN_007E8BF2/FUN_007E93AB/FUN_007E93D9/FUN_007EA8C0) --
-// the same undocumented, zero-named-globals table already deferred inside
-// RollToHit, shared verbatim with this function. Left at 0.
-CGameEffectDamage* CGameSprite::ResolveDamage(CItem* pWeapon, CItem* pOffHandWeapon, INT nAbility, BOOL bCritical, CAIObjectType targetTypeAI,
-    SHORT nAttackerDirection, SHORT nTargetDirection, CGameSprite* pTarget, BOOL bIsMainHandAttack)
+CGameEffect* CGameSprite::CreateWeaponDamage(CItem* pWeapon, CItem* pLauncher, INT nAbility, BOOL bCritical, const CAIObjectType& targetType, SHORT nDirection, SHORT nTargetDirection, CGameSprite* pTarget, INT nOffhand)
 {
-    BOOL bMainHandRealWeapon = FALSE;
-    if (bIsMainHandAttack /*#guess*/
-        && m_equipment.m_selectedWeapon != 0x2a
-        && m_equipment.m_items[GetWeaponSlot() & 0xff] != NULL) {
-        SHORT nMainSlotType = m_equipment.m_items[GetWeaponSlot() & 0xff]->GetItemType();
-        if (nMainSlotType != 0x35 && nMainSlotType != 0x2f && nMainSlotType != 0x31) {
-            bMainHandRealWeapon = (nMainSlotType != 0x29);
-        }
-    }
-
+    BOOL bOffhand = nOffhand != 0
+        && m_equipment.m_selectedWeapon != 42
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())] != NULL
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 53
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 47
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 49
+        && m_equipment.m_items[static_cast<BYTE>(GetWeaponSlot())]->GetItemType() != 41;
     pWeapon->Demand();
-    static const ITEM_ABILITY s_emptyAbility = {};
-    const ITEM_ABILITY* curAttack = pWeapon->GetAbility(nAbility);
-    const ITEM_ABILITY* curOffHandAttack = NULL;
-    if (pOffHandWeapon != NULL) {
-        pOffHandWeapon->Demand();
-        curOffHandAttack = pOffHandWeapon->GetAbility(0);
+    const ITEM_ABILITY* pAbility = pWeapon->GetAbility(nAbility);
+    const ITEM_ABILITY* pLauncherAbility = NULL;
+    if (pLauncher != NULL) {
+        pLauncher->Demand();
+        pLauncherAbility = pLauncher->GetAbility(0);
     }
-    if (curAttack == NULL) {
-        curAttack = &s_emptyAbility;
+    if (pAbility == NULL) {
+        // PE 0x85BBD0.
+        static const ITEM_ABILITY DEFAULT_ATTACK = {
+            1, 1, 0, { 0 }, 1, 1, 1, 0, 0, 0, 0, 0,
+            2, 9, 1, 0, 0, 2, 0, 0, 0xFFFF, 0, 0, 0, { 0 }
+        };
+        pAbility = &DEFAULT_ATTACK;
     }
-
-    // Kai: the monk deals flat maximum damage instead of rolling.
+    INT nMinimum = pAbility->damageDiceCount != 0 ? 1 : 0;
     INT nDamage = 0;
-    BOOL bBackstabCapableWeapon = FALSE;
-    BOOL bHasDamageDice = (curAttack->damageDiceCount != 0);
+    INT nSneakDamage = 0;
     if (m_derivedStats.m_spellStates[SPLSTATE_KAI_64]) {
-        nDamage = curAttack->damageDice * curAttack->damageDiceCount;
+        nDamage = pAbility->damageDice * pAbility->damageDiceCount;
     } else {
-        for (BYTE i = 0; i < curAttack->damageDiceCount; i++) {
-            nDamage += CUtil::UtilRandInt(curAttack->damageDice, m_derivedStats.m_nLuck) + 1;
+        for (INT i = 0; i < pAbility->damageDiceCount; ++i) {
+            nDamage += CUtil::UtilRandInt(pAbility->damageDice, m_derivedStats.m_nLuck) + 1;
         }
     }
-    if (curAttack->damageDiceCount != 0 && curAttack->damageDice != 0) {
-        bBackstabCapableWeapon = TRUE;
+    BOOL bDamage = (pAbility->damageDiceCount != 0 && pAbility->damageDice != 0)
+        || pAbility->damageDiceBonus != 0;
+    if (pLauncherAbility != NULL) {
+        for (INT i = 0; i < pLauncherAbility->damageDiceCount; ++i) {
+            bDamage = TRUE;
+            nDamage += CUtil::UtilRandInt(pLauncherAbility->damageDice, m_derivedStats.m_nLuck) + 1;
+        }
+        nDamage += static_cast<WORD>(pLauncherAbility->damageDiceBonus);
+        if (pLauncherAbility->damageDiceBonus != 0) {
+            bDamage = TRUE;
+        }
     }
-    if (curAttack->damageDiceBonus != 0) {
-        bBackstabCapableWeapon = TRUE;
-    }
-
-    if (curOffHandAttack != NULL) {
-        if (curOffHandAttack->damageDiceCount != 0) {
-            bBackstabCapableWeapon = TRUE;
-            for (BYTE i = 0; i < curOffHandAttack->damageDiceCount; i++) {
-                nDamage += CUtil::UtilRandInt(curOffHandAttack->damageDice, m_derivedStats.m_nLuck) + 1;
+    const CRuleTables& rules = g_pBaldurChitin->GetObjectGame()->GetRuleTables();
+    if (bDamage) {
+        if ((pAbility->abilityFlags & 1) != 0
+            || (pLauncherAbility != NULL && (pLauncherAbility->abilityFlags & 1) != 0)) {
+            INT nStrength = rules.GetAbilityScoreModifier(m_derivedStats.m_nSTR);
+            if (bOffhand) {
+                if (nStrength > 1) {
+                    nStrength /= 2;
+                }
+            } else if ((pWeapon->GetFlagsFile() & 2) != 0
+                && pWeapon->GetItemIcon() != CResRef("FIST")
+                && nStrength > 0) {
+                nStrength = static_cast<INT>(static_cast<float>(nStrength) * 1.5f);
             }
-            if (curOffHandAttack->damageDice != 0) {
-                bBackstabCapableWeapon = TRUE;
-            }
+            nDamage += nStrength;
         }
-        nDamage += curOffHandAttack->damageDiceBonus;
-        if (curOffHandAttack->damageDiceBonus != 0) {
-            bBackstabCapableWeapon = TRUE;
-        }
-    }
-
-    if (bBackstabCapableWeapon) {
-        // Sneak attack requires a non-ranged ability, actual rogue levels,
-        // an un-immune target, and the target not already carrying its own
-        // per-hit sneak-attack immunity.
-        if (curAttack->type != 2
+        if (static_cast<BYTE>(pAbility->type) != 2
             && m_baseStats.m_rogueLevel != 0
             && !pTarget->m_derivedStats.m_spellStates[SPLSTATE_SNEAK_ATTACK_IMMUNITY]
             && (pTarget->m_baseStats.m_specFlags & 2) == 0) {
-            BOOL bTargetFlatFooted = (pTarget->m_derivedStats.m_generalState & STATE_HELPLESS) != 0;
-            if (!bTargetFlatFooted) {
-                UTIL_ASSERT(pTarget->m_animation.m_animation != NULL);
-                bTargetFlatFooted = (pTarget->m_animation.m_animation->GetMoveScale() == 0);
+            BOOL bImmobile = (pTarget->m_derivedStats.m_generalState & 0x20) != 0
+                || pTarget->m_animation.GetMoveScale() == 0;
+            BOOL bCheckDodge = TRUE;
+            if (m_typeAI.m_nEnemyAlly <= 30) {
+                if (nDirection <= 2) {
+                    bCheckDodge = nTargetDirection > (nDirection + 12) % 16
+                        || nTargetDirection < nDirection + 4;
+                } else if (nDirection < 14) {
+                    bCheckDodge = nTargetDirection > nDirection - 4
+                        && nTargetDirection < nDirection + 4;
+                } else {
+                    bCheckDodge = nTargetDirection > nDirection - 4
+                        || nTargetDirection < (nDirection + 4) % 16;
+                }
             }
-
-            // #guess -- attacker/target direction assignment for the facing
-            // window below; a swap would just mirror the arc, not change its
-            // shape. DAT_00847c3b (a byte at this+9, name unresolved) = 30.
-            BOOL bFlankingAngle = (*((BYTE*)this + 9) > 30)
-                || (((nTargetDirection - nAttackerDirection + 19) % 16) <= 6);
-
-            BOOL bSneakAttackQualifies = FALSE;
-            if (bFlankingAngle) {
-                // Barbarian/Rogue uncanny dodge: a sufficiently-leveled
-                // barbarian or a level-6+ rogue target resists a flanked
-                // sneak attack unless the attacker's own rogue level clears
-                // the target's by 4+.
-                if ((pTarget->m_baseStats.m_barbarianLevel > 4
-                        && (INT)(m_baseStats.m_rogueLevel - pTarget->m_baseStats.m_barbarianLevel) < 4)
-                    || (pTarget->m_baseStats.m_rogueLevel > 5
-                        && (INT)(m_baseStats.m_rogueLevel - pTarget->m_baseStats.m_rogueLevel) < 4)) {
+            BOOL bSneak = bImmobile;
+            if (bCheckDodge) {
+                bSneak = !((pTarget->m_baseStats.m_barbarianLevel >= 5
+                               && static_cast<INT>(m_baseStats.m_rogueLevel) - pTarget->m_baseStats.m_barbarianLevel < 4)
+                    || (pTarget->m_baseStats.m_rogueLevel >= 6
+                        && static_cast<INT>(m_baseStats.m_rogueLevel) - pTarget->m_baseStats.m_rogueLevel < 4));
+                if (!bSneak) {
                     FeedBack(0x52, 0, 0, 0, -1, 0, 0);
-                } else {
-                    bSneakAttackQualifies = TRUE;
                 }
-            } else {
-                bSneakAttackQualifies = bTargetFlatFooted;
             }
-
-            if (bSneakAttackQualifies) {
-                INT nSneakDamage = 0;
-                INT nSneakRolls = IcewindMisc::GetSneakAttackRolls(this);
-                for (INT i = 0; i < nSneakRolls; i++) {
-                    INT nSneakDice = IcewindMisc::GetSneakAttackDice();
-                    nSneakDamage += 1 + (nSneakDice == 0 ? 0 : rand() % nSneakDice);
+            if (bSneak) {
+                for (INT i = IcewindMisc::GetSneakAttackRolls(this); i > 0; --i) {
+                    INT nDice = IcewindMisc::GetSneakAttackDice();
+                    nSneakDamage += (nDice != 0 ? rand() % nDice : 0) + 1;
                 }
-
-                STRREF nFeedbackStrRef;
-                if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_ARTERIAL_STRIKE] && HasFeat(5)) {
-                    // Arterial Strike.
+                STRREF nText = 0x61DD;
+                if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_ARTERIAL_STRIKE]
+                    && HasFeat(CGAMESPRITE_FEAT_ARTERIAL_STRIKE)) {
                     ITEM_EFFECT effect;
-                    // Field attribution here was re-derived from the disasm by
-                    // tracking esp across the intervening pushes (base is the
-                    // `lea` feeding ClearItemEffect; every store below lands at
-                    // base+offset).  0x46 goes to duration at base+0x0E, not to
-                    // savingThrow at base+0x24, which the binary leaves zero.
-                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_BLEEDINGWOUNDS);
+                    CGameEffect::ClearItemEffect(&effect, 0x1A0);
                     effect.targetType = 2;
+                    effect.spellLevel = 0;
                     effect.effectAmount = 1;
-                    effect.duration = 0x46;
-                    CGameEffect* pStyleEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
-                    pStyleEffect->m_source = GetPos();
-                    pStyleEffect->m_sourceID = m_id;
-                    pTarget->AddEffect(pStyleEffect, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
-                    nFeedbackStrRef = 0x9b94;
-                } else if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_HAMSTRING] && HasFeat(0x1b)) {
-                    // Hamstring.
+                    effect.dwFlags = 0;
+                    effect.durationType = 0;
+                    effect.duration = 70;
+                    effect.savingThrow = 0;
+                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                    pEffect->m_source = GetPos();
+                    pEffect->m_sourceID = m_id;
+                    pEffect->m_flags = (pEffect->m_flags & ~1) | 2;
+                    pTarget->AddEffect(pEffect, 1, TRUE, TRUE);
+                    nText = 0x9B94;
+                } else if (m_derivedStats.m_spellStates[SPLSTATE_FEAT_HAMSTRING]
+                    && HasFeat(CGAMESPRITE_FEAT_HAMSTRING)) {
                     ITEM_EFFECT effect;
-                    // Same three values as before, all landing one field later
-                    // than they were recovered: 0x32 -> effectAmount (base+0x04),
-                    // 2 -> dwFlags (base+0x08), 0x46 -> duration (base+0x0E).
-                    // durationType (base+0x0C) is loaded from the WORD 0 at
-                    // 0x8491A8, i.e. left at ClearItemEffect's zero.
-                    CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_MOVEMENTRATEWITHPORTRAIT);
+                    CGameEffect::ClearItemEffect(&effect, 0x1B9);
                     effect.targetType = 2;
-                    effect.effectAmount = 0x32;
+                    effect.spellLevel = 0;
+                    effect.effectAmount = 50;
                     effect.dwFlags = 2;
-                    effect.duration = 0x46;
-                    CGameEffect* pStyleEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
-                    pStyleEffect->m_source = GetPos();
-                    pStyleEffect->m_sourceID = m_id;
-                    pTarget->AddEffect(pStyleEffect, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
-                    nFeedbackStrRef = 0x9b95;
-                } else {
-                    nFeedbackStrRef = 0x61dd;
+                    effect.durationType = 0;
+                    effect.duration = 70;
+                    effect.savingThrow = 0;
+                    CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+                    pEffect->m_source = GetPos();
+                    pEffect->m_sourceID = m_id;
+                    pEffect->m_flags = (pEffect->m_flags & ~1) | 2;
+                    pTarget->AddEffect(pEffect, 1, TRUE, TRUE);
+                    nText = 0x9B95;
                 }
-
-                FeedBack(0x34, nSneakDamage, 0, 0, nFeedbackStrRef, 0, 0);
-
-                pTarget->AddEffect(IcewindMisc::CreateEffectImmunityToBackstab(this, IcewindMisc::GetMaxFavoredEnemies()),
-                    CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
-
-                if (HasFeat(0xb)) {
-                    pTarget->AddEffect(IcewindMisc::CreateEffectSTR(this, -1, 700, 0),
-                        CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+                FeedBack(0x34, nSneakDamage, 0, 0, nText, 0, 0);
+                pTarget->AddEffect(IcewindMisc::CreateEffectImmunityToBackstab(this, IcewindMisc::GetMaxFavoredEnemies()), 1, TRUE, TRUE);
+                if (HasFeat(CGAMESPRITE_FEAT_CRIPPLING_STRIKE)) {
+                    CGameEffect* pEffect = IcewindMisc::CreateEffectSTR(this, -1, 700, 0);
+                    pEffect->m_flags = (pEffect->m_flags & ~1) | 2;
+                    pTarget->AddEffect(pEffect, 1, TRUE, TRUE);
                 }
-
-                nDamage += nSneakDamage;
             }
         }
-
-        if ((m_derivedStats.m_generalState & STATE_BERSERK) != 0) {
+        if ((m_derivedStats.m_generalState & 2) != 0) {
             nDamage += 2;
         }
     }
-
-    if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL] && IcewindMisc::IsEvil(pTarget)) {
+    if (m_derivedStats.m_spellStates[SPLSTATE_SMITE_EVIL] && IcewindMisc::IsEvil(pTarget) == TRUE) {
         nDamage += m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_PALADIN);
     }
-
-    if (bBackstabCapableWeapon && curAttack->type == 1 && HasFeat(0x2f) && GetFeatRank(0x2f) > 0) {
-        nDamage += GetFeatRank(0x2f);
+    if (bDamage && static_cast<BYTE>(pAbility->type) == 1
+        && HasFeat(CGAMESPRITE_FEAT_POWER_ATTACK) && GetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK) > 0) {
+        nDamage += GetFeatRank(CGAMESPRITE_FEAT_POWER_ATTACK);
     }
-
-    nDamage += curAttack->damageDiceBonus;
-
-    if (bBackstabCapableWeapon) {
-        // Ability applies a STR bonus: halved for the main hand, or
-        // floored (instead of rounded) for a finesse-flagged off-hand
-        // weapon that isn't the bare fist.
-        if ((curAttack->abilityFlags & 1) != 0 || (curOffHandAttack != NULL && (curOffHandAttack->abilityFlags & 1) != 0)) {
-            INT nSTRMod = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nSTR);
-            if (bMainHandRealWeapon) {
-                if (nSTRMod > 1) {
-                    nSTRMod /= 2;
-                }
-            } else if ((pWeapon->GetFlagsFile() & 2) != 0) {
-                CResRef fistIcon("FIST");
-                if (pWeapon->GetItemIcon() != fistIcon && nSTRMod > 0) {
-                    nSTRMod = static_cast<INT>(static_cast<float>(nSTRMod) * 0.5f);
-                }
-            }
-            nDamage += nSTRMod;
-        }
-
-        nDamage += m_derivedStats.m_nDamageBonus;
-        nDamage += (pOffHandWeapon != NULL) ? m_derivedStats.m_DamageBonusLeft : m_derivedStats.m_DamageBonusRight;
+    nDamage += static_cast<WORD>(pAbility->damageDiceBonus);
+    if (bDamage) {
+        nDamage += static_cast<WORD>(m_derivedStats.m_nDamageBonus);
+        nDamage += static_cast<WORD>(bOffhand ? m_derivedStats.m_DamageBonusLeft : m_derivedStats.m_DamageBonusRight);
     }
-
-    if (pOffHandWeapon != NULL) {
-        pOffHandWeapon->Release();
+    if (pLauncher != NULL) {
+        pLauncher->Release();
     }
-
-    if (bBackstabCapableWeapon
-        && g_pBaldurChitin->GetObjectGame()->GetRuleTables().IsHatedRace(targetTypeAI, m_baseStats)
-        && GetAIType().IsClassValid(CAIOBJECTTYPE_C_ROGUE)) {
+    if (bDamage && rules.IsHatedRace(targetType, m_baseStats) && m_typeAI.IsClassValid(CAIOBJECTTYPE_C_RANGER)) {
         nDamage += 4;
     }
-
-    if (HasFeat(0x18)) {
-        // #guess -- specific race ids (unnamed in this codebase's RACE.IDS
-        // mapping) granting a flat +2, matching the pattern already used for
-        // construct/undead ids in RollToHit.
-        BYTE nTargetRace = pTarget->m_typeAI.m_nRace;
-        if (nTargetRace == 0xba || nTargetRace == 0xa4 || nTargetRace == 0x76
-            || nTargetRace == 0x9a || nTargetRace == 0xbb || nTargetRace == 0xbc) {
+    if (HasFeat(CGAMESPRITE_FEAT_FIENDSLAYER)) {
+        switch (pTarget->m_typeAI.m_nRace) {
+        case 0xBA:
+        case 0xA4:
+        case 0x76:
+        case 0x9A:
+        case 0xBB:
+        case 0xBC:
             nDamage += 2;
+            break;
         }
     }
-
-    // DEFERRED: HasFeat(0x1c)'s follow-up reads a byte at
-    // pTarget->GetAIType()+0x18 (bits 0xc) that falls outside CAIObjectType's
-    // own small layout -- unmapped field, left unevaluated. Replaces
-    // 0x73DD9B-0x73DDB1 (a flat +3 when it fires).
-
-    // DEFERRED: the weapon-type-vs-something bonus table (0x73CD00) -- see
-    // function comment above.
-    INT nWeaponTypeBonus = 0;
-
-    // Floor: at least 1 damage when the ability actually has damage dice,
-    // otherwise at least 0 (never negative).
-    INT nMinDamage = bHasDamageDice ? 1 : 0;
-    INT nTotalDamage = nDamage + nWeaponTypeBonus;
-    if (nTotalDamage < nMinDamage) {
-        nTotalDamage = nMinDamage;
+    if (HasFeat(CGAMESPRITE_FEAT_HERETICS_BANE) && (pTarget->GetAIType().m_nClassMask & 0xC) != 0) {
+        nDamage += 3;
     }
 
-    if (bCritical) {
-        nTotalDamage *= pWeapon->GetCriticalHitMultiplier();
-    }
-
-    nTotalDamage += m_derivedStats.m_cDamageBonusList.GetBonus(targetTypeAI);
-
-    DWORD nDamageTypeFlags;
-    switch (curAttack->damageType) {
-    case 1:
-        nDamageTypeFlags = 0x100000; // PIERCING
-        break;
-    case 2:
-        nDamageTypeFlags = 0; // CRUSHING
-        break;
-    case 3:
-        nDamageTypeFlags = 0x1000000; // SLASHING
-        break;
-    case 4:
-        nDamageTypeFlags = 0x2000000; // missile+piercing
-        break;
-    case 5:
-        nDamageTypeFlags = 0x8000000; // missile
-        break;
-    case 6:
-        // Piercing/crushing choice: whichever the target resists less.
-        nDamageTypeFlags = (pTarget->m_derivedStats.m_nResistPiercing <= pTarget->m_derivedStats.m_nResistCrushing) ? 0x100000 : 0;
-        break;
-    case 7:
-        // Piercing/slashing choice.
-        nDamageTypeFlags = (pTarget->m_derivedStats.m_nResistPiercing <= pTarget->m_derivedStats.m_nResistSlashing) ? 0x100000 : 0x1000000;
-        break;
-    case 8:
-        // Crushing/slashing choice.
-        nDamageTypeFlags = (pTarget->m_derivedStats.m_nResistCrushing <= pTarget->m_derivedStats.m_nResistSlashing) ? 0x1000000 : 0;
-        break;
-    case 9:
-        nDamageTypeFlags = 0x4000000; // missile+crushing
-        break;
-    default:
-        nDamageTypeFlags = 0;
-        break;
-    }
-
-    pWeapon->Release();
-
-    if (nTotalDamage >= pTarget->m_baseStats.m_hitPoints
-        && curAttack->type == 1
-        && HasFeat(8)
-        && GetFeatValue(8) == 1
-        && (!m_timedEffectList.IsTypeOnList(ICEWIND_CGAMEEFFECT_FEATCLEAVE) || GetFeatValue(8) == 2)) {
-        ITEM_EFFECT effect;
-        // effectAmount and dwFlags are two different reads of the cleave rank:
-        // the binary stores field_5636 - 1 at base+0x04 *before* calling
-        // GetFeatValue, then stores GetFeatValue(8)'s return at base+0x08.
-        // Both stores are written `[esp+0x38]`, one on each side of the call,
-        // which is how they were originally merged into a single assignment.
-        CGameEffect::ClearItemEffect(&effect, ICEWIND_CGAMEEFFECT_FEATCLEAVE);
-        effect.targetType = 1;
-        effect.effectAmount = field_5636 - 1;
-        effect.dwFlags = GetFeatValue(8);
-        effect.duration = 7;
-        effect.special = pTarget->m_id;
-        CGameEffect* pCleaveEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
-        pCleaveEffect->m_source = GetPos();
-        pCleaveEffect->m_sourceID = m_id;
-        pTarget->AddEffect(pCleaveEffect, CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
-    }
-
+    INT nSpecialState = -1;
     if (pWeapon == m_equipment.m_items[CGameSpriteEquipment::SLOT_FIST]) {
         if (m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70]) {
-            if (pTarget->m_derivedStats.m_nMirrorImages <= 0) {
-                m_derivedStats.m_spellStates[SPLSTATE_STUNNING_BLOW_70] = FALSE;
-                RemovePortraitIcon(134); // #guess -- SPIN232's portrait icon id
-                ITEM_EFFECT removeEffect;
-                CGameEffect::ClearItemEffect(&removeEffect, 0xfe);
-                removeEffect.targetType = 1;
-                removeEffect.durationType = 1;
-                SPIN232.GetResRef(removeEffect.res);
-                CGameEffect* pRemoveEffect = CGameEffect::DecodeEffect(&removeEffect, CPoint(-1, -1), -1, CPoint(-1, -1));
-                pRemoveEffect->m_source = GetPos();
-                pRemoveEffect->m_sourceID = m_id;
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pRemoveEffect, m_id, m_id), FALSE);
-
-                ITEM_EFFECT effect;
-                CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_STUN);
-                effect.targetType = 2;
-                // base+0x03 is spellLevel, not probabilityLower at base+0x13.
-                effect.spellLevel = 1;
-                // The duration is read from the global DWORD at 0x84EB90.
-                effect.duration = 14;
-                // 4 = Fortitude, the correct save for a stunning blow.
-                effect.savingThrow = 4;
-                INT nStunDC = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nWIS)
-                    - 1 + m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_MONK) / 2;
-                effect.saveMod = nStunDC;
-                CGameEffect* pStunEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
-                // Unlike the "remove pending resource" message above (sourced
-                // from the attacker), the real effect sources from the
-                // target itself -- confirmed via disasm (vtable+0x1c called
-                // through param_9/edi, not param_1/ebp).
-                pStunEffect->m_source = pTarget->GetPos();
-                pStunEffect->m_sourceID = pTarget->m_id;
-                pStunEffect->m_flags |= 3;
-                // Also queued rather than applied directly (unlike Arterial
-                // Strike/Hamstring above) -- confirmed via disasm.
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pStunEffect, m_id, pTarget->m_id), FALSE);
-            }
+            nSpecialState = SPLSTATE_STUNNING_BLOW_70;
         } else if (m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM]) {
-            if (pTarget->m_derivedStats.m_nMirrorImages <= 0) {
-                m_derivedStats.m_spellStates[SPLSTATE_QUIVERING_PALM] = FALSE;
-                RemovePortraitIcon(135); // #guess -- SPIN233's portrait icon id
-                ITEM_EFFECT removeEffect;
-                CGameEffect::ClearItemEffect(&removeEffect, 0xfe);
-                removeEffect.targetType = 1;
-                removeEffect.durationType = 1;
-                SPIN233.GetResRef(removeEffect.res);
-                CGameEffect* pRemoveEffect = CGameEffect::DecodeEffect(&removeEffect, CPoint(-1, -1), -1, CPoint(-1, -1));
-                pRemoveEffect->m_source = GetPos();
-                pRemoveEffect->m_sourceID = m_id;
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pRemoveEffect, m_id, m_id), FALSE);
-
-                ITEM_EFFECT effect;
-                CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_DEATH);
-                effect.targetType = 2;
-                effect.spellLevel = 1;
-                effect.dwFlags = 4;
-                // The one site in this block that really does write 1 to
-                // durationType, from 0x8491AA at 0x73E344.
-                effect.durationType = 1;
-                effect.savingThrow = 4;
-                INT nDeathDC = g_pBaldurChitin->GetObjectGame()->GetRuleTables().GetAbilityScoreModifier(m_derivedStats.m_nWIS)
-                    - 1 + m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_MONK) / 2;
-                effect.saveMod = nDeathDC;
-                CGameEffect* pDeathEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
-                // Sources from the target itself and is queued, same as
-                // Stunning Blow above.
-                pDeathEffect->m_source = pTarget->GetPos();
-                pDeathEffect->m_sourceID = pTarget->m_id;
-                pDeathEffect->m_flags &= ~1;
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pDeathEffect, m_id, pTarget->m_id), FALSE);
-            }
+            nSpecialState = SPLSTATE_QUIVERING_PALM;
         }
     } else if (m_derivedStats.m_spellStates[SPLSTATE_COAT_WEAPON_WITH_POISON]) {
-        // HACK: 0x4C4B90(SPLSTATE_COAT_WEAPON_WITH_POISON, 0) -- unresolved,
-        // 46 callers across various CGameEffect::ApplyEffect overrides, not
-        // just a bit clear (the Stunning Blow/Quivering Palm branches above
-        // clear their own spellstate bit directly instead; this one doesn't
-        // in the decompile, implying it does something more, e.g. removing
-        // an active equipped effect of that type). Not reproduced -- replaces
-        // 0x73DDD5.
-        RemovePortraitIcon(116); // #guess -- SPIN231's portrait icon id
-        ITEM_EFFECT removeEffect;
-        CGameEffect::ClearItemEffect(&removeEffect, 0xfe);
-        removeEffect.targetType = 1;
-        removeEffect.durationType = 1;
-        SPIN231.GetResRef(removeEffect.res);
-        CGameEffect* pRemoveEffect = CGameEffect::DecodeEffect(&removeEffect, CPoint(-1, -1), -1, CPoint(-1, -1));
-        pRemoveEffect->m_source = GetPos();
-        pRemoveEffect->m_sourceID = m_id;
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pRemoveEffect, m_id, m_id), FALSE);
-
-        ITEM_EFFECT effect;
-        CGameEffect::ClearItemEffect(&effect, CGAMEEFFECT_POISON);
-        effect.targetType = 2;
-        effect.spellLevel = 10;
-        effect.dwFlags = 8;
-        effect.effectAmount = -1 - (rand() % 6);
-        effect.duration = 7;
-        // 4 = Fortitude, the correct save for poison -- the 7 recovered here
-        // before was this site's duration read as a savingThrow.
-        effect.savingThrow = 4;
-        CGameEffect* pPoisonEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
-        // Sources from the target itself and is queued, same as the monk
-        // specials above.
-        pPoisonEffect->m_source = pTarget->GetPos();
-        pPoisonEffect->m_sourceID = pTarget->m_id;
-        pPoisonEffect->m_flags &= ~1;
-        // DEFERRED: the binary also overwrites m_special with a second
-        // `-1 - rand() % 6` roll before queuing -- purpose unconfirmed
-        // (m_special is normally a DR-bypass bitmask elsewhere), not
-        // reproduced.
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pPoisonEffect, m_id, pTarget->m_id), FALSE);
+        nSpecialState = SPLSTATE_COAT_WEAPON_WITH_POISON;
+    }
+    if (nSpecialState != -1) {
+        m_derivedStats.m_spellStates.set(nSpecialState, false);
+        INT nIcon = nSpecialState == SPLSTATE_COAT_WEAPON_WITH_POISON ? 116
+            : (nSpecialState == SPLSTATE_STUNNING_BLOW_70 ? 134 : 135);
+        POSITION pos = m_portraitIcons.Find(reinterpret_cast<int*>(nIcon));
+        if (pos != NULL) {
+            m_portraitIcons.RemoveAt(pos);
+        }
+        ITEM_EFFECT remove;
+        CGameEffect::ClearItemEffect(&remove, 0xFE);
+        remove.targetType = 1;
+        remove.spellLevel = 0;
+        remove.effectAmount = 0;
+        remove.dwFlags = 0;
+        const CResRef& res = nSpecialState == SPLSTATE_COAT_WEAPON_WITH_POISON ? SPIN231
+            : (nSpecialState == SPLSTATE_STUNNING_BLOW_70 ? SPIN232 : SPIN233);
+        memcpy(remove.res, res.GetResRef(), sizeof(remove.res));
+        remove.durationType = 1;
+        remove.duration = 0;
+        remove.numDice = 0;
+        remove.diceSize = 0;
+        remove.savingThrow = 0;
+        CGameEffect* pRemove = CGameEffect::DecodeEffect(&remove, CPoint(-1, -1), -1, CPoint(-1, -1));
+        pRemove->m_source = GetPos();
+        pRemove->m_sourceID = m_id;
+        pRemove->m_flags &= ~1;
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pRemove, m_id, m_id), FALSE);
+        if (static_cast<BYTE>(pTarget->m_derivedStats.m_nMirrorImages) == 0) {
+            ITEM_EFFECT effect;
+            WORD nEffect = nSpecialState == SPLSTATE_COAT_WEAPON_WITH_POISON ? 0x19
+                : (nSpecialState == SPLSTATE_STUNNING_BLOW_70 ? 0x2D : 0x0D);
+            CGameEffect::ClearItemEffect(&effect, nEffect);
+            effect.targetType = 2;
+            effect.spellLevel = nSpecialState == SPLSTATE_COAT_WEAPON_WITH_POISON ? 10 : 1;
+            effect.effectAmount = 0;
+            effect.dwFlags = 0;
+            effect.durationType = 0;
+            effect.duration = 14;
+            effect.numDice = 0;
+            effect.diceSize = 0;
+            effect.savingThrow = 4;
+            if (nSpecialState == SPLSTATE_COAT_WEAPON_WITH_POISON) {
+                effect.effectAmount = -1 - rand() % 6;
+                effect.dwFlags = 8;
+                effect.duration = 7;
+            } else {
+                if (nSpecialState == SPLSTATE_QUIVERING_PALM) {
+                    effect.dwFlags = 4;
+                    effect.durationType = 1;
+                    effect.duration = 0;
+                }
+                effect.saveMod = rules.GetAbilityScoreModifier(m_derivedStats.m_nWIS) - 1
+                    + m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_MONK) / 2;
+            }
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+            pEffect->m_source = pTarget->GetPos();
+            pEffect->m_sourceID = pTarget->m_id;
+            if (nSpecialState == SPLSTATE_STUNNING_BLOW_70) {
+                pEffect->m_flags |= 3;
+            } else {
+                pEffect->m_flags &= ~1;
+            }
+            if (nSpecialState == SPLSTATE_COAT_WEAPON_WITH_POISON) {
+                pEffect->m_special = -1 - rand() % 6;
+            }
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, m_id, pTarget->m_id), FALSE);
+        }
     }
 
+    if (_strnicmp(reinterpret_cast<const char*>(pWeapon->GetResRef().GetResRef()), "ZZ", 2) == 0) {
+        char name[9];
+        strcpy(name, pWeapon->GetResRef().GetResRefStr());
+        UTIL_ASSERT(isdigit(static_cast<unsigned char>(name[3])));
+        INT nCode = static_cast<unsigned char>(name[2]);
+        BOOL bMatch = FALSE;
+        if (isalpha(nCode)) {
+            static const BYTE RACES[26] = {
+                156, 157, 164, 152, 160, 161, 165, 153, 168, 167, 166, 155, 2,
+                4, 6, 5, 3, 1, 116, 150, 108, 159, 162, 117, 113, 115
+            };
+            INT nIndex = toupper(nCode) - 'A';
+            bMatch = nIndex >= 0 && nIndex < 26 && RACES[nIndex] == pTarget->m_typeAI.m_nRace;
+        } else if (isdigit(nCode)) {
+            static const DWORD MASKS[6] = { 0xF0, 0xF0, 0xF0, 0x0F, 0x0F, 0x0F };
+            static const DWORD VALUES[6] = { 1, 2, 3, 1, 2, 3 };
+            INT nIndex = nCode - '0';
+            bMatch = nIndex < 6 && (pTarget->m_typeAI.m_nAlignment & MASKS[nIndex]) == VALUES[nIndex];
+        } else {
+            UTIL_ASSERT(FALSE);
+        }
+        if (bMatch) {
+            nDamage += name[3] - '5';
+            if (name[3] > '4') {
+                nDamage++;
+            }
+        }
+    }
+    nDamage += m_derivedStats.m_cDamageBonusList.GetBonus(targetType);
+    SHORT nFinalDamage = static_cast<SHORT>(nDamage);
+    if (nFinalDamage < nMinimum) {
+        nFinalDamage = static_cast<SHORT>(nMinimum);
+    }
+    if (bCritical) {
+        nFinalDamage *= static_cast<SHORT>(pWeapon->GetCriticalHitMultiplier());
+    }
+    nFinalDamage += static_cast<SHORT>(nSneakDamage);
+    DWORD nDamageType = nSneakDamage;
+    switch (pAbility->damageType) {
+    case 1:
+        nDamageType = 0x100000;
+        break;
+    case 2:
+        nDamageType = 0;
+        break;
+    case 3:
+        nDamageType = 0x1000000;
+        break;
+    case 4:
+        nDamageType = 0x2000000;
+        break;
+    case 5:
+        nDamageType = 0x8000000;
+        break;
+    case 6:
+        nDamageType = pTarget == NULL || pTarget->m_derivedStats.m_nResistPiercing <= pTarget->m_derivedStats.m_nResistCrushing ? 0x100000 : 0;
+        break;
+    case 7:
+        nDamageType = pTarget == NULL || pTarget->m_derivedStats.m_nResistPiercing <= pTarget->m_derivedStats.m_nResistSlashing ? 0x100000 : 0x1000000;
+        break;
+    case 8:
+        nDamageType = pTarget != NULL && pTarget->m_derivedStats.m_nResistCrushing <= pTarget->m_derivedStats.m_nResistSlashing ? 0x1000000 : 0;
+        break;
+    case 9:
+        nDamageType = 0x4000000;
+        break;
+    }
+    pWeapon->Release();
+    if (nFinalDamage >= pTarget->m_baseStats.m_hitPoints && static_cast<BYTE>(pAbility->type) == 1
+        && HasFeat(CGAMESPRITE_FEAT_CLEAVE) == TRUE) {
+        INT nCleave = GetFeatValue(CGAMESPRITE_FEAT_CLEAVE);
+        if (!m_timedEffectList.IsTypeOnList(0x1BA) || nCleave == 2) {
+            ITEM_EFFECT effect;
+            CGameEffect::ClearItemEffect(&effect, 0x1BA);
+            effect.targetType = 1;
+            effect.spellLevel = 0;
+            effect.effectAmount = field_5636 - 1;
+            effect.dwFlags = GetFeatValue(CGAMESPRITE_FEAT_CLEAVE);
+            effect.durationType = 0;
+            effect.duration = 7;
+            effect.numDice = 0;
+            effect.diceSize = 0;
+            effect.savingThrow = 0;
+            effect.special = pTarget->m_id;
+            CGameEffect* pEffect = CGameEffect::DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+            pEffect->m_source = GetPos();
+            pEffect->m_sourceID = m_id;
+            pEffect->m_flags &= ~1;
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pEffect, m_id, m_id), FALSE);
+        }
+    }
     CGameEffectDamage* pDamage = new CGameEffectDamage();
-    pDamage->m_effectAmount = nTotalDamage;
-    pDamage->m_dwFlags = nDamageTypeFlags;
-    pDamage->m_source = GetPos();
+    pDamage->m_effectAmount = nFinalDamage;
+    pDamage->m_dwFlags = nDamageType;
+    pDamage->m_source = m_pos;
     pDamage->m_sourceID = m_id;
-
     CWeaponIdentification weaponId;
     pWeapon->LoadWeaponIdentification(weaponId);
     pDamage->m_special = weaponId.m_attributes;
-
     return pDamage;
 }
 
@@ -21316,11 +22449,25 @@ SHORT CGameSprite::MoveToObject(CGameObject* pTarget)
         return ACTION_DONE;
     }
 
-    // Action 0x107 (MoveToObjectUntilSee) stops early once the target is within
-    // half the visual range and in line of sight, posting a follow message
-    // (vtable 0x848998 @ binary 0x73EFD3).  DEFERRED -- needs that CMessage
-    // subclass plus the GetAIType()/m_liveTypeAI field comparison; until then
-    // the action falls through to the generic approach below.
+    if (m_curAction.m_actionID == 0x107) {
+        CPoint targetPos = pTarget->GetPos();
+        CPoint sourcePos = GetPos();
+        LONG dx = sourcePos.x - targetPos.x;
+        LONG dy = sourcePos.y - targetPos.y;
+        SHORT range = GetVisualRange() >> 1;
+        BOOL visible = dx * dx + dy * dy <= range * range
+            && m_pArea->CheckLOS(pTarget->GetPos(), GetPos(), GetVisibleTerrainTable(), FALSE);
+        if (visible && pTarget->m_pArea == m_pArea) {
+            if (m_lSeen.Equal(pTarget->GetAIType())) return ACTION_DONE;
+            if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pTarget->m_id) != -1) {
+                m_canBeSeen = VISIBLE_DELAY * 4 + 4;
+            }
+            m_lSeen.Set(pTarget->GetAIType());
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageSetLastObject(pTarget->GetAIType(), CAITRIGGER_SEE, m_id, m_id), FALSE);
+            return ACTION_DONE;
+        }
+    }
 
     CPoint targetPt;
     pTarget->GetNextWaypoint(&targetPt);
@@ -21359,8 +22506,7 @@ SHORT CGameSprite::MoveToObject(CGameObject* pTarget)
     if (actionID == 0xB4 && distSquares <= (range + 4) * (range + 4)) {
         // MoveToObjectFollow: close enough on the loose follow distance.
         if (m_pPath != NULL) {
-            // DEFERRED: post the clear-search message (vtable 0x84C44C @ binary
-            // 0x73F1D4) so the follower halts its current path.
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageDropPath(m_id, m_id), FALSE);
         }
         return actionID == 0xD0 ? ACTION_NORMAL : ACTION_INTERRUPTABLE;
     }
@@ -21655,7 +22801,7 @@ SHORT CGameSprite::MoveToPointRange(const CPoint& dest, LONG range)
         }
     } else {
         LONG dx = dest.x / CPathSearch::GRID_SQUARE_SIZEX - m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
-        LONG dy = (dest.y / CPathSearch::GRID_SQUARE_SIZEY == m_pos.y / CPathSearch::GRID_SQUARE_SIZEY) ? 0 : 1;
+        LONG dy = (dest.y / CPathSearch::GRID_SQUARE_SIZEY == m_pos.y / CPathSearch::GRID_SQUARE_SIZEY) ? 1 : 0;
         if (dx * dx + dy * dy <= range * range) {
             return ACTION_DONE;
         }
@@ -21669,11 +22815,13 @@ SHORT CGameSprite::MoveToPointRange(const CPoint& dest, LONG range)
         return ACTION_ERROR;
     }
 
-    if ((m_pPath != NULL || m_currentSearchRequest != NULL)
-        || (m_actionCount < 1 || m_curAction.m_specificID == CAIAction::BACKGROUND)) {
-        if (x == m_curDest.x && y == m_curDest.y) {
-            return ACTION_INTERRUPTABLE;
-        }
+    if (m_pPath == NULL && m_currentSearchRequest == NULL
+        && m_actionCount >= 1 && m_curAction.m_specificID == CAIAction::BACKGROUND) {
+        return ACTION_ERROR;
+    }
+
+    if (x == m_curDest.x && y == m_curDest.y) {
+        return ACTION_INTERRUPTABLE;
     }
 
     m_curDest.x = x;
@@ -21839,94 +22987,277 @@ SHORT CGameSprite::ExecuteAction()
         SetCurrAction(GetNextAction(m_aiAction));
     }
 
-    // 0x7290DB (jumptable case 0x02). Attack(3) / AttackNoSound(98): resolve the
-    // target sprite and delegate to Attack() for the actual range/gate/damage
-    // resolution -- the real combat entry point this dispatch has been missing.
-    // The one thing NOT reproduced is binary-only telemetry: a profiler-zone
-    // timer wrapping the whole case (DAT_008cf6dc+0x1ab6/+0x1af6/+0x1a76
-    // bookkeeping, no named fields exist for it).
-    if (m_curAction.m_actionID == CAIAction::ATTACK
-        || m_curAction.m_actionID == CAIAction::ATTACKNOSOUND) {
-        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
-
-        // Party-member auto-target acquisition (0x729123-0x7291AF): when the
-        // action carries no resolvable actee, a PC falls back to "anything
-        // hostile to me" -- an ANYONE filter narrowed to whichever enemy-ally
-        // side opposes m_typeAI's own.  Non-party sprites get no such fallback.
-        if (pObj == NULL
-            && g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1) {
-            CAIObjectType typeTarget(CAIObjectType::ANYONE);
-            typeTarget.m_nEnemyAlly = m_typeAI.GetEnemyOf().m_nEnemyAlly;
-            pObj = ResolveActionTarget(typeTarget, CGameObject::TYPE_SPRITE);
-        }
-
-        CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
-
-        // "First hostile encounter with a good-aligned creature" latch: the
-        // first time this sprite attacks something whose GetAIType().m_nEnemyAlly
-        // is EA_GOODCUTOFF or better, set m_baseStats.m_flags bit 0x100000 so
-        // the check doesn't repeat (what else reads this flag is unconfirmed).
-        if (pTarget != NULL && (m_baseStats.m_flags & 0x100000) == 0) {
-            if (pTarget->GetAIType().m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
-                m_baseStats.m_flags |= 0x100000;
-            }
-        }
-
-        SHORT actionReturn = Attack(pTarget);
-        if (pObj != NULL) {
-            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
-        }
-        return actionReturn;
+    if (m_curAction.m_actionID == 124) {
+        SHORT result = Berserk();
+        m_nLastActionReturn = result;
+        return result;
     }
 
-    // 0x72A094 (jumptable case 0x35). AttackOneRound(105): the plain form of the
-    // Attack case above -- same target resolve, same good-aligned-target latch,
-    // same Attack() call -- with neither the profiler zone nor the party
-    // auto-acquisition fallback.  Nothing in this case enforces the "one round"
-    // limit or otherwise distinguishes the action from Attack(3); whatever makes
-    // it stop after a round lives downstream of the action ID itself.
-    if (m_curAction.m_actionID == CAIAction::ATTACKONEROUND) {
-        CGameObject* pObj = ResolveActionTarget(CGameObject::TYPE_SPRITE);
-        CGameSprite* pTarget = static_cast<CGameSprite*>(pObj);
-
-        if (pTarget != NULL && (m_baseStats.m_flags & 0x100000) == 0) {
-            if (pTarget->GetAIType().m_nEnemyAlly <= CAIObjectType::EA_GOODCUTOFF) {
-                m_baseStats.m_flags |= 0x100000;
-            }
-        }
-
-        SHORT actionReturn = Attack(pTarget);
-        if (pObj != NULL) {
-            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
-        }
-        return actionReturn;
+    // ExecuteAction jump-table case 0x14 (729654).
+    if (m_curAction.m_actionID == CAIAction::PANIC) {
+        SHORT result = Panic();
+        m_nLastActionReturn = result;
+        return result;
     }
 
-    // 0x729E07 (jumptable case 0x2b). GroupAttack(94): ignores the action's
-    // actee entirely and synthesises its own filter -- an ANYONE type narrowed
-    // to whichever enemy-ally side opposes this sprite's own -- resolves a
-    // single sprite through it, then hands that to GroupAttack(), which
-    // re-queues the fight as a plain Attack against a name-agnostic group type.
-    if (m_curAction.m_actionID == CAIAction::GROUPATTACK) {
-        CAIObjectType typeTarget(CAIObjectType::ANYONE);
-        typeTarget.m_nEnemyAlly = m_typeAI.GetEnemyOf().m_nEnemyAlly;
-
-        CGameObject* pObj = ResolveActionTarget(typeTarget, CGameObject::TYPE_SPRITE);
-        SHORT actionReturn = GroupAttack(static_cast<CGameSprite*>(pObj));
-        if (pObj != NULL) {
+    // ExecuteAction jump-table case 0x18 (7296D2).
+    if (m_curAction.m_actionID == CAIAction::RUNAWAYFROM || m_curAction.m_actionID == CAIAction::RUNAWAYFROMNOINTERRUPT) {
+        CGameObject* object = ResolveActionTarget(CGameObject::TYPE_SPRITE);
+        SHORT result = RunAwayFrom(static_cast<CGameSprite*>(object));
+        if (object != NULL) {
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                pObj->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                object->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
-        return actionReturn;
+        m_nLastActionReturn = result;
+        return result;
     }
 
-    // 0x72A33E (jumptable case 0x40). AttackReevaluate(134): a thin
-    // dispatch, no target resolution here at all -- AttackReevaluate()
-    // resolves its own target from m_curAction internally.
+    // ExecuteAction jump-table case 0x40 (72A33E).
     if (m_curAction.m_actionID == CAIAction::ATTACKREEVALUATE) {
-        return AttackReevaluate();
+        SHORT result = AttackReevaluate();
+        m_nLastActionReturn = result;
+        return result;
+    }
+
+    // PE cases 0x0B/0x1F/0x71 use the sprite-specific untyped resolver.
+    if (m_curAction.m_actionID == 14 || m_curAction.m_actionID == 47
+        || m_curAction.m_actionID == 0x13D) {
+        CGameObject* object = ResolveCurrentActionTarget();
+        SHORT result = ACTION_DONE;
+        if (m_curAction.m_actionID == 47) {
+            result = Formation(static_cast<CGameSprite*>(object));
+        } else if (m_curAction.m_actionID == 0x13D && object != NULL) {
+            LONG x = object->GetPos().x;
+            LONG y = object->GetPos().y;
+            result = JumpToPoint(CPoint(x, y), TRUE);
+        }
+        if (object != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                object->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        m_nLastActionReturn = result;
+        return result;
+    }
+
+    // PE case 0x20: the destination is an absolute world point.
+    if (m_curAction.m_actionID == CAIAction::JUMPTOPOINT) {
+        SHORT result = JumpToPoint(m_curAction.m_dest, TRUE);
+        m_nLastActionReturn = result;
+        return result;
+    }
+
+    // PE case 0x12: untyped movement to a sprite, door or other object.
+    if (m_curAction.m_actionID == CAIAction::MOVETOOBJECT) {
+        SHORT result = ACTION_DONE;
+        if (GetObjectType() != CGameObject::TYPE_SPRITE) {
+            result = ACTION_ERROR;
+        } else {
+            CGameObject* object = ResolveCurrentActionTarget();
+            if (object != NULL) {
+                BYTE type = object->GetObjectType();
+                if (type == CGameObject::TYPE_SPRITE) {
+                    if ((m_baseStats.m_flags & 0x100000) == 0
+                        && object->GetAIType().GetEnemyAlly() <= CAIOBJECTTYPE_EA_GOODCUTOFF) {
+                        m_baseStats.m_flags |= 0x100000;
+                    }
+                    result = MoveToObject(object);
+                    m_lastActionID = CAIAction::MOVETOOBJECT;
+                } else {
+                    CPoint destination;
+                    if (type == CGameObject::TYPE_DOOR) {
+                        // The PE passes this default-constructed point before writing it.
+                        destination = static_cast<CGameDoor*>(object)->GetMoveDest(destination);
+                    } else {
+                        destination = object->GetPos();
+                    }
+                    result = MoveToPointRange(destination, 0);
+                }
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    object->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
+        m_nLastActionReturn = result;
+        return result;
+    }
+
+    // PE case 0x52: follow, uninterrupted movement and MoveToObjectUntilSee.
+    if (m_curAction.m_actionID == CAIAction::MOVETOOBJECTFOLLOW
+        || m_curAction.m_actionID == 0xD0 || m_curAction.m_actionID == 0x107) {
+        CGameObject* object = ResolveActionTarget(CGameObject::TYPE_AIBASE);
+        SHORT result = MoveToObject(object);
+        if (object != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                object->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        m_nLastActionReturn = result;
+        return result;
+    }
+
+    // Jump-table cases 2 (Attack/AttackNoSound) and 0x35 (AttackOneRound).
+    if (m_curAction.m_actionID == CAIAction::ATTACK
+        || m_curAction.m_actionID == CAIAction::ATTACKNOSOUND || m_curAction.m_actionID == CAIAction::ATTACKONEROUND) {
+        BOOL oneRound = m_curAction.m_actionID == CAIAction::ATTACKONEROUND;
+        if (!oneRound) {
+            DWORD now = GetTickCount();
+            g_pBaldurChitin->field_1AB2[1] += now - g_pBaldurChitin->field_1AF2[1];
+            g_pBaldurChitin->field_1AF2[1] = now;
+        }
+        CGameObject* object = ResolveActionTarget(CGameObject::TYPE_SPRITE);
+        if (object == NULL && !oneRound
+            && g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1) {
+            CAIObjectType enemy(CAIObjectType::ANYONE);
+            enemy.m_nEnemyAlly = m_typeAI.GetEnemyOf().m_nEnemyAlly;
+            object = ResolveActionTarget(enemy, CGameObject::TYPE_SPRITE);
+        }
+        if (object != NULL && (m_baseStats.m_flags & 0x100000) == 0
+            && object->GetAIType().m_nEnemyAlly <= CAIOBJECTTYPE_EA_GOODCUTOFF) {
+            m_baseStats.m_flags |= 0x100000;
+        }
+        SHORT result = Attack(static_cast<CGameSprite*>(object));
+        if (!oneRound) {
+            DWORD now = GetTickCount();
+            g_pBaldurChitin->field_1A72[1] += now - g_pBaldurChitin->field_1AF2[1];
+            g_pBaldurChitin->field_1AF2[1] = now;
+        }
+        if (object != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                object->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        return result;
+    }
+
+    // 0x729E07 (jumptable case 0x2B). GroupAttack selects a nearby enemy
+    // independently of the action's current target selector.
+    if (m_curAction.m_actionID == CAIAction::GROUPATTACK) {
+        CAIObjectType enemy(CAIObjectType::ANYONE);
+        enemy.m_nEnemyAlly = m_typeAI.GetEnemyOf().m_nEnemyAlly;
+        CGameObject* object = ResolveActionTarget(enemy, CGameObject::TYPE_SPRITE);
+        SHORT result = GroupAttack(static_cast<CGameSprite*>(object));
+        if (object != NULL) {
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                object->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+        m_nLastActionReturn = result;
+        return result;
+    }
+
+    // PE 0x135 -> case 0x6E (0x7296FA): mark only an available spell.
+    if (m_curAction.m_actionID == 0x135) {
+        if (m_curAction.m_specificID == 0) {
+            field_588 = 0;
+        } else if (field_588 == 0) {
+            CString resRef;
+            SpellIdToResRef(m_curAction.m_specificID, resRef);
+            if (resRef != "") {
+                DWORD classes = 0xFFF;
+                if (HasSpell(CResRef(resRef), classes, 9, TRUE)) {
+                    field_588 = m_curAction.m_specificID;
+                }
+            }
+        }
+        m_nLastActionReturn = ACTION_DONE;
+        return ACTION_DONE;
+    }
+    // PE 0x13F -> case 0x72 (0x7297AC): force the numeric marker.
+    if (m_curAction.m_actionID == 0x13F) {
+        if (field_588 != m_curAction.m_specificID) {
+            field_588 = m_curAction.m_specificID;
+        }
+        m_nLastActionReturn = ACTION_DONE;
+        return ACTION_DONE;
+    }
+    // PE 0x137 -> case 0x70 (0x72AEE4): wait from selected ability speed.
+    if (m_curAction.m_actionID == 0x137) {
+        if (m_curAction.m_specificID == 0) {
+            m_curAction.m_specificID = field_588;
+        }
+        CString resRef;
+        SpellIdToResRef(m_curAction.m_specificID, resRef);
+        if (resRef == "") {
+            // Original direct error exit does not update m_nLastActionReturn.
+            return ACTION_ERROR;
+        }
+        SHORT result = ACTION_DONE;
+        CSpell spell{CResRef(resRef)};
+        if (spell.Demand()) {
+            SHORT casterLevel = GetCasterLevel(&spell, 0, 0);
+            const Spell_ability_st* ability = NULL;
+            for (INT index = 0; index < spell.GetAbilityCount(); ++index) {
+                if (spell.GetAbility(index)->minCasterLevel > casterLevel) {
+                    break;
+                }
+                ability = spell.GetAbility(index);
+            }
+            if (ability != NULL) {
+                // 0x72B166..0x72B18D: clamp the first subtraction, then
+                // subtract mental speed again and compare the wrapped SHORT.
+                INT delay = ability->speedFactor - m_derivedStats.m_nMentalSpeed;
+                if (delay < 0) delay = 0;
+                SHORT wait = static_cast<SHORT>(delay - 1 - m_derivedStats.m_nMentalSpeed);
+                if (wait > 0) {
+                    m_curAction.m_actionID = CAIAction::WAIT;
+                    m_curAction.m_specificID = wait;
+                    result = Wait();
+                }
+            }
+            spell.Release();
+        }
+        m_nLastActionReturn = result;
+        return result;
+    }
+
+    // PE jump-table entry 0x141 selects case 0x73 (0x7297DC).
+    // Select a numeric spell from consecutive four-character string entries.
+    if (m_curAction.m_actionID == 0x141) {
+        SHORT result = ACTION_DONE;
+        if (field_588 == 0) {
+            CGameObject* object = ResolveActionTarget(CGameObject::TYPE_SPRITE);
+            CGameSprite* target = static_cast<CGameSprite*>(object);
+            DWORD flags = m_curAction.m_specificID;
+            if (target != NULL || (flags & 0x20) != 0) {
+                if (((flags & 2) == 0 || (flags & 1) == 0) && target == NULL) {
+                    result = ACTION_ERROR;
+                } else if (((flags & 2) != 0 || CheckSpellTarget(target, flags))
+                    && ((flags & 1) != 0 || CanSee(target, FALSE))) {
+                    CString spells = m_curAction.GetString1();
+                    INT count = spells.GetLength() / 4;
+                    if (spells.GetLength() - count * 4 > 0) {
+                        result = ACTION_ERROR;
+                    } else {
+                        INT start = (flags & 4) != 0 ? rand() % count : 0;
+                        for (INT tried = 0; tried < count && field_588 == 0; ++tried) {
+                            INT spellId = atoi(spells.Mid(start * 4, 4));
+                            BOOL available = TRUE;
+                            if ((flags & 8) == 0) {
+                                CString resRef;
+                                SpellIdToResRef(spellId, resRef);
+                                if (resRef == "") {
+                                    // PE exits directly, without storing the last return.
+                                    return ACTION_ERROR;
+                                }
+                                DWORD classes = 0xFFF;
+                                available = HasSpell(CResRef(resRef), classes, 9, TRUE);
+                            }
+                            if (available && spellId != 0
+                                && ((flags & 2) != 0 || CheckSpellUseful(target, spellId, flags))) {
+                                field_588 = spellId;
+                                field_3BA.Set(target != NULL ? target->GetAIType() : CAIObjectType::NOONE);
+                                break;
+                            }
+                            if (++start == count) {
+                                start = 0;
+                            }
+                        }
+                    }
+                }
+            }
+            if (object != NULL) {
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
+                    object->m_id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
+        m_nLastActionReturn = result;
+        return result;
     }
 
     // 0x729A84 (jumptable case 0x19). Spell(31) / SpellNoDec(191).  Spell()
@@ -22752,6 +24083,101 @@ SHORT CGameSprite::Recoil()
     return ACTION_DONE;
 }
 
+// 0x744C00
+SHORT CGameSprite::RunAwayFrom(CGameAIBase* pTarget)
+{
+    SHORT result = m_curAction.m_actionID == CAIAction::RUNAWAYFROMNOINTERRUPT ? ACTION_NORMAL : ACTION_INTERRUPTABLE;
+    if (pTarget == NULL || pTarget->m_pArea != m_pArea) return ACTION_ERROR;
+    SHORT previous = field_5614;
+    field_5614 = static_cast<SHORT>(previous + 1);
+    if (previous > m_curAction.m_specificID) {
+        field_5614 = 0;
+        if (m_nSequence != SEQ_READY) {
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageDropPath(m_id, m_id), FALSE);
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSetSequence(GetIdleSequence(), m_id, m_id), FALSE);
+        }
+        return ACTION_DONE;
+    }
+    CPoint targetPos = pTarget->GetPos();
+    LONG dx = targetPos.x / CPathSearch::GRID_SQUARE_SIZEX - m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
+    LONG dy = targetPos.y / CPathSearch::GRID_SQUARE_SIZEY - m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
+    auto clampPoint = [&](CPoint& point) {
+        if (point.x < 0) point.x = 0;
+        if (point.x >= m_pArea->m_cInfinity.nAreaX) point.x = m_pArea->m_cInfinity.nAreaX;
+        if (point.y < 0) point.y = 0;
+        if (point.y >= m_pArea->m_cInfinity.nAreaY) point.y = m_pArea->m_cInfinity.nAreaY;
+    };
+    if (dx * dx + dy * dy > 8 * 8) {
+        if (m_pPath == NULL && m_currentSearchRequest == NULL) {
+            for (INT phase = 0; phase < 3; ++phase) {
+                SHORT attempts = phase == 1 ? 240 : 120;
+                for (SHORT attempt = 0; attempt < attempts; ++attempt) {
+                    LONG offsetX = CPathSearch::GRID_SQUARE_SIZEX + rand() % 200;
+                    if (m_pos.x - targetPos.x < 0) offsetX = -offsetX;
+                    LONG offsetY = CPathSearch::GRID_SQUARE_SIZEY + rand() % 200;
+                    if (m_pos.y - targetPos.y < 0) offsetY = -offsetY;
+                    if (phase == 1) {
+                        if (rand() % 2 == 0) offsetX = -offsetX;
+                        else offsetY = -offsetY;
+                    } else if (phase == 2) {
+                        offsetX = -offsetX;
+                        offsetY = -offsetY;
+                    }
+                    CPoint destination(m_pos.x + offsetX, m_pos.y + offsetY);
+                    clampPoint(destination);
+                    if (m_pArea->CheckLOS(m_pos, destination, m_visibleTerrainTable, FALSE)) {
+                        m_curDest = destination;
+                        if (m_curDest != m_pos) SetTarget(destination, FALSE);
+                        return result;
+                    }
+                }
+            }
+        }
+    } else if (field_5614 % 15 == 0) {
+        m_curDest = CPoint(2 * m_pos.x - targetPos.x, 2 * m_pos.y - targetPos.y);
+        clampPoint(m_curDest);
+        SetTarget(m_curDest, FALSE);
+    }
+    CAIObjectType enemy = m_typeAI.GetEnemyOf();
+    CItem* weapon = m_equipment.m_items[static_cast<BYTE>(m_equipment.m_selectedWeapon)];
+    if (weapon == NULL) return result;
+    weapon->Demand();
+    const ITEM_ABILITY* ability = weapon->GetAbility(m_equipment.m_selectedWeaponAbility);
+    if (ability == NULL || static_cast<BYTE>(ability->type) == 4
+        || (ability->usageFlags == 3 && weapon->GetUsageCount(m_equipment.m_selectedWeaponAbility) == 0
+            && ability->maxUsageCount != 0)
+        || static_cast<BYTE>(ability->type) == 2) {
+        weapon->Release();
+        return result;
+    }
+    SHORT range = static_cast<SHORT>(ability->range + 1);
+    weapon->Release();
+    BYTE sourceSpace = m_animation.GetPersonalSpace();
+    CGameSprite* spriteTarget = static_cast<CGameSprite*>(pTarget);
+    BYTE targetSpace = spriteTarget->m_animation.GetPersonalSpace();
+    BYTE space = static_cast<BYTE>(((targetSpace - 1) >> 1) + ((sourceSpace - 1) >> 1) - 1);
+    LONG nearest = m_pArea->GetNearest(m_id, enemy, static_cast<SHORT>((space + range) * 16),
+        m_terrainTable, TRUE, GetCanSeeInvisible(), FALSE, 0, FALSE);
+    if (nearest != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* object = NULL;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(nearest,
+                CGameObjectArray::THREAD_ASYNCH, &object, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc == CGameObjectArray::SUCCESS) {
+            // Sanctuary is tested on the fleeing-from target, not the nearest enemy.
+            if (!spriteTarget->m_derivedStats.m_spellStates[SPLSTATE_SANCTUARY]) {
+                if (m_attackFrame == -2) m_attackFrame = -1;
+                Swing(static_cast<CGameSprite*>(object));
+            }
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(nearest,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        }
+    }
+    return result;
+}
+
 // 0x744B20
 SHORT CGameSprite::PlayDead()
 {
@@ -22775,6 +24201,79 @@ SHORT CGameSprite::PlayDead()
     g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
 
     return ACTION_DONE;
+}
+
+// 0x745450
+SHORT CGameSprite::Formation(CGameSprite* pTarget)
+{
+    CPoint offset = m_curAction.m_dest;
+    if (pTarget == NULL) {
+        return ACTION_ERROR;
+    }
+    CPoint targetDest = pTarget->m_curDest;
+    if (targetDest.x == -1 || targetDest.y == -1) {
+        targetDest = pTarget->GetPos();
+    }
+    CPoint dest(targetDest.x + CPathSearch::GRID_SQUARE_SIZEX * offset.x,
+        targetDest.y + CPathSearch::GRID_SQUARE_SIZEY * offset.y);
+    if (dest == m_curDest && field_5618 != 0) {
+        field_5616 = 0;
+        return ACTION_INTERRUPTABLE;
+    }
+
+    CPoint self = GetPos();
+    CPoint selfCell(self.x / CPathSearch::GRID_SQUARE_SIZEX,
+        self.y / CPathSearch::GRID_SQUARE_SIZEY);
+    CPoint destCell(dest.x / CPathSearch::GRID_SQUARE_SIZEX,
+        dest.y / CPathSearch::GRID_SQUARE_SIZEY);
+    LONG distance = CAIUtil::CountSquares(selfCell, destCell);
+    BYTE range = m_animation.GetPersonalSpace();
+    BYTE targetSpace = pTarget->m_animation.GetPersonalSpace();
+    range = static_cast<BYTE>(((targetSpace - 1) >> 1) + ((range - 1) >> 1) - 1);
+    if (distance * distance <= (range + 1) * (range + 1)) {
+        field_5616 = 0;
+        field_5618 = 0;
+        return ACTION_INTERRUPTABLE;
+    }
+
+    m_curDest = dest;
+    field_5618 = 0;
+    self = GetPos();
+    CPoint targetPos = pTarget->GetPos();
+    LONG dx = targetPos.x / CPathSearch::GRID_SQUARE_SIZEX - self.x / CPathSearch::GRID_SQUARE_SIZEX;
+    LONG dy = targetPos.y / CPathSearch::GRID_SQUARE_SIZEY - self.y / CPathSearch::GRID_SQUARE_SIZEY;
+    BOOL withinRange = dx * dx + dy * dy < 16 * 16;
+    if (field_5616 % 8 == 0) {
+        CSearchRequest* pRequest = new CSearchRequest();
+        if (pRequest == NULL) {
+            return ACTION_ERROR;
+        }
+        pRequest->m_searchBitmap = &(m_pArea->m_search);
+        memcpy(pRequest->m_terrainTable, m_terrainTable, sizeof(m_terrainTable));
+        pRequest->m_pathSmooth = m_animation.GetPathSmooth();
+        pRequest->m_sourceId = m_id;
+        pRequest->m_nTargetPoints = 2;
+        pRequest->m_exclusiveTargetPoints = TRUE;
+        pRequest->m_targetPoints = new POINT[2];
+        if (pRequest->m_targetPoints == NULL) {
+            delete pRequest;
+            return ACTION_ERROR;
+        }
+        pRequest->m_nPartyIds = g_pBaldurChitin->GetObjectGame()->m_group.GetCount();
+        pRequest->m_partyIds = g_pBaldurChitin->GetObjectGame()->m_group.GetGroupList();
+        pRequest->m_targetPoints[0] = m_curDest;
+        pRequest->m_targetPoints[1] = targetDest;
+        pRequest->m_sourceSide = m_typeAI.GetEnemyAlly();
+        if (!withinRange) {
+            field_5618 = 1;
+        }
+        SetTarget(pRequest, FALSE, CSearchRequest::LIST_FRONT);
+        if (withinRange) {
+            field_5618 = 1;
+        }
+    }
+    field_5616++;
+    return ACTION_INTERRUPTABLE;
 }
 
 // 0x745950
@@ -23258,7 +24757,39 @@ SHORT CGameSprite::LeaveParty()
 // 0x74F6D0
 void CGameSprite::MoveGlobal(const CString& sArea, const CPoint& ptStart)
 {
-    // TODO: Incomplete.
+    if (!m_bGlobal) {
+        return;
+    }
+
+    if (m_pArea != NULL) {
+        if (m_pArea->m_resRef == sArea) {
+            JumpToPoint(ptStart, TRUE);
+            return;
+        }
+
+        if (m_bSelected) {
+            Unselect();
+            g_pBaldurChitin->GetObjectGame()->SelectToolbar();
+        }
+
+        RemoveFromArea();
+    }
+
+    CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(CString(sArea));
+    if (pArea != NULL) {
+        if ((m_baseStats.m_generalState & STATE_DEAD) != 0 && GetAnimation()->CanLieDown()) {
+            AddToArea(pArea, ptStart, 0, CGameObject::LIST_BACK);
+        } else {
+            AddToArea(pArea, ptStart, 0, CGameObject::LIST_FRONT);
+        }
+        return;
+    }
+
+    // The destination is not loaded: the creature waits off-area, without
+    // the summons it brought along.
+    Icewind586B70::Instance()->UnsummonAllOf(this);
+    m_currentArea = CResRef(sArea);
+    m_pos = ptStart;
 }
 
 // 0x74FC50
@@ -23275,12 +24806,12 @@ SHORT CGameSprite::GroupAttack(CGameSprite* pTarget)
         return ACTION_INTERRUPTABLE;
     }
 
-    CAIObjectType typeAI(GetAIType());
+    CAIObjectType typeAI(pTarget->GetAIType());
     typeAI.SetName(CString(""));
     typeAI.SetInstance(-1);
     m_curAction.m_acteeID.Set(typeAI);
     AddAction(m_curAction);
-    AddAction(CAIAction(CAIAction::ATTACK, m_curAction.m_acteeID, 0, 0, 0));
+    AddAction(CAIAction(CAIAction::ATTACKNOSOUND, m_curAction.m_acteeID, 0, 0, 0));
 
     return ACTION_DONE;
 }
@@ -23415,9 +24946,103 @@ void CGameSprite::SelectWeaponAbility(unsigned char slotNum, unsigned char abili
 }
 
 // 0x756930
-void CGameSprite::sub_756930(CItem* pItem, CItem* pLauncher)
+void CGameSprite::DecodeSwingSound(CItem* pItem, CItem* pLauncher)
 {
-    // TODO: Incomplete.
+    if ((m_derivedStats.m_generalState & STATE_SILENCED) != 0) return;
+
+    CString sound(_T(""));
+    if (field_70FB) {
+        UTIL_ASSERT(m_animation.m_animation != NULL);
+        CList<CGameSpriteSoundEntry, CGameSpriteSoundEntry>* entries;
+        switch (m_animation.m_nSequence) {
+        case CGAMESPRITE_SEQ_ATTACK_SLASH: entries = &field_72F0; break;
+        case CGAMESPRITE_SEQ_ATTACK_BACKSLASH: entries = &field_730C; break;
+        case CGAMESPRITE_SEQ_ATTACK_JAB: entries = &field_7328; break;
+        default: entries = &field_7344; break;
+        }
+        INT count = entries->GetCount();
+        if (count != 0) {
+            INT index = rand() % count;
+            CGameSpriteSoundEntry entry = entries->GetAt(entries->FindIndex(index));
+            if (entry.field_0.Compare(field_7408) == 0) {
+                index = index == count - 1 ? 0 : index + 1;
+                entry = entries->GetAt(entries->FindIndex(index));
+            }
+            field_7408 = entry.field_0;
+            field_740C = entry.field_4;
+            return;
+        }
+    }
+
+    CResRef res = pItem->GetResRef();
+    BOOL unknown = FALSE;
+    if (res == "WYVERN1") sound = "WYVER05";
+    else if (res == "WYVERN2") sound = "WYVER06";
+    else if (res == "WOLFWI1") sound = "WWOLF07";
+    else if (res == "WOLFWI2") sound = "WWOLF06";
+    else {
+        WORD type = pItem->GetItemType();
+        if (pLauncher != NULL) type = pLauncher->GetItemType();
+        if (type == 0) type = 20;
+        CString prefix(_T("Sw_"));
+        INT count = 0;
+        BOOL padded = TRUE;
+        switch (type) {
+        case 15: prefix += "Ms"; count = 5; break;
+        case 18: prefix += "Slg"; count = 5; break;
+        case 19: case 20: case 69: case 57:
+            prefix += "Swd"; count = 5; break;
+        case 16: case 17: case 22: case 29:
+            prefix += "Sm"; count = 7; break;
+        case 21: case 25: case 26: case 30: case 44:
+            prefix += "Lg"; count = 6; break;
+        case 23: prefix += "Flal"; count = 5; padded = FALSE; break;
+        case 24: case 28: prefix += "Fist"; count = 3; padded = FALSE; break;
+        case 27: prefix += "Xbow"; count = 5; padded = FALSE; break;
+        default: unknown = TRUE; break;
+        }
+        if (!unknown) {
+            INT index = rand() % count;
+            auto suffix = [&](INT value, CHAR* text) {
+                if (padded && value < 10) {
+                    text[0] = '0'; text[1] = static_cast<CHAR>('1' + value); text[2] = 0;
+                } else {
+                    _itoa(value, text, 10);
+                }
+            };
+            CHAR number[12] = {};
+            suffix(index, number);
+            CString candidate = prefix;
+            candidate += number;
+            if (candidate.Compare(field_7408) == 0) {
+                index = index == count - 1 ? 0 : index + 1;
+                suffix(index, number);
+                sound = prefix;
+                sound += number;
+            } else {
+                sound = candidate;
+            }
+        }
+    }
+    CString soundPrefix = sound.Left(7);
+    if (unknown || soundPrefix.Compare("Sw_Fist") == 0) {
+        UTIL_ASSERT(m_animation.m_animation != NULL);
+        INT slot = -1;
+        switch (m_animation.m_nSequence) {
+        case CGAMESPRITE_SEQ_ATTACK_SLASH: slot = 40; break;
+        case CGAMESPRITE_SEQ_ATTACK_BACKSLASH: slot = 41; break;
+        case CGAMESPRITE_SEQ_ATTACK_JAB: slot = 42; break;
+        }
+        if (slot != -1 && m_baseStats.m_speech[slot] != -1) {
+            STR_RES entry;
+            g_pBaldurChitin->GetTlkTable().Fetch(m_baseStats.m_speech[slot], entry);
+            entry.cSound.cResRef.CopyToString(sound);
+        }
+    }
+    if (sound.Compare("") != 0) {
+        field_7408 = sound;
+        field_740C = 0;
+    }
 }
 
 // 0x7579C0
@@ -23686,7 +25311,58 @@ SHORT CGameSprite::Turn()
 // 0x75DFD0
 SHORT CGameSprite::EquipMostDamagingMelee()
 {
-    return ACTION_ERROR;
+    if (m_equipment.m_items[42] != NULL) {
+        return ACTION_ERROR;
+    }
+
+    SHORT nBestDamage = 0;
+    SHORT nBestSlot = -1;
+    SHORT nBestAbility = -1;
+    for (INT index = 0; index < 8; ++index) {
+        CItem* pItem = m_equipment.m_items[CGameSpriteEquipment::SLOT_WEAPON + index];
+        if (pItem == NULL) {
+            continue;
+        }
+        pItem->Demand();
+        for (INT ability = 0; ability < pItem->GetAbilityCount(); ++ability) {
+            ITEM_ABILITY* pAbility = pItem->GetAbility(ability);
+            if (pAbility != NULL && static_cast<BYTE>(pAbility->type) == 1) {
+                SHORT nDamage = static_cast<SHORT>(pAbility->damageDiceCount * pAbility->damageDice
+                    + pAbility->damageDiceBonus);
+                if (nDamage >= nBestDamage) {
+                    nBestSlot = static_cast<SHORT>(CGameSpriteEquipment::SLOT_WEAPON + index);
+                    nBestAbility = static_cast<SHORT>(ability);
+                    nBestDamage = nDamage;
+                }
+            }
+        }
+        pItem->Release();
+    }
+    if (nBestSlot == -1 && nBestAbility == -1) {
+        SelectWeaponAbility(CGameSpriteEquipment::SLOT_FIST, 0, TRUE, TRUE);
+    } else {
+        // The chosen ability only scores the weapon; the original selects its set.
+        SetWeaponSet(static_cast<BYTE>((nBestSlot - 43) / 2));
+    }
+
+    if (IcewindMisc::IsPC(this) == TRUE) {
+        CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+        CAIGroup* pGroup = pGame->GetGroup();
+        if (pGroup->m_memberList.GetCount() != 0 && pGroup != NULL) {
+            // The binary obtains two allocated lists and only deletes the second.
+            if (pGroup->GetGroupList() != NULL) {
+                LONG* pList = pGroup->GetGroupList();
+                LONG nLeader = pList[0];
+                delete[] pList;
+                if (nLeader == m_id && g_pBaldurChitin != NULL
+                    && g_pBaldurChitin->GetObjectGame() != NULL
+                    && g_pBaldurChitin->GetObjectGame()->GetButtonArray() != NULL) {
+                    g_pBaldurChitin->GetObjectGame()->GetButtonArray()->UpdateState();
+                }
+            }
+        }
+    }
+    return ACTION_DONE;
 }
 
 // 0x75E630
@@ -23784,6 +25460,56 @@ BOOLEAN CGameSprite::CanSaveGame(STRREF& strError)
     }
 
     strError = 16502;
+    return FALSE;
+}
+
+// 0x727720
+BOOL CGameSprite::FindAvailableSpell(const CResRef& resRef, BYTE& nClass, DWORD& nSpecialization, BYTE& nSpellLevel)
+{
+    UINT nID;
+    if (!g_pBaldurChitin->GetObjectGame()->m_spells.Find(resRef, nID)) {
+        return FALSE;
+    }
+
+    UINT nFirstLevel = 0;
+    UINT nEndLevel = CSPELLLIST_MAX_LEVELS;
+    if (nSpellLevel > 0 && nSpellLevel <= CSPELLLIST_MAX_LEVELS) {
+        nFirstLevel = nSpellLevel - 1;
+        nEndLevel = nSpellLevel;
+    }
+
+    if (nSpecialization == 0) {
+        UINT nFirstClass = 0;
+        if (nClass > 0 && nClass <= 11) {
+            nFirstClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterIndex(nClass);
+        }
+        for (UINT nClassIndex = nFirstClass; nClassIndex < CSPELLLIST_NUM_CLASSES; nClassIndex++) {
+            CGameSpriteGroupedSpellList* pGrouped = m_spells.Get(nClassIndex);
+            UINT nLimit = min(nEndLevel, pGrouped->m_nHighestLevel);
+            for (UINT nLevel = nFirstLevel; nLevel < nLimit; nLevel++) {
+                CGameSpriteSpellList* pList = pGrouped->GetSpellsAtLevel(nLevel);
+                UINT nIndex;
+                if (pList->Find(nID, nIndex) && pList->Get(nIndex)->m_nCurrent > 0) {
+                    nClass = g_pBaldurChitin->GetObjectGame()->GetSpellcasterClass(nClassIndex);
+                    nSpellLevel = static_cast<BYTE>(nLevel + 1);
+                    nSpecialization = 0;
+                    return TRUE;
+                }
+            }
+        }
+    }
+
+    UINT nLimit = min(nEndLevel, m_domainSpells.m_nHighestLevel);
+    for (UINT nLevel = nFirstLevel; nLevel < nLimit; nLevel++) {
+        CGameSpriteSpellList* pList = m_domainSpells.GetSpellsAtLevel(nLevel);
+        UINT nIndex;
+        if (pList->Find(nID, nIndex) && pList->Get(nIndex)->m_nCurrent > 0) {
+            nClass = CAIOBJECTTYPE_C_CLERIC;
+            nSpellLevel = static_cast<BYTE>(nLevel + 1);
+            nSpecialization = m_baseStats.m_specialization;
+            return TRUE;
+        }
+    }
     return FALSE;
 }
 
@@ -25255,8 +26981,8 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
                    || m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_WIZARD) >= 7
                    || m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_PALADIN) >= 15
                    || m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_RANGER) >= 15
-                   || m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_RANGER) >= 8)
-            && m_derivedStats.m_nSkills[13] >= 10;
+                   || m_derivedStats.GetClassLevel(CAIOBJECTTYPE_C_SORCERER) >= 8)
+            && static_cast<signed char>(m_derivedStats.m_nSkills[13]) >= 10;
     case CGAMESPRITE_FEAT_AMBIDEXTERITY:
         return nDEX >= 15;
     case CGAMESPRITE_FEAT_ARMOR_PROF:
@@ -25283,7 +27009,7 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
     case CGAMESPRITE_FEAT_ARMORED_ARCANA:
         return m_derivedStats.HasClassMask(CLASSMASK_WIZARD | CLASSMASK_SORCERER | CLASSMASK_BARD);
     case CGAMESPRITE_FEAT_ARTERIAL_STRIKE:
-        return m_baseStats.m_rogueLevel > 0 && m_baseStats.m_attackBase >= 4;
+        return m_baseStats.m_rogueLevel > 0 && static_cast<signed char>(m_baseStats.m_attackBase) >= 4;
     case CGAMESPRITE_FEAT_BULLHEADED:
         return m_typeAI.m_nRace == CAIOBJECTTYPE_R_HUMAN
             || m_typeAI.m_nRace == CAIOBJECTTYPE_R_DWARF;
@@ -25293,7 +27019,7 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
         }
 
         if (GetFeatValue(CGAMESPRITE_FEAT_CLEAVE) >= 1) {
-            return m_baseStats.m_attackBase >= 4;
+            return static_cast<signed char>(m_baseStats.m_attackBase) >= 4;
         }
 
         return TRUE;
@@ -25308,10 +27034,10 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
     case CGAMESPRITE_FEAT_RAPID_SHOT:
         return nDEX >= 13;
     case CGAMESPRITE_FEAT_DIRTY_FIGHTING:
-        return nDEX >= 13 && m_baseStats.m_attackBase >= 2;
+        return nDEX >= 13 && static_cast<signed char>(m_baseStats.m_attackBase) >= 2;
     case CGAMESPRITE_FEAT_ENVENOM_WEAPON:
         return m_baseStats.m_rogueLevel > 0
-            && m_baseStats.m_skills[CGAMESPRITE_SKILL_ALCHEMY] >= 8;
+            && static_cast<signed char>(m_baseStats.m_skills[CGAMESPRITE_SKILL_ALCHEMY]) >= 8;
     case CGAMESPRITE_FEAT_EXOTIC_BASTARD:
         return GetFeatValue(CGAMESPRITE_FEAT_EXOTIC_BASTARD) != 2
             || m_baseStats.m_fighterLevel >= 4;
@@ -25329,18 +27055,18 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
     case CGAMESPRITE_FEAT_FIENDSLAYER:
         return (GetFeatValue(CGAMESPRITE_FEAT_MARTIAL_LARGESWORD) >= 2
                    || GetFeatValue(CGAMESPRITE_FEAT_MARTIAL_GREATSWORD) >= 2)
-            && m_baseStats.m_paladinLevel >= 3;
+            && m_baseStats.m_paladinLevel >= 8;
     case CGAMESPRITE_FEAT_HAMSTRING:
         return m_baseStats.m_rogueLevel >= 3;
     case CGAMESPRITE_FEAT_HERETICS_BANE:
-        return m_baseStats.m_attackBase >= 4
+        return static_cast<signed char>(m_baseStats.m_attackBase) >= 4
             && m_derivedStats.HasClassMask(CLASSMASK_RANGER | CLASSMASK_PALADIN | CLASSMASK_DRUID | CLASSMASK_CLERIC);
     case CGAMESPRITE_FEAT_HEROIC_INSPIRATION:
         return m_baseStats.m_barbarianLevel > 0
-            || m_baseStats.m_barbarianLevel > 0
+            || m_baseStats.m_bardLevel > 0
             || m_baseStats.m_paladinLevel > 0;
     case CGAMESPRITE_FEAT_IMPROVED_CRITICAL:
-        return m_baseStats.m_attackBase >= 8;
+        return static_cast<signed char>(m_baseStats.m_attackBase) >= 8;
     case CGAMESPRITE_FEAT_IMPROVED_EVASION:
         return m_baseStats.m_rogueLevel >= 10
             || m_baseStats.m_monkLevel >= 9;
@@ -25381,7 +27107,7 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
             }
 
             return nWeaponSpecializations >= 2
-                && m_baseStats.m_skills[CGAMESPRITE_SKILL_CONCENTRATION] >= 4;
+                && static_cast<signed char>(m_baseStats.m_skills[CGAMESPRITE_SKILL_CONCENTRATION]) >= 4;
         }
     case CGAMESPRITE_FEAT_MERCANTILE_BACKGROUND:
         // Humans, gray dwarves and deep gnomes. Unlike the other regional
@@ -25463,14 +27189,14 @@ BOOL CGameSprite::CheckFeatPrerequisites(UINT nFeatNumber, INT a2)
         return nTotalLevel == 1;
     }
     case CGAMESPRITE_FEAT_STUNNING_FIST:
-        return (nDEX >= 13 && nWIS >= 13 && m_baseStats.m_attackBase >= 8)
+        return (nDEX >= 13 && nWIS >= 13 && static_cast<signed char>(m_baseStats.m_attackBase) >= 8)
             || m_baseStats.m_monkLevel > 0;
     case CGAMESPRITE_FEAT_SUBVOCAL_CASTING:
         return m_derivedStats.HasClassMask(CLASSMASK_WIZARD | CLASSMASK_SORCERER | CLASSMASK_BARD)
             || m_derivedStats.HasClassMask(CLASSMASK_RANGER | CLASSMASK_PALADIN | CLASSMASK_DRUID | CLASSMASK_CLERIC);
     case CGAMESPRITE_FEAT_WEAPON_FINESSE:
-        return GetFeatValue(CGAMESPRITE_FEAT_SIMPLE_SMALLBLADE)
-            && m_baseStats.m_attackBase >= 1;
+        return GetFeatValue(CGAMESPRITE_FEAT_SIMPLE_SMALLBLADE) >= 1
+            && static_cast<signed char>(m_baseStats.m_attackBase) >= 1;
     case CGAMESPRITE_FEAT_WILDSHAPE_BOAR:
     case CGAMESPRITE_FEAT_WILDSHAPE_PANTHER:
         return m_baseStats.m_druidLevel >= 5;
@@ -25515,62 +27241,62 @@ BOOL CGameSprite::CanSelectFeat(UINT nFeatNumber, INT a2)
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_MARTIAL_AXE:
         return (m_baseStats.m_featAxe != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featAxe < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_MARTIAL_BOW:
         return (m_baseStats.m_featBow != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featBow < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_MARTIAL_FLAIL:
         return (m_baseStats.m_featFlail != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featFlail < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_MARTIAL_GREATSWORD:
         return (m_baseStats.m_featGreatSword != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featGreatSword < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_MARTIAL_HAMMER:
         return (m_baseStats.m_featHammer != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featHammer < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_MARTIAL_LARGESWORD:
         return (m_baseStats.m_featLargeSword != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featLargeSword < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_MARTIAL_POLEARM:
         return (m_baseStats.m_featPolearm != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featPolearm < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_SIMPLE_CROSSBOW:
         return (m_baseStats.m_featCrossbow != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featCrossbow < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_SIMPLE_MACE:
         return (m_baseStats.m_featMace != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featMace < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_SIMPLE_MISSILE:
         return (m_baseStats.m_featMissile != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featMissile < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_SIMPLE_QUARTERSTAFF:
         return (m_baseStats.m_featQuarterStaff != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featQuarterStaff < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_SIMPLE_SMALLBLADE:
         return (m_baseStats.m_featSmallBlade != CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE - 1
-                   || m_baseStats.m_attackBase >= 4)
+                   || m_baseStats.m_fighterLevel >= 4)
             && m_baseStats.m_featSmallBlade < CGAMESPRITE_FEAT_MAX_WEAPON_UPGRADE
             && CheckFeatPrerequisites(nFeatNumber, 1);
     case CGAMESPRITE_FEAT_SPELL_FOCUS_ENCHANTMENT:
@@ -25676,7 +27402,7 @@ INT CGameSprite::GetSkillValue(UINT iSkillNumber)
     // __LINE__: 30444
     UTIL_ASSERT(iSkillNumber < CGAMESPRITE_SKILL_NUMSKILLS);
 
-    return m_baseStats.m_skills[iSkillNumber];
+    return static_cast<signed char>(m_baseStats.m_skills[iSkillNumber]);
 }
 
 // 0x764310
@@ -25748,7 +27474,7 @@ INT CGameSprite::GetSkillCost(UINT iSkillNumber, BYTE nClass)
         }
     }
 
-    if (m_baseStats.m_skills[iSkillNumber] < (nLevels + 3) / v3) {
+    if (static_cast<signed char>(m_baseStats.m_skills[iSkillNumber]) < (nLevels + 3) / v3) {
         return v2;
     }
 
@@ -26060,17 +27786,27 @@ void CGameSprite::DisplaySkills(CUIControlTextDisplay* pText)
 // 0x766140
 SHORT CGameSprite::JumpToArea(CString areaName, const CPoint& dest, SHORT facingDirection, SHORT delay)
 {
+    areaName.MakeUpper();
+
     if (m_bGlobal) {
-        CMessage* message = new CMessageMoveGlobal(areaName, dest, m_id, m_id);
-        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageMoveGlobal(areaName, dest, m_id, m_id), FALSE);
     }
 
     if (m_pArea == NULL) {
         return ACTION_ERROR;
     }
 
-    if (delay < 1) {
-        CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(areaName);
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (delay > 0) {
+        CMoveListEntry* pEntry = new CMoveListEntry();
+        pEntry->m_nDelay = delay;
+        pEntry->m_nFacing = static_cast<BYTE>(facingDirection);
+        pEntry->m_nSpriteId = m_id;
+        pEntry->m_ptDestination = dest;
+        pEntry->m_areaResRef = areaName;
+        pGame->m_cLimboList.AddTail(pEntry);
+    } else {
+        CGameArea* pArea = g_pBaldurChitin->GetObjectGame()->GetArea(CString(areaName));
         if (pArea != NULL) {
             m_clearAIOnRemoveFromArea = FALSE;
             m_bDeleteOnRemove = FALSE;
@@ -26080,6 +27816,7 @@ SHORT CGameSprite::JumpToArea(CString areaName, const CPoint& dest, SHORT facing
             return ACTION_DONE;
         }
 
+        // The area is not loaded yet; the move list carries the sprite over.
         CMoveListEntry* pEntry = new CMoveListEntry();
         pEntry->m_nFacing = static_cast<BYTE>(facingDirection);
         pEntry->m_nDelay = 0;
@@ -26087,17 +27824,6 @@ SHORT CGameSprite::JumpToArea(CString areaName, const CPoint& dest, SHORT facing
         pEntry->m_ptDestination = dest;
         pEntry->m_areaResRef = areaName;
         g_pBaldurChitin->GetObjectGame()->m_cMoveList.AddTail(pEntry);
-    } else {
-        // A delayed jump is parked on the limbo list, not the move list
-        // (0x766261: lea ecx, [eax + 0x4b1c] -- m_cLimboList at CInfGame+0x4B1C,
-        // where the immediate path a few instructions later takes +0x4B00).
-        CMoveListEntry* pEntry = new CMoveListEntry();
-        pEntry->m_nDelay = delay;
-        pEntry->m_nFacing = static_cast<BYTE>(facingDirection);
-        pEntry->m_nSpriteId = m_id;
-        pEntry->m_ptDestination = dest;
-        pEntry->m_areaResRef = areaName;
-        g_pBaldurChitin->GetObjectGame()->m_cLimboList.AddTail(pEntry);
     }
 
     m_bDeleteOnRemove = FALSE;
@@ -28223,10 +29949,10 @@ BOOLEAN CGameSprite::HasSpell(const CResRef& resRef, const DWORD& dwClassMask, U
 
     if (nLevel < CSPELLLIST_MAX_LEVELS) {
         nStartLevel = nLevel;
-        nStartLevel = nLevel + 1;
+        nEndLevel = nLevel + 1;
     }
 
-    UINT nID;
+    UINT nID = 0;
     if (!g_pBaldurChitin->GetObjectGame()->m_spells.Find(resRef, nID)) {
         return FALSE;
     }
@@ -28251,14 +29977,14 @@ BOOLEAN CGameSprite::HasSpell(const CResRef& resRef, const DWORD& dwClassMask, U
                 UTIL_ASSERT(nCurrLevel < CSPELLLIST_MAX_LEVELS);
 
                 UINT nIndex = 0;
-                v1 = m_spells.m_spellsByClass[nClassIndex].m_lists[nCurrLevel].Find(nID, nIndex);
+                v1 = m_spells.m_spellsByClass[nClassIndex].GetSpellsAtLevel(nCurrLevel)->Find(nID, nIndex);
                 if (v1 == TRUE && a4 == TRUE) {
                     // __FILE__: .\Include\FileFormat.h
                     // __LINE__: 2565
                     UTIL_ASSERT(nClassIndex < CSPELLLIST_NUM_CLASSES);
 
                     // NOTE: Uninline.
-                    v1 = m_spells.m_spellsByClass[nClassIndex].m_lists[nCurrLevel].CheckF8(nIndex);
+                    v1 = m_spells.m_spellsByClass[nClassIndex].GetSpellsAtLevel(nCurrLevel)->CheckF8(nIndex);
                 }
             }
         }
@@ -28274,10 +30000,10 @@ BOOLEAN CGameSprite::HasSpell(const CResRef& resRef, const DWORD& dwClassMask, U
                 UINT nIndex = 0;
 
                 // NOTE: Uninline.
-                v1 = m_domainSpells.Find(nID, nStartLevel, nIndex);
+                v1 = m_domainSpells.GetSpellsAtLevel(nCurrLevel)->Find(nID, nIndex);
                 if (v1 == TRUE && a4 == TRUE) {
                     // NOTE: Uninline.
-                    v1 = m_innateSpells.CheckF8(nIndex);
+                    v1 = m_domainSpells.GetSpellsAtLevel(nCurrLevel)->CheckF8(nIndex);
                 }
             }
         }
@@ -28604,6 +30330,293 @@ void RefreshWeaponSetButtons(CGameSprite* pSprite)
     g_pBaldurChitin->GetMessageHandler()->AddMessage(pMessage, FALSE);
 }
 
+// 0x6F50A0
+void CGameSprite::SetTeamEnemies()
+{
+    DWORD teams = field_58C;
+    if ((teams & 0x200000) == 0 || teams == 0x200000) {
+        return;
+    }
+    for (INT index = 0; index < 21; ++index) {
+        if ((teams & (1 << index)) != 0) {
+            CString number;
+            number.Format(_T("%d"), index);
+            CString name;
+            name = "TEAM_";
+            name += number;
+            name += "_ENEMY";
+            CVariable* variable = g_pBaldurChitin->GetObjectGame()->GetVariables()->FindKey(name);
+            if (variable != NULL) {
+                variable->m_intValue = 1;
+            } else {
+                variable = new CVariable;
+                variable->SetName(name);
+                variable->m_intValue = 1;
+                g_pBaldurChitin->GetObjectGame()->m_variables.AddKey(*variable);
+                delete variable;
+            }
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSetVariable(name,
+                CString(reinterpret_cast<const char*>(m_pArea->m_header.m_areaName)),
+                1, FALSE, m_id, m_id, 0), FALSE);
+        }
+    }
+}
+
+// 0x761AB0
+void CGameSprite::ApplyOnHitSpells(CGameSprite* pTarget)
+{
+    for (const COnHitSpell& spell : m_derivedStats.m_onHitSpells) {
+        std::list<CGameEffect*> effects = BuildSubSpellEffects(this,
+            CResRef(const_cast<BYTE*>(spell.m_spellRes.GetResRef())),
+            static_cast<INT>(spell.m_level));
+        for (CGameEffect* effect : effects) {
+            effect->m_sourceRes = spell.m_sourceRes;
+            effect->m_target = spell.m_target;
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageAddEffect(effect, m_id,
+                    effect->m_targetType == 1 ? m_id : pTarget->m_id), FALSE);
+        }
+    }
+}
+
+// 0x75E150
+SHORT CGameSprite::EquipRangedWeapon()
+{
+    if (m_equipment.m_items[42] != NULL) {
+        return ACTION_ERROR;
+    }
+    if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1) {
+        CItem* pSelected = m_equipment.m_items[m_equipment.m_selectedWeapon];
+        pSelected->Demand();
+        if (pSelected != NULL && pSelected->GetAbility(m_equipment.m_selectedWeaponAbility) != NULL
+            && static_cast<BYTE>(pSelected->GetAbility(m_equipment.m_selectedWeaponAbility)->type) == 2) {
+            pSelected->Release();
+            return ACTION_DONE;
+        }
+        pSelected->Release();
+    }
+    for (INT index = 0; index < 4; ++index) {
+        CItem* pAmmo = m_equipment.m_items[CGameSpriteEquipment::SLOT_AMMO + index];
+        if (pAmmo != NULL) {
+            pAmmo->Demand();
+            ITEM_ABILITY* pAbility = pAmmo->GetAbility(0);
+            if (pAbility != NULL && static_cast<BYTE>(pAbility->type) == 2
+                && CheckLauncherType(pAbility, NULL)) {
+                SHORT nLauncherSlot;
+                if (GetLauncher(pAbility, nLauncherSlot) != NULL) {
+                    SetWeaponSet(static_cast<BYTE>((nLauncherSlot - 43) / 2));
+                }
+                pAmmo->Release();
+                return ACTION_DONE;
+            }
+            pAmmo->Release();
+        }
+    }
+    for (INT index = 0; index < 8; ++index) {
+        CItem* pItem = m_equipment.m_items[CGameSpriteEquipment::SLOT_WEAPON + index];
+        if (pItem != NULL) {
+            pItem->Demand();
+            ITEM_ABILITY* pAbility = pItem->GetAbility(0);
+            if (pAbility != NULL && static_cast<BYTE>(pAbility->type) == 2
+                && CheckLauncherType(pAbility, NULL)) {
+                SetWeaponSet(static_cast<BYTE>((CGameSpriteEquipment::SLOT_WEAPON - 43 + index) / 2));
+                pItem->Release();
+                return ACTION_DONE;
+            }
+            pItem->Release();
+        }
+    }
+    EquipMostDamagingMelee();
+    return ACTION_DONE;
+}
+
+// 0x75D450
+BOOL CGameSprite::CheckItemDepleted(SHORT nSlot, SHORT nAbility)
+{
+    SHORT nOldSlot = m_equipment.m_selectedWeapon;
+    SHORT nLauncherSlot = GetLauncherSlot(nOldSlot, m_equipment.m_selectedWeaponAbility);
+    static_cast<CBaldurEngine*>(g_pBaldurChitin->pActiveEngine)->UpdatePersonalItemStatus(m_id);
+    auto unusable = [this](const CString& resource) {
+        CAITrigger trigger(CAITrigger::UNUSABLE, 0);
+        trigger.m_string1 = resource;
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSetTrigger(trigger, m_id, m_id), FALSE);
+    };
+    if (nSlot < 0 || nSlot > CGameSpriteEquipment::NUM_SLOT) {
+        unusable(CString());
+        return TRUE;
+    }
+    CItem*& pSlotItem = m_equipment.m_items[nSlot];
+    if (pSlotItem == NULL) {
+        unusable(CString());
+        return TRUE;
+    }
+    CResRef originalRes = pSlotItem->GetResRef();
+    CItem* pItem = pSlotItem;
+    pItem->Demand();
+    ITEM_ABILITY* pAbility = pItem->GetAbility(nAbility);
+    auto replaceAmmo = [this, nLauncherSlot, &originalRes]() -> BOOL {
+        if (SelectLauncherAmmo(m_equipment.m_items[nLauncherSlot], !IcewindMisc::IsPC(this)) == ACTION_DONE) {
+            CItem* pSelected = m_equipment.m_items[m_equipment.m_selectedWeapon];
+            return pSelected != NULL && pSelected->GetResRef() == originalRes;
+        }
+        return FALSE;
+    };
+    if (pAbility == NULL) {
+        if (nAbility == 0) {
+            if (pItem->GetMaxStackable() < 2) {
+                PlaySound(CResRef("EFF_M02"));
+            }
+            if (nSlot == m_equipment.m_selectedWeapon) {
+                SelectWeaponAbility(CGameSpriteEquipment::SLOT_FIST, 0, FALSE, TRUE);
+            } else {
+                Unequip(nSlot);
+            }
+            pSlotItem->ReleaseAll();
+            delete pSlotItem;
+            pSlotItem = NULL;
+            if (nSlot == nOldSlot) {
+                if (nLauncherSlot == -1) {
+                    EquipMostDamagingMelee();
+                } else if (replaceAmmo()) {
+                    return FALSE;
+                }
+            }
+        } else {
+            CString resource;
+            pItem->GetResRef().CopyToString(resource);
+            unusable(resource);
+            pSlotItem->ReleaseAll();
+        }
+        return TRUE;
+    }
+    if (pItem->GetUsageCount(nAbility) == 0xFFFF && pAbility->maxUsageCount != 0 && pAbility->usageFlags == 1) {
+        pItem->SetUsageCount(nAbility, 0);
+    }
+    if (pItem->GetUsageCount(nAbility) != 0 || pAbility->maxUsageCount == 0) {
+        pItem->Release();
+        return FALSE;
+    }
+    CString resource;
+    pItem->GetResRef().CopyToString(resource);
+    BOOL bDemanded = TRUE;
+    if (pAbility->usageFlags == 1) {
+        if (pSlotItem != NULL) {
+            if (pItem->GetMaxStackable() < 2) {
+                PlaySound(CResRef("EFF_M02"));
+            }
+            if (nSlot == m_equipment.m_selectedWeapon) {
+                SelectWeaponAbility(CGameSpriteEquipment::SLOT_FIST, 0, FALSE, TRUE);
+            } else {
+                Unequip(nSlot);
+            }
+            pSlotItem->ReleaseAll();
+            bDemanded = FALSE;
+            delete pSlotItem;
+            pSlotItem = NULL;
+            if (nSlot == nOldSlot) {
+                if (nLauncherSlot == -1) {
+                    if (!IcewindMisc::IsPC(this)) EquipMostDamagingMelee();
+                } else if (replaceAmmo()) {
+                    return FALSE;
+                }
+            }
+            SetWeaponSet(m_nWeaponSet);
+        }
+    } else if (pAbility->usageFlags == 2) {
+        if (nSlot != m_equipment.m_selectedWeapon) {
+            Unequip(nSlot);
+        }
+        pSlotItem->Release();
+        bDemanded = FALSE;
+        if (pItem->GetUsedUpItemId() != "") {
+            pItem->SetResRef(pItem->GetUsedUpItemId(), TRUE);
+            pItem->GetResRef().CopyToString(resource);
+        } else {
+            pSlotItem->ReleaseAll();
+            delete pSlotItem;
+            pSlotItem = NULL;
+        }
+        if (nSlot == nOldSlot) {
+            if (nLauncherSlot == -1) {
+                if (!IcewindMisc::IsPC(this)) EquipMostDamagingMelee();
+            } else if (replaceAmmo()) {
+                return FALSE;
+            }
+        }
+        if (g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(m_id) != -1
+            && (m_derivedStats.m_generalState & 0x2000) == 0) {
+            SetWeaponSet(m_nWeaponSet);
+        } else {
+            EquipRangedWeapon();
+        }
+    }
+    unusable(resource);
+    if (bDemanded) pItem->Release();
+    return TRUE;
+}
+
+// 0x75E330
+SHORT CGameSprite::SelectLauncherAmmo(CItem* pLauncher, BOOL bFallbackToMelee)
+{
+    SHORT nBestCount = 0;
+    INT nBestAmmo = -1;
+    for (INT index = 0; index < 4; ++index) {
+        CItem* pAmmo = m_equipment.m_items[CGameSpriteEquipment::SLOT_AMMO + index];
+        if (pAmmo != NULL) {
+            pAmmo->Demand();
+            ITEM_ABILITY* pAbility = pAmmo->GetAbility(0);
+            if (pAbility != NULL && static_cast<BYTE>(pAbility->type) == 2) {
+                SHORT nLauncherSlot;
+                if (GetLauncher(pAbility, nLauncherSlot) == pLauncher) {
+                    // The comparison zero-extends the candidate, but sign-extends
+                    // the saved WORD. Preserve the original wrap at 32768.
+                    if (static_cast<INT>(pAmmo->GetUsageCount(0)) > nBestCount) {
+                        nBestAmmo = index;
+                        nBestCount = static_cast<SHORT>(pAmmo->GetUsageCount(0));
+                    }
+                }
+            }
+            pAmmo->Release();
+        }
+    }
+
+    if (nBestAmmo == -1) {
+        if (bFallbackToMelee == TRUE) {
+            EquipMostDamagingMelee();
+            return ACTION_DONE;
+        }
+        return ACTION_ERROR;
+    }
+
+    BYTE nAmmoSlot = static_cast<BYTE>(CGameSpriteEquipment::SLOT_AMMO + nBestAmmo);
+    SelectWeaponAbility(nAmmoSlot, 0, TRUE, TRUE);
+    for (INT nSlot = 43; nSlot < 51; ++nSlot) {
+        if (m_equipment.m_items[nSlot] != pLauncher) {
+            continue;
+        }
+        CGameButtonList* pUsages = GetItemUsages(nAmmoSlot, 1, 0);
+        if (pUsages != NULL) {
+            CButtonData* pButton = pUsages->GetHead();
+            if (pButton != NULL) {
+                BYTE nButton = static_cast<BYTE>(nSlot - 43);
+                UTIL_ASSERT(nButton < CGAMESAVECHARACTER_NUM_QUICK_WEAPONS22);
+                m_quickWeapons[nButton] = *pButton;
+                SHORT nItem = pButton->m_abilityId.m_itemNum;
+                UTIL_ASSERT(nButton < CGAMESAVECHARACTER_NUM_QUICK_WEAPONS22);
+                field_3D3A[nButton] = nItem >= 11 && nItem <= 14
+                    ? static_cast<BYTE>(nItem) : 0;
+                CAbilityId ability;
+                UpdateQuickButtons(ability, 0, FALSE, FALSE);
+                delete pButton;
+                delete pUsages;
+                return ACTION_DONE;
+            }
+            delete pUsages;
+        }
+    }
+    return ACTION_DONE;
+}
+
 // 0x726810
 void CGameSprite::SetWeaponSet(BYTE nWeaponSet)
 {
@@ -28921,4 +30934,90 @@ CDerivedStats* CGameSprite::GetActiveStats()
     } else {
         return &m_tempStats;
     }
+}
+
+// 0x726F20
+void CGameSprite::UpdateQuickWeaponData()
+{
+    for (int set = 0; set < 4; set++) {
+        SHORT mainSlot = static_cast<SHORT>(43 + 2 * set);
+        BYTE mainButton = static_cast<BYTE>(2 * set);
+        CButtonData oldButton;
+        GetQuickWeapon(mainButton, oldButton);
+        CItem* item = m_equipment.m_items[mainSlot];
+        SHORT abilityNum = 0;
+        SHORT ammoSlot = 0;
+        if (item != NULL) {
+            BYTE type = 0;
+            item->Demand();
+            ITEM_ABILITY* ability = item->GetAbility(0);
+            if (ability != NULL) type = static_cast<BYTE>(ability->type);
+            item->Release();
+            if (type == 4) {
+                UTIL_ASSERT(mainButton < 8);
+                BYTE ammo = field_3D3A[mainButton];
+                if (ammo >= 11 && ammo <= 14 && m_equipment.m_items[ammo] != NULL) {
+                    CItem* ammunition = m_equipment.m_items[ammo];
+                    SHORT launcherSlot = 0;
+                    ammunition->Demand();
+                    GetLauncher(ammunition->GetAbility(0), launcherSlot);
+                    ammunition->Release();
+                    ammoSlot = ammo;
+                    abilityNum = oldButton.m_abilityId.m_abilityNum;
+                }
+            } else abilityNum = oldButton.m_abilityId.m_abilityNum;
+        }
+        CGameButtonList* buttons = GetItemUsages(mainSlot, 1, abilityNum);
+        POSITION position = buttons->GetHeadPosition();
+        if (position == NULL) {
+            SetQuickWeapon(mainButton, CButtonData());
+            SetQuickWeapon(mainButton, static_cast<BYTE>(0));
+        } else {
+            while (position != NULL) {
+                CButtonData* button = buttons->GetNext(position);
+                if (button != NULL && button->m_abilityId.m_itemNum == ammoSlot) {
+                    SetQuickWeapon(mainButton, *button);
+                    SetQuickWeapon(mainButton, static_cast<BYTE>(ammoSlot));
+                }
+                delete button;
+            }
+        }
+        buttons->RemoveAll();
+        delete buttons;
+        SHORT offSlot = mainSlot + 1;
+        BYTE offButton = mainButton + 1;
+        buttons = GetItemUsages(offSlot, 1, 0);
+        position = buttons->GetHeadPosition();
+        if (position == NULL) {
+            CButtonData empty;
+            UTIL_ASSERT(offButton < 8);
+            m_quickWeapons[offButton].m_icon = empty.m_icon;
+            m_quickWeapons[offButton].m_name = empty.m_name;
+            m_quickWeapons[offButton].m_launcherIcon = empty.m_launcherIcon;
+            m_quickWeapons[offButton].m_launcherName = empty.m_launcherName;
+            m_quickWeapons[offButton].m_count = empty.m_count;
+            m_quickWeapons[offButton].m_abilityId = empty.m_abilityId;
+            m_quickWeapons[offButton].m_bDisabled = empty.m_bDisabled;
+            m_quickWeapons[offButton].m_bDisplayCount = empty.m_bDisplayCount;
+            SetQuickWeapon(offButton, static_cast<BYTE>(0));
+        } else {
+            CButtonData* button = buttons->GetNext(position);
+            UTIL_ASSERT(offButton < 8);
+            m_quickWeapons[offButton].m_icon = button->m_icon;
+            m_quickWeapons[offButton].m_name = button->m_name;
+            m_quickWeapons[offButton].m_launcherIcon = button->m_launcherIcon;
+            m_quickWeapons[offButton].m_launcherName = button->m_launcherName;
+            m_quickWeapons[offButton].m_count = button->m_count;
+            m_quickWeapons[offButton].m_abilityId = button->m_abilityId;
+            m_quickWeapons[offButton].m_bDisabled = button->m_bDisabled;
+            m_quickWeapons[offButton].m_bDisplayCount = button->m_bDisplayCount;
+            SHORT slot = button->m_abilityId.m_itemNum;
+            SetQuickWeapon(offButton, static_cast<BYTE>(slot >= 11 && slot <= 14 ? slot : 0));
+            delete button;
+            while (position != NULL) delete buttons->GetNext(position);
+        }
+        buttons->RemoveAll();
+        delete buttons;
+    }
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageSpriteEquipment(this, m_id, m_id), FALSE);
 }

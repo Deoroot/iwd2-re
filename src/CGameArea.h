@@ -172,6 +172,7 @@ public:
 // an ordinal above eleven would run off the end of them.
 #define CGAMEAREA_NEAREST_SLOTS 12
 
+#pragma pack(push, 2)
 class CGameArea {
 public:
     CGameArea(BYTE id);
@@ -248,6 +249,7 @@ public:
     CInfinity* GetInfinity();
     CVariableHash* GetVariables();
     CAreaFileRestEncounter* GetHeaderRestEncounter();
+    BOOLEAN CheckRestEncounter();
     CNamedCreatureVariableHash* GetNamedCreatures();
     CGameAreaNotes* GetAreaNotes();
     LONG GetBattleSongCounter();
@@ -338,6 +340,7 @@ public:
     /* 0B16 */ BOOL field_B16;
 };
 
+#pragma pack(pop)
 class CAreaFile : public CResHelper<CResArea, 1010> {
 public:
     BYTE* GetData();

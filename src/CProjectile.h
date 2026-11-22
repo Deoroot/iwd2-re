@@ -23,11 +23,15 @@ class CGameSprite;
 class CRes;
 class CResBitmap;
 
+#pragma pack(push, 2)
 class CProjectile : public CGameObject {
 public:
+    static void GetStart(LONG source, CPoint& pt, BYTE facingOffset); // 0x52A640
     static CProjectile* DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay);
 
     CProjectile();
+    /* 0000 */ ~CProjectile() override;
+    /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
 
     /* 0068 */ BOOLEAN IsProjectile() override;
     /* 006C */ virtual void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType);
@@ -58,6 +62,11 @@ public:
     // 6=purple 7=red 9=ice 10=stone 11=magenta 12=orange), row index into the
     // travel palette bitmap; written by the DecodeProjectile sparkle cases.
     /* 009A */ SHORT m_sparkleColor;
+    // Shared launch state: both travelling and BAM Fire write these fields.
+    /* 009C */ INT m_posAccumX;
+    /* 00A0 */ INT m_posAccumY;
+    /* 00C8 */ INT m_targetX;
+    /* 00CC */ INT m_targetY;
     // BG2 PDB: CProjectile::m_terrainTable. Render's passability gate feeds
     // it to CSearchBitmap::GetMobileCost; the wandering leaves pass it to
     // GetLOSCost to bounce off walls. Seeded by the CProjectileTravelling and
@@ -74,6 +83,8 @@ public:
     /* 016C */ SHORT m_nDeltaZ;
     /* 016E */ SHORT m_nDeltaZLast;
     /* 0170 */ LONG m_nOrigDistance;
+    /* 0174 */ LONG field_174;
+    /* 0178 */ LONG field_178;
     /* 017C */ BYTE field_17C;
     /* 017E */ CString field_17E;
     /* 0182 */ LONG m_nTargetId;
@@ -86,6 +97,7 @@ public:
     /* 0186 */ LONG m_nSpellLevel;
     /* 018A */ CResRef m_casterResRef;
 };
+#pragma pack(pop)
 
 // ---------------------------------------------------------------------------
 // CProjectileInstant (vtable 0x84D8B8) -- the "None" projectile (missileType 1).
@@ -103,6 +115,42 @@ public:
               LONG nHeight, SHORT nType) override;   // 0x529950 (slot 27)
 };
 
+// Native impact BAM carrier (0x535F20, vtable 0x84E9C0, size 0x32C).
+// Separate from CProjectileBAM: its lifetime and rendering virtuals differ.
+#pragma pack(push, 2)
+class CProjectileImpactBAM /*#guess*/ : public CProjectile {
+public:
+    CProjectileImpactBAM(const CString& visualRef, const CString& soundRef,
+        const CString& paletteRef, LONG renderFlags, BYTE translucency);
+    void AIUpdate() override;
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;
+protected:
+    /* 0192 */ CVidCell m_vidCell;
+    /* 026C */ CVidBitmap m_bitmap;
+    /* 0326 */ LONG m_renderFlags;
+    /* 032A */ BYTE m_hasPalette;
+    /* 032B */ BYTE m_translucency;
+};
+
+// Native vtable 0x84E940, size 0x332. Opening/loop/reverse-closing BAM carrier.
+class CProjectilePhaseBAM /*#guess*/ : public CProjectile {
+public:
+    CProjectilePhaseBAM(const CString& visual, const CString& sound, const CString& palette, DWORD flags, BYTE transparency);
+    void AIUpdate() override;
+    void Render(CGameArea* area, CVidMode* mode, int surface) override;
+    void Fire(CGameArea* area, LONG source, LONG target, CPoint point, LONG height, SHORT kind) override;
+protected:
+    /* 0192 */ CVidCell m_vidCell;
+    /* 026C */ CVidBitmap m_bitmap;
+    /* 0326 */ DWORD m_renderFlags;
+    /* 032A */ BYTE m_hasPalette;
+    /* 032B */ BYTE m_translucency;
+    /* 032C */ CString m_visualBase;
+    /* 0330 */ BYTE m_phase;
+};
+#pragma pack(pop)
+
 class CProjectileBAM : public CProjectile {
 public:
     CProjectileBAM(const CResRef& visualResRef, const CResRef& arrivalSoundRef, BYTE sequenceDelay, BYTE initialDelay, const IcewindCVisualEffect& visualEffect);
@@ -113,28 +161,13 @@ public:
 
 protected:
     /* 0192 */ CVidCell m_vidCell;
-    /* 026C */ IcewindCVisualEffect m_visualEffect;
+    /* 026C */ CVidBitmap m_bitmap;
+    /* 0326 */ BOOL field_326;
+    /* 032A */ BYTE field_32A;
+    /* 032B */ BYTE field_32B;
     /* 032C */ BYTE m_sequenceDelay;
     /* 032D */ BYTE m_initialDelay;
-};
-
-class CProjectileSummonVFX : public CProjectile {
-public:
-    CProjectileSummonVFX(const CResRef& visualResRef, const IcewindCVisualEffect& visualEffect);
-
-    void AIUpdate() override;
-    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;
-    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;
-
-    void SetArrivalSound(const CResRef& arrivalSoundRef);
-    void SetOffsetAboveTarget(BOOL offsetAboveTarget);
-
-    static CProjectile* DecodeSpellHitProjectile(int typeIndex, CGameAIBase* pCaster, BOOL bPositive);
-
-private:
-    /* 0192 */ CVidCell m_vidCell;
-    /* 026C */ IcewindCVisualEffect m_visualEffect;
-    /* 032C */ BOOL m_offsetAboveTarget;
+    /* 032E */ IcewindCVisualEffect m_visualEffect;
 };
 
 // Intermediate base for the travelling weapon/spell projectiles (arrows, bolts,
@@ -167,6 +200,7 @@ public:
 
     void SetVidCell(CResRef resRef);            // 0x5295D0 -- replace the animation cell
     void SetTravelPalette(CString bitmapName);  // 0x529660 -- request the sparkle colour-table bitmap (#guess name)
+    void SetRange(USHORT range, USHORT value);   // 0x52B150 -- bind palette before changing its range
 
 protected:
     void GetCellBounds(CRect& rBounds, CPoint& ptRef, CVidCell* pCell);   // 0x52B6B0 -- cell draw rect + ref point (pCell NULL = the main cell)
@@ -177,8 +211,6 @@ protected:
     CVidBitmap m_bitmap;
     CVidCell* m_pShadowCell;    // +0x196 secondary "shadow" cell (drawn when m_hasShadowCell)
     SHORT m_velocity;           // +0x70 -- Frida-confirmed (arrival radius = velocity+1)
-    int m_posAccumX;            // +0x9C -- subpixel position accumulator (1/1024 fixed point)
-    int m_posAccumY;            // +0xA0 -- subpixel position (4/3 y-scaled, 1/1024)
     int m_stepX;                // +0xA4 -- per-tick velocity step x
     int m_stepY;                // +0xA8 -- per-tick velocity step y
     int m_driftX;               // +0xAC -- per-tick lateral drift carry X (bled off by m_driftDecay)
@@ -190,8 +222,6 @@ protected:
     int m_hasDrift;             // +0xC4 -- lateral-offset flag (1 if the launcher gave a perpendicular spread step)
     USHORT m_driftDecay;        // +0xE0 -- drift carry decay modulus per tick (launch velocity for odd-man)
     DWORD m_renderFlags;        // +0xE6 -- base blit flags (GetRenderFlags, slot 32)
-    int m_targetX;              // +0xC8 -- Frida-confirmed (target point)
-    int m_targetY;              // +0xCC -- Frida-confirmed
     int m_flightDistSq;         // +0x170 -- flight distance^2 computed at Fire; 0 => arrived
     int m_tinted;               // +0x1BE -- Frida-confirmed (apply area tint colour)
     int m_useHeightOffset;      // +0x1C2 -- Frida-confirmed (add area height offset)
@@ -210,7 +240,96 @@ protected:
     int field_298;              // +0x298 -- zeroed by SetTravelPalette
     BYTE m_paletteSwap;         // +0x29C (param[0xa7]) -- Frida-confirmed; set by SetTravelPalette, Render swaps the cell palette from the bitmap
     BYTE m_distLifetime;        // +0x29D -- gate: when set, compute lifetime from sqrt(dist)/velocity
-    SHORT m_lifetime;           // +0x29E -- Frida-confirmed (decrements 1/tick from 0x7FFF)
+    /* 029E */ SHORT m_lifetime; // Frida-confirmed (decrements 1/tick from 0x7FFF)
+};
+
+// Native 0x532260, vtable 0x84E504, size 0x2A0. ACIDBLOB animation;
+// all flight/render virtuals inherit the travelling base, with no extra fields.
+class CProjectileAcidBlob /*#guess*/ : public CProjectileTravelling {
+public:
+    CProjectileAcidBlob();
+};
+
+// Native vtable 0x84E7B0, size 0x2FA. The current child becomes independent
+// on Fire; the native destructor does not dispose the next unregistered child.
+#pragma pack(push, 2)
+class CProjectileFollowUp /*#guess*/ : public CProjectileTravelling {
+    friend class CProjectile;
+public:
+    CProjectileFollowUp(USHORT childType, CResRef resRef, SHORT remaining, SHORT interval, BOOL keepSource, CAIObjectType type);
+    void Fire(CGameArea* area, LONG source, LONG target, CPoint point, LONG height, SHORT kind) override;
+    void AIUpdate() override;
+    void CallBack() override;
+protected:
+    /* 02A0 */ SHORT m_remainingShots;
+    /* 02A2 */ SHORT m_interval;
+    /* 02A4 */ BOOL m_keepSource;
+    /* 02A8 */ USHORT m_childType;
+    /* 02AA */ CProjectile* m_nextProjectile;
+    /* 02AE */ BOOL m_ready;
+    /* 02B2 */ CAIObjectType m_targetType;
+    /* 02EE */ LONG m_launchHeight;
+    /* 02F2 */ SHORT m_launchKind;
+    /* 02F4 */ BOOL m_checkLOS;
+    /* 02F8 */ SHORT m_delay;
+};
+// Native vtable 0x84E838, size 0x2FA. Factory types 0x51..0x5B.
+class CProjectileMAGMISS /*#guess*/ : public CProjectileFollowUp {
+public:
+    CProjectileMAGMISS(SHORT count, USHORT unused);
+};
+#pragma pack(pop)
+
+// Fieldless native travelling leaves; all gameplay virtuals are inherited.
+class CProjectileBoulder /*#guess*/ : public CProjectileTravelling {
+public:
+    CProjectileBoulder(); // 0x531570, vtable 0x84E1D4
+};
+class CProjectileAxe /*#guess*/ : public CProjectileTravelling {
+public:
+    CProjectileAxe(); // 0x531BE0, vtable 0x84E36C
+};
+class CProjectileSpear /*#guess*/ : public CProjectileTravelling {
+public:
+    CProjectileSpear(); // 0x531DF0, vtable 0x84E3F4
+};
+class CProjectileDagger /*#guess*/ : public CProjectileTravelling {
+public:
+    CProjectileDagger(); // 0x532000, vtable 0x84E47C
+};
+
+// Shared native animation lifetime code (0x533A50) and tail for the two
+// distinct 0x2A2 spray classes. No separate binary vtable is assumed here.
+class CProjectileSprayLifetime /*#guess*/ : public CProjectileTravelling {
+public:
+    void AIUpdate() override;
+protected:
+    explicit CProjectileSprayLifetime(const CResRef& resRef) : CProjectileTravelling(resRef) {}
+    /* 02A0 */ SHORT m_animationLifetime;
+};
+
+// Native SPBRNHND carrier, vtable 0x84E69C, size 0x2A2.
+class CProjectileSPBRNHND /*#guess*/ : public CProjectileSprayLifetime {
+public:
+    CProjectileSPBRNHND();
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;
+    void SpawnSpray(const CPoint& origin, LONG count, SHORT facing, BOOL oneSide); // native 0x533600
+};
+
+// Separate visual leaf: vtable 0x84E724 adds slot 34, and retains the base
+// travelling Fire in slot 27. Its constructor is inlined in SpawnSpray.
+class CProjectileSprayCell /*#guess*/ : public CProjectileSprayLifetime {
+public:
+    // Inlined at native 0x533729/0x533806; not a separate binary function.
+    CProjectileSprayCell(const CResRef& resRef, SHORT lifetime, SHORT facing, const CVidPalette& palette)
+        : CProjectileSprayLifetime(resRef)
+    {
+        m_animationLifetime=lifetime;
+        m_tinted=FALSE; m_useHeightOffset=FALSE; m_mirror=FALSE; m_hasShadowCell=FALSE; m_dirCount=16;
+        m_facing=facing; UpdateDirectionSequence(NULL);
+        m_pVidCell->SetPalette(palette);
+    }
+    virtual void AddVisualToArea(CGameArea* area, const CPoint& point, LONG height);
 };
 
 // Leaf 0x5324A0 -- the canonical travelling arrow (DecodeProjectile types
@@ -222,6 +341,18 @@ protected:
 class CProjectileArrow : public CProjectileTravelling {
 public:
     CProjectileArrow();   // 0x5324A0
+};
+
+// Travelling weapon leaves; vtables 0x84E14C and 0x84E2E4 inherit all
+// gameplay/render slots from CProjectileTravelling and add no members.
+class CProjectileBolt : public CProjectileTravelling {
+public:
+    CProjectileBolt(); // 0x531360
+};
+
+class CProjectileSlingStone : public CProjectileTravelling {
+public:
+    CProjectileSlingStone(); // 0x5319A0
 };
 
 // Leaf 0x532720 -- the generic travelling weapon missile with a flame trail
@@ -266,10 +397,11 @@ public:
 // m_childProjectileType + 1) at every creature in strike range, cloning this
 // missile's effect list onto each child.
 //
-// Its only own deferred virtual is Render 0x52CF80 (slot 19, draws the two
-// explosion cells during the linger); the destructor 0x52CE10/0x52CE30 is the
+// Render 0x52CF80 (slot 19) draws the two explosion cells during the linger;
+// the destructor 0x52CE10/0x52CE30 is the
 // compiler-generated member/base chain. This branch's vtables are 35 slots --
 // Explode is the only added virtual.
+#pragma pack(push, 2)
 class CProjectileExploding : public CProjectileTravelling {
     // DecodeProjectile's Skull Trap / Glyph cases (0x60/0x64) stamp the strike
     // and pre-check ranges on the freshly built leaf.
@@ -278,6 +410,7 @@ class CProjectileExploding : public CProjectileTravelling {
 public:
     CProjectileExploding(const CResRef& resRef);   // 0x52CCE0
 
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override; // 0x52CF80 (slot 19)
     void AIUpdate() override;    // 0x52DD60 (slot 3)
     void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;   // 0x52D9F0 (slot 27)
     void OnArrival() override;   // 0x52D7F0 (slot 28, arms the linger state)
@@ -310,10 +443,18 @@ protected:
     /* 02F0 */ BYTE m_bBurstPending/*#guess*/;
     /* 02F1 */ BYTE m_burstType/*#guess*/;
     /* 02F2 */ int m_bCheckNonSprites;
-    /* 02F6 */ int m_bExplodeCell1Active/*#guess*/;
-    /* 02FA */ CVidCell m_explodeCell1/*#guess*/;
-    /* 03D4 */ int m_bExplodeCell2Active/*#guess*/;
-    /* 03D8 */ CVidCell m_explodeCell2/*#guess*/;
+    /* 02F6 */ int m_bExplodeCell1Active; // #guess name; first explosion cell enable
+    /* 02FA */ CVidCell m_explodeCell1; // #guess name; Render/AI cell at native +0x2FA
+    /* 03D4 */ int m_bExplodeCell2Active; // #guess name; second explosion cell enable
+    /* 03D8 */ CVidCell m_explodeCell2; // #guess name; Render/AI cell at native +0x3D8
+};
+
+// Native 0x5297B0, vtable 0x84D938, size 0x4B2: exploding sparkle
+// carrier with no extra fields, whose Explode dispatches a colored BAM.
+class CProjectileSparkleExplosion /*#guess*/ : public CProjectileExploding {
+public:
+    explicit CProjectileSparkleExplosion(const CResRef& resRef);
+    void Explode() override;
 };
 
 // Leaf 0x52E9F0 -- the exploding flame missile (DecodeProjectile type 0x3;
@@ -383,6 +524,7 @@ private:
     /* 04B2 */ SHORT m_nType;
     /* 04B4 */ CString m_explodeSound;   // explosion sound resref; default-empty (ctor seeds the nil sentinel)
 };
+#pragma pack(pop)
 
 // Leaf 0x5300E0 -- the strike bolt (DecodeProjectile type 0x4F; vtable
 // 0x84DF1C): the invisible effect carrier the exploding missiles' strike
@@ -466,8 +608,9 @@ private:
 // CProjectileMagicMissileMulti). Differences from the travelling ctor, per
 // the 0x578110 asm: height handling on by default (m_bHasHeight,
 // m_useHeightOffset), the four +0xD0 colors seeded, the +0x2A0/+0x2A1 flags,
-// and the visual-effect member. The already-recovered chainers
-// (CProjectileSummonVFX) keep their independent minimal models for now.
+// and the visual-effect member. Stationary school-hit overlays also inherit
+// this family's cell ownership and renderer.
+#pragma pack(push, 2)
 class IcewindCProjectileTravellingVFX : public CProjectileTravelling {
     // The strike tracker's gather pass reads m_terrainTable off its owner.
     friend class IcewindCProjectileTargetMap;
@@ -491,10 +634,97 @@ protected:
 
     // The BAM has no north/east-half sequences: fold those facings onto the
     // south/west ones and blit with CInfinity::MIRROR_FX.
-    /* 02A0 */ BYTE m_bMirrorNorth/*#guess*/;
-    /* 02A1 */ BYTE m_bMirrorEast/*#guess*/;
+    /* 02A0 */ BYTE m_bMirrorNorth; // #guess
+    /* 02A1 */ BYTE m_bMirrorEast; // #guess
     /* 02A2 */ IcewindCVisualEffect m_visualEffect;
 };
+#pragma pack(pop)
+
+// Native vtable 0x851234, size 0x2BA. Stationary school/spell impact overlay.
+#pragma pack(push, 2)
+class CProjectileSummonVFX : public IcewindCProjectileTravellingVFX {
+public:
+    CProjectileSummonVFX(const CResRef& visualResRef, const IcewindCVisualEffect& visualEffect);
+    void AIUpdate() override;
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType) override;
+    void SetArrivalSound(const CResRef& arrivalSoundRef);
+    void SetOffsetAboveTarget(BOOL offsetAboveTarget);
+    static CProjectile* DecodeSpellHitProjectile(int typeIndex, CGameAIBase* pCaster, BOOL bPositive);
+protected:
+    /* 02AE */ BYTE m_offsetAboveTarget;
+    /* 02AF */ BYTE m_loopSequence;
+    /* 02B0 */ LONG m_loopSequenceIndex;
+    /* 02B4 */ LONG m_loopCount;
+    /* 02B8 */ BYTE m_randomSequence;
+    /* 02B9 */ BYTE m_singleSequence;
+};
+#pragma pack(pop)
+
+// Native vtable 0x8512BC, size 0x29E. SunrayX impact carrier.
+#pragma pack(push, 2)
+class CProjectileSunray /*#guess*/ : public CProjectile {
+public:
+    CProjectileSunray(const CResRef& visual, const CResRef& sound, BYTE color,
+        LONG flags, LONG animation, SHORT lifetime);
+    void AIUpdate() override;
+    void Render(CGameArea* area, CVidMode* mode, int surface) override;
+    void Fire(CGameArea* area, LONG source, LONG target, CPoint point, LONG height, SHORT kind) override;
+protected:
+    /* 0192 */ CVidCell m_vidCell;
+    /* 026C */ CVidPalette m_palette;
+    /* 0290 */ LONG m_renderFlag;
+    /* 0294 */ LONG m_animFlag;
+    /* 0298 */ SHORT m_lifetime;
+    /* 029A */ LONG m_phase;
+};
+#pragma pack(pop)
+
+// Beam leaf: vtable 0x850E84, ctor 0x57AEB0, native size 0x2D6.
+// BG2's CProjectileScorcher supplies the role names; the IWD2 class name is
+// provisional. Strike state is separate from the travelling payload delivery.
+#pragma pack(push, 2)
+class IcewindCProjectileScorcher /*#guess*/ : public IcewindCProjectileTravellingVFX {
+public:
+    IcewindCProjectileScorcher();
+    void AIUpdate() override;
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos,
+              LONG nHeight, SHORT nType) override;
+    void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;
+    void DeliverEffects() override;
+    virtual void GatherTargets();
+    virtual void Strike(LONG target, BYTE initial);
+
+protected:
+    static void InitializeOffsets(); // native static direction table
+    static std::vector<CPoint> m_offsets;
+    static BYTE m_offsetsInitialized;
+
+    /* 02AE */ BYTE m_lifeSpan;
+    /* 02AF */ BYTE m_nSegments;
+    /* 02B0 */ LONG m_deltaZ;
+    /* 02B4 */ BYTE m_bGlow;
+    /* 02B5 */ BYTE _pad2B5;
+    /* 02B6 */ std::set<DWORD> m_struckTargets;
+    /* 02C6 */ LONG m_tickCount;
+    /* 02CA */ LONG m_strikePeriod;
+    /* 02CE */ LONG m_clearPeriod;
+    /* 02D2 */ LONG m_strikeTarget;
+};
+#pragma pack(pop)
+
+// Chain carrier: vtable 0x850F14, native size 0x2BE. The constructor copies
+// the signed target-ID set, not a whole projectile. DecodeProjectile case
+// 0xD2 constructs the initial carrier with an empty history at 0x5250B0.
+#pragma pack(push, 2)
+class IcewindCProjectileChainLightning /*#guess*/ : public IcewindCProjectileTravellingVFX {
+public:
+    explicit IcewindCProjectileChainLightning(const std::set<LONG>& struckTargets);
+    void DeliverEffects() override;
+
+protected:
+    /* 02AE */ std::set<LONG> m_struckTargets;
+};
+#pragma pack(pop)
 
 // Intermediate base 0x56EDD0 -- the large spell-hit / area-of-effect projectile
 // (vtable 0x84F1C4; : IcewindCProjectileTravellingVFX). Unnamed in the binary
@@ -548,7 +778,7 @@ public:
 
     // Pure forwarder to the family Render (0x578480); the leaf still owns vtable
     // slot 19 so the slot pointer matches the binary (0x56F3F0, not the inherited
-    // 0x578480). No added behaviour.
+    // family address 0x578480). No added behaviour.
     void Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface) override;   // 0x56F3F0 (slot 19)
 
     // First of the five spell-hit virtuals. A no-op in every family vtable (the
@@ -733,6 +963,23 @@ public:
     /* 0354 */ BYTE m_bFinishing;
     /* 0356 */ LONG m_wanderSeed;
 };
+
+// vtable 0x85101C, sizeof 0x2EC. The older, wall-rebounding LightnT carrier.
+// The exported CProjectileBAM::MoveUpdate name at 0x57D9F0 is stale: slot 3
+// of this leaf is AIUpdate, and +0x2B6 is a target scheduler, not a vid cell.
+#pragma pack(push, 2)
+class CProjectileReboundingBolt /*#guess*/ : public IcewindCProjectileTravellingVFX {
+public:
+    CProjectileReboundingBolt(); // 0x57D390
+    void AIUpdate() override; // 0x57D9F0
+    void Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos,
+        LONG nHeight, SHORT nType) override; // 0x57D700
+
+    /* 02AE */ LONG m_nDuration;
+    /* 02B2 */ LONG m_nBounces;
+    /* 02B6 */ IcewindCProjectileTargetMap m_targetMap;
+};
+#pragma pack(pop)
 
 // Leaf 0x5806C0 -- the straight-line beam that strikes everything along its
 // path (vtable 0x8513BC; ctor takes the travelling BAM). DecodeProjectile
@@ -966,7 +1213,7 @@ public:
 // bolt hits a single victim instead of the whole gather.  The ctor only sets
 // m_aoeRange = 0x113; the per-strike visual/target/effects are filled by the
 // engine (init 0x5704E0 sets the strike target-AI m_targetType, builder
-// 0x586220 loads the EffCL sub-spell's effects onto it).
+// BuildSubSpellEffects loads the EffCL sub-spell's effects onto it).
 class CProjectileCallLightningStrike /*#guess*/ : public IcewindCProjectileSpellHit {
 public:
     CProjectileCallLightningStrike();    // 0x574A70
@@ -1192,7 +1439,8 @@ public:
 struct IcewindCSpellHitCell /*#guess*/ {
     /* 0x00 */ LONG  x;
     /* 0x04 */ LONG  y;
-    /* 0x08 */ SHORT flag;
+    /* 0x08 */ BYTE flag;
+    /* 0x09 */ BYTE padding;
 };
 #pragma pack(pop)
 static_assert(sizeof(IcewindCSpellHitCell) == 0xA,
@@ -1297,10 +1545,8 @@ static_assert(sizeof(IcewindCSpellHitEmissionRanged) == 0x46,
 // Name is a guess: IWD2.exe carries no RTTI and the BG2 PDB has no match (this
 // is an IWD2-specific Icewind class). vtable 0x84F0DC, ctor 0x56BF30.
 //
-// SCAFFOLD: the layout below is recovered from the 0x56BF30 ctor (sub-object
-// offsets asm-confirmed); the method bodies are faithful stubs pending recovery
-// of 0x56BF30 (ctor), 0x56D0A0 (AIUpdate), 0x56D730 (Render), 0x56D9B0
-// (RemoveFromArea) and 0x56CEE0 (dtor). Not yet wired into OnArrival.
+// Constructor, fan scheduler, renderer and cleanup recovered against 56BF30,
+// 56D0A0, 56D730, 56D9B0 and the destructor body 56CF00.
 #pragma pack(push, 2)
 class IcewindCSpellHitVisual /*#guess*/ : public CGameObject {
 public:
@@ -1374,21 +1620,17 @@ static_assert(sizeof(IcewindCSpellHitVisual) - sizeof(CGameObject) == 0x2A2 - 0x
 //
 // It embeds a small CGameAnimation-derived BAM animator at +0x7E (its own
 // vtable 0x84F1B8, slot 0 = CalculateGCBoundsRect at 0x56E210 forwarding to the
-// sub-object's m_animation at +0x82). That sub-object's full layout is a
-// separate recovery; it is left as an opaque span here.
+// sub-object's m_animation at +0x82). CGameAnimation supplies that typed wrapper.
 //
 // Two sibling ctors build it from the two cell-spawn paths of the parent's
 // AIUpdate: 0x56E280 (decodes the animation via FUN_0055D3A0) and 0x56DF00
-// (via FUN_0055CD70). Only 0x56E280 is scaffolded below; the 0x56DF00 overload
-// is recovered later (its descriptor argument type fixes the overload split).
+// (via 0x55CD70); the descriptor type distinguishes the two constructors.
 //
 // Name is a guess (no RTTI; no BG2 PDB match -- IWD2-specific Icewind class).
 // vtable 0x84F14C, ctor 0x56E280, sizeof 0x112.
 //
-// SCAFFOLD: layout below is recovered from the 0x56E280 ctor (offsets
-// asm/decompile-confirmed); method bodies are faithful stubs pending recovery
-// of 0x56E280/0x56DF00 (ctors), 0x56E650 (AIUpdate), 0x56EA90 (Render),
-// 0x56ECF0 (RemoveFromArea) and 0x56E260 (dtor). Not yet spawned by the parent.
+// Constructors, AI and renderer are recovered with the shared-cell respawn and
+// cloud animation paths. The ground impact visual owns their spawn scheduling.
 #pragma pack(push, 2)
 class IcewindCSpellHitParticle /*#guess*/ : public CGameObject {
 public:
@@ -1451,6 +1693,7 @@ public:
 // ---------------------------------------------------------------------------
 #pragma pack(push, 2)
 class CProjectileCallLightning : public CProjectileInstant {
+    friend struct CallLightningAccess;
 public:
     CProjectileCallLightning(const CResRef& resRef, const CResRef& soundRef,
                              BYTE colorIndex, LONG renderFlag, LONG animFlag,

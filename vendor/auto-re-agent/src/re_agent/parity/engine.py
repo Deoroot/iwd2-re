@@ -199,11 +199,8 @@ def run_parity(
             })
             continue
 
-        # Address first: the `// 0xADDR` marker names exactly one definition,
-        # where a name can name several -- overloads (CResRef::operator!= is
-        # three functions) and same-named members of another class reached
-        # through the free-function fallback.  The comment here always said
-        # "address first"; the code tried the name first.
+        # Address markers identify the exact body, including an overload. Fall
+        # back to class::fn_name only for registries without source markers.
         source = indexer.find_by_address(entry.address)
         if source is None and entry.fn_name:
             source = indexer.find(entry.class_name, entry.fn_name)

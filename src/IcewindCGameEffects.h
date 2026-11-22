@@ -2,6 +2,10 @@
 #define ICEWINDCGAMEEFFECTS_H_
 
 #include "CGameEffect.h"
+#include <list>
+
+std::list<CGameEffect*> BuildSubSpellEffects(CGameSprite* pCaster,
+    const CResRef& spellRes, INT level);
 
 #define ICEWIND_CGAMEEFFECT_COLORGLOWDISSIPATE 232
 #define ICEWIND_CGAMEEFFECT_VISUALSPELLHIT 233
@@ -621,12 +625,14 @@ class IcewindCGameEffectWhenStruck : public CGameEffect {
 public:
     IcewindCGameEffectWhenStruck(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
     CGameEffect* Copy() override;
+    BOOL ApplyEffect(CGameSprite* pSprite) override;
 };
 
 class IcewindCGameEffectProjectile : public CGameEffect {
 public:
     IcewindCGameEffectProjectile(ITEM_EFFECT* effect, const CPoint& source, LONG sourceID, CPoint target);
     CGameEffect* Copy() override;
+    BOOL ApplyEffect(CGameSprite* pSprite) override;
 };
 
 class IcewindCGameEffectEnergyDrain : public CGameEffect {

@@ -14,11 +14,14 @@
 #include "CGameSprite.h"
 #include "CInfCursor.h"
 #include "CInfGame.h"
+#include "CProjectileSPBOOM.h"
+#include "CTimerWorld.h"
 #include "CScreenWorld.h"
 #include "CSevenEyes.h"
 #include "CSpell.h"
 #include "CUtil.h"
 #include "CVidPalette.h"
+#include "Icewind586B70.h"
 #include "IcewindCGameEffects.h"
 #include "IcewindMisc.h"
 
@@ -2946,6 +2949,12 @@ CGameEffectDamage::CGameEffectDamage(ITEM_EFFECT* effect, const CPoint& source, 
     }
 }
 
+// 0x49FC40
+BOOL CGameEffectDamage::UsesDice()
+{
+    return TRUE;
+}
+
 // 0x494090
 CGameEffect* CGameEffectDamage::Copy()
 {
@@ -3006,8 +3015,6 @@ void CGameEffectDamage::DisplayString(CGameSprite* pSprite)
 {
 }
 
-// 0x4A7900
-//
 // CGameEffectDamage::ApplyEffect -- opcode #12, the core combat-damage handler.
 // Rolls the effect's dice, scales and reduces the total (difficulty, Tortoise
 // Shell absorption, per-type resistances with the caster's +20% elemental
@@ -3019,6 +3026,7 @@ void CGameEffectDamage::DisplayString(CGameSprite* pSprite)
 // +0x28, 0x4AA6D0), the Tortoise-Shell hit feedback (0x4AB0A0) and its
 // "shell destroyed" log line, the stunning add-immunity check, and the
 // chunked-death debris spawner (0x586220).
+// 0x4A7900
 BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
 {
     pSprite->m_hasColorEffects = TRUE;
@@ -3534,8 +3542,8 @@ BOOL CGameEffectDamage::ApplyEffect(CGameSprite* pSprite)
             if (IcewindMisc::IsUndead(pSprite) == TRUE) {
                 // Undead cannot be knocked out: they die a crushing death.
                 nKindType = 0;
-            } else if (pSprite->GetDerivedStats()->m_naturalImmunities.find(CGAMEEFFECT_SLEEP)
-                != pSprite->GetDerivedStats()->m_naturalImmunities.end()) {
+            } else if (pSprite->GetDerivedStats()->m_activeEffectOpcodes.find(CGAMEEFFECT_SLEEP)
+                != pSprite->GetDerivedStats()->m_activeEffectOpcodes.end()) {
                 // Naturally sleep-immune targets cannot be knocked out either:
                 // they die outright (the death kind stays at the constructor
                 // default, as in the binary).
@@ -4529,6 +4537,89 @@ CGameEffect* CGameEffectPoison::Copy()
     delete effect;
     copy->CopyFromBase(this);
     return copy;
+}
+
+// 0x4AF610
+BOOL CGameEffectPoison::ApplyEffect(CGameSprite* pSprite)
+{
+    pSprite->GetDerivedStats()->m_generalState |= STATE_POISONED;
+    if (m_secondaryType != 0) {
+        DisplayStringRef(pSprite, m_dwFlags == 8 ? 37696 : 14662);
+    }
+    AddPortraitIcon(pSprite, 6);
+
+    if (m_secondaryType != 0 && m_dwFlags != 8) {
+        m_special = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime;
+    }
+    DWORD duration = m_durationType == 1 ? 0 : m_duration;
+    CPersistantEffect84C420* pEffect = NULL;
+    switch (m_dwFlags) {
+    case 2:
+        pEffect = new CPersistantEffect84C420(0x200000, m_effectAmount, 15, m_special, duration);
+        break;
+    case 3:
+        pEffect = new CPersistantEffect84C420(0x200000, 1, 15 * m_effectAmount, m_special, duration);
+        break;
+    case 6:
+        if (m_secondaryType != 0) {
+            DisplayStringRef(pSprite, 14102);
+        }
+        pSprite->field_9D15 = 1;
+        AddPortraitIcon(pSprite, 13);
+        pSprite->GetDerivedStats()->m_spellStates.set(7, true);
+        pSprite->GetDerivedStats()->m_generalState |= STATE_HELPLESS;
+        // This poison has the same damage cadence as mode four.
+    case 4:
+        pEffect = new CPersistantEffect84C420(0x200000, m_effectAmount, 105, m_special, duration);
+        break;
+    case 5:
+        pEffect = new CPersistantEffect84C420(0x200000, m_effectAmount, 735, m_special, duration);
+        break;
+    case 7:
+        pEffect = new CPersistantEffect84C420(0x200000, m_effectAmount, m_effectAmount2, m_special, duration);
+        break;
+    case 8:
+        if (m_secondaryType != 0) {
+            // The original initializes these fields only, as in OnRemove.
+            ITEM_EFFECT effect;
+            effect.effectID = CGAMEEFFECT_CON;
+            effect.spellLevel = 10;
+            effect.effectAmount = m_effectAmount;
+            effect.probabilityUpper = 100;
+            effect.probabilityLower = 0;
+            effect.numDice = 0;
+            effect.diceSize = 0;
+            effect.saveMod = 0;
+            effect.special = 0;
+            effect.targetType = 2;
+            effect.dwFlags = 0;
+            effect.durationType = 0;
+            effect.duration = 70;
+            effect.savingThrow = 0;
+            CGameEffect* pConstitution = DecodeEffect(&effect, CPoint(-1, -1), -1, CPoint(-1, -1));
+            pConstitution->SetSource(pSprite->GetPos());
+            pConstitution->SetSourceId(pSprite->GetId());
+            pConstitution->m_flags &= ~1;
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageAddEffect(pConstitution,
+                pSprite->GetId(), pSprite->GetId()), FALSE);
+        }
+        return TRUE;
+    default:
+        // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameEffect.cpp
+        // __LINE__: 9490
+        UTIL_ASSERT(FALSE);
+        return TRUE;
+    }
+
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CGameEffect.cpp
+    // The binary has an allocation assertion in each periodic-mode branch.
+    UTIL_ASSERT(pEffect != NULL);
+    if (pEffect != NULL) {
+        pEffect->m_sourceID = m_sourceID;
+        strcpy(reinterpret_cast<char*>(pEffect->field_29), m_sourceRes.GetResRefStr());
+        pSprite->GetDerivedStats()->m_cRegeneratedPersistantEffectList.AddTail(pEffect);
+    }
+    return TRUE;
 }
 
 // 0x4AFBF0
@@ -6723,11 +6814,8 @@ BOOL CGameEffectSkillUnsummon::ApplyEffect(CGameSprite* pSprite)
     // creatures are.
     LONG portraitNum = g_pBaldurChitin->GetObjectGame()->GetCharacterPortraitNum(pSprite->GetId());
     if (portraitNum == -1) {
-        // The binary also dismisses the creature through Icewind586B70 (0x586DC0:
-        // clears the summon-registry entry and fires the poof VFX) and posts a
-        // removal message (vtable 0x84C3A8); neither helper is recovered yet.
-        // m_removeFromArea is what unlinks the sprite from the area on the next
-        // update (cf. CGameEffectDestroySelf at 0x4BDDE0).
+        Icewind586B70::Instance()->Unsummon(pSprite);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageUnsummon(pSprite->GetId(), pSprite->GetId(), pSprite->GetId()), FALSE);
         pSprite->m_removeFromArea = TRUE;
     }
 
@@ -10167,6 +10255,66 @@ CGameEffect* CGameEffectVisualSpellHit::Copy()
     return copy;
 }
 
+// 0x4BBCB0
+BOOL CGameEffectVisualSpellHit::ApplyEffect(CGameSprite* pSprite)
+{
+    CGameArea* area=pSprite->m_pArea;
+    if (!area) { m_done=TRUE; return TRUE; }
+    CProjectile* projectile=NULL;
+    CString visual,sound,palette;
+    // Unmapped selectors retain the incoming sprite pointer in the native
+    // argument slot subsequently consumed as the message's WORD type.
+    USHORT type=static_cast<USHORT>(reinterpret_cast<DWORD>(pSprite));
+    switch (m_dwFlags) {
+    case 32: case 33: case 34: {
+        auto* boom=new CProjectileSPBOOM;
+        boom->SetRange(0,m_dwFlags==32?0x43:m_dwFlags==33?0x41:0x45);
+        CPoint point=pSprite->GetPos();
+        point.y=static_cast<LONG>(static_cast<DWORD>(point.y)-2);
+        boom->AddVisualToArea(area,point);
+        m_done=TRUE;
+        return TRUE;
+    }
+    case 35: case 36:
+        projectile=new CProjectileCallLightning(CResRef(m_dwFlags==35?"FlmStrk":"HLYMITE"),CResRef(""),
+            0xFF,m_dwFlags==35?0:1,0,static_cast<SHORT>(2*CTimerWorld::TIMESCALE_MSEC_PER_SEC));
+        projectile->Fire(area,pSprite->m_id,pSprite->m_id,pSprite->GetPos(),projectile->DetermineHeight(pSprite),0);
+        m_done=TRUE;
+        return TRUE;
+    case 37:
+        visual="SHAir"; palette="SHAir7"; type=0x93;
+        break;
+    case 38:
+        projectile=new CProjectilePhaseBAM(CString(_T("DDoorH")),CString(_T("")),CString(_T("")),0,0);
+        projectile->Fire(area,pSprite->m_id,pSprite->m_id,pSprite->GetPos(),0,0);
+        m_done=TRUE;
+        return TRUE;
+    case 39:
+        visual="SPFDEATH"; type=0xCF;
+        break;
+    default:
+        if (m_dwFlags<=30 && (m_dwFlags&3)!=3)
+            type=static_cast<USHORT>(0x76+(m_dwFlags>>2)*3+(m_dwFlags&3));
+        switch (m_dwFlags&3) {
+        case 0: visual="SHAir"; palette="SHAir0"; break;
+        case 1: visual="SHEarth"; palette="SHEarth0"; break;
+        case 2: visual="SHWater"; palette="SHWater0"; break;
+        default: UTIL_ASSERT(FALSE); break;
+        }
+        if ((m_dwFlags&3)!=3) {
+            if ((m_dwFlags&0xFFFFFFFCu)==0) palette="";
+            else palette.SetAt(palette.GetLength()-1,static_cast<char>((m_dwFlags>>2)+'0'));
+        }
+        break;
+    }
+    projectile=new CProjectileImpactBAM(visual,sound,palette,8,0);
+    g_pBaldurChitin->GetMessageHandler()->AddMessage(new CMessageFireProjectile(type,pSprite->m_id,pSprite->GetPos(),
+        projectile->DetermineHeight(pSprite),pSprite->m_id,pSprite->m_id,0),FALSE);
+    projectile->Fire(area,pSprite->m_id,pSprite->m_id,pSprite->GetPos(),projectile->DetermineHeight(pSprite),0);
+    m_done=TRUE;
+    return TRUE;
+}
+
 // -----------------------------------------------------------------------------
 
 // NOTE: Inlined.
@@ -13526,7 +13674,7 @@ CPersistantEffect84C4A4::CPersistantEffect84C4A4(int a1, int a2, int a3)
     field_24 = a1;
     field_28 = 1;
 
-    ULONG delta = g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime - a2;
+    LONG delta = static_cast<LONG>(g_pBaldurChitin->GetObjectGame()->GetWorldTimer()->m_gameTime - static_cast<ULONG>(a2));
     if (delta == 0 || delta == 1) {
         field_20 = a2;
     } else {

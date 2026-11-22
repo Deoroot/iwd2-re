@@ -176,7 +176,7 @@ case "$cmd" in
       "$loadargs" "$uiargs" > "$HERE/vm_s1_payload.cmd"
     # Ship the launcher too: remote_build.sh syncs it, but only on a build, so a
     # smoke right after editing it would silently run the VM's stale copy.
-    scp -q "$HERE/vm_s1_payload.cmd" "$HERE/auto_start_game.py" "$VM:$VM_REPO/scripts/"
+    scp -q "$HERE/vm_s1_payload.cmd" "$HERE/auto_start_game.py" "$HERE/runtime_paths.py" "$VM:$VM_REPO/scripts/"
     ssh "$VM" 'cmd /c "taskkill /im iwd2-re.exe /f >nul 2>&1 & exit 0"' >/dev/null || true
     clear_log   # fresh capture each launch (exe is down -> log unlocked)
     ssh "$VM" "cmd /c $VM_REPO/scripts/vm_s1.cmd"
@@ -292,25 +292,37 @@ case "$cmd" in
     # code is correct" from "the recovered code never ran". Exit 2 is that third
     # state -- ran clean, proved nothing -- and callers must not read it as a pass.
     if [ -n "$hit" ]; then
-      if grep -q "^NOT_INSTRUMENTED " "$glog" 2>/dev/null; then
+      IFS=',' read -r -a hit_symbols <<< "$hit"
+      missing=""; under=""; hit_summary=""
+      for symbol in "${hit_symbols[@]}"; do
+        symbol="${symbol#${symbol%%[![:space:]]*}}"
+        symbol="${symbol%${symbol##*[![:space:]]}}"
+        [ -z "$symbol" ] && continue
+        if grep -Fxq "NOT_INSTRUMENTED $symbol" "$glog" 2>/dev/null; then
+          missing="${missing:+$missing, }$symbol"
+          continue
+        fi
+        n=$(grep -F "HITS $symbol " "$glog" 2>/dev/null | tail -1 | awk '{print $NF}')
+        n="${n:-0}"
+        hit_summary="${hit_summary:+$hit_summary; }$symbol hit x$n"
+        if [ "$n" -lt "$hit_min" ]; then
+          under="${under:+$under, }$symbol=$n"
+        fi
+      done
+      if [ -n "$missing" ]; then
         echo "================= RESULT: NOT-INSTRUMENTED ================="
-        echo "symbol '$hit' resolved to no address in our build."
+        echo "symbol(s) '$missing' resolved to no address in our build."
         echo "inlined, folded by /OPT:ICF, or the wrong name -- this smoke proves nothing."
         exit 2
       fi
-      n=$(grep "^HITS $hit " "$glog" 2>/dev/null | tail -1 | awk '{print $NF}')
-      n="${n:-0}"
-      if [ "$n" -lt "$hit_min" ]; then
+      if [ -n "$under" ]; then
         echo "=================== RESULT: NOT-EXERCISED =================="
-        echo "'$hit' was entered $n time(s) in ${hold:-the session}s, need >= $hit_min."
-        if [ "$n" = 0 ]; then
-          echo "the build did not crash -- but the recovered path never ran, so this proves nothing."
-        else
-          echo "the build did not crash, but the path ran fewer times than the gate requires."
-        fi
+        echo "symbol counts below $hit_min in ${hold:-the session}s: $under"
+        echo "the build did not crash, but every requested path must reach the gate."
+        [ -n "$hit_summary" ] && echo "observed: $hit_summary"
         exit 2
       fi
-      echo "RESULT: CLEAN  ($hit hit x$n; guard log: tmp_smoke_guard.log)"
+      echo "RESULT: CLEAN  ($hit_summary; guard log: tmp_smoke_guard.log)"
       exit 0
     fi
 
@@ -408,7 +420,7 @@ case "$cmd" in
     ssh "$VM" 'powershell -NoProfile -Command "Stop-Process -Name python -Force -ErrorAction SilentlyContinue"' >/dev/null 2>&1 || true
     ssh "$VM" 'cmd /c "taskkill /im IWD2.exe /f >nul 2>&1 & exit 0"' >/dev/null 2>&1 || true
     clean_frida_temp >/dev/null 2>&1 || true
-    scp -q "$HERE/frida_orig.py" "$HERE/frida_hooks.py" "$hooks" "$VM:$VM_REPO/scripts/"
+    scp -q "$HERE/frida_orig.py" "$HERE/frida_hooks.py" "$HERE/runtime_paths.py" "$hooks" "$VM:$VM_REPO/scripts/"
     ssh "$VM" "cmd /c \"del /q C:\\iwd2-re\\$outname C:\\iwd2-re\\$status >nul 2>&1 & exit 0\"" >/dev/null 2>&1 || true
 
     hitargs=""
@@ -466,7 +478,7 @@ case "$cmd" in
     script="${1:?vm.sh frida <script.py> [args...]}"; shift
     base="$(basename "$script")"
     clean_frida_temp   # reap stale frida-<hash> temp dirs before this session adds another
-    scp -q "$script" "$VM:$VM_REPO/scripts/"
+    scp -q "$script" "$HERE/runtime_paths.py" "$VM:$VM_REPO/scripts/"
     printf '@echo off\r\ncd /d C:\\iwd2-re\r\npython scripts\\%s %s > C:\\iwd2-re\\vm_s1_out.txt 2>&1\r\n' \
       "$base" "$*" > /tmp/vm_s1_payload.cmd
     scp -q /tmp/vm_s1_payload.cmd "$VM:$VM_REPO/scripts/"

@@ -13,6 +13,7 @@ verdict of a dozen lines. Tool prose is never re-printed: it is captured under
 
   arc check [--staged|--all]      host-only source lints, ~2s     (the commit gate)
   arc verify 0xADDR               the full per-arc sequence
+  arc batch 0xADDR [0xADDR ...]   per-address static checks, one build + smoke
   arc sweep [--deep]              whole-codebase auditors
   arc status                      recovery metrics + freshness nags
   arc targets [...]               proxy to scripts/next_targets.py
@@ -45,6 +46,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from runtime_paths import WINDOWS, cppcheck_executable, python_executable, runtime_command, utf8_stdio, venv_tool
+
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
 ARCDIR = REPO / ".arc"
@@ -54,8 +57,7 @@ EXPORTS = REPO / ".ghidra-exports"
 SCHEMA = 1
 
 # Children that import pefile / re_agent need the project venv; arc itself does not.
-_VENV_PY = REPO / ".venv-reagent" / "bin" / "python"
-PY = str(_VENV_PY) if _VENV_PY.exists() else sys.executable
+PY = python_executable()
 
 # Touching one of these means the change is visible on screen, and per project
 # policy only the user's eye can sign that off -- arc must never claim otherwise.
@@ -216,24 +218,37 @@ class Caps:
         if name == "src":
             return (REPO / "src").is_dir(), "src/ missing"
         if name == "exe":
-            if not (REPO / ".bin" / "iwd2.exe").exists():
+            if not Path(os.environ.get("IWD2_EXE", str(REPO / ".bin" / "iwd2.exe"))).exists():
                 return False, ".bin/iwd2.exe missing"
             rc = subprocess.run([PY, "-c", "import pefile"],
                                 capture_output=True).returncode
             return rc == 0, "pefile not importable (need .venv-reagent)"
         if name == "exports":
             return (EXPORTS / "_index.json").exists(), ".ghidra-exports/ missing"
+        if name == "cppcheck":
+            return bool(cppcheck_executable()), "cppcheck missing (PATH, IWD2_CPPCHECK, or .tools/cppcheck)"
         if name == "ghidra":
             if not (REPO / "re-agent.host.yaml").exists():
                 return False, "re-agent.host.yaml missing"
             # The bridge exports headlessly against the same project the GUI
             # locks. Probing here is what keeps arc from ever racing it.
-            gui = subprocess.run(["pgrep", "-f", "ghidra.GhidraRun|ghidraRun"],
-                                 capture_output=True)
+            if WINDOWS:
+                from native import powershell
+                gui = powershell("$p = Get-CimInstance Win32_Process -Filter \"Name='java.exe' OR Name='javaw.exe'\" | "
+                                 "Where-Object { $_.CommandLine -match 'ghidra.GhidraRun|ghidraRun' }; "
+                                 "if ($p) { exit 0 } else { exit 1 }")
+            else:
+                gui = subprocess.run(["pgrep", "-f", "ghidra.GhidraRun|ghidraRun"],
+                                     capture_output=True)
             if gui.returncode == 0:
                 return False, "Ghidra GUI is open (close it first)"
+            if not venv_tool("re-agent").is_file():
+                return False, "re-agent is not installed in .venv-reagent"
             return True, ""
         if name == "vm":
+            if WINDOWS:
+                # Historical --require vm now means the local runtime adapter.
+                return (SCRIPTS / "native.py").is_file(), "native Windows adapter missing"
             # The VM's default ssh shell is PowerShell, so `true` is not a
             # command there -- probing with it reports every VM as unreachable.
             rc = subprocess.run(
@@ -290,8 +305,8 @@ def parse_lint(tool: str, rc: int, out: str, err: str) -> Report:
         if cm:
             code, msg = cm["code"], cm["msg"]
         rep.findings.append(Finding(
-            severity="fail", message=msg, file=m["file"].replace("\\", "/"),
-            code=code, line=int(m["line"]) if m["line"] else None))
+            severity="fail", message=msg, file=m["file"].replace("\\", "/"), code=code,
+            line=int(m["line"]) if m["line"] else None))
     if rc != 0 and not rep.findings:
         # Exited non-zero with nothing parseable: a crash, not a finding.
         rep.status = "error"
@@ -504,10 +519,17 @@ def parse_smoke(rc: int, out: str, err: str) -> Report:
     m = re.search(r"RESULT: (?P<v>[A-Z][A-Z-]+)", out)
     verdict = m["v"] if m else ("CLEAN" if rc == 0 else "UNKNOWN")
     rep.summary = verdict
-    mh = re.search(r"\bhit x(\d+)", out)
-    if mh:
-        rep.summary = f"{verdict}, hit x{mh.group(1)}"
-        rep.counts["hits"] = int(mh.group(1))
+    symbol_hits = [(name.strip(), int(count)) for name, count in
+                   re.findall(r"(?:\(|; )([^;()]+?) hit x(\d+)", out)]
+    if symbol_hits:
+        rep.counts["hits"] = sum(count for _, count in symbol_hits)
+        rep.counts["symbols"] = len(symbol_hits)
+        rep.counts["hits_by_symbol"] = dict(symbol_hits)
+        if len(symbol_hits) == 1:
+            rep.summary = f"{verdict}, hit x{symbol_hits[0][1]}"
+        else:
+            exercised = sum(count > 0 for _, count in symbol_hits)
+            rep.summary = f"{verdict}, {exercised}/{len(symbol_hits)} symbols hit x>=1"
     if rc == 1:
         rep.status = "fail"
         for line in out.splitlines():
@@ -626,7 +648,7 @@ class Runner:
         t0 = time.monotonic()
         try:
             proc = subprocess.run(step.argv, cwd=step.cwd, capture_output=True,
-                                  text=True, timeout=step.timeout)
+                                  encoding="utf-8", errors="replace", timeout=step.timeout)
             rc, out, err = proc.returncode, proc.stdout, proc.stderr
         except subprocess.TimeoutExpired:
             rep = Report(tool=step.id, status="error", label=step.label,
@@ -774,16 +796,21 @@ def new_rundir(cmd: str) -> Path:
 # --------------------------------------------------------------------------
 
 def lint_steps(scope_file: str | None, mode: str) -> list[Step]:
-    """mode: 'staged' | 'all' | 'file'.
+    """mode: 'staged' | 'all' | 'file' | 'batch'.
 
     re_lint and lint_uninit_member are changed-lines-only by design and stay
     that way: re_lint --all reports 1600+ pre-existing hits, which is an audit,
     not a gate.
     """
     def s(sid, label, args, advisory=False):
+        needs = ("src",)
+        if sid == "lint_uninit_member":
+            needs += ("cppcheck",)
+        elif sid == "lint_address_markers":
+            needs += ("exports",)
         return Step(id=sid, label=label, parse=lambda rc, o, e, t=sid: parse_lint(t, rc, o, e),
                     argv=[PY, str(SCRIPTS / f"{sid}.py")] + args,
-                    needs=("src",), timeout=600, advisory=advisory)
+                    needs=needs, timeout=600, advisory=advisory)
 
     if mode == "file" and scope_file:
         # re_lint and lint_uninit_member stay on the CHANGED LINES even here.
@@ -802,8 +829,9 @@ def lint_steps(scope_file: str | None, mode: str) -> list[Step]:
             s("lint_address_markers", "markers", ["--quiet"]),
         ]
     audit = mode == "all"
+    changed = ["--staged", "--worktree"] if mode == "batch" else ["--staged"]
     return [
-        s("re_lint", "re_lint", ["--all"] if audit else ["--staged"], advisory=audit),
+        s("re_lint", "re_lint", ["--all"] if audit else changed, advisory=audit),
         s("lint_pragma_pack_balance", "pragma", []),
         s("lint_twin_symmetry", "twin", ["--quiet"]),
         s("lint_extend_cells", "extend", ["--quiet"]),
@@ -959,7 +987,10 @@ def header_for_class(cls: str) -> Path | None:
         return direct
     out = git("grep", "-l", "-E", rf"^\s*(class|struct)\s+{cls}\b", "--", "src/*.h")
     for line in out.splitlines():
-        return REPO / line
+        candidate = REPO / line
+        definition = rf"^\s*(?:class|struct)\s+{re.escape(cls)}\b[^;{{]*\{{"
+        if re.search(definition, candidate.read_text(encoding="utf-8", errors="replace"), re.MULTILINE):
+            return candidate
     return None
 
 
@@ -1023,7 +1054,7 @@ def cmd_verify(args) -> int:
     # phase 3 -- parity, strictly serial (one PyGhidra per project)
     if not args.no_parity:
         pj = rundir / "parity.json"
-        pargv = [str(REPO / ".venv-reagent" / "bin" / "re-agent"),
+        pargv = [str(venv_tool("re-agent")),
                  "--config", str(REPO / "re-agent.host.yaml"),
                  "parity", "--address", addr, "--output", str(pj)]
         reports.append(runner.run(Step(
@@ -1038,7 +1069,7 @@ def cmd_verify(args) -> int:
     if not args.no_build:
         build_rep = runner.run(Step(id="build", label="build", needs=("vm",),
                                     timeout=1200, parse=parse_build,
-                                    argv=[str(SCRIPTS / "vm.sh"), "build"]))
+                                    argv=runtime_command("build")))
         reports.append(build_rep)
 
     # phase 6 -- smoke; meaningless if the build failed
@@ -1047,8 +1078,11 @@ def cmd_verify(args) -> int:
             reports.append(Report(tool="smoke", status="skip", label="smoke",
                                   summary="build failed -- smoke would prove nothing"))
         else:
-            smoke_argv = [str(SCRIPTS / "vm.sh"), "smoke", str(args.slot),
-                          str(args.hold)]
+            smoke_argv = runtime_command("smoke", str(args.slot), str(args.hold))
+            if WINDOWS and args.new_game:
+                smoke_argv += ["--new-game", "--party", args.party]
+            if args.save:
+                smoke_argv += ["--save", args.save]
             if args.ui:
                 smoke_argv += ["--ui", args.ui]
             hit = args.hit or sym
@@ -1087,6 +1121,221 @@ def cmd_verify(args) -> int:
                   scope_files={info["file"]})
 
 
+def batch_addresses(raw_addresses: list[str]) -> tuple[list[str], str | None]:
+    """Normalize and de-duplicate a batch before any expensive step runs."""
+    addresses: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_addresses:
+        addr = raw.lower()
+        if not ADDR_RE.match(addr):
+            return [], f"'{raw}' is not a 0xADDR"
+        if addr not in seen:
+            seen.add(addr)
+            addresses.append(addr)
+    return addresses, None
+
+
+def batch_binary_steps(infos: list[dict]) -> list[tuple[str, Step]]:
+    """The address-specific cheap binary checks; owner keeps JSON attribution."""
+    steps: list[tuple[str, Step]] = []
+    for info in infos:
+        addr = info["address"]
+        suffix = addr[2:]
+        steps += [
+            (addr, Step(id=f"parity_offsets_{suffix}", label=f"off {suffix}",
+                        needs=("exe",), timeout=300,
+                        argv=[PY, str(SCRIPTS / "parity_offsets.py"), addr],
+                        parse=parse_parity_offsets)),
+            (addr, Step(id=f"arg_provenance_{suffix}", label=f"args {suffix}",
+                        needs=("exe",), timeout=300,
+                        argv=[PY, str(SCRIPTS / "arg_provenance.py"), addr, "--check"],
+                        parse=parse_arg_provenance)),
+        ]
+    return steps
+
+
+def batch_hit_symbols(args, infos: list[dict]) -> list[str]:
+    """Return a stable unique counter list; explicit --hit entries override symbols."""
+    raw = args.hit or [info["symbol"] for info in infos if info["symbol"]]
+    symbols: list[str] = []
+    for item in raw:
+        for symbol in item.split(","):
+            symbol = symbol.strip()
+            if symbol and symbol not in symbols:
+                symbols.append(symbol)
+    return symbols
+
+
+def parse_batch_smoke(rc: int, out: str, err: str) -> Report:
+    report = parse_smoke(rc, out, err)
+    if rc == 2:
+        # A batch must not count unobserved targets as validated work.
+        report.status = "error"
+    return report
+
+
+def cmd_batch(args) -> int:
+    """Validate related recoveries while paying for build/runtime only once."""
+    t0 = time.monotonic()
+    addresses, error = batch_addresses(args.addresses)
+    if error:
+        print(f"arc batch: {error}", file=sys.stderr)
+        return 2
+
+    infos = [resolve_address(addr) for addr in addresses]
+    missing = [info["address"] for info in infos if not info["file"]]
+    if missing:
+        print("arc batch: address(es) not recovered (no source marker): " +
+              ", ".join(missing), file=sys.stderr)
+        print("           see: scripts/arc.py targets", file=sys.stderr)
+        return 2
+
+    caps = Caps(set(args.require or []))
+    baseline = Baseline()
+    rundir = new_rundir("batch")
+    runner = Runner(caps, baseline, rundir, progress=not args.json)
+    notes: list[str] = []
+
+    # Global source checks are intentionally paid once. These structural lints
+    # scan the tree, while re_lint still restricts itself to changed lines.
+    lint_parts = runner.run_parallel(lint_steps(None, "batch"))
+    lint_report = fold(lint_parts, "lint", "8 shared source checks")
+
+    target_steps: dict[str, list[Report]] = {addr: [] for addr in addresses}
+    owned_binary = batch_binary_steps(infos)
+    binary_reports = runner.run_parallel([step for _, step in owned_binary])
+    for (addr, _step), report in zip(owned_binary, binary_reports):
+        target_steps[addr].append(report)
+
+    # re-agent owns one Ghidra project, so parity remains serial. Each address
+    # gets its own output and report even though the final console row is folded.
+    if not args.no_parity:
+        for info in infos:
+            addr = info["address"]
+            suffix = addr[2:]
+            parity_json = rundir / f"parity_{suffix}.json"
+            parity_argv = [str(venv_tool("re-agent")),
+                           "--config", str(REPO / "re-agent.host.yaml"),
+                           "parity", "--address", addr,
+                           "--output", str(parity_json)]
+            target_steps[addr].append(runner.run(Step(
+                id=f"parity_{suffix}", label=f"parity {suffix}",
+                needs=("ghidra",), timeout=900, argv=parity_argv,
+                parse=lambda rc, o, e, path=parity_json:
+                    parse_parity_json(rc, o, e, path))))
+
+    # Class-wide checks and layout probes are shared by every target in that
+    # class and therefore run once per distinct class.
+    classes = list(dict.fromkeys(info["class"] for info in infos if info["class"]))
+    class_steps: list[Step] = []
+    for cls in classes:
+        class_steps += [
+            Step(id=f"ctor_vtable_check_{cls}", label=f"ctor {cls}",
+                 needs=("exe",), timeout=300,
+                 argv=[PY, str(SCRIPTS / "ctor_vtable_check.py"), cls, "--quiet"],
+                 parse=parse_ctor_vtable),
+            Step(id=f"vtable_audit_{cls}", label=f"vtable {cls}",
+                 needs=("exe",), timeout=300,
+                 argv=[PY, str(SCRIPTS / "vtable_audit.py"), cls, "--quiet"],
+                 parse=parse_vtable_audit),
+        ]
+    class_parts = runner.run_parallel(class_steps) if class_steps else []
+    layout_parts: list[Report] = []
+    for cls in classes:
+        step = layout_step(cls)
+        step.id += f"_{cls}"
+        step.label = f"layout {cls}"
+        layout_parts.append(runner.run(step))
+
+    shared_reports: list[Report] = [lint_report]
+    if class_parts:
+        shared_reports.append(fold(class_parts, "classes",
+                                   f"class audits for {len(classes)} class(es)"))
+    if layout_parts:
+        shared_reports.append(fold(layout_parts, "layouts",
+                                   f"layout audits for {len(classes)} class(es)"))
+
+    target_reports: list[Report] = []
+    for info in infos:
+        addr = info["address"]
+        report = fold(target_steps[addr], f"target:{addr}",
+                      f"{info['symbol'] or '?'}; {len(target_steps[addr])} checks")
+        report.label = addr
+        target_reports.append(report)
+
+        gname = ghidra_name(addr)
+        if gname and info["symbol"] and gname != info["symbol"] and not gname.startswith("FUN_"):
+            notes.append(f"  WARN {addr} name mismatch: source says {info['symbol']}, "
+                         f"Ghidra says {gname}")
+        if touches_visual(info["file"], info["class"], info["symbol"]):
+            notes.append(f"VISUAL: user check required for {addr} ({info['symbol'] or info['file']})")
+
+    build_report = None
+    if not args.no_build:
+        build_report = runner.run(Step(id="build", label="build", needs=("vm",),
+                                       timeout=1200, parse=parse_build,
+                                       argv=runtime_command("build")))
+        shared_reports.append(build_report)
+
+    hit_symbols = [] if args.expect else batch_hit_symbols(args, infos)
+    if not args.no_smoke:
+        if build_report is not None and build_report.status not in ("pass", "warn"):
+            shared_reports.append(Report(tool="smoke", status="skip", label="smoke",
+                                         summary="build failed -- smoke would prove nothing"))
+        else:
+            smoke_argv = runtime_command("smoke", str(args.slot), str(args.hold))
+            if WINDOWS and args.new_game:
+                smoke_argv += ["--new-game", "--party", args.party]
+            if args.save:
+                smoke_argv += ["--save", args.save]
+            if args.ui:
+                smoke_argv += ["--ui", args.ui]
+            if args.expect:
+                smoke_argv += ["--expect", args.expect]
+            elif hit_symbols:
+                smoke_argv += ["--hit", ",".join(hit_symbols)]
+            shared_reports.append(runner.run(Step(
+                id="smoke", label="smoke", needs=("vm",), timeout=args.hold + 600,
+                argv=smoke_argv, parse=parse_batch_smoke)))
+
+    reports = [shared_reports[0], *target_reports, *shared_reports[1:]]
+    elapsed = time.monotonic() - t0
+    target_payloads = []
+    for info in infos:
+        steps = target_steps[info["address"]]
+        target_payloads.append({**info,
+                                "verdict": verdict_of(steps, args.strict)[0],
+                                "steps": [report.to_json() for report in steps]})
+    payload = {"schema": SCHEMA, "cmd": "batch", "addresses": addresses,
+               "targets": target_payloads, "hit_symbols": hit_symbols,
+               "elapsed_s": round(elapsed, 2),
+               "verdict": verdict_of(reports, args.strict)[0],
+               "shared_steps": [report.to_json() for report in shared_reports],
+               "steps": [report.to_json() for report in reports]}
+    write_run_json(rundir, payload)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+        return verdict_of(reports, args.strict)[1]
+
+    if args.no_smoke:
+        notes.append("runtime: skipped (--static/--no-smoke)")
+    elif build_report is not None and build_report.status == "fail":
+        notes.append("runtime: skipped because the shared build failed")
+    elif args.expect:
+        notes.append("runtime: one smoke with one debug-log gate")
+    elif hit_symbols:
+        notes.append(f"runtime: one smoke, {len(hit_symbols)} symbol gate(s)")
+    elif args.ui:
+        notes.append("runtime: one smoke with one AutoUI scenario gate")
+    else:
+        notes.append("runtime: one smoke, no path gate (use --hit or --ui)")
+    notes.append(f"detail: scripts/arc.py explain <step>    logs: .arc/{rundir.name}/")
+    header = f"arc batch  {len(addresses)} targets  " + ", ".join(addresses)
+    return render(reports, header, elapsed, args.max_findings, baseline,
+                  runner.ran_tools, args.strict, notes,
+                  scope_files={info["file"] for info in infos})
+
+
 def layout_step(cls: str | None) -> Step:
     """struct_layout_audit needs a class, and only means something for a
     binary-mirror class. Derive; never guess."""
@@ -1104,8 +1353,23 @@ def layout_step(cls: str | None) -> Step:
     if "/* 0x" not in text:
         return Step(id="struct_layout_audit", label="layout", argv=[], parse=parse_struct_layout,
                     skip_reason=f"{hdr.name} has no /* 0xNNN */ comments")
+    # A projectile family shares one header. Comments in a sibling class do
+    # not give an empty leaf any members to compare, and the audit must receive
+    # the header we resolved rather than invent src/<leaf>.h.
+    from struct_layout_audit import AuditError, parse_header
+    try:
+        members = parse_header(hdr, cls)
+    except (AuditError, OSError):
+        members = None  # Let the audit report the parse error, never hide it.
+    if members == []:
+        return Step(id="struct_layout_audit", label="layout", argv=[], parse=parse_struct_layout,
+                    skip_reason=f"{cls} has no own offset-annotated members")
+    argv = [PY, str(SCRIPTS / "struct_layout_audit.py"), cls, "--header", str(hdr)]
+    source = hdr.with_suffix(".cpp")
+    if source.exists():
+        argv += ["--source", str(source.relative_to(REPO))]
     return Step(id="struct_layout_audit", label="layout", needs=("vm",), timeout=600,
-                argv=[PY, str(SCRIPTS / "struct_layout_audit.py"), cls],
+                argv=argv,
                 parse=parse_struct_layout)
 
 
@@ -1122,9 +1386,14 @@ def fold(reports: list[Report], tool: str, summary: str) -> Report:
         out.notes.extend(r.notes)
         if STATUS_ORDER[r.status] < STATUS_ORDER[out.status]:
             out.status = r.status
+        if r.status in ("skip", "error"):
+            out.notes.append(f"{r.tool}: {r.summary}")
     out.elapsed_s = max((r.elapsed_s for r in reports), default=0.0)
     live = [f for f in out.findings if not f.baselined]
     out.summary = f"{summary}, {len(live)} hit(s)" if live else f"{summary}, 0 hits"
+    skipped = sum(r.status == "skip" for r in reports)
+    if skipped:
+        out.summary += f", {skipped} skipped"
     return out
 
 
@@ -1399,6 +1668,7 @@ def cmd_hooks(args) -> int:
 # --------------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
+    utf8_stdio()
     ap = argparse.ArgumentParser(
         prog="arc", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1409,7 +1679,7 @@ def main(argv: list[str]) -> int:
         p.add_argument("--strict", action="store_true", help="promote warn to fail")
         p.add_argument("--max-findings", type=int, default=10)
         p.add_argument("--require", action="append",
-                       help="capability that must be present (exe/vm/ghidra/exports)")
+                       help="capability that must be present (exe/vm/ghidra/exports/cppcheck)")
 
     c = sub.add_parser("check", help="host-only source lints (the commit gate)")
     c.add_argument("--staged", action="store_true", default=True)
@@ -1422,6 +1692,9 @@ def main(argv: list[str]) -> int:
     v.add_argument("address")
     v.add_argument("--slot", type=int, default=3)
     v.add_argument("--hold", type=int, default=90)
+    v.add_argument("--save", help="exact MPSave directory name instead of a shifting slot")
+    v.add_argument("--new-game", action="store_true", help="native Windows: start a premade new game")
+    v.add_argument("--party", default="0", help="native Windows: premade party index/name")
     v.add_argument("--hit", help="symbol the smoke must observe executing")
     v.add_argument("--ui", metavar="SCRIPT",
                    help="AutoUI scenario the smoke replays, so a UI-reachable "
@@ -1434,6 +1707,24 @@ def main(argv: list[str]) -> int:
                    help="host-only: no build, no smoke")
     common(v)
     v.set_defaults(func=cmd_verify)
+
+    b = sub.add_parser("batch", help="per-address static checks with one build and smoke")
+    b.add_argument("addresses", nargs="+")
+    b.add_argument("--slot", type=int, default=3)
+    b.add_argument("--hold", type=int, default=90)
+    b.add_argument("--save", help="exact MPSave directory name instead of a shifting slot")
+    b.add_argument("--new-game", action="store_true", help="native Windows: start a premade new game")
+    b.add_argument("--party", default="0", help="native Windows: premade party index/name")
+    b.add_argument("--hit", action="append",
+                   help="runtime symbol gate; repeat it, or omit to gate every resolved symbol")
+    b.add_argument("--ui", metavar="SCRIPT", help="AutoUI scenario replayed by the shared smoke")
+    b.add_argument("--expect", help="regex debug-log gate for the shared smoke")
+    b.add_argument("--no-build", action="store_true")
+    b.add_argument("--no-smoke", action="store_true")
+    b.add_argument("--no-parity", action="store_true")
+    b.add_argument("--static", action="store_true", help="host-only: no build, no smoke")
+    common(b)
+    b.set_defaults(func=cmd_batch)
 
     s = sub.add_parser("sweep", help="whole-codebase auditors")
     s.add_argument("--deep", action="store_true", help="add the whole-tree disasm sweep")

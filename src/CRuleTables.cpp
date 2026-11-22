@@ -275,6 +275,10 @@ const CString CRuleTables::RT_NORM("RT_NORM");
 // 0x8DEF14
 const CString CRuleTables::RT_FURY("RT_FURY");
 
+// #guess
+// 0x8DE8C8
+const CString CRuleTables::ITEM_GRADES("lmrvvvvv");
+
 // 0x8DF234
 const CString CRuleTables::INTERACTION_DIALOG("INTERDIA");
 
@@ -1930,6 +1934,104 @@ INT CRuleTables::GetSavingThrow(const CAIObjectType& typeAI, CDerivedStats& DSta
     return nSavingThrow;
 }
 
+// 0x542A90
+INT CRuleTables::RollHitPoints(INT nSides, INT nRolls, INT nLevel, INT nMinRoll, INT nModifier) const
+{
+    UTIL_ASSERT(nSides != 0);
+    INT nHitPoints = 0;
+    if (nLevel <= 1) {
+        nHitPoints = nSides * nRolls;
+    } else {
+        for (INT nRoll = 0; nRoll < nRolls; ++nRoll) {
+            rand();
+            rand();
+            INT nValue = rand() % nSides + 1;
+            if (nMinRoll > nValue) {
+                nValue = nMinRoll;
+            } else {
+                rand();
+                rand();
+                nValue = rand() % nSides + 1;
+            }
+            nHitPoints += nValue;
+        }
+    }
+    if (nRolls == 0) {
+        nHitPoints += nModifier;
+    }
+    return nHitPoints;
+}
+
+// 0x542B40
+INT CRuleTables::RollHitPoints(const C2DArray& table, BYTE nOldLevel, BYTE nNewLevel, INT nMinRoll, INT nDivisor, BOOL bOverrideSides, INT nSides) const
+{
+    CString sLevel;
+    INT nHitPoints = 0;
+    for (INT nLevel = nOldLevel + 1; nLevel <= nNewLevel; ++nLevel) {
+        sLevel.Format(_T("%d"), nLevel);
+        INT nDieSides = atol(table.GetAt(SIDES, sLevel));
+        INT nRolls = atol(table.GetAt(ROLLS, sLevel));
+        INT nValue = atol(table.GetAt(MODIFIER, sLevel));
+        if (bOverrideSides) {
+            nDieSides = nSides;
+        }
+        if (!g_pBaldurChitin->GetObjectGame()->GetOptions()->m_bMaxHP) {
+            nValue = RollHitPoints(nDieSides, nRolls, nLevel, nMinRoll, nValue);
+        } else if (nRolls != 0) {
+            nValue = nRolls * nDieSides;
+        }
+        nValue /= nDivisor;
+        nHitPoints += max(nValue, 1);
+    }
+    if (nOldLevel < nNewLevel && nHitPoints < 1) {
+        nHitPoints = 1;
+    }
+    return nHitPoints;
+}
+
+// 0x542CB0
+INT CRuleTables::RollHitPoints(INT nClass, CDerivedStats& oldStats, CDerivedStats& newStats, INT nMinRoll, INT nDivisor) const
+{
+    oldStats.GetClassLevel(nClass);
+    if (static_cast<BYTE>(newStats.GetClassLevel(nClass)) == 0) {
+        return 0;
+    }
+    BOOL bOverrideSides = FALSE;
+    INT nSides = 0;
+    const C2DArray* pTable;
+    switch (nClass) {
+    case CAIOBJECTTYPE_C_BARBARIAN:
+        bOverrideSides = TRUE;
+        nSides = 12;
+        // FALLTHROUGH
+    case CAIOBJECTTYPE_C_FIGHTER:
+    case CAIOBJECTTYPE_C_PALADIN:
+    case CAIOBJECTTYPE_C_RANGER:
+        pTable = &m_tHitPointsWarrior;
+        break;
+    case CAIOBJECTTYPE_C_BARD:
+    case CAIOBJECTTYPE_C_ROGUE:
+        pTable = &m_tHitPointsRogue;
+        break;
+    case CAIOBJECTTYPE_C_CLERIC:
+    case CAIOBJECTTYPE_C_DRUID:
+        pTable = &m_tHitPointsPriest;
+        break;
+    case CAIOBJECTTYPE_C_MONK:
+        pTable = &m_tHitPointsMonk;
+        break;
+    case CAIOBJECTTYPE_C_SORCERER:
+    case CAIOBJECTTYPE_C_WIZARD:
+        pTable = &m_tHitPointsWizard;
+        break;
+    default:
+        return 0;
+    }
+    BYTE nOldLevel = static_cast<BYTE>(oldStats.GetClassLevel(nClass));
+    BYTE nNewLevel = static_cast<BYTE>(newStats.GetClassLevel(nClass));
+    return RollHitPoints(*pTable, nOldLevel, nNewLevel, nMinRoll, nDivisor, bOverrideSides, nSides);
+}
+
 // 0x542F20
 INT CRuleTables::GetHPCONBonusTotal(const CAIObjectType& typeAI, CDerivedStats& DStats, BYTE nCON) const
 {
@@ -1948,11 +2050,15 @@ INT CRuleTables::GetHPCONBonusTotal(const CAIObjectType& typeAI, CDerivedStats& 
 }
 
 // 0x542FA0
-INT CRuleTables::GetStartingHitPoints(const CAIObjectType& typeAI, CDerivedStats& DStats, BYTE nCON) const
+INT CRuleTables::GetStartingHitPoints(const CAIObjectType& typeAI, CDerivedStats& oldStats, CDerivedStats& newStats, BYTE nCON) const
 {
-    // TODO: Incomplete.
-
-    return 0;
+    INT nHitPoints = 0;
+    for (INT nClass = 1; nClass <= CAIOBJECT_CLASS_MAX; ++nClass) {
+        if (newStats.GetClassLevel(nClass) > 0) {
+            nHitPoints += RollHitPoints(nClass, oldStats, newStats, 1, 1);
+        }
+    }
+    return nHitPoints;
 }
 
 // 0x542FE0
@@ -3252,6 +3358,15 @@ DWORD CRuleTables::GetSkillDescription(DWORD id) const
     return -1;
 }
 
+// 0x545EB0
+CResRef CRuleTables::GetAutoPickSpell(BYTE nLevel, BYTE nIndex) const
+{
+    nLevel = static_cast<BYTE>(min(max(static_cast<INT>(nLevel) - 1, 0), 8));
+    nIndex = static_cast<BYTE>(max(min(static_cast<SHORT>(nIndex), m_tSpellAutomaticPicker.GetHeight()), 0));
+    CString value = m_tSpellAutomaticPicker.GetAt(CPoint(nLevel, nIndex));
+    return CResRef(value);
+}
+
 // 0x545FD0
 INT CRuleTables::GetLoadingHint(INT nHintNumber) const
 {
@@ -3318,10 +3433,100 @@ const C2DArray* CRuleTables::GetClassAbilityTable(BYTE nClass, DWORD nSpecialist
     UTIL_ASSERT_MSG(FALSE, "GetClassAbilityTable Being  called incorrectly");
 }
 
-// 0x5463E0
-void CRuleTables::GetRandomItem(CString& sResRef) const
+// 0x5461E0
+CString CRuleTables::GetUpgradedItem(const CString& sItem, const CString& sUpgrade) const
 {
-    // TODO: Incomplete.
+    CString sResult(sItem);
+
+    if (sItem.GetLength() > 2
+        && sItem[sItem.GetLength() - 2] == '_'
+        && sUpgrade.GetLength() > 1
+        && tolower(sUpgrade[0]) == 'u'
+        && tolower(sUpgrade[1]) == 'p') {
+        INT nGrade = ITEM_GRADES.Find(static_cast<TCHAR>(tolower(sItem[sItem.GetLength() - 1])));
+        if (nGrade >= 0) {
+            INT nStep;
+            switch (tolower(sUpgrade[sUpgrade.GetLength() - 1])) {
+            case 'p':
+                if (sUpgrade.GetLength() > 2) {
+                    return sResult;
+                }
+                // FALLTHROUGH
+            case '1':
+                nStep = 1;
+                break;
+            case '2':
+                nStep = 2;
+                break;
+            case '3':
+                nStep = 3;
+                break;
+            default:
+                return sResult;
+            }
+
+            // NOTE: The grade index is not bounds checked; the trailing 'v's
+            // keep every three-step upgrade inside the string.
+            TCHAR chGrade = static_cast<LPCTSTR>(ITEM_GRADES)[nGrade + nStep];
+            if (sItem[sItem.GetLength() - 1] != chGrade) {
+                sResult = sItem.Left(sItem.GetLength() - 1);
+                sResult += chGrade;
+            }
+        }
+    }
+
+    return sResult;
+}
+
+// 0x5463E0
+BOOL CRuleTables::GetRandomItem(CString& sResRef) const
+{
+    CString sKey(sResRef);
+
+    const C2DArray* pTable = &m_tRtNorm;
+    if (g_pBaldurChitin->GetObjectGame()->GetOptions()->m_nNightmareMode == 1) {
+        pTable = &m_tRtFury;
+    }
+
+    CPoint ptLocation;
+    if (pTable->Find(sKey, ptLocation) != TRUE || ptLocation.x != -1) {
+        return FALSE;
+    }
+
+    // NOTE: The count is the index of the last usable column, so the last
+    // entry of a row is never picked and a single entry consumes no rand().
+    INT nCount = 0;
+    for (INT nColumn = 0; nColumn < pTable->GetWidth(); nColumn++) {
+        CString sCell = pTable->GetAt(CPoint(nColumn, ptLocation.y));
+        if (sCell.GetLength() == 0 || sCell.CompareNoCase("*") == 0) {
+            break;
+        }
+        nCount = nColumn;
+    }
+
+    INT nPick = nCount != 0 ? rand() % nCount : 0;
+    CString sPick = pTable->GetAt(CPoint(nPick, ptLocation.y));
+
+    if (sPick.GetLength() > 1
+        && tolower(sPick[0]) == 'u'
+        && tolower(sPick[1]) == 'p') {
+        CString sUpgraded = GetUpgradedItem(sKey, sPick);
+        if (sUpgraded.CompareNoCase(sResRef) == 0) {
+            sResRef = "no_drop";
+        } else {
+            GetRandomItem(sUpgraded);
+            sResRef = sUpgraded;
+        }
+        return TRUE;
+    }
+
+    sResRef = sPick;
+    if (sResRef.CompareNoCase("") == 0) {
+        return FALSE;
+    }
+
+    GetRandomItem(sResRef);
+    return TRUE;
 }
 
 // 0x546680
@@ -3574,8 +3779,16 @@ void CRuleTables::GetBaseCombatValues(CGameSprite* pSprite, int& a2, int& a3, in
     }
 }
 
-// 0x547040
-//
+// 0x547020
+INT CRuleTables::GetIterativeAttackBonus(INT nBaseAttack, INT nAttackStep, INT nAttackIndex) const
+{
+    INT nBonus = nBaseAttack - nAttackStep * nAttackIndex;
+    if (nBonus < 0) {
+        nBonus = 0;
+    }
+    return nBonus;
+}
+
 // Returns the governing spellcasting ability modifier for `pSprite`, used by
 // the caster (CSpell::BuildAbilityEffect) and effect-immunity (0x4A3310) paths
 // as a per-class caster-level / spell-value contribution.  `nClass` selects
@@ -3592,6 +3805,7 @@ void CRuleTables::GetBaseCombatValues(CGameSprite* pSprite, int& a2, int& a3, in
 // lands on the floored value for odd sub-10 scores.
 //
 // `resRef` and `nCasterLevel` are part of the call ABI but are not read here.
+// 0x547040
 int CRuleTables::GetSpellAbilityValue(CGameSprite* pSprite, const CResRef& resRef, int nSaveMod, BYTE nClass, DWORD nSpecialization, BYTE nCasterLevel)
 {
     if (pSprite == NULL) {

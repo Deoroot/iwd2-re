@@ -2,6 +2,7 @@
 #define CSCREENCHARACTER_H_
 
 #include "CAIObjectType.h"
+#include "C2DArray.h"
 #include "CBaldurEngine.h"
 #include "CGameSpriteSpells.h"
 #include "CKeyInfo.h"
@@ -23,6 +24,7 @@ class CDerivedStats;
 class CGameSprite;
 class CUIPanel;
 
+#pragma pack(push, 2)
 class CScreenCharacter : public CBaldurEngine {
 public:
     static const CString TOKEN_SPELLLEVEL;
@@ -59,6 +61,7 @@ public:
     /* 00A0 */ SHORT GetNumVirtualKeys() override;
     /* 00A4 */ CKeyInfo* GetVirtualKeys() override;
     /* 00A8 */ BYTE* GetVirtualKeysFlags() override;
+    /* 00AC */ void OnKeyDown(SHORT nKeys) override;
     /* 00C0 */ void TimerAsynchronousUpdate() override;
     /* 00C4 */ void TimerSynchronousUpdate() override;
     /* 00E0 */ void OnPortraitLClick(DWORD nPortrait) override;
@@ -83,10 +86,10 @@ public:
     BOOLEAN IsNameOnExportList(CString sName);
     void ResetBiographyPanel(CGameSprite* pSprite);
     void ResetClassDescriptionPanel(CGameSprite* pSprite);
-    void sub_5D8B50(CGameSprite* pSprite);
+    void ResetRaceDescriptionPanel(CGameSprite* pSprite); // #guess
     BOOL ResetAbility(CGameSprite* pSprite, const CString& sMin, const CString& sMax, const CString& sMod, BYTE& nAbility, BYTE& nMin, BYTE& nMax, INT& nMod);
     void ResetAbilitiesPanel(CGameSprite* pSprite, int a2);
-    void ResetSpellsPanel(CGameSprite* pSprite, int a2);
+    void ResetSpellsPanel(CGameSprite* pSprite);
     void ResetClassSelectionPanel(CUIPanel* pPanel, CGameSprite* pSprite);
     void ResetFeatsPanel(CUIPanel* pPanel, CGameSprite* pSprite, int a3);
     void UpdateHatedRacePanel(CGameSprite* pSprite);
@@ -110,6 +113,9 @@ public:
     void ShowPopupPanel(DWORD dwPanelId, BOOL bShow);
     void EnablePopupPanel(DWORD dwPanelId, BOOL bEnable);
     void SummonPopup(DWORD dwPopupId, CGameSprite* pSprite, int a3);
+    BOOL IsLevelUpPanelNeeded(DWORD dwPanelId, CGameSprite* pSprite); /*#guess*/
+    BOOL AdvanceLevelUp(DWORD dwPanelId, CGameSprite* pSprite); /*#guess*/
+    BOOL RewindLevelUp(DWORD dwPanelId, CGameSprite* pSprite); /*#guess*/
     void DismissPopup(CGameSprite* pSprite);
     BOOL IsDoneButtonClickable(CGameSprite* pSprite);
     void OnDoneButtonClick();
@@ -123,6 +129,7 @@ public:
     void OnScriptButtonClick();
     void OnExportButtonClick();
     void OnLevelUpButtonClick();
+    BOOL IsLevelUpButtonClickable(CGameSprite* pSprite);
     void LevelUp(CGameSprite* pSprite);
     void UpdateHelp(DWORD dwPanelId, DWORD dwTextId, DWORD dwStrId);
     void CheckDropEquipment();
@@ -160,22 +167,27 @@ public:
     int GetNumErrorButtons() { return m_nNumErrorButtons; }
 
     /* 0106 */ BYTE m_nClass;
+    /* 0108 */ C2DArray field_108;
     /* 012C */ CAIObjectType m_typeAI;
+    /* 0168 */ C2DArray field_168;
+    /* 018C */ C2DArray field_18C;
     /* 01B0 */ BOOL m_bShiftKeyDown;
     /* 01B4 */ BOOL m_bCapsLockKeyOn;
     /* 01B8 */ BOOLEAN field_1B8;
     /* 01BA */ CGameSpriteGroupedSpellList m_spells;
-    /* 02B6 */ int field_2B6;
     /* 02BA */ SHORT m_nTopSkill;
+    /* 02BC */ INT field_2BC;
     /* 02C0 */ INT m_storedSkills[16];
     /* 0300 */ CKeyInfo m_pVirtualKeys[CSCREENCHARACTER_VIRTUAL_KEYS];
     /* 05D0 */ BYTE m_pVirtualKeysFlags[CSCREENCHARACTER_VIRTUAL_KEYS];
     /* 062A */ CTypedPtrList<CPtrList, CUIPanel*> m_lPopupStack;
     /* 0646 */ INT m_nExtraFeats;
     /* 064A */ SHORT m_nTopFeat;
+    /* 064C */ INT field_64C;
     /* 0650 */ INT m_storedFeats[75];
-    /* 077C */ WORD field_77C;
+    /* 077C */ DWORD field_77C;
     /* 0780 */ int field_780;
+    /* 0784 */ BYTE field_784[20];
     /* 0798 */ INT m_nExtraSkillPoints;
     /* 079C */ int field_79C;
     /* 07A0 */ int field_7A0;
@@ -207,6 +219,7 @@ public:
     /* 081A */ unsigned char field_81A;
     /* 081B */ CResRef m_cResPortraitSmall;
     /* 0823 */ CResRef m_cResPortraitLarge;
+    /* 082B */ BYTE field_82B[7];
     /* 0832 */ CString field_832;
     /* 0836 */ CResRef m_cResPortraitSmallTemp;
     /* 083E */ CResRef m_cResPortraitLargeTemp;
@@ -224,7 +237,7 @@ public:
     /* 126E */ CVidFont m_preLoadFontTool;
     /* 176E */ CString field_176E;
     /* 1772 */ int field_1772;
-    /* 1776 */ int field_1776;
+    /* 1776 */ BYTE field_1776;
     /* 1778 */ INT m_nExtraAbilityPoints;
     /* 177C */ BYTE m_nMinSTR;
     /* 177D */ BYTE m_nMinDEX;
@@ -247,8 +260,11 @@ public:
     /* 17A0 */ INT m_nHatedRaceIndex;
     /* 17A4 */ int field_17A4;
     /* 17A8 */ int field_17A8;
+    /* 17AC */ BYTE field_17AC[20];
     /* 17C0 */ int field_17C0;
+    /* 17C4 */ BYTE field_17C4[60];
     /* 1800 */ int field_1800;
+    /* 1804 */ BYTE field_1804[60];
     /* 1840 */ int field_1840;
     /* 1844 */ unsigned char field_1844;
     /* 1846 */ int m_nInfoCategory;
@@ -256,6 +272,7 @@ public:
     /* 184E */ int m_nInfoItemCount;
     /* 1852 */ int m_nInfoScrollPos;
 };
+#pragma pack(pop)
 
 class CUIControlButtonCharacterSpecializationSelection : public CUIControlButton3State {
 public:
@@ -373,6 +390,7 @@ public:
     ~CUIControlButtonCharacter5EBC60() override;
     BOOL Render(BOOL bForce) override;
     void OnLButtonClick(CPoint pt) override;
+    void SetSpell(CResRef cResRef); /*#guess: descriptive name*/
 
     /* 066E */ CResRef field_66E;
     /* 0676 */ CResRef field_676;

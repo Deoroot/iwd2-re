@@ -239,6 +239,7 @@ public:
     static const BYTE SPRITE_EFFECT_INTENSITY_LOW;
 
     static const BYTE SOUND_DAMAGE;
+    static const BYTE SOUND_MORALE;
     static const BYTE SOUND_DYING;
     static const BYTE SOUND_BADLY_WOUNDED;
     static const BYTE SOUND_SELECT;
@@ -497,6 +498,7 @@ public:
     /* 00BC */ virtual void SetAIType(const CAIObjectType& typeAI, BOOL updateLive, BOOL updateStart);
     /* 00C0 */ virtual void ResetAITypeLive();
     /* 00C4 */ virtual void ResetAIType();
+    /* 00C8 */ virtual void ProcessPendingTriggers();
 
     void AddBlood(SHORT nHeight, SHORT nDirection, SHORT nType);
     void RemoveReplacementFromArea();
@@ -511,6 +513,8 @@ public:
     void ChangeDirection();
     void CheckIfVisible();
     BOOL CheckInvisibility(BOOL bSeesInvisible);
+    BOOL CheckSpellTarget(CGameSprite* pTarget, DWORD a2); // #guess name
+    BOOL CheckSpellUseful(CGameSprite* pTarget, INT nSpellId, DWORD flags); // #guess name
     void ApplyCastingEffectPost(CSpell* pSpell, const Spell_ability_st* pAbility);
     void ApplyCastingEffect(CSpell* pSpell, const Spell_ability_st* pAbility, const CPoint& targetPos);
     SHORT Spell(CGameAIBase* target);
@@ -576,6 +580,7 @@ public:
     CGameButtonList* GetInternalButtonList();
     CGameButtonList* GetItemUsages(SHORT slotNum, WORD buttonType, SHORT abilityNum);
     CItem* GetLauncher(const ITEM_ABILITY* ability, SHORT& launcherSlot);
+    void ApplyWeaponEffects(CProjectile* pProjectile, CItem* pWeapon, SHORT abilityNum, const CPoint& target);
     SHORT GetLauncherSlot(SHORT slotNum, SHORT abilityNum);
     BOOL CheckLauncherType(const ITEM_ABILITY* ability, CItem* pLauncher);
     INT CanUseItem(CGameSprite* pUser, CItem* pItem, STRREF& errorCode, BOOL a4);
@@ -620,13 +625,31 @@ public:
     LONG GetLevel();
     void SetHideState(BOOLEAN bInvisible, BOOLEAN bLeaveStore);
     INT GetAC();
-    INT GetAttacksPerRound();
+    INT GetMonkACBonus();
+    INT GetSituationalAttackBonus(CGameSprite* pTarget, const ITEM_ABILITY* pAbility);
+    SHORT GetWeaponProficiencyHitBonus(CItem* pWeapon, const ITEM_ABILITY* pAbility);
+    INT GetSpecialWeaponHitBonus(CGameSprite* pTarget, CItem* pWeapon, const ITEM_ABILITY* pAbility);
+    BOOL CheckConcealment(CGameSprite* pTarget);
+    SHORT RunAwayFrom(CGameAIBase* pTarget);
+    SHORT SelectLauncherAmmo(CItem* pLauncher, BOOL bFallbackToMelee);
+    SHORT EquipRangedWeapon();
+    void ApplyOnHitSpells(CGameSprite* pTarget);
+    void SetTeamEnemies();
+    BOOL CheckItemDepleted(SHORT nSlot, SHORT nAbility);
     void sub_72DE60();
-    void sub_71E760(CDerivedStats& DStats, int a2);
+    void AddNewSpecialAbilities(CDerivedStats& previousStats, BOOL feedBack);
+    void AddClassAbilities(BYTE nClass, SHORT nLevels, BOOL feedBack);
+    void ApplyNewFeatBonuses(const CCreatureFileHeader& previousBase, CDerivedStats& previousStats); /*#guess: descriptive name*/
+    void ApplyNewSkillBonuses(const CCreatureFileHeader& previousBase, CDerivedStats& previousStats); /*#guess: native no-op hook*/
+    void AddRacialAbilities(); /*#guess: descriptive name*/
+    SHORT Berserk();
+    void UpdateBerserkActive();
     void CheckModal();
+    BOOL CheckMorale();
+    void CheckFatigue();
     SHORT sub_757B40();
     void sub_71C0C0();
-    void sub_737990();
+    void ApplyFallenStatus(); /*#guess: descriptive name*/
     void sub_71CC90();
     void sub_71CEA0(CItem* pItem, int a2);
     int sub_75E930(int a1);
@@ -660,14 +683,15 @@ public:
     SHORT GetTHAC0Bonuses(CItem* curWeapon, const ITEM_ABILITY* curAttack);
     SHORT GetTHAC0();
     SHORT GetProficiencyTHAC0Bonus(CItem* curWeapon);
-    SHORT GetTouchAC();
-    SHORT GetTwoWeaponPenalty(BOOL bMainHand);
-    BOOL RollToHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, BOOL* pCritical, int nSpecialAttackFlag, BYTE nAttackNumber);
-    CGameEffectDamage* ResolveDamage(CItem* pWeapon, CItem* pOffHandWeapon, INT nAbility, BOOL bCritical, CAIObjectType targetTypeAI,
-        SHORT nAttackerDirection, SHORT nTargetDirection, CGameSprite* pTarget, BOOL bIsMainHandAttack);
-    SHORT ResolveAttack(CGameSprite* pTarget);
+    INT GetTouchAC(); // 0x723DB0: a full dword -- CheckAttackHit stores eax at 0x73B9FA, as for GetAC
+    SHORT GetDualWieldPenalty(INT nOffhand);
+    SHORT Swing(CGameSprite* pTarget);
+    BOOLEAN CheckAttackHit(CGameSprite* pTarget, CItem* pWeapon, INT nAbility, BOOL* pCritical, INT nOffhand, BYTE nAttackCount);
+    CGameEffect* CreateWeaponDamage(CItem* pWeapon, CItem* pLauncher, INT nAbility, BOOL bCritical, const CAIObjectType& targetType, SHORT nDirection, SHORT nTargetDirection, CGameSprite* pTarget, INT nOffhand);
     SHORT MoveToPoint();
     SHORT MoveToObject(CGameObject* pTarget);
+    CGameObject* ResolveCurrentActionTarget(); // #guess: sprite-specific untyped resolver
+    SHORT Formation(CGameSprite* pTarget); // #guess: BG2 PDB name, action 47
     SHORT UseContainer();
     SHORT UseDoor();
     SHORT Dialogue(CGameSprite* pTarget);
@@ -689,7 +713,7 @@ public:
     SHORT Enemy();
     SHORT SetDialog();
     void SelectWeaponAbility(unsigned char a1, unsigned char a2, unsigned char a3, unsigned char a4);
-    void sub_756930(CItem* pItem, CItem* pLauncher);
+    void DecodeSwingSound(CItem* pItem, CItem* pLauncher); // BG2 PDB name, selects pending attack sound/frame.
     SHORT EquipItem();
     SHORT FindTraps();
     SHORT RemoveTraps(CGameAIBase* pTarget);
@@ -698,6 +722,7 @@ public:
     SHORT EquipMostDamagingMelee();
     const CAIObjectType& GetLiveAIType();
     SHORT GetCasterLevel(CSpell* pSpell, BYTE nClass, DWORD nSpecialization);
+    BOOL FindAvailableSpell(const CResRef& resRef, BYTE& nClass, DWORD& nSpecialization, BYTE& nSpellLevel); // #guess: descriptive name
     BOOL CheckCastingRange(CSpell* pSpell, const CPoint& targetPos, BYTE nClass, DWORD nSpecialization);
     SHORT SavePositionToBaseStats();
     SHORT SetStealthState(int a1);
@@ -766,6 +791,7 @@ public:
     INT GetMaxDexterityBonus(INT a1);
     INT GetSkillModifier(INT iSkillNumber);
     void UpdateQuickButtons(const CAbilityId& cAbility, SHORT nDelta, BOOL bRemove, BOOL bRemoveOnEmpty);
+    void UpdateQuickWeaponData(); /*#guess*/
     INT GetArmorCheckPenalty();
     INT GetShieldCheckPenalty();
     INT GetShieldSpellFailure();

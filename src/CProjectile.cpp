@@ -1,8 +1,11 @@
 #include "CProjectile.h"
+#include "CSparkleCluster.h"
+#include "CProjectileSPBOOM.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <new>
 
 #include "CBaldurChitin.h"
 #include "CBaldurEngine.h"
@@ -11,6 +14,9 @@
 #include "CGameAnimationTypeEffect.h"
 #include "IcewindCGameAnimationTypeEffect.h"
 #include "CGameArea.h"
+#include "CGameContainer.h"
+#include "CGameDoor.h"
+#include "CGameTrigger.h"
 #include "CGameFireball3d.h"
 #include "CMessage.h"
 #include "CGameObjectArray.h"
@@ -22,96 +28,114 @@
 #include "CPathSearch.h"
 #include "CResBitmap.h"
 #include "CUtil.h"
+#include "CTimerWorld.h"
+#include "CVisualEffect.h"
 #include "IcewindMisc.h"
+#include "IcewindCGameEffects.h"
 
 // 0x84F06C. Data-segment gather radius the image initialises to 100 and never
 // writes; DecodeProjectile case 0x118 is its only reader in the whole binary.
 static SHORT g_nSpellHitDefaultRange = 100;
 
-static LONG GetProjectileSourceDiagonalOffset(const CRect& rEllipse)
-{
-    LONG x = rEllipse.right;
-    LONG y = rEllipse.bottom;
-    LONG denom = x * x + y * y;
-    if (denom == 0) {
-        return 0;
-    }
-
-    return static_cast<LONG>(sqrt(static_cast<double>((x * x * y * y) / denom)));
-}
-
-static BOOL GetProjectileSourcePosition(LONG source, CPoint& pt)
+// 0x52A640
+void CProjectile::GetStart(LONG source, CPoint& pt, BYTE facingOffset)
 {
     CGameObject* pSource;
-
-    BYTE rc;
-    do {
-        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(source,
-            CGameObjectArray::THREAD_ASYNCH,
-            &pSource,
-            INFINITE);
-    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-
+    BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(source,
+        CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
     if (rc != CGameObjectArray::SUCCESS) {
-        return FALSE;
+        return;
     }
 
-    pt = pSource->GetPos();
+    BYTE type = pSource->GetObjectType();
+    if (type == CGameObject::TYPE_NONE || type == CGameObject::TYPE_AIBASE
+        || type == CGameObject::TYPE_SOUND || type == CGameObject::TYPE_SPAWNING
+        || type == CGameObject::TYPE_STATIC || type == CGameObject::TYPE_SPRITE
+        || type == CGameObject::TYPE_OBJECT_MARKER || type == CGameObject::TYPE_TEXT) {
+        pt = pSource->GetPos();
+    } else if (type == CGameObject::TYPE_CONTAINER) {
+        pt = static_cast<CGameContainer*>(pSource)->m_posTrapOrigin;
+    } else if (type == CGameObject::TYPE_DOOR) {
+        CGameDoor* pDoor = static_cast<CGameDoor*>(pSource);
+        pt = CPoint(pDoor->m_posXTrapOrigin, pDoor->m_posYTrapOrigin);
+    } else if (type == CGameObject::TYPE_TRIGGER) {
+        pt = static_cast<CGameTrigger*>(pSource)->m_posTrapOrigin;
+    } else {
+        UTIL_ASSERT(FALSE);
+    }
 
-    if (pSource->GetObjectType() == CGameObject::TYPE_SPRITE) {
+    if (facingOffset && pSource->GetObjectType() == CGameObject::TYPE_SPRITE) {
         CGameSprite* pSprite = static_cast<CGameSprite*>(pSource);
-        const CRect& rEllipse = pSprite->GetAnimation()->GetEllipseRect();
-        LONG diagonalOffset = GetProjectileSourceDiagonalOffset(rEllipse);
-
-        switch (pSprite->GetDirection()) {
+        SHORT direction = pSprite->GetDirection();
+        switch (direction) {
         case 0:
         case 1:
-            pt.y += rEllipse.bottom / 2;
-            break;
-        case 2:
-        case 3:
-            pt.x -= 2 * diagonalOffset;
-            pt.y += 2 * diagonalOffset;
+            pt.y += pSprite->GetAnimation()->GetEllipseRect().bottom >> 1;
             break;
         case 4:
         case 5:
-            pt.x -= 2 * rEllipse.right;
-            pt.y += 1;
-            break;
-        case 6:
-        case 7:
-            pt.x -= 2 * diagonalOffset;
-            pt.y -= 2 * diagonalOffset;
+            pt.x -= 2 * pSprite->GetAnimation()->GetEllipseRect().right;
+            ++pt.y;
             break;
         case 8:
         case 9:
-            pt.y -= 2 * rEllipse.bottom;
-            break;
-        case 10:
-        case 11:
-            pt.x += 2 * diagonalOffset;
-            pt.y -= 2 * diagonalOffset;
+            pt.y -= 2 * pSprite->GetAnimation()->GetEllipseRect().bottom;
             break;
         case 12:
         case 13:
-            pt.x += 2 * rEllipse.right;
-            pt.y += 1;
+            pt.x += 2 * pSprite->GetAnimation()->GetEllipseRect().right;
+            ++pt.y;
             break;
+        case 2:
+        case 3:
+        case 6:
+        case 7:
+        case 10:
+        case 11:
         case 14:
-        case 15:
-            pt.x += 2 * diagonalOffset;
-            pt.y += 2 * diagonalOffset;
+        case 15: {
+            const CRect& ellipse = pSprite->GetAnimation()->GetEllipseRect();
+            SHORT xSquared = static_cast<SHORT>(static_cast<SHORT>(ellipse.right) * static_cast<SHORT>(ellipse.right));
+            SHORT ySquared = static_cast<SHORT>(static_cast<SHORT>(ellipse.bottom) * static_cast<SHORT>(ellipse.bottom));
+            SHORT diagonal = static_cast<SHORT>(sqrt(static_cast<double>(
+                (xSquared * ySquared) / (xSquared + ySquared))));
+            pt.x += (direction < 8 ? -2 : 2) * diagonal;
+            pt.y += (direction < 4 || direction >= 14 ? 2 : -2) * diagonal;
             break;
+        }
         default:
-            break;
+            UTIL_ASSERT(FALSE);
         }
     }
 
     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(source,
-        CGameObjectArray::THREAD_ASYNCH,
-        INFINITE);
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
+}
 
-    return TRUE;
+// 0x51E9B0
+CProjectile::~CProjectile()
+{
+    POSITION pos = m_effectList.GetHeadPosition();
+    while (pos != NULL) {
+        delete m_effectList.GetNext(pos);
+    }
+    m_effectList.RemoveAll();
+}
+
+// 0x536F40
+BOOLEAN CProjectile::CompressTime(DWORD deltaTime)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\CProjectile.cpp
+    // __LINE__: 10139
+    UTIL_ASSERT(deltaTime > static_cast<DWORD>(CTimerWorld::TIMESCALE_MSEC_PER_SEC)
+        * CTimerWorld::TIMESCALE_SEC_PER_MIN);
+
+    BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(m_id,
+        CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE);
+    if (rc == CGameObjectArray::SUCCESS) {
+        delete this;
+    }
+    return FALSE;
 }
 
 // 0x6A3130
@@ -208,7 +232,8 @@ void CProjectile::OnArrival()
         } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
 
         if (rc == CGameObjectArray::SUCCESS) {
-            pProjectile->RemoveSelf();
+            // Direct base call in the binary at 0x52A118.
+            pProjectile->CProjectile::RemoveSelf();
 
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_nTargetId,
                 CGameObjectArray::THREAD_ASYNCH,
@@ -228,23 +253,8 @@ void CProjectile::OnArrival()
     }
 }
 
+// Dispatch an impact's ordered effect messages together (subtype 105).
 // 0x52A1A0
-//
-// Delivers the projectile's accumulated gameplay effects to its target on
-// Delivers the projectile's effect payload to the target.  Shared by every
-// projectile leaf — called from OnArrival (vtable slot 28).
-//
-// The original (0x52A1A0):
-//   1. Immunity gate (TYPE_SPRITE only): calls IsTargetImmune
-//      (FUN_004E7120 for projectile-type immunity + the target's per-spell-level
-//      immunity array at +0x2BF), then FeedBackImmuneToResource.
-//   2. Batches all per-effect CMessageAddEffect instances into a single
-//      CMessageAddEffects wrapper (subtype 105, ctor 0x5152C0,
-//      vtable 0x84D564, Run 0x5157F0) and dispatches once.
-//
-// We dispatch individual CMessageAddEffect messages (same application path;
-// ADD_EFFECT is in the Iwd2MessageRunRecovered whitelist). The wrapper
-// class (CMessageAddEffects) remains unrecovered — functionally identical.
 void CProjectile::DeliverEffects()
 {
     CGameObject* pTarget;
@@ -257,35 +267,36 @@ void CProjectile::DeliverEffects()
         return;
     }
 
-    // Non-AI objects cannot hold effects — discard (0x52A1FC-0x52A21B).
     if ((pTarget->GetObjectType() & CGameObject::TYPE_AIBASE) == 0) {
         ClearEffects();
-    } else if (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE) {
-        // Immunity gate (0x52A228-0x52A26B): for creature targets, check
-        // projectile-type immunity and per-spell-level immunity.  If
-        // immune, discard all effects and show the "Immune" feedback.
-        CGameSprite* pSprite = static_cast<CGameSprite*>(pTarget);
-        if (IsTargetImmune(pSprite)) {
-            ClearEffects();
-            CGameEffect::FeedBackImmuneToResource(pSprite, m_casterResRef);
-        } else {
-            POSITION pos = m_effectList.GetHeadPosition();
-            while (pos != NULL) {
-                CGameEffect* pEffect = m_effectList.GetNext(pos);
-                CMessage* pMsg = new CMessageAddEffect(pEffect, m_sourceId, m_targetId);
-                g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
-            }
-            m_effectList.RemoveAll();
-        }
+    } else if (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE
+        && IsTargetImmune(static_cast<CGameSprite*>(pTarget))) {
+        ClearEffects();
+        CGameEffect::FeedBackImmuneToResource(static_cast<CGameSprite*>(pTarget), m_casterResRef);
     } else {
-        // Non-sprite AI objects (doors, containers, etc.) — apply directly.
+        // The impact owns one message containing the ordered effect messages.
+        // Its constructor copies nodes; it takes ownership of their messages.
+        CMessage105::Node head = { &head, &head, NULL };
         POSITION pos = m_effectList.GetHeadPosition();
         while (pos != NULL) {
-            CGameEffect* pEffect = m_effectList.GetNext(pos);
-            CMessage* pMsg = new CMessageAddEffect(pEffect, m_sourceId, m_targetId);
-            g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
+            CMessage105::Node* node = new CMessage105::Node;
+            node->m_pNext = &head;
+            node->m_pPrev = head.m_pPrev;
+            node->m_pMessage = new CMessageAddEffect(m_effectList.GetNext(pos), m_sourceId, m_targetId);
+            head.m_pPrev->m_pNext = node;
+            head.m_pPrev = node;
         }
         m_effectList.RemoveAll();
+        CMessage105* message = new CMessage105(&head, m_sourceId, m_targetId);
+        g_pBaldurChitin->GetMessageHandler()->AddMessage(message, FALSE);
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        while (head.m_pNext != &head) {
+            CMessage105::Node* node = head.m_pNext;
+            head.m_pNext = node->m_pNext;
+            delete node;
+        }
+        return;
     }
 
     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
@@ -297,11 +308,11 @@ SHORT CProjectile::GetDirection(CPoint target)
 {
     CPoint ptStart;
     ptStart.x = m_pos.x;
-    ptStart.y = 4 * m_pos.y / 3;
+    ptStart.y = static_cast<LONG>(static_cast<DWORD>(m_pos.y) * 4) / 3;
 
     CPoint ptTarget;
     ptTarget.x = target.x;
-    ptTarget.y = 4 * target.y / 3;
+    ptTarget.y = static_cast<LONG>(static_cast<DWORD>(target.y) * 4) / 3;
 
     return CGameSprite::GetDirection(ptStart, ptTarget);
 }
@@ -372,8 +383,6 @@ void CProjectileInstant::Fire(CGameArea* pArea, LONG source, LONG target,
     delete this;
 }
 
-// 0x51EAF0
-//
 // Factory that maps a numeric projectile type to a concrete CProjectile
 // subclass. The original dispatches ~327 hardcoded types (projectileType - 1
 // indexes a 386-entry jump table) plus a generic path for types > 0x1000
@@ -381,6 +390,7 @@ void CProjectileInstant::Fire(CGameArea* pArea, LONG source, LONG target,
 // overlays (CProjectileBAM), the summon/spell-hit VFX (CProjectileSummonVFX) and
 // the canonical travelling arrow (CProjectileArrow) are recovered here; the
 // remaining hardcoded classes are left unimplemented rather than guessed.
+// 0x51EAF0
 CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* pCaster, BYTE castDelay)
 {
     IcewindCVisualEffect visualEffect;
@@ -411,6 +421,78 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     case 0x6:
         // ARARROW -- the canonical travelling arrow.
         pProjectile = new CProjectileArrow();
+        break;
+
+    case 0x7: case 0xA: case 0xB:
+        pProjectile = new CProjectileAxe();
+        pProjectile->m_bHasHeight = TRUE;
+        pProjectile->m_fireSoundRef = CResRef("");
+        pProjectile->m_arrivalSoundRef = CResRef("");
+        break;
+
+    case 0x1B: case 0x1E: case 0x1F:
+        pProjectile = new CProjectileDagger();
+        pProjectile->m_bHasHeight = TRUE;
+        pProjectile->m_fireSoundRef = CResRef("");
+        pProjectile->m_arrivalSoundRef = CResRef("");
+        break;
+
+    case 0x38: case 0x3B: case 0x3C:
+        pProjectile = new CProjectileSpear();
+        pProjectile->m_bHasHeight = TRUE;
+        pProjectile->m_fireSoundRef = CResRef("");
+        pProjectile->m_arrivalSoundRef = CResRef("");
+        break;
+
+    case 0x177:
+        pProjectile = new CProjectileBoulder();
+        pProjectile->m_bHasHeight = TRUE;
+        pProjectile->m_fireSoundRef = CResRef("");
+        pProjectile->m_arrivalSoundRef = CResRef("");
+        break;
+
+    case 0x1A: {
+        auto* spray=new CProjectileSPBRNHND();
+        spray->m_bHasHeight=TRUE;
+        spray->SetRange(0,0x43);
+        spray->m_fireSoundRef="EFF_M20"; spray->m_arrivalSoundRef="";
+        pProjectile=spray;
+        break;
+    }
+
+    case 0x17:
+        pProjectile=new CProjectileCallLightning(CResRef("CallLiH"),CResRef(""),0xFF,1,0,20);
+        pProjectile->m_fireSoundRef="EFF_P19"; pProjectile->m_arrivalSoundRef="";
+        break;
+
+    case 0x51: case 0x52: case 0x53: case 0x54: case 0x55: case 0x56:
+    case 0x57: case 0x58: case 0x59: case 0x5A: case 0x5B: {
+        auto* carrier=new CProjectileMAGMISS(static_cast<SHORT>(projectileType-0x50),CVidPalette::TYPE_RANGE);
+        CAIObjectType type;
+        type.m_nEnemyAlly=pCaster->GetAIType().m_nEnemyAlly>CAIObjectType::EA_NOTEVIL
+            ?CAIObjectType::EA_NOTEVIL:CAIObjectType::EA_EVILCUTOFF;
+        carrier->m_targetType.Set(type); pProjectile=carrier;
+        break;
+    }
+
+    case 0xC:
+    case 0xF:
+    case 0x10:
+        // 0x51F08A / 0x51F208 / 0x51F276: ordinary crossbow bolts.
+        pProjectile = new CProjectileBolt();
+        pProjectile->m_bHasHeight = TRUE;
+        pProjectile->m_fireSoundRef = CResRef("");
+        pProjectile->m_arrivalSoundRef = CResRef("");
+        break;
+
+    case 0x11:
+    case 0x14:
+    case 0x15:
+        // 0x51F389 / 0x51F49D / 0x51F50B: ordinary sling stones.
+        pProjectile = new CProjectileSlingStone();
+        pProjectile->m_bHasHeight = TRUE;
+        pProjectile->m_fireSoundRef = CResRef("");
+        pProjectile->m_arrivalSoundRef = CResRef("");
         break;
 
     case 0x3: {
@@ -556,6 +638,12 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile->m_fireSoundRef = CResRef("TRA_02");
         break;
 
+    case 0x6D:
+        // Native handler 0x51FF03: segmented beam with its launch-sound override.
+        pProjectile = new IcewindCProjectileScorcher();
+        pProjectile->m_fireSoundRef = CResRef("TRA_17");
+        break;
+
     case 0x18: {
         // CHROMORB -- Chromatic Orb's travelling orb ("COrbT" BAM): the
         // copy-from-back tinted travelling VFX, launch sound TRA_23.
@@ -678,6 +766,66 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         break;
     }
 
+    case 0x6C:
+    case 0xC0: case 0xC1: case 0xC2: {
+        auto* pBlob=new CProjectileAcidBlob();
+        pBlob->m_bHasHeight=TRUE;
+        // Native 0x524760/0x5247D9/0x524852 reuse the same leaf and
+        // bind the current palette BEFORE recoloring range zero.
+        if (projectileType==0xC0) pBlob->SetRange(0,0x56);
+        else if (projectileType==0xC1) pBlob->SetRange(0,0x6E);
+        else if (projectileType==0xC2) pBlob->SetRange(0,0x1A);
+        pBlob->m_fireSoundRef=""; pBlob->m_arrivalSoundRef="";
+        pProjectile=pBlob;
+        break;
+    }
+
+    case 0x95: case 0x96: case 0x97: case 0x98: case 0x99:
+    case 0x9A: case 0x9B: case 0x9C: case 0x9D: case 0xB6: case 0xB7: {
+        // Exploding sparkle streams use their own Explode virtual, rather
+        // than the plain travelling sparkle or generic projectile fallback.
+        auto* pSparkle = new CProjectileSparkleExplosion(CResRef("TRAVEL"));
+        CString paletteRef; CResRef fireRef(""), arrivalRef("");
+        SHORT color = 0, child = 0;
+        switch (projectileType) {
+        case 0x95: color=2; child=0x2E; paletteRef="STTRAVL1"; fireRef="TRA_04A"; arrivalRef="CAS_M08"; break;
+        case 0x96: color=4; child=0x2F; paletteRef="STTRAVL2"; fireRef="TRA_04C"; arrivalRef="EFF_M05"; break;
+        case 0x97: color=6; child=0x30; paletteRef="STTRAVL5"; fireRef="TRA_04B"; arrivalRef="CAS_P03"; break;
+        case 0x98: color=9; child=0x31; paletteRef="STTRAVL7"; break;
+        case 0x99: color=10; child=0x32; break;
+        case 0x9A: color=1; child=0x33; break;
+        case 0x9B: color=3; child=0x34; break;
+        case 0x9C: color=7; child=0x35; paletteRef="STTRAVL6"; break;
+        case 0x9D: color=5; child=0x36; paletteRef="STTRAVL3"; fireRef="TRA_04A"; arrivalRef="CAS_P02"; break;
+        case 0xB6: color=11; child=0x36; paletteRef="STTRAVL4"; break;
+        case 0xB7: color=12; child=0xB8; paletteRef="STTRAVL8"; fireRef="TRA_03"; arrivalRef="EFF_M04"; break;
+        }
+        if (!paletteRef.IsEmpty()) pSparkle->SetTravelPalette(paletteRef);
+        pSparkle->m_bSparkleTrail=TRUE; pSparkle->m_sparkleColor=color;
+        pSparkle->m_childProjectileType=child; pSparkle->m_bHasHeight=TRUE;
+        pSparkle->m_renderFlags |= 8;
+        pSparkle->m_fireSoundRef=fireRef; pSparkle->m_arrivalSoundRef=arrivalRef;
+        pProjectile=pSparkle;
+        break;
+    }
+
+    case 0xC4: case 0xC5: case 0xC6: case 0xC7:
+    case 0xC8: case 0xC9: case 0xCA: case 0xCB: {
+        // Colored impact BAMs selected by the exploding sparkle leaf.
+        CString paletteRef;
+        switch (projectileType) {
+        case 0xC5: paletteRef="SHAREA1"; break;
+        case 0xC7: paletteRef="SHAREA3"; break;
+        case 0xC8: paletteRef="SHAREA4"; break;
+        case 0xC9: paletteRef="SHAREA5"; break;
+        case 0xCA: paletteRef="SHAREA6"; break;
+        case 0xCB: paletteRef="SHAREA2"; break;
+        }
+        pProjectile=new CProjectileImpactBAM(CString(_T("SHAREA")),CString(_T("")),paletteRef,8,0);
+        pProjectile->m_fireSoundRef=""; pProjectile->m_arrivalSoundRef="";
+        break;
+    }
+
     case 0x2F:   // SPARKLBL blue
     case 0x30:   // SPARKLGO gold
     case 0x31:   // SPARKLPU purple
@@ -775,6 +923,18 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         }
         BYTE sequenceDelay = castDelay ? castDelay : 0x32;
         pProjectile = new CProjectileBAM(visualResRef, CResRef(""), sequenceDelay, 0, visualEffect);
+        break;
+    }
+
+    case 0x90: {
+        CProjectileSPBOOM* pBoom = new CProjectileSPBOOM();
+        pBoom->m_dirCount = 1;
+        // Inlined SetPalette/SetRange helper at 0x52B150, in this order.
+        pBoom->m_pVidCell->SetPalette(pBoom->m_palette);
+        pBoom->m_palette.SetRange(0, 0x41, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+        pBoom->m_fireSoundRef = CResRef("");
+        pBoom->m_arrivalSoundRef = CResRef("");
+        pProjectile = pBoom;
         break;
     }
 
@@ -1699,6 +1859,14 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         pProjectile = new CProjectileFireStorm();
         break;
 
+    case 0xD2:
+        // 0x5250B0: construct the initial chain carrier from a temporary
+        // empty signed-ID set (0x537010), then destroy that set (0x5370C0).
+        // The common tail stamps 0xD1; subsequent hops use the constructor
+        // directly and retain its default projectile type.
+        pProjectile = new IcewindCProjectileChainLightning(std::set<LONG>());
+        break;
+
     case 0xD3:
         // Acid Storm (SPWI708): the persistent acid area spell-hit projectile. Bare
         // IcewindCProjectileSpellHit leaf (ctor 0x571170). Previously fell through to
@@ -1872,6 +2040,15 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
         // 0x576CF0). Previously fell through to the default plain CProjectile.
         pProjectile = new CProjectileTurnUndead();
         break;
+
+    case 0xCF: {
+        // Jump-table entry 0x5291B4 -> 0x524F74: the LightnT carrier
+        // stops at its first wall contact (the ctor defaults to unlimited).
+        CProjectileReboundingBolt* pBolt = new CProjectileReboundingBolt();
+        pBolt->m_nBounces = 1;
+        pProjectile = pBolt;
+        break;
+    }
 
     case 0x28: {
         // Lightning Bolt ("LightnT" BAM): SPWI002/308/997 and Eye of the Mage.
@@ -2224,11 +2401,6 @@ CProjectile* CProjectile::DecodeProjectile(USHORT projectileType, CGameAIBase* p
     return pProjectile;
 }
 
-// -----------------------------------------------------------------------------
-// INCOMPLETE: only CProjectileBAM subclass recovered; the global projectile
-// dispatch switch (0x57B0C0) and remaining projectile types are not yet
-// implemented. Fire/AIUpdate/Render mapped from Ghidra.
-
 // 0x530790
 //
 // Default constructor, used by DecodeProjectile's default case (every
@@ -2261,39 +2433,164 @@ CProjectile::CProjectile()
     m_nTargetId = CGameObjectArray::INVALID_INDEX;
 }
 
+// 0x535F20
+CProjectileImpactBAM::CProjectileImpactBAM(const CString& visualRef, const CString& soundRef,
+    const CString& paletteRef, LONG renderFlags, BYTE translucency)
+{
+    m_vidCell.SetResRef(CResRef(visualRef),FALSE,TRUE,TRUE);
+    m_hasPalette=!paletteRef.IsEmpty();
+    if (m_hasPalette) {
+        m_bitmap.SetResRef(CResRef(paletteRef),TRUE,TRUE);
+        m_bitmap.m_bDoubleSize=FALSE;
+    }
+    m_vidCell.SequenceSet(0); m_vidCell.FrameSet(0);
+    m_sound.Stop(); m_sound.SetResRef(CResRef(soundRef),TRUE,TRUE);
+    if (!m_sound.GetLooping()) m_sound.SetFireForget(TRUE);
+    m_sound.SetChannel(14,reinterpret_cast<DWORD>(m_pArea));
+    m_fireSoundRef=CResRef(soundRef);
+    m_translucency=translucency; m_renderFlags=renderFlags; m_bHasHeight=TRUE;
+}
+
+// 0x536380
+void CProjectileImpactBAM::AIUpdate()
+{
+    auto* game=g_pBaldurChitin->GetObjectGame();
+    if (game->m_nTimeStop!=0 && game->m_nTimeStopCaster!=m_id) return;
+    if (m_vidCell.IsEndOfSequence(FALSE)) {
+        OnArrival();
+        return;
+    }
+    m_vidCell.FrameAdvance();
+    m_sound.SetCoordinates(m_pos.x,m_pos.y,m_posZ);
+}
+
+// 0x5363F0
+void CProjectileImpactBAM::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    (void)pArea;
+    UTIL_ASSERT(pVidMode!=NULL);
+    SHORT tileX=static_cast<SHORT>(m_pos.x/CVisibilityMap::SQUARE_SIZEX), tileY=static_cast<SHORT>(m_pos.y/CVisibilityMap::SQUARE_SIZEY);
+    SHORT tile=static_cast<SHORT>(static_cast<DWORD>(tileY)*static_cast<DWORD>(m_pArea->m_visibility.m_nWidth)
+        + static_cast<DWORD>(tileX));
+    if (!m_pArea->m_visibility.IsTileVisible(tile)) return;
+    auto* infinity=m_pArea->GetInfinity();
+    CRect viewport(infinity->nCurrentX,infinity->nCurrentY,
+        static_cast<LONG>(static_cast<DWORD>(infinity->nCurrentX)+static_cast<DWORD>(infinity->rViewPort.Width())),
+        static_cast<LONG>(static_cast<DWORD>(infinity->nCurrentY)+static_cast<DWORD>(infinity->rViewPort.Height())));
+    CPoint pos(m_pos.x,static_cast<LONG>(static_cast<DWORD>(m_pArea->GetHeightOffset(m_pos,m_listType))
+        +static_cast<DWORD>(m_pos.y)-static_cast<DWORD>(m_posZ)));
+    CPoint reference; CSize size;
+    m_vidCell.GetCurrentCenterPoint(reference,FALSE); m_vidCell.GetCurrentFrameSize(size,FALSE);
+    CRect fx(0,0,size.cx,size.cy);
+    CRect bounds(static_cast<LONG>(static_cast<DWORD>(pos.x)-static_cast<DWORD>(reference.x)),
+        static_cast<LONG>(static_cast<DWORD>(pos.y)-static_cast<DWORD>(reference.y)),0,0);
+    bounds.right=static_cast<LONG>(static_cast<DWORD>(bounds.left)+static_cast<DWORD>(size.cx));
+    bounds.bottom=static_cast<LONG>(static_cast<DWORD>(bounds.top)+static_cast<DWORD>(size.cy));
+    CRect intersection; intersection.IntersectRect(bounds,viewport);
+    if (intersection.IsRectEmpty()) return;
+    if (m_renderFlags!=0) m_renderFlags|=CInfinity::FXPREP_COPYFROMBACK;
+    infinity->FXPrep(fx,m_renderFlags,nSurface,pos,reference);
+    if (infinity->FXLock(fx,m_renderFlags)) {
+        if (m_hasPalette) {
+            m_bitmap.pRes->Demand();
+            int count=m_bitmap.pRes->GetColorCount();
+            m_vidCell.SetPalette(m_bitmap.pRes->GetColorTable(),count,CVidPalette::TYPE_RESOURCE);
+            infinity->FXRender(&m_vidCell,reference.x,reference.y,m_renderFlags,m_translucency);
+            m_bitmap.pRes->Release();
+        } else {
+            infinity->FXRender(&m_vidCell,reference.x,reference.y,m_renderFlags,m_translucency);
+        }
+        infinity->FXRenderClippingPolys(pos.x,pos.y,0,reference,bounds,FALSE,m_renderFlags);
+        infinity->FXUnlock(m_renderFlags,NULL,CPoint(0,0));
+        infinity->FXBltFrom(nSurface,fx,pos.x,pos.y,reference.x,reference.y,m_renderFlags);
+    }
+}
+
+// 0x5366F0
+void CProjectileImpactBAM::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)nType;
+    m_sourceId=source; m_targetId=target; m_pArea=pArea;
+    DeliverEffects();
+    auto* objects=g_pBaldurChitin->GetObjectGame()->GetObjectArray();
+    if (objects->Add(&m_id,this,INFINITE)!=CGameObjectArray::SUCCESS) {
+        delete this;
+        return;
+    }
+    CPoint pos;
+    if (target==CGameObjectArray::INVALID_INDEX) pos=targetPos;
+    else GetStart(target,pos,FALSE);
+    m_sound.Play(pos.x,pos.y,0,FALSE);
+    pos.y=static_cast<LONG>(static_cast<DWORD>(pos.y)+1);
+    CGameObject::AddToArea(pArea,pos,nHeight,CGameObject::LIST_FRONT);
+}
+
+// 0x5297B0
+CProjectileSparkleExplosion::CProjectileSparkleExplosion(const CResRef& resRef)
+    : CProjectileExploding(resRef)
+{
+}
+
+// 0x52E160
+void CProjectileSparkleExplosion::Explode()
+{
+    USHORT type;
+    switch (m_sparkleColor) {
+    case 1: case 9: case 10: type=0xC4; break;
+    case 2: type=0xC5; break;
+    case 3: case 11: type=0xC8; break;
+    case 4: type=0xC6; break;
+    case 5: type=0xC7; break;
+    case 6: type=0xC9; break;
+    case 7: case 8: type=0xCA; break;
+    case 12: type=0xCB; break;
+    default: return;
+    }
+    CProjectile* child=DecodeProjectile(type,NULL,0);
+    if (child) child->Fire(m_pArea,m_sourceId,m_targetId,CPoint(m_targetX,m_targetY),30,m_sparkleColor);
+}
+
 // 0x57CAC0
 CProjectileBAM::CProjectileBAM(const CResRef& visualResRef, const CResRef& arrivalSoundRef, BYTE sequenceDelay, BYTE initialDelay, const IcewindCVisualEffect& visualEffect)
     : m_visualEffect(visualEffect)
 {
-    m_projectileType = 0;
-    m_sourceId = CGameObjectArray::INVALID_INDEX;
-    m_targetId = CGameObjectArray::INVALID_INDEX;
-    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
-    m_pArea = NULL;
-    m_arrivalSoundRef = arrivalSoundRef;
-    m_loopArrivalSound = FALSE;
-    m_bHasHeight = TRUE;
-    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+    field_326 = FALSE;
+    field_32A = 0;
+    field_32B = 0;
+    m_bSparkleTrail = FALSE;
 
     m_vidCell.SetResRef(visualResRef, FALSE, TRUE, TRUE);
     m_vidCell.FrameSet(0);
+    m_sound.Stop();
+    m_sound.SetResRef(arrivalSoundRef, TRUE, TRUE);
+    if (!m_sound.GetLooping()) {
+        m_sound.SetFireForget(TRUE);
+    }
+    m_sound.SetChannel(4, reinterpret_cast<DWORD>(m_pArea));
+    m_fireSoundRef = arrivalSoundRef;
 
     m_sequenceDelay = sequenceDelay;
     BYTE sequenceLength = m_vidCell.GetSequenceLength(2, FALSE);
     if (sequenceLength < m_sequenceDelay) {
         m_vidCell.SequenceSet(0);
-        m_sequenceDelay -= sequenceLength;
+        m_sequenceDelay -= static_cast<BYTE>(m_vidCell.GetSequenceLength(2, FALSE));
     } else {
         m_vidCell.SequenceSet(2);
         m_sequenceDelay = 0;
     }
 
     m_initialDelay = initialDelay;
+    m_bHasHeight = TRUE;
 }
 
 // 0x57CEE0 (virtual)
 void CProjectileBAM::AIUpdate()
 {
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
     if (m_initialDelay != 0) {
         m_initialDelay--;
         return;
@@ -2334,13 +2631,19 @@ void CProjectileBAM::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
     CPoint ptReference;
     CInfinity* pInfinity;
 
-    (void)pVidMode;
-
-    if (pArea == NULL || m_initialDelay != 0) {
+    (void)pArea;
+    UTIL_ASSERT(pVidMode != NULL);
+    if (m_initialDelay != 0) {
+        return;
+    }
+    if (!m_pArea->m_visibility.IsTileVisible(m_pArea->m_visibility.PointToTile(m_pos))) {
         return;
     }
 
-    pInfinity = pArea->GetInfinity();
+    pInfinity = m_pArea->GetInfinity();
+    CRect viewport(pInfinity->nCurrentX, pInfinity->nCurrentY,
+        pInfinity->nCurrentX + pInfinity->rViewPort.Width(),
+        pInfinity->nCurrentY + pInfinity->rViewPort.Height());
 
     m_vidCell.GetCurrentCenterPoint(ptReference, FALSE);
     m_vidCell.GetCurrentFrameSize(frameSize, FALSE);
@@ -2348,7 +2651,7 @@ void CProjectileBAM::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
     rFX.SetRect(0, 0, frameSize.cx, frameSize.cy);
 
     newPos.x = m_pos.x;
-    newPos.y = pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y - m_posZ;
+    newPos.y = m_pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y - m_posZ;
 
     DWORD dwPrepFlags;
     if (m_visualEffect.m_dwFlags != 0) {
@@ -2361,6 +2664,12 @@ void CProjectileBAM::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
     rGCBounds.top = newPos.y - ptReference.y;
     rGCBounds.right = rGCBounds.left + rFX.Width();
     rGCBounds.bottom = rGCBounds.top + rFX.Height();
+
+    CRect intersection;
+    intersection.IntersectRect(rGCBounds, viewport);
+    if (intersection.IsRectEmpty()) {
+        return;
+    }
 
     pInfinity->FXPrep(rFX,
         dwPrepFlags,
@@ -2397,182 +2706,339 @@ void CProjectileBAM::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 // 0x57D230 (virtual)
 void CProjectileBAM::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
 {
-    CGameObject* pTarget;
-    CPoint sourcePos;
-    BYTE rc;
-
+    (void)targetPos;
     (void)nType;
-
     m_sourceId = source;
     m_targetId = target;
     m_pArea = pArea;
-    sourcePos = targetPos;
 
-    do {
-        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(target,
-            CGameObjectArray::THREAD_ASYNCH,
-            &pTarget,
-            INFINITE);
-    } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-
-    if (rc == CGameObjectArray::SUCCESS) {
-        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(target,
-            CGameObjectArray::THREAD_ASYNCH,
-            INFINITE);
+    CGameObject* pTarget;
+    BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(target,
+        CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
     }
+    CPoint liveTarget = pTarget->GetPos();
+    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(target,
+        CGameObjectArray::THREAD_ASYNCH, INFINITE);
 
-    GetProjectileSourcePosition(source, sourcePos);
+    CPoint sourcePos;
+    GetStart(source, sourcePos, TRUE);
     m_sound.Play(sourcePos.x, sourcePos.y, 0, FALSE);
-
     rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
-    if (rc == CGameObjectArray::SUCCESS) {
-        CGameObject::AddToArea(pArea, sourcePos, nHeight, LIST_FRONT);
-        DeliverEffects();
-    } else {
+    if (rc != CGameObjectArray::SUCCESS) {
         delete this;
+        return;
     }
+    CGameObject::AddToArea(pArea, sourcePos, nHeight, LIST_FRONT);
+    m_targetX = liveTarget.x;
+    m_targetY = liveTarget.y;
+    m_posAccumX = sourcePos.x << 10;
+    m_posAccumY = (sourcePos.y << 12) / 3;
+    DeliverEffects();
 }
 
 // -----------------------------------------------------------------------------
 
+// 0x57E860
+CProjectileSunray::CProjectileSunray(const CResRef& resRef,
+    const CResRef& soundRef, BYTE colorIndex, LONG renderFlag, LONG animFlag,
+    SHORT lifetime)
+    : m_palette(CVidPalette::TYPE_RANGE)
+{
+    m_bSparkleTrail = FALSE;
+    m_phase = 0;
+    m_vidCell.SetResRef(resRef, FALSE, TRUE, TRUE);
+
+    if (colorIndex != BYTE(0xFF)) {
+        m_palette.SetRange(0,colorIndex,*g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+        m_vidCell.SetPalette(m_palette);
+    }
+    m_vidCell.FrameSet(0);
+
+    m_fireSoundRef = soundRef;
+
+    m_renderFlag = renderFlag;
+    m_animFlag = animFlag;
+    m_lifetime = lifetime;
+}
+
+// 0x57EB30
+void CProjectileSunray::AIUpdate()
+{
+    auto* game = g_pBaldurChitin->GetObjectGame();
+    auto* objects = game->GetObjectArray();
+    if (game->m_nTimeStop != 0 && game->m_nTimeStopCaster != m_id) return;
+    m_lifetime = static_cast<SHORT>(static_cast<USHORT>(m_lifetime) - 1);
+    if (m_lifetime == 0) {
+        m_phase = 2;
+        m_vidCell.FrameSet(0);
+    }
+    if (m_animFlag == 0) {
+        if (!m_vidCell.IsEndOfSequence(FALSE)) m_vidCell.FrameAdvance();
+        else if (m_phase == 0 || m_phase == 1) {
+            m_phase = 1;
+            m_vidCell.FrameSet(0);
+        } else if (m_phase == 2) {
+            RemoveFromArea();
+            if (objects->Delete(m_id, CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+                == CGameObjectArray::SUCCESS) delete this;
+            return;
+        }
+    } else {
+        BYTE length = m_vidCell.GetSequenceLength(0, FALSE);
+        m_vidCell.FrameSet(length == 0 ? 0 : rand() % length);
+    }
+    if (m_targetId != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* target;
+        BYTE rc = objects->GetShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, &target, INFINITE);
+        if (rc != CGameObjectArray::SUCCESS) { RemoveSelf(); return; }
+        if (target->m_pArea != m_pArea) {
+            LONG id = m_targetId;
+            RemoveSelf();
+            objects->ReleaseShare(id, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return;
+        }
+        objects->ReleaseShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+}
+
+// 0x57ED30
+void CProjectileSunray::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    (void)pArea;   // the override reads m_pArea, not the passed area
+
+    UTIL_ASSERT(pVidMode != NULL);
+
+    // Viewport clip rect in world coords: scroll origin (nCurrentX/Y) plus the
+    // screen rect (rViewPort), read from the area's embedded CInfinity.
+    CInfinity* pInfinity = m_pArea->GetInfinity();
+    CRect rViewport;
+    rViewport.left = pInfinity->nCurrentX;
+    rViewport.top = pInfinity->nCurrentY;
+    rViewport.right = (pInfinity->rViewPort.right - pInfinity->rViewPort.left)
+                      + pInfinity->nCurrentX;
+    rViewport.bottom = (pInfinity->rViewPort.bottom - pInfinity->rViewPort.top)
+                       + pInfinity->nCurrentY;
+
+    // The strike foot: the cell origin lifted by the terrain height, clamped to the
+    // bottom of the map. nBaseY climbs one slice at a time; nSavedX/nSavedBaseY keep
+    // the foot for the clipping-poly pass.
+    LONG nBaseX = m_pos.x;
+    LONG nBaseY = static_cast<LONG>(static_cast<DWORD>(m_pArea->GetHeightOffset(m_pos,m_listType))+static_cast<DWORD>(m_pos.y));
+    if (pInfinity->nAreaY <= nBaseY) {
+        nBaseY = static_cast<LONG>(static_cast<DWORD>(pInfinity->nAreaY)-1);
+    }
+    LONG nSavedX = nBaseX;
+    LONG nSavedBaseY = nBaseY;
+
+    {
+        DWORD flags = 0;
+        BYTE seq = 0;
+        do {
+            if (nBaseY < 0) {
+                return;
+            }
+            SHORT nTile=static_cast<SHORT>(static_cast<DWORD>(static_cast<SHORT>(nBaseY/CVisibilityMap::SQUARE_SIZEY))
+                *static_cast<DWORD>(m_pArea->m_visibility.m_nWidth)+static_cast<DWORD>(static_cast<SHORT>(nBaseX/CVisibilityMap::SQUARE_SIZEX)));
+            if (!m_pArea->m_visibility.IsTileVisible(nTile)) {
+                return;
+            }
+
+            m_vidCell.SequenceSet(static_cast<SHORT>(static_cast<USHORT>(static_cast<USHORT>(m_phase) << 2) + seq));
+            CPoint ptRef;
+            m_vidCell.GetCurrentCenterPoint(ptRef, FALSE);
+            CSize frameSize;
+            m_vidCell.GetCurrentFrameSize(frameSize, FALSE);
+            CRect rFrame;
+            rFrame.SetRect(0, 0, frameSize.cx, frameSize.cy);
+
+            CRect rDraw;
+            rDraw.left=static_cast<LONG>(static_cast<DWORD>(nBaseX)-static_cast<DWORD>(ptRef.x));
+            rDraw.top=static_cast<LONG>(static_cast<DWORD>(m_posZ)-static_cast<DWORD>(ptRef.y)+static_cast<DWORD>(nBaseY));
+            rDraw.right=static_cast<LONG>(static_cast<DWORD>(frameSize.cx)+static_cast<DWORD>(rDraw.left));
+            rDraw.bottom=static_cast<LONG>(static_cast<DWORD>(frameSize.cy)+static_cast<DWORD>(rDraw.top));
+
+            CRect rClipped;
+            rClipped.IntersectRect(&rDraw, &rViewport);
+            if (rClipped.IsRectEmpty()) {
+                return;
+            }
+
+            DWORD cycleFlags;
+            if (m_renderFlag == 0) {
+                cycleFlags = CInfinity::FXPREP_CLEARFILL | 0x20001;
+            } else {
+                cycleFlags = CInfinity::FXPREP_COPYFROMBACK | 0x20200;
+            }
+            flags |= cycleFlags;
+
+            CPoint newPos(nBaseX, nBaseY);
+            pInfinity->FXPrep(rFrame, flags, nSurface, newPos, ptRef);
+            if (pInfinity->FXLock(rFrame, flags)) {
+                pInfinity->FXRender(&m_vidCell, ptRef.x, ptRef.y, flags, 0);
+                CRect rGCBounds;
+                rGCBounds.left = rDraw.left;
+                rGCBounds.top=static_cast<LONG>(static_cast<DWORD>(m_posZ)+static_cast<DWORD>(rDraw.top));
+                rGCBounds.right = rDraw.right;
+                rGCBounds.bottom=static_cast<LONG>(static_cast<DWORD>(m_posZ)+static_cast<DWORD>(rDraw.bottom));
+                pInfinity->FXRenderClippingPolys(nSavedX,static_cast<LONG>(static_cast<DWORD>(m_posZ)+static_cast<DWORD>(nSavedBaseY)),
+                    static_cast<LONG>(0u-static_cast<DWORD>(m_posZ)),
+                    ptRef, rGCBounds, FALSE, flags);
+                pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
+                pInfinity->FXBltFrom(nSurface, rFrame, nBaseX, nBaseY,
+                    ptRef.x, ptRef.y, flags | 1);
+            }
+
+            nBaseY=static_cast<LONG>(static_cast<DWORD>(nBaseY)-static_cast<DWORD>(ptRef.y));
+            seq++;
+        } while (seq < 4);
+    }
+}
+
+//
+// CProjectileTravelling -- shared base ctor for the travelling weapon/spell
+// projectiles. Builds the heap CVidCell animation cell from the visual resref,
+// a range palette and a bitmap, then seeds the travelling state. The leaf
+// classes (CProjectileArrow etc.) prepare the resref and call this, then set
+// their own vtable and per-projectile configuration.
+//
+// STEP 1: the CProjectile base sub-object is constructed by its (implicit)
+// member ctor; this body initializes the travelling additions. The original
+// also zeroes the motion-integrator work fields in the +0x9C..0xC0 "drift gap"
+// (see the projectile-factory layout note) -- the subpixel position, per-tick
+// step, carry and random-spread band that AimAtPoint reads each tick -- plus
+// the +0xE6 render flags; these are modelled by-name on CProjectileTravelling
+// and seeded here. The remaining unread gap defaults (+0xC4, +0xD0..0xDC) are
+// omitted. m_driftDecay (the carry modulus) is left unwritten by the original; it
+// is only consulted when a carry is non-zero, which the zeroed carries prevent,
+// so it is zero-seeded here for definedness.
+// 0x57F050
+void CProjectileSunray::Fire(CGameArea* pArea, LONG source, LONG target,
+    CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    m_sourceId = source;
+    m_targetId = target;
+    m_pArea = pArea;
+
+    // Deliver before registering the animation.
+    DeliverEffects();
+
+    // Register in the global object array.
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        delete this;
+        return;
+    }
+
+    // A failed single target share leaves the object registered but unplaced.
+    CPoint ptLaunch;
+    if (m_targetId == CGameObjectArray::INVALID_INDEX) {
+        ptLaunch = targetPos;
+        ptLaunch.y = static_cast<LONG>(static_cast<DWORD>(ptLaunch.y)+13);
+    } else {
+        CGameObject* pTarget;
+        BYTE rc;
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+        if (rc != CGameObjectArray::SUCCESS) return;
+        ptLaunch = pTarget->GetPos();
+        ptLaunch.y = static_cast<LONG>(static_cast<DWORD>(ptLaunch.y)+13);
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+
+    AddToArea(pArea, ptLaunch, 0, CGameObject::LIST_FRONT);
+
+    PlaySound(m_fireSoundRef,m_loopFireSound,FALSE);
+    if (m_callBackProjectile!=CGameObjectArray::INVALID_INDEX) {
+        CGameObject* parent; BYTE rc;
+        do { rc=g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_callBackProjectile,
+            CGameObjectArray::THREAD_ASYNCH,&parent,INFINITE); }
+        while (rc==CGameObjectArray::SHARED || rc==CGameObjectArray::DENIED);
+        if (rc!=CGameObjectArray::SUCCESS) return;
+        static_cast<CProjectile*>(parent)->CallBack();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_callBackProjectile,
+            CGameObjectArray::THREAD_ASYNCH,INFINITE);
+    }
+}
+
 // 0x57E490
 CProjectileSummonVFX::CProjectileSummonVFX(const CResRef& visualResRef, const IcewindCVisualEffect& visualEffect)
-    : m_visualEffect(visualEffect)
+    : IcewindCProjectileTravellingVFX(visualResRef)
 {
-    m_projectileType = 0;
-    m_sourceId = CGameObjectArray::INVALID_INDEX;
-    m_targetId = CGameObjectArray::INVALID_INDEX;
-    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
-    m_pArea = NULL;
-    m_arrivalSoundRef = "";
-    m_loopArrivalSound = FALSE;
-    m_bHasHeight = FALSE;
-    m_nTargetId = CGameObjectArray::INVALID_INDEX;
     m_offsetAboveTarget = FALSE;
-
-    m_vidCell.SetResRef(visualResRef, FALSE, TRUE, TRUE);
-    m_vidCell.SequenceSet(0);
-    m_vidCell.FrameSet(0);
+    m_loopSequence = FALSE;
+    m_loopSequenceIndex = 0;
+    m_loopCount = 0;
+    m_randomSequence = TRUE;
+    m_singleSequence = TRUE;
+    m_hasShadowCell = FALSE;
+    m_dirCount = 1;
+    m_bHasHeight = FALSE;
+    m_useHeightOffset = FALSE;
+    m_visualEffect = visualEffect;
 }
 
 // 0x57E580 (virtual)
 void CProjectileSummonVFX::AIUpdate()
 {
-    if (m_vidCell.IsEndOfSequence(FALSE)) {
-        OnArrival();
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    if (game->m_nTimeStop != 0 && game->m_nTimeStopCaster != m_id) {
         return;
     }
-
-    m_vidCell.FrameAdvance();
+    if (!m_pVidCell->IsEndOfSequence(FALSE)) {
+        m_pVidCell->FrameAdvance();
+    }
+    if (m_loopSequence == 1
+        && static_cast<USHORT>(m_pVidCell->m_nCurrentSequence) == m_loopSequenceIndex
+        && m_loopCount > 0) {
+        --m_loopCount;
+        if (m_pVidCell->IsEndOfSequence(FALSE)) m_pVidCell->FrameSet(0);
+    }
+    if (m_pVidCell->IsEndOfSequence(FALSE)) {
+        if (m_singleSequence != 1
+            && static_cast<USHORT>(m_pVidCell->m_nCurrentSequence)
+                < static_cast<BYTE>(m_pVidCell->GetNumberSequences(FALSE)) - 1) {
+            m_pVidCell->SequenceSet(static_cast<SHORT>(m_pVidCell->m_nCurrentSequence + 1));
+            m_pVidCell->FrameSet(0);
+        } else {
+            if (m_sound.IsSoundPlaying()) {
+                m_visible = FALSE;
+                return;
+            }
+            RemoveFromArea();
+            if (game->GetObjectArray()->Delete(m_id, CGameObjectArray::THREAD_ASYNCH,
+                    NULL, INFINITE) == CGameObjectArray::SUCCESS) {
+                delete this;
+                return;
+            }
+        }
+    }
     m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
-}
-
-// Models the inherited family Render (0x578480, recovered as
-// IcewindCProjectileTravellingVFX::Render) under this class's divergent
-// local layout; in the binary CProjectileSummonVFX is a family child
-// (vtable 0x851234 slot 19 = 0x578480) -- re-parenting is pending.
-void CProjectileSummonVFX::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
-{
-    CRect rFX;
-    CSize frameSize;
-    CRect rGCBounds;
-    CPoint newPos;
-    CPoint ptReference;
-    CInfinity* pInfinity;
-
-    (void)pVidMode;
-
-    if (pArea == NULL) {
-        return;
-    }
-
-    pInfinity = pArea->GetInfinity();
-
-    m_vidCell.GetCurrentCenterPoint(ptReference, FALSE);
-    m_vidCell.GetCurrentFrameSize(frameSize, FALSE);
-
-    rFX.SetRect(0, 0, frameSize.cx, frameSize.cy);
-
-    newPos.x = m_pos.x;
-    newPos.y = pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y - m_posZ;
-
-    DWORD dwPrepFlags;
-    if (m_visualEffect.m_dwFlags != 0) {
-        dwPrepFlags = CInfinity::FXPREP_COPYFROMBACK;
-    } else {
-        dwPrepFlags = CInfinity::FXPREP_CLEARFILL;
-    }
-
-    rGCBounds.left = newPos.x - ptReference.x;
-    rGCBounds.top = newPos.y - ptReference.y;
-    rGCBounds.right = rGCBounds.left + rFX.Width();
-    rGCBounds.bottom = rGCBounds.top + rFX.Height();
-
-    pInfinity->FXPrep(rFX,
-        dwPrepFlags,
-        nSurface,
-        newPos,
-        ptReference);
-
-    if (pInfinity->FXLock(rFX, dwPrepFlags)) {
-        pInfinity->FXRender(&m_vidCell,
-            ptReference.x,
-            ptReference.y,
-            m_visualEffect.m_dwFlags,
-            m_visualEffect.m_nTransValue);
-
-        pInfinity->FXRenderClippingPolys(newPos.x,
-            newPos.y,
-            0,
-            ptReference,
-            rGCBounds,
-            FALSE,
-            dwPrepFlags);
-
-        pInfinity->FXUnlock(dwPrepFlags, NULL, CPoint(0, 0));
-        pInfinity->FXBltFrom(nSurface,
-            rFX,
-            newPos.x,
-            newPos.y,
-            ptReference.x,
-            ptReference.y,
-            m_visualEffect.m_dwFlags | 0x1);
-    }
 }
 
 // 0x57E710 (virtual)
 void CProjectileSummonVFX::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
 {
-    BYTE rc;
-
     (void)nHeight;
     (void)nType;
-
-    m_sourceId = source;
-    m_targetId = target;
+    (void)source;
+    (void)target;
+    UTIL_ASSERT(!m_loopSequence || !m_randomSequence);
+    UTIL_ASSERT(!m_loopSequence || !m_singleSequence);
+    DeliverEffects();
+    BYTE count = static_cast<BYTE>(m_pVidCell->GetNumberSequences(FALSE));
+    m_pVidCell->SequenceSet(m_randomSequence == 1 && count > 1 ? rand() % count : 0);
     m_pArea = pArea;
     m_pos.x = targetPos.x;
-    m_pos.y = m_offsetAboveTarget ? targetPos.y - 100 : targetPos.y + 1;
-    m_posZ = 0;
-
-    // Per-cast visual variety (binary 0x57E776): randomize the overlay vidcell's
-    // starting sequence.  The constructor hardcodes the randomize flag (+0x2b8)
-    // to 1 (0x57E50A), so the pick is unconditional -- when the BAM holds more
-    // than one sequence choose one at random, else sequence 0.  Overrides the
-    // constructor's fixed SequenceSet(0) so repeated hits don't always show the
-    // same variant.
-    SHORT nSeqCount = m_vidCell.GetNumberSequences(FALSE) & 0xFF;
-    m_vidCell.SequenceSet(nSeqCount > 1 ? static_cast<SHORT>(rand() % nSeqCount) : 0);
-
-    rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
-    if (rc == CGameObjectArray::SUCCESS) {
+    m_pos.y = static_cast<LONG>(static_cast<DWORD>(targetPos.y)
+        + (m_offsetAboveTarget == 1 ? -100 : 1));
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        == CGameObjectArray::SUCCESS) {
         CGameObject::AddToArea(pArea, m_pos, 0, CGAMEOBJECT_LIST_FRONT);
-        // Impact cue (binary 0x57E838): the overlay plays its fire-sound on launch
-        // -- the spell-hit sound (e.g. EFF_M06 for an Invocation hit such as Magic
-        // Missile).  The original passes the loop flag at +0x15a (one-shot for these
-        // cues, not modelled here) and fireAndForget FALSE.
-        PlaySound(m_fireSoundRef, FALSE, FALSE);
-        DeliverEffects();
+        PlaySound(m_fireSoundRef, m_loopFireSound, FALSE);
     } else {
         delete this;
     }
@@ -2588,20 +3054,17 @@ void CProjectileSummonVFX::SetOffsetAboveTarget(BOOL offsetAboveTarget)
     m_offsetAboveTarget = offsetAboveTarget;
 }
 
-// 0x560310
 //
 // Sub-factory for the casting/"spell hit" overlay projectiles -- the
 // DecodeProjectile path for projectileType > 0x1000 (typeIndex =
-// projectileType - 0x1001, bPositive selects the good/evil sound variant).
+// projectileType - 0x1001, bPositive selects the positive/negative sound variant).
 // 107 of the 112 cases build a CProjectileSummonVFX overlay (resref "<spell>H"
 // or "<x>X") with per-case copy-from-back / tint-from-flags / caster color-glow
 // flash / fire sound / offset-above-target.
 //
-// Not yet recovered (faithfully omitted, documented per case): the aura-attach
-// config on a few overlays, and 4 exotic projectile classes (CallLightning x3
-// at 0x5348C0, Sunray at 0x57E860). The color-glow is applied via the caster's
-// AddEffect (vtbl+0x78) exactly as the original; AddEffect's own full immunity
-// filter (0x733050) is a separate arc.
+// The color-glow is applied via the caster's AddEffect (vtbl+0x78), except
+// FireH which queues CMessageAddEffect.
+// 0x560310
 CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGameAIBase* pCaster, BOOL bPositive)
 {
     CProjectileSummonVFX* p = NULL;
@@ -2615,7 +3078,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
             pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0xD7, 0x8C, 0x46, 0x1E),
                 CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
         }
-        p->m_fireSoundRef = bPositive ? CResRef("EFF_P01") : CResRef("EFF_M02");
+        p->m_fireSoundRef = static_cast<BYTE>(bPositive) == 1 ? CResRef("EFF_P01") : CResRef("EFF_M02");
         break;
     }
     case 2: {
@@ -2625,7 +3088,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
             pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x4B, 0xD2, 0xA0, 0x1E),
                 CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
         }
-        p->m_fireSoundRef = bPositive ? CResRef("EFF_P07") : CResRef("EFF_M08");
+        p->m_fireSoundRef = static_cast<BYTE>(bPositive) == 1 ? CResRef("EFF_P07") : CResRef("EFF_M08");
         break;
     }
     case 3: {
@@ -2635,7 +3098,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
             pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x6B, 0x06, 0xC9, 0x1E),
                 CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
         }
-        p->m_fireSoundRef = bPositive ? CResRef("EFF_P05") : CResRef("EFF_M06");
+        p->m_fireSoundRef = static_cast<BYTE>(bPositive) == 1 ? CResRef("EFF_P05") : CResRef("EFF_M06");
         break;
     }
     case 4: {
@@ -2645,7 +3108,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
             pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0xB4, 0xD2, 0x50, 0x1E),
                 CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
         }
-        p->m_fireSoundRef = bPositive ? CResRef("EFF_P06") : CResRef("EFF_M07");
+        p->m_fireSoundRef = static_cast<BYTE>(bPositive) == 1 ? CResRef("EFF_P06") : CResRef("EFF_M07");
         break;
     }
     case 5: {
@@ -2655,7 +3118,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
             pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x69, 0xD7, 0x46, 0x1E),
                 CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
         }
-        p->m_fireSoundRef = bPositive ? CResRef("EFF_P02") : CResRef("EFF_M03");
+        p->m_fireSoundRef = static_cast<BYTE>(bPositive) == 1 ? CResRef("EFF_P02") : CResRef("EFF_M03");
         break;
     }
     case 6: {
@@ -2665,7 +3128,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
             pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x50, 0xD2, 0x50, 0x1E),
                 CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
         }
-        p->m_fireSoundRef = bPositive ? CResRef("EFF_P04") : CResRef("EFF_M05");
+        p->m_fireSoundRef = static_cast<BYTE>(bPositive) == 1 ? CResRef("EFF_P04") : CResRef("EFF_M05");
         break;
     }
     case 7: {
@@ -2685,7 +3148,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
             pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0x64, 0x46, 0xD2, 0x1E),
                 CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
         }
-        p->m_fireSoundRef = bPositive ? CResRef("EFF_P03") : CResRef("EFF_M04");
+        p->m_fireSoundRef = static_cast<BYTE>(bPositive) == 1 ? CResRef("EFF_P03") : CResRef("EFF_M04");
         break;
     }
     case 9: {
@@ -2720,10 +3183,12 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 14: {
         p = new CProjectileSummonVFX(CResRef("SOFlamH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 15: {
         p = new CProjectileSummonVFX(CResRef("DSpellH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 16: {
@@ -2739,8 +3204,9 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         break;
     }
     case 18: {
-        p = new CProjectileSummonVFX(CResRef("None"), IcewindCVisualEffect());
+        p = new CProjectileSummonVFX(CResRef("PWStunH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
+        p->m_fireSoundRef = CResRef("EFF_M38");
         break;
     }
     case 19: {
@@ -2751,48 +3217,58 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 20: {
         p = new CProjectileSummonVFX(CResRef("MSwordH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 21: {
         p = new CProjectileSummonVFX(CResRef("MSumm1H"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
-        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        // Native sequence scheduling is configured below.
         break;
     }
     case 22: {
         p = new CProjectileSummonVFX(CResRef("MSumm2H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 23: {
         p = new CProjectileSummonVFX(CResRef("MSumm3H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 24: {
         p = new CProjectileSummonVFX(CResRef("MSumm4H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 25: {
         p = new CProjectileSummonVFX(CResRef("MSumm5H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 26: {
         p = new CProjectileSummonVFX(CResRef("MSumm6H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 27: {
         p = new CProjectileSummonVFX(CResRef("MSumm7H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 28: {
         p = new CProjectileSummonVFX(CResRef("CFElemH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 29: {
         p = new CProjectileSummonVFX(CResRef("CEElemH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 30: {
         p = new CProjectileSummonVFX(CResRef("CWElemH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 31: {
@@ -2851,14 +3327,17 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 40: {
         p = new CProjectileSummonVFX(CResRef("ASumm1H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 41: {
         p = new CProjectileSummonVFX(CResRef("ASumm2H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 42: {
         p = new CProjectileSummonVFX(CResRef("ASumm3H"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 43: {
@@ -2945,8 +3424,8 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         p->m_fireSoundRef = CResRef("EFF_P36");
         break;
     }
-    case 57:  // Sunray projectile (class not recovered)
-        return NULL;
+    case 57:
+        return new CProjectileSunray(CResRef("SunrayX"), CResRef(""), 0xFF, 1, 0, 0x145);
     case 58: {
         p = new CProjectileSummonVFX(CResRef("SStoneA"), IcewindCVisualEffect());
         p->m_fireSoundRef = CResRef("CRE_P03");
@@ -2966,6 +3445,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 61: {
         p = new CProjectileSummonVFX(CResRef("CoColdH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 62: {
@@ -3026,18 +3506,22 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 68: {
         p = new CProjectileSummonVFX(CResRef("MRageH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 69: {
         p = new CProjectileSummonVFX(CResRef("RWOTFaG"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 70: {
         p = new CProjectileSummonVFX(CResRef("BDeath"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 71: {
         p = new CProjectileSummonVFX(CResRef("PortalH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 72: {  // Call Lightning variant: SunscoH beam, sound EFF_P39
@@ -3048,28 +3532,28 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         p = new CProjectileSummonVFX(CResRef("BBarrH1"), IcewindCVisualEffect());
         p->m_visualEffect.SetTintFromFlags(TRUE);
         p->m_fireSoundRef = CResRef("ARE_P20");
-        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        // Native sequence scheduling is configured below.
         break;
     }
     case 74: {
         p = new CProjectileSummonVFX(CResRef("BBarrH2"), IcewindCVisualEffect());
         p->m_visualEffect.SetTintFromFlags(TRUE);
         p->SetOffsetAboveTarget(TRUE);
-        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        // Native sequence scheduling is configured below.
         break;
     }
     case 75: {
         p = new CProjectileSummonVFX(CResRef("CoBonH1"), IcewindCVisualEffect());
         p->m_visualEffect.SetTintFromFlags(TRUE);
         p->m_fireSoundRef = CResRef("ARE_P21");
-        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        // Native sequence scheduling is configured below.
         break;
     }
     case 76: {
         p = new CProjectileSummonVFX(CResRef("CoBonH2"), IcewindCVisualEffect());
         p->m_visualEffect.SetTintFromFlags(TRUE);
         p->SetOffsetAboveTarget(TRUE);
-        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        // Native sequence scheduling is configured below.
         break;
     }
     case 77: {
@@ -3134,6 +3618,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 87: {
         p = new CProjectileSummonVFX(CResRef("CloudbH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 88: {
@@ -3150,13 +3635,14 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 90: {
         p = new CProjectileSummonVFX(CResRef("CGraceH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 91: {
         p = new CProjectileSummonVFX(CResRef("SEaterH"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
         p->m_fireSoundRef = CResRef("EFF_M104");
-        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        // Native sequence scheduling is configured below.
         break;
     }
     case 92: {
@@ -3167,6 +3653,7 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 93: {
         p = new CProjectileSummonVFX(CResRef("SuffocA"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 94: {
@@ -3183,53 +3670,64 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
     }
     case 96: {
         p = new CProjectileSummonVFX(CResRef("VSpherX"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 97: {
         p = new CProjectileSummonVFX(CResRef("WVDeatH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 98: {
         p = new CProjectileSummonVFX(CResRef("UWardX"), IcewindCVisualEffect());
         p->m_visualEffect.SetCopyFromBack(TRUE);
         p->SetOffsetAboveTarget(TRUE);
-        // NOTE: extra aura-attach config (proj +0x2AF/+0x2B0/+0x2B4) omitted.
+        // Native sequence scheduling is configured below.
         break;
     }
     case 99: {
         p = new CProjectileSummonVFX(CResRef("WVHitH"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 100: {
         p = new CProjectileSummonVFX(CResRef("WDeath1"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 101: {
         p = new CProjectileSummonVFX(CResRef("WDeath2"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 102: {
         p = new CProjectileSummonVFX(CResRef("DDeath"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 103: {
         p = new CProjectileSummonVFX(CResRef("DDeath2"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 104: {
         p = new CProjectileSummonVFX(CResRef("MSumm1X"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 105: {
         p = new CProjectileSummonVFX(CResRef("ASumm1X"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 106: {
         p = new CProjectileSummonVFX(CResRef("CEElemX"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 107: {
         p = new CProjectileSummonVFX(CResRef("CFElemX"), IcewindCVisualEffect());
+        p->m_visualEffect.SetCopyFromBack(TRUE);
         break;
     }
     case 108: {
@@ -3254,7 +3752,47 @@ CProjectile* CProjectileSummonVFX::DecodeSpellHitProjectile(int typeIndex, CGame
         break;
     }
     default:
+        UTIL_ASSERT(FALSE);
         return NULL;
+    }
+    switch (typeIndex) {
+    case 21:
+        p->m_randomSequence = FALSE;
+        break;
+    case 69: case 104: case 105: case 106: case 107: case 108:
+        p->m_offsetAboveTarget = TRUE;
+        break;
+    case 73: case 74: case 75: case 76: case 98:
+        p->m_loopSequence = TRUE;
+        p->m_loopSequenceIndex = 1;
+        p->m_loopCount = typeIndex == 98 ? 965 : (typeIndex <= 74 ? 165 : 265);
+        p->m_randomSequence = FALSE;
+        p->m_singleSequence = FALSE;
+        break;
+    }
+    if (pCaster != NULL) {
+        switch (typeIndex) {
+        case 35: case 36: case 37: case 38: case 39:
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0, 128, 255, 30),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+            break;
+        case 43:
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(255, 128, 0, 30),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+            break;
+        case 44:
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(192, 128, 0, 30),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+            break;
+        case 47:
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(0, 0, 255, 30),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+            break;
+        case 50:
+            pCaster->AddEffect(IcewindMisc::CreateEffectColorGlowDissipate(16, 64, 128, 30),
+                CGameAIBase::EFFECT_LIST_TIMED, TRUE, TRUE);
+            break;
+        }
     }
     return p;
 }
@@ -3273,12 +3811,9 @@ CProjectileCallLightning::CProjectileCallLightning(const CResRef& resRef,
     // (the binary inlines that initialisation here).
     m_vidCell.SetResRef(resRef, FALSE, TRUE, TRUE);
 
-    // Optional palette recolour.  Every shipped Call Lightning variant passes
-    // colorIndex 0xFF (no recolour), so this branch never runs; the master
-    // palette bitmap source (global 0x8CF6DC chain) is left unrecovered.
-    if (colorIndex != (BYTE)0xFF) {
-        // m_palette.SetRange(0, colorIndex, <master palette bitmap>);
-        // m_vidCell.SetPalette(m_palette);
+    if (colorIndex != BYTE(0xFF)) {
+        m_palette.SetRange(0,colorIndex,*g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+        m_vidCell.SetPalette(m_palette);
     }
     m_vidCell.FrameSet(0);
 
@@ -3308,105 +3843,76 @@ void CProjectileCallLightning::Fire(CGameArea* pArea, LONG source, LONG target,
         return;
     }
 
-    // Resolve the launch point: if homing, read the live target position;
-    // otherwise use the passed point.  The binary adds +13 to Y (0x535181).
+    // A failed single target share leaves the object registered but unplaced.
     CPoint ptLaunch;
     if (m_targetId == CGameObjectArray::INVALID_INDEX) {
         ptLaunch = targetPos;
-        ptLaunch.y += 13;
+        ptLaunch.y = static_cast<LONG>(static_cast<DWORD>(ptLaunch.y)+13);
     } else {
         CGameObject* pTarget;
         BYTE rc;
-        do {
-            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
-                CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
-        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
-        if (rc == CGameObjectArray::SUCCESS) {
-            ptLaunch = pTarget->GetPos();
-            ptLaunch.y += 13;
-            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
-                CGameObjectArray::THREAD_ASYNCH, INFINITE);
-        } else {
-            ptLaunch = targetPos;
-            ptLaunch.y += 13;
-        }
+        rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+        if (rc != CGameObjectArray::SUCCESS) return;
+        ptLaunch = pTarget->GetPos();
+        ptLaunch.y = static_cast<LONG>(static_cast<DWORD>(ptLaunch.y)+13);
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
     }
 
     AddToArea(pArea, ptLaunch, 0, CGameObject::LIST_FRONT);
 
-    // Launch sound (0x535213–0x535290).
-    if (m_fireSoundRef != "") {
-        PlaySound(m_fireSoundRef, m_loopFireSound, FALSE);
-    }
-
-    // Arrival / impact sound (0x535295–0x5352E2).
-    if (m_arrivalSoundRef != "") {
-        PlaySound(m_arrivalSoundRef, m_loopArrivalSound, FALSE);
+    PlaySound(m_fireSoundRef,m_loopFireSound,FALSE);
+    if (m_callBackProjectile!=CGameObjectArray::INVALID_INDEX) {
+        CGameObject* parent; BYTE rc;
+        do { rc=g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_callBackProjectile,
+            CGameObjectArray::THREAD_ASYNCH,&parent,INFINITE); }
+        while (rc==CGameObjectArray::SHARED || rc==CGameObjectArray::DENIED);
+        if (rc!=CGameObjectArray::SUCCESS) return;
+        static_cast<CProjectile*>(parent)->CallBack();
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_callBackProjectile,
+            CGameObjectArray::THREAD_ASYNCH,INFINITE);
     }
 }
 
 // 0x534C10 (slot 3).  Lifetime countdown + the bolt's own BAM frame animation.
 void CProjectileCallLightning::AIUpdate()
 {
-    // Time Stop gate (0x534C11–0x534C33): frozen unless this bolt belongs to the
-    // caster who stopped time.
-    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
-    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
-        return;
-    }
-
-    // Lifetime countdown (0x534C39–0x534C97).
-    if (--m_lifetime == 0) {
+    auto* game=g_pBaldurChitin->GetObjectGame();
+    auto* objects=game->GetObjectArray();
+    if (game->m_nTimeStop!=0 && game->m_nTimeStopCaster!=m_id) return;
+    m_lifetime=static_cast<SHORT>(static_cast<USHORT>(m_lifetime)-1);
+    if (m_lifetime==0) {
         RemoveFromArea();
-        if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Delete(m_id,
-                CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
-            == CGameObjectArray::SUCCESS) {
-            delete this;
-        }
+        if (objects->Delete(m_id,CGameObjectArray::THREAD_ASYNCH,NULL,INFINITE)==CGameObjectArray::SUCCESS) delete this;
         return;
     }
-
-    // Frame animation (0x534C9D–).  m_animFlag == 0 => sequential advance,
-    // reseeding to frame 0 at the end of the sequence; otherwise => random-frame
-    // lightning flicker.
-    if (m_animFlag == 0) {
-        if (!m_vidCell.IsEndOfSequence(FALSE)) {
-            m_vidCell.FrameAdvance();
-        } else {
-            m_vidCell.FrameSet(0);
-        }
+    if (m_animFlag==0) {
+        if (m_vidCell.IsEndOfSequence(FALSE)) m_vidCell.FrameSet(0);
+        else m_vidCell.FrameAdvance();
     } else {
-        BYTE sequenceLength = (BYTE)m_vidCell.GetSequenceLength(0, FALSE);
-        if (sequenceLength == 0) {
-            m_vidCell.FrameSet(0);
-        } else {
-            m_vidCell.FrameSet(rand() % sequenceLength);
-        }
+        BYTE length=m_vidCell.GetSequenceLength(0,FALSE);
+        m_vidCell.FrameSet(length==0?0:rand()%length);
     }
-
-    // Drop the bolt if its target has left the area (0x534CEB–).
-    if (m_targetId != CGameObjectArray::INVALID_INDEX) {
-        CGameObject* pTarget;
-        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(
-            m_targetId, CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
-        if (rc != CGameObjectArray::SUCCESS) {
+    if (m_targetId!=CGameObjectArray::INVALID_INDEX) {
+        CGameObject* target;
+        BYTE rc=objects->GetShare(m_targetId,CGameObjectArray::THREAD_ASYNCH,&target,INFINITE);
+        if (rc!=CGameObjectArray::SUCCESS) {
             RemoveSelf();
             return;
         }
-        if (m_pArea != pTarget->m_pArea) {
+        if (m_pArea!=target->m_pArea) {
+            LONG targetId=m_targetId;
             RemoveSelf();
-            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-                m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            objects->ReleaseShare(targetId,CGameObjectArray::THREAD_ASYNCH,INFINITE);
             return;
         }
-        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(
-            m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        objects->ReleaseShare(m_targetId,CGameObjectArray::THREAD_ASYNCH,INFINITE);
     }
-
-    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+    m_sound.SetCoordinates(m_pos.x,m_pos.y,m_posZ);
 }
 
-// 0x534DD0 (vtable slot 19 override). The CALLLIH bolt is a multi-sequence BAM:
+// The CALLLIH bolt is a multi-sequence BAM:
 // each sequence (cycle) is one vertical slice of the lightning, and they must be
 // drawn stacked. The single-cell CProjectileBAM::Render would draw only the current
 // slice (the "zoomed" look); this walks every sequence, drawing each one its own
@@ -3415,6 +3921,7 @@ void CProjectileCallLightning::AIUpdate()
 // tile-visibility culled and viewport-clipped; the walk stops the moment a slice
 // leaves the map top (nBaseY < 0), is off-screen, or is fully clipped.
 // Frida-confirmed on the original: SequenceSet 0/1/2 + an FXRender per cycle per frame.
+// 0x534DD0
 void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
     (void)pArea;   // the override reads m_pArea, not the passed area
@@ -3438,22 +3945,22 @@ void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int 
     // bottom of the map. nBaseY climbs one slice at a time; nSavedX/nSavedBaseY keep
     // the foot for the clipping-poly pass.
     LONG nBaseX = m_pos.x;
-    LONG nBaseY = m_pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y;
+    LONG nBaseY = static_cast<LONG>(static_cast<DWORD>(m_pArea->GetHeightOffset(m_pos,m_listType))+static_cast<DWORD>(m_pos.y));
     if (pInfinity->nAreaY <= nBaseY) {
-        nBaseY = pInfinity->nAreaY - 1;
+        nBaseY = static_cast<LONG>(static_cast<DWORD>(pInfinity->nAreaY)-1);
     }
     LONG nSavedX = nBaseX;
     LONG nSavedBaseY = nBaseY;
 
-    if (m_vidCell.GetNumberSequences(FALSE) != 0) {
+    if (static_cast<BYTE>(m_vidCell.GetNumberSequences(FALSE)) != 0) {
         DWORD flags = 0;
         BYTE seq = 0;
         do {
             if (nBaseY < 0) {
                 return;
             }
-            SHORT nTile = (SHORT)((SHORT)(nBaseY / 32) * m_pArea->m_visibility.m_nWidth
-                                  + (SHORT)(nBaseX / 32));
+            SHORT nTile=static_cast<SHORT>(static_cast<DWORD>(static_cast<SHORT>(nBaseY/CVisibilityMap::SQUARE_SIZEY))
+                *static_cast<DWORD>(m_pArea->m_visibility.m_nWidth)+static_cast<DWORD>(static_cast<SHORT>(nBaseX/CVisibilityMap::SQUARE_SIZEX)));
             if (!m_pArea->m_visibility.IsTileVisible(nTile)) {
                 return;
             }
@@ -3467,10 +3974,10 @@ void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int 
             rFrame.SetRect(0, 0, frameSize.cx, frameSize.cy);
 
             CRect rDraw;
-            rDraw.left = nBaseX - ptRef.x;
-            rDraw.top = (m_posZ - ptRef.y) + nBaseY;
-            rDraw.right = (rFrame.right - rFrame.left) + rDraw.left;
-            rDraw.bottom = (rFrame.bottom - rFrame.top) + rDraw.top;
+            rDraw.left=static_cast<LONG>(static_cast<DWORD>(nBaseX)-static_cast<DWORD>(ptRef.x));
+            rDraw.top=static_cast<LONG>(static_cast<DWORD>(m_posZ)-static_cast<DWORD>(ptRef.y)+static_cast<DWORD>(nBaseY));
+            rDraw.right=static_cast<LONG>(static_cast<DWORD>(frameSize.cx)+static_cast<DWORD>(rDraw.left));
+            rDraw.bottom=static_cast<LONG>(static_cast<DWORD>(frameSize.cy)+static_cast<DWORD>(rDraw.top));
 
             CRect rClipped;
             rClipped.IntersectRect(&rDraw, &rViewport);
@@ -3492,23 +3999,23 @@ void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int 
                 pInfinity->FXRender(&m_vidCell, ptRef.x, ptRef.y, flags, 0);
                 CRect rGCBounds;
                 rGCBounds.left = rDraw.left;
-                rGCBounds.top = m_posZ + rDraw.top;
+                rGCBounds.top=static_cast<LONG>(static_cast<DWORD>(m_posZ)+static_cast<DWORD>(rDraw.top));
                 rGCBounds.right = rDraw.right;
-                rGCBounds.bottom = m_posZ + rDraw.bottom;
-                pInfinity->FXRenderClippingPolys(nSavedX, m_posZ + nSavedBaseY, -m_posZ,
+                rGCBounds.bottom=static_cast<LONG>(static_cast<DWORD>(m_posZ)+static_cast<DWORD>(rDraw.bottom));
+                pInfinity->FXRenderClippingPolys(nSavedX,static_cast<LONG>(static_cast<DWORD>(m_posZ)+static_cast<DWORD>(nSavedBaseY)),
+                    static_cast<LONG>(0u-static_cast<DWORD>(m_posZ)),
                     ptRef, rGCBounds, FALSE, flags);
                 pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
                 pInfinity->FXBltFrom(nSurface, rFrame, nBaseX, nBaseY,
                     ptRef.x, ptRef.y, flags);
             }
 
-            nBaseY -= ptRef.y;
+            nBaseY=static_cast<LONG>(static_cast<DWORD>(nBaseY)-static_cast<DWORD>(ptRef.y));
             seq++;
         } while (seq < (BYTE)m_vidCell.GetNumberSequences(FALSE));
     }
 }
 
-// 0x52AD60
 //
 // CProjectileTravelling -- shared base ctor for the travelling weapon/spell
 // projectiles. Builds the heap CVidCell animation cell from the visual resref,
@@ -3526,6 +4033,7 @@ void CProjectileCallLightning::Render(CGameArea* pArea, CVidMode* pVidMode, int 
 // omitted. m_driftDecay (the carry modulus) is left unwritten by the original; it
 // is only consulted when a carry is non-zero, which the zeroed carries prevent,
 // so it is zero-seeded here for definedness.
+// 0x52AD60
 CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     : m_palette(CVidPalette::TYPE_RANGE)
 {
@@ -3568,6 +4076,7 @@ CProjectileTravelling::CProjectileTravelling(const CResRef& resRef)
     m_targetX = 0;
     m_targetY = 0;
     m_flightDistSq = 0;
+    m_bSparkleTrail = FALSE;
 
     // Default projectile terrain-cost table (.data 0x8A8154): terrain types
     // 0, 10 and 13 are impassable, everything else costs 5.
@@ -3606,8 +4115,6 @@ CProjectileTravelling::~CProjectileTravelling()
     delete m_pShadowCell;
 }
 
-// 0x52B900 (vtable slot 3 -- AIUpdate)
-//
 // Per-tick flight. Field semantics confirmed by a Frida trace of a Magic
 // Missile cast on the original IWD2.exe: target (+0xC8/+0xCC) stays constant,
 // the position (CGameObject m_pos) closes on it at ~velocity (+0x70) per tick,
@@ -3616,8 +4123,8 @@ CProjectileTravelling::~CProjectileTravelling()
 //
 // Recovered: the Time Stop gate (CInfGame::m_nTimeStop/m_nTimeStopCaster at
 // +0x4B40/+0x4B44), the homing branch (live-target position + height interp
-// via CalculateFxRect / delta-Z linear step), and the sparkle-trail spawn
-// (factory 0x51AE40 — documented stub, dead for Magic Missile).
+// via CalculateFxRect / delta-Z linear step), and the sparkle-trail spawn.
+// 0x52B900 (vtable slot 3 -- AIUpdate)
 void CProjectileTravelling::AIUpdate()
 {
     // Time Stop gate (0x52B90E–0x52B93B): during Time Stop, only the
@@ -3632,15 +4139,16 @@ void CProjectileTravelling::AIUpdate()
 
     // Arrival: target and position share the same 16-unit x and 12-unit y cell.
     int posX = m_pos.x;
-    if (((m_targetX + ((m_targetX >> 31) & 0xF)) >> 4) == ((posX + ((posX >> 31) & 0xF)) >> 4)
+    if (m_targetX / 16 == posX / 16
         && m_targetY / 12 == m_pos.y / 12) {
         OnArrival();
         return;
     }
 
     // Arrival within the per-tick travel radius (velocity + 1); y weighted 16/9.
-    int dy = m_targetY - m_pos.y;
-    int dist = (dy * dy * 16) / 9 + (m_targetX - posX) * (m_targetX - posX);
+    DWORD dy = static_cast<DWORD>(m_targetY) - static_cast<DWORD>(m_pos.y);
+    DWORD dx = static_cast<DWORD>(m_targetX) - static_cast<DWORD>(posX);
+    LONG dist = static_cast<LONG>(static_cast<DWORD>(static_cast<LONG>(dy * dy * 16) / 9) + dx * dx);
     int radius = m_velocity + 1;
     if (dist <= radius * radius) {
         OnArrival();
@@ -3653,7 +4161,7 @@ void CProjectileTravelling::AIUpdate()
 
     // Lifetime countdown.
     SHORT life = m_lifetime;
-    m_lifetime = life - 1;
+    m_lifetime = static_cast<SHORT>(life - 1);
     if (life == 0) {
         RemoveSelf();
         return;
@@ -3666,54 +4174,54 @@ void CProjectileTravelling::AIUpdate()
         // it is still in the same area, read its current position, then
         // interpolate the projectile height toward the target and aim.
         CGameObject* pTarget;
-        BYTE rc;
-        do {
-            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
-                CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
-        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
         if (rc != CGameObjectArray::SUCCESS) {
             RemoveSelf();
             return;
         }
 
-        // Area check: if the target left the projectile's area, the
-        // projectile self-destructs (0x52BBE5–0x52BBF9).
-        if (m_pArea != pTarget->GetArea()) {
+        // Save the target id before RemoveSelf can delete this (0x52BAC8).
+        if (m_pArea != pTarget->m_pArea) {
+            LONG targetId = m_targetId;
             RemoveSelf();
-            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(targetId,
                 CGameObjectArray::THREAD_ASYNCH, INFINITE);
             return;
         }
 
         CPoint ptLive = pTarget->GetPos();
 
-        // Height interpolation (0x52BC11–0x52BCD4).  When m_hasDrift is
+        // Height interpolation. When m_hasDrift is
         // false (plain Magic Missile), linearly step the projectile height
         // toward the target using the stored delta-Z and distance metric.
-        // When true (drifting/homing projectiles), read the target's live
-        // animation height rect and step m_posZ one unit per tick.
+        // With drift, the binary queries height but restores the old m_posZ.
         if (m_hasDrift == 0) {
             SHORT stepDeltaZ = static_cast<SHORT>(
-                (static_cast<int>(m_nDeltaZ) * dist) / m_flightDistSq);
-            m_posZ += static_cast<int>(stepDeltaZ - m_nDeltaZLast);
+                static_cast<LONG>(static_cast<DWORD>(m_nDeltaZ) * static_cast<DWORD>(dist)) / m_flightDistSq);
+            m_posZ = static_cast<LONG>(static_cast<DWORD>(m_posZ)
+                + static_cast<DWORD>(static_cast<int>(stepDeltaZ) - m_nDeltaZLast));
             m_nDeltaZLast = stepDeltaZ;
         } else if (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE) {
-            CGameSprite* pTargetSprite = static_cast<CGameSprite*>(pTarget);
             BYTE rcDeny;
             do {
                 rcDeny = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
                     CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
-            } while (rcDeny == CGameObjectArray::SHARED || rcDeny == CGameObjectArray::DENIED);
+            } while (rcDeny == CGameObjectArray::SHARED);
             if (rcDeny == CGameObjectArray::SUCCESS) {
+                CGameSprite* pTargetSprite = static_cast<CGameSprite*>(pTarget);
                 CRect rHeight;
                 CPoint ptRef;
                 pTargetSprite->GetAnimation()->CalculateFxRect(rHeight, ptRef, pTargetSprite->m_posZ);
-                LONG targetHeight = (rHeight.bottom - ptRef.y) / 2;
-                if (m_posZ != targetHeight) {
-                    m_posZ += (m_nDeltaZ < 0) ? 1 : -1;
-                }
                 g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
                     CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                LONG targetHeight = static_cast<LONG>(static_cast<DWORD>(rHeight.bottom) - static_cast<DWORD>(rHeight.top)) >> 1;
+                if (m_posZ != targetHeight) {
+                    LONG oldHeight = m_posZ;
+                    m_posZ = static_cast<LONG>(static_cast<DWORD>(m_posZ) + ((m_nDeltaZ < 0) ? 1u : 0xFFFFFFFFu));
+                    // The original restores EAX at 0x52BC2A after either step.
+                    m_posZ = oldHeight;
+                }
             }
         }
 
@@ -3723,26 +4231,18 @@ void CProjectileTravelling::AIUpdate()
         AimAtPoint(ptLive.x, ptLive.y);
     }
 
-    // Sparkle trail: when m_bSparkleTrail is set the original spawns a
-    // sub-projectile at the current position through factory 0x51AE40
-    // (0x52BD12–0x52BD5E, new(0xCA) + AddToArea).  Disabled for plain
-    // Magic Missile (m_bSparkleTrail stays 0); factory left unrecovered.
-    // PARTIAL: sparkle-trail factory 0x51AE40 — documented stub.
+    if (m_bSparkleTrail != FALSE) {
+        CSparkleCluster* trail = new CSparkleCluster(m_sparkleColor,
+            CSparkleCluster::TYPE_TRAVEL, CSparkleCluster::DEFAULT_CONJURE_DURATION);
+        trail->AddToArea(m_pArea, m_pos, m_posZ, CGameObject::LIST_FRONT);
+    }
 
     m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
 }
 
-// 0x52C050 (vtable slot 27 -- Fire; the launch)
-//
-// Ghidra recovers no function at the vtable target; transcribed from capstone
-// disassembly (0x85E bytes) with the field semantics Frida-confirmed. Records
-// the source/target/area, resolves the launch origin and the target point, and
-// computes the flight distance and lifetime.
-//
-// The launch-height (posZ), near-target snap, and attached-object create are
-// now recovered (0x52C26E–0x52C360, 0x52C3C9–0x52C56B).  The attached-object
-// factory (FUN_00554d20) remains a documented stub — no recovered projectile
-// leaf sets field_17E to a non-empty value.
+// Launch uses the recovered VEF loader and subtype-86 message when a trailing
+// resource is supplied in field_17E.
+// 0x52C050
 void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
                                  CPoint targetPos, LONG nHeight, SHORT nType)
 {
@@ -3754,18 +4254,30 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
     m_pArea = pArea;
 
     CPoint ptTarget;
+    BOOL bTargetCreature = FALSE;
+    CRect rHeight(0, 0, 0x40, 0x40);
+    CPoint ptRef(0x20, 0x32);
     if (m_targetId != CGameObjectArray::INVALID_INDEX) {
-        // Homing: aim at the live target object's current position.
         CGameObject* pTargetObj;
-        BYTE rc;
-        do {
-            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
-                CGameObjectArray::THREAD_ASYNCH, &pTargetObj, INFINITE);
-        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pTargetObj, INFINITE);
         if (rc != CGameObjectArray::SUCCESS) {
             return;
         }
+        bTargetCreature = pTargetObj->GetObjectType() == CGameObject::TYPE_SPRITE;
         ptTarget = pTargetObj->GetPos();
+        if (bTargetCreature) {
+            do {
+                rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, &pTargetObj, INFINITE);
+            } while (rc == CGameObjectArray::SHARED);
+            if (rc == CGameObjectArray::SUCCESS) {
+                CGameSprite* pTargetSprite = static_cast<CGameSprite*>(pTargetObj);
+                pTargetSprite->GetAnimation()->CalculateFxRect(rHeight, ptRef, pTargetSprite->m_posZ);
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            }
+        }
         g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
             CGameObjectArray::THREAD_ASYNCH, INFINITE);
     } else {
@@ -3781,32 +4293,28 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
     BOOL bSourceCreature = FALSE;
     {
         CGameObject* pSourceObj;
-        BYTE rcSrc;
-        do {
-            rcSrc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
-                CGameObjectArray::THREAD_ASYNCH, &pSourceObj, INFINITE);
-        } while (rcSrc == CGameObjectArray::SHARED || rcSrc == CGameObjectArray::DENIED);
-        if (rcSrc == CGameObjectArray::SUCCESS) {
-            if (m_bHasHeight) {
-                if (pSourceObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
-                    CGameSprite* pSrcSprite = static_cast<CGameSprite*>(pSourceObj);
-                    nLaunchHeight = pSrcSprite->GetAnimation()->GetCastHeight();
-                } else {
-                    nLaunchHeight = 0x20;
-                }
-            }
-            ptSourceCenter = pSourceObj->GetPos();
-            bSourceCreature = (pSourceObj->GetObjectType() == CGameObject::TYPE_SPRITE);
-            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceId,
-                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        BYTE rcSrc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
+            CGameObjectArray::THREAD_ASYNCH, &pSourceObj, INFINITE);
+        if (rcSrc != CGameObjectArray::SUCCESS) {
+            return;
         }
+        if (m_bHasHeight) {
+            if (pSourceObj->GetObjectType() == CGameObject::TYPE_SPRITE) {
+                CGameSprite* pSrcSprite = static_cast<CGameSprite*>(pSourceObj);
+                nLaunchHeight = pSrcSprite->GetAnimation()->GetCastHeight();
+            } else {
+                nLaunchHeight = 0x20;
+            }
+        }
+        ptSourceCenter = pSourceObj->GetPos();
+        bSourceCreature = (pSourceObj->GetObjectType() == CGameObject::TYPE_SPRITE);
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
     }
 
     // Launch origin from the source (facing-adjusted).
     CPoint ptSource;
-    if (!GetProjectileSourcePosition(m_sourceId, ptSource)) {
-        return;
-    }
+    GetStart(m_sourceId, ptSource, TRUE);
 
     // Near-target snap: if the source is a creature and the launch point lands
     // within ~3 search cells of the target, snap to the source centre (the
@@ -3814,46 +4322,24 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
     if (bSourceCreature) {
         int cellDX = ptTarget.x / 16 - ptSource.x / 16;
         int cellDY = ptTarget.y / 12 - ptSource.y / 12;
-        if (cellDX * cellDX + cellDY * cellDY < 3) {
+        if (static_cast<LONG>(static_cast<DWORD>(cellDX) * static_cast<DWORD>(cellDX)
+            + static_cast<DWORD>(cellDY) * static_cast<DWORD>(cellDY)) < 3) {
             ptSource = ptSourceCenter;
         }
     }
 
-    // Flight distance^2 (y weighted 16/9) -- the metric AIUpdate tests for
-    // arrival; drives the lifetime.
-    int dx = ptTarget.x - ptSource.x;
-    int dy = ptTarget.y - ptSource.y;
-    m_flightDistSq = dx * dx + (dy * dy * 16) / 9;
-
-    // Distance-based lifetime (only when m_distLifetime is set; Magic Missile leaves
-    // it 0, keeping the 0x7FFF default).
-    if (m_distLifetime != 0) {
-        m_lifetime = static_cast<SHORT>(
-            static_cast<int>(sqrt(static_cast<double>(m_flightDistSq))) / m_velocity + 1);
-    }
-
-    m_targetX = ptTarget.x;
-    m_targetY = ptTarget.y;
-
-    // Trailing VFX object: when field_17E carries a resource name the
-    // original creates a trailing game-object through the factory at
-    // 0x554D20, stores its id in m_nTargetId, and dispatches a
-    // CMessageProjectileTrailingVFX (vtable 0x84D328) — see 0x52C3C9–0x52C56B.
-    // (Identical to the IcewindCProjectileTravellingVFX::Fire path; factory is
-    // currently a documented stub — all recovered leaves carry field_17E="".)
-    if (m_nTargetId == CGameObjectArray::INVALID_INDEX && !field_17E.IsEmpty()) {
-        // STUB: m_nTargetId = CreateTrailingObject(pArea, ptSource, nLaunchHeight,
-        //       m_targetId, ptTarget, nHeight, nType);
-        // → 0x554D20.  Unrecovered; dead path for all recovered leaves.
-
+    // The factory and message use the original point argument, even when
+    // the projectile resolves a live target position for its own flight.
+    if (!field_17E.IsEmpty()) {
+        m_nTargetId = CVisualEffect::Load(field_17E, pArea, ptSource,
+            m_targetId, targetPos, nLaunchHeight);
+        CString areaName;
+        pArea->m_resRef.CopyToString(areaName);
         CMessageProjectileTrailingVFX* pMsg = new CMessageProjectileTrailingVFX(
-            m_targetId, m_flightDistSq, CResRef(field_17E),
-            ptSource.x, ptSource.y, nLaunchHeight, nType,
-            static_cast<SHORT>(nLaunchHeight));
-
+            CResRef(field_17E), areaName, ptSource, targetPos,
+            static_cast<SHORT>(nLaunchHeight), m_id, m_targetId);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
 
-        // Post-dispatch: mark the trailing object (0x52C504–0x52C56B).
         CGameObject* pTrailingObj;
         BYTE rcMsg;
         do {
@@ -3861,46 +4347,75 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
                 m_nTargetId, CGameObjectArray::THREAD_ASYNCH, &pTrailingObj, INFINITE);
         } while (rcMsg == CGameObjectArray::SHARED || rcMsg == CGameObjectArray::DENIED);
         if (rcMsg == CGameObjectArray::SUCCESS) {
+            CVisualEffect* effect = static_cast<CVisualEffect*>(pTrailingObj);
+            effect->m_nSpeed = m_velocity;
+            effect->m_flags |= 1;
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(
                 m_nTargetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
     }
 
+    // Flight distance^2 (y weighted 16/9) -- the metric AIUpdate tests for
+    // arrival; drives the lifetime.
+    DWORD dx = static_cast<DWORD>(ptTarget.x) - static_cast<DWORD>(ptSource.x);
+    DWORD dy = static_cast<DWORD>(ptTarget.y) - static_cast<DWORD>(ptSource.y);
+    m_flightDistSq = static_cast<LONG>(dx * dx
+        + static_cast<DWORD>(static_cast<LONG>(dy * dy * 16) / 9));
+
+    // Round the distance, narrow to signed SHORT, THEN divide by signed speed.
+    // An unarmed launch retains the leaf constructor's lifetime, including zero.
+    if (m_distLifetime != 0) {
+        SHORT distance = static_cast<SHORT>(static_cast<int>(
+            sqrt(static_cast<double>(m_flightDistSq)) + 0.5));
+        m_lifetime = static_cast<SHORT>(distance / m_velocity + 1);
+    }
+
+    // Launch height block (0x52C621-0x52C657): use the animation rect's
+    // half-height, with arithmetic shift, and seed both interpolation terms.
+    SHORT nDeltaZ = 0;
+    if (bTargetCreature) {
+        nDeltaZ = static_cast<SHORT>(nLaunchHeight - ((rHeight.bottom - rHeight.top) >> 1));
+    } else {
+        m_flightDistSq = 1;
+    }
+    m_nDeltaZ = nDeltaZ;
+    m_nDeltaZLast = nDeltaZ;
+
     // Register in the global object array (assigns m_id), then add to the area
     // at the cast height — the original gates on m_bHasHeight and reads the
     // source creature's animation cast height (GetCastHeight vtable slot 0xC4).
-    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
-    AddToArea(pArea, ptSource, nLaunchHeight, 0);
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        delete this;
+        return;
+    }
+    CGameObject::AddToArea(pArea, ptSource, nLaunchHeight, 0);
 
-    // Launch sound: the original inlines CProjectile::PlaySound's body here
-    // (0x52C6BA), immediately after the area insertion -- it plays m_fireSoundRef
-    // on the projectile's CSound at the launch position (m_pos, just set by
-    // AddToArea), channel 15. A Magic Missile sub-missile carries "TRA_02" (the
-    // travel whoosh); leaves with an empty fire-sound stay silent. The original
-    // reads a per-projectile fire-sound loop flag at +0x15A (FALSE for the
-    // recovered leaves), so the cue is one-shot here.
-    PlaySound(m_fireSoundRef, FALSE, FALSE);
+    // Launch block (0x52C6BA-0x52C805): stop the previous cue, then use the projectile's
+    // loop flag for a nonempty launch sound (channel 15, positioned).
+    PlaySound(m_fireSoundRef, m_loopFireSound, FALSE);
 
     // Subpixel launch position (1/1024 fixed point), seeded from the launch
     // origin. Frida-confirmed exact: X scaled << 10, Y also 4/3 y-scaled (the
     // iso squash) so AimAtPoint's decode reproduces m_pos. Without this the
     // flight would start from (0, 0).
-    m_posAccumX = ptSource.x << 10;
-    m_posAccumY = (ptSource.y << 12) / 3;
+    m_targetX = ptTarget.x;
+    m_targetY = ptTarget.y;
+    m_posAccumX = static_cast<LONG>(static_cast<DWORD>(ptSource.x) << 10);
+    m_posAccumY = static_cast<LONG>(static_cast<DWORD>(ptSource.y) << 12) / 3;
 
     // Initial facing toward the target, both points 4/3 y-scaled. The original
-    // reads m_pos here -- which the preceding AddToArea set to this same launch
-    // origin; AddToArea is not yet wired, so aim from ptSource directly.
+    // reads m_pos here, after AddToArea has installed the launch origin.
     CPoint ptStartScaled;
-    ptStartScaled.x = ptSource.x;
-    ptStartScaled.y = (ptSource.y * 4) / 3;
+    ptStartScaled.x = m_pos.x;
+    ptStartScaled.y = static_cast<LONG>(static_cast<DWORD>(m_pos.y) * 4) / 3;
     CPoint ptTargetScaled;
     ptTargetScaled.x = ptTarget.x;
-    ptTargetScaled.y = (ptTarget.y * 4) / 3;
+    ptTargetScaled.y = static_cast<LONG>(static_cast<DWORD>(ptTarget.y) * 4) / 3;
     m_facing = static_cast<SHORT>(CGameSprite::GetDirection(ptStartScaled, ptTargetScaled));
 }
 
-// 0x52BD20 (vtable slot 33 -- the per-tick motion integrator; AIUpdate's "aim")
+// Vtable slot 33 -- the per-tick motion integrator; AIUpdate's "aim".
 //
 // Ghidra recovers no function at the vtable target; transcribed from capstone
 // disassembly (0x323 bytes, ret 8 -> __thiscall(this, int x, int y)). Steps the
@@ -3910,54 +4425,60 @@ void CProjectileTravelling::Fire(CGameArea* pArea, LONG source, LONG target,
 // object's height.
 //
 // All work fields live in the CProjectile gap region in the binary
-// (+0x9C..0xE0, +0x1DC) and are modelled by-name on CProjectileTravelling per
-// the layout-drift note. The y axis is pre-scaled 4/3 to undo the isometric
+// (+0x9C..0xE0, +0x1DC); shared launch fields are on CProjectile and travelling
+// fields on CProjectileTravelling. The y axis is pre-scaled 4/3 to undo the isometric
 // squash before the facing/distance maths (CGameSprite::GetDirection then
 // applies its own iso ratios). The rand() term (_rand 0x7E8160) spreads the
 // step within the [m_jitterMinX, m_jitterMaxX) band when set -- 0 for Magic Missile, so
 // the path stays straight. Depends on Fire seeding the subpixel position
-// (m_posAccumX/Y), which is currently stubbed.
+// (m_posAccumX/Y).
+// 0x52BD20
 void CProjectileTravelling::AimAtPoint(int x, int y)
 {
     // Facing toward the target; both points y-scaled 4/3 (undo the iso squash).
     CPoint ptStart;
     ptStart.x = m_pos.x;
-    ptStart.y = (m_pos.y * 4) / 3;
+    ptStart.y = static_cast<LONG>(static_cast<DWORD>(m_pos.y) * 4) / 3;
     CPoint ptTarget;
     ptTarget.x = x;
-    ptTarget.y = (y * 4) / 3;
+    ptTarget.y = static_cast<LONG>(static_cast<DWORD>(y) * 4) / 3;
     m_facing = static_cast<SHORT>(CGameSprite::GetDirection(ptStart, ptTarget));
 
     // Velocity-scaled unit step (1/1024 fixed point).
-    int dx = x - m_pos.x;
-    int dyScaled = ptTarget.y - ptStart.y;
-    int dist = static_cast<int>(
-        sqrt(static_cast<double>(dx * dx + dyScaled * dyScaled)) + 0.5);
+    int dx = static_cast<LONG>(static_cast<DWORD>(x) - static_cast<DWORD>(m_pos.x));
+    int dyScaled = static_cast<LONG>(static_cast<DWORD>(ptTarget.y) - static_cast<DWORD>(ptStart.y));
+    // __ftol converts to a QWORD; the caller uses its low DWORD, including
+    // the zero low half of x87's integer-indefinite result after a NaN.
+    int dist = static_cast<int>(static_cast<LONGLONG>(
+        sqrt(static_cast<double>(static_cast<LONG>(static_cast<DWORD>(dx) * static_cast<DWORD>(dx)
+            + static_cast<DWORD>(dyScaled) * static_cast<DWORD>(dyScaled)))) + 0.5));
     if (dist == 0) {
         m_stepX = 1;
         m_stepY = 1;
     } else {
-        m_stepX = ((dx << 10) * m_velocity) / dist;
-        m_stepY = ((dyScaled << 10) * m_velocity) / dist;
+        m_stepX = static_cast<LONG>((static_cast<DWORD>(dx) << 10) * static_cast<DWORD>(m_velocity)) / dist;
+        m_stepY = static_cast<LONG>((static_cast<DWORD>(dyScaled) << 10) * static_cast<DWORD>(m_velocity)) / dist;
         m_targetX = x;
         m_targetY = y;
 
         // Fold in the per-tick carry, then a random spread within the band.
-        m_stepX += m_driftX;
-        m_stepY += m_driftY;
-        int spreadX = m_jitterMaxX - m_jitterMinX;
+        m_stepX = static_cast<LONG>(static_cast<DWORD>(m_stepX) + static_cast<DWORD>(m_driftX));
+        m_stepY = static_cast<LONG>(static_cast<DWORD>(m_stepY) + static_cast<DWORD>(m_driftY));
+        int spreadX = static_cast<LONG>(static_cast<DWORD>(m_jitterMaxX) - static_cast<DWORD>(m_jitterMinX));
+        int spreadY = static_cast<LONG>(static_cast<DWORD>(m_jitterMaxY) - static_cast<DWORD>(m_jitterMinY));
         if (spreadX > 0) {
-            m_stepX += m_jitterMinX + rand() % spreadX;
+            m_stepX = static_cast<LONG>(static_cast<DWORD>(m_stepX)
+                + static_cast<DWORD>(m_jitterMinX) + static_cast<DWORD>(rand() % spreadX));
         }
-        int spreadY = m_jitterMaxY - m_jitterMinY;
         if (spreadY > 0) {
-            m_stepY += m_jitterMinY + rand() % spreadY;
+            m_stepY = static_cast<LONG>(static_cast<DWORD>(m_stepY)
+                + static_cast<DWORD>(m_jitterMinY) + static_cast<DWORD>(rand() % spreadY));
         }
     }
 
     // Advance the subpixel position by the step.
-    m_posAccumX += m_stepX;
-    m_posAccumY += m_stepY;
+    m_posAccumX = static_cast<LONG>(static_cast<DWORD>(m_posAccumX) + static_cast<DWORD>(m_stepX));
+    m_posAccumY = static_cast<LONG>(static_cast<DWORD>(m_posAccumY) + static_cast<DWORD>(m_stepY));
 
     // Bleed each carry down by one modulus per tick (zero once exhausted).
     if (m_driftX < 0) {
@@ -3974,7 +4495,7 @@ void CProjectileTravelling::AimAtPoint(int x, int y)
     // Decode the subpixel position back to the cell position (undo the 1/1024
     // fixed point and, for y, the 4/3 iso scale).
     m_pos.x = m_posAccumX >> 10;
-    m_pos.y = ((m_posAccumY * 3) / 4) >> 10;
+    m_pos.y = (static_cast<LONG>(static_cast<DWORD>(m_posAccumY) * 3) / 4) >> 10;
 
     // Keep the attached object (m_nTargetId) at the projectile's height.
     if (m_nTargetId != CGameObjectArray::INVALID_INDEX) {
@@ -4140,6 +4661,44 @@ void CProjectileTravelling::GetCellBounds(CRect& rBounds, CPoint& ptRef, CVidCel
         if (rBounds.right < extX) rBounds.right = extX;
         if (rBounds.bottom < extY) rBounds.bottom = extY;
     }
+}
+
+// 0x531360
+CProjectileBolt::CProjectileBolt()
+    : CProjectileTravelling(CResRef("BOLT"))
+{
+    m_pVidCell->SequenceSet(0);
+
+    m_tinted = 1;
+    m_useHeightOffset = 0;
+    m_mirror = 0;
+    m_hasShadowCell = 0;
+    m_dirCount = 16;
+    m_fireSoundRef = CResRef("");
+    m_velocity = static_cast<SHORT>(m_velocity * 5);
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    field_17E = "";
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x5319A0
+CProjectileSlingStone::CProjectileSlingStone()
+    : CProjectileTravelling(CResRef("MAGICSTN"))
+{
+    m_pVidCell->SequenceSet(0);
+    m_palette.SetRange(0, 0x1B, *g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_pVidCell->SetPalette(m_palette);
+
+    m_tinted = 1;
+    m_useHeightOffset = 0;
+    m_mirror = 0;
+    m_hasShadowCell = 0;
+    m_dirCount = 1;
+    m_fireSoundRef = CResRef("");
+    m_velocity = static_cast<SHORT>(m_velocity * 5);
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    field_17E = "";
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
 }
 
 // 0x5324A0
@@ -4323,7 +4882,112 @@ CProjectileExploding::CProjectileExploding(const CResRef& resRef)
     m_burstType = 0xFF;
 }
 
-// 0x52DD60 (vtable slot 3)
+// 0x52CF80
+void CProjectileExploding::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    CProjectileTravelling::Render(pArea, pVidMode, nSurface);
+    if (m_nState == 0 || m_bExplodeCell1Active == 0) {
+        return;
+    }
+
+    COLORREF tintColor = RGB(0xFF, 0xFF, 0xFF);
+    DWORD flags = GetRenderFlags();
+    // The native tile index is sign-extended from its low WORD, including
+    // the intermediate 16-bit product of the row and visibility-map width.
+    SHORT tileIndex = static_cast<SHORT>(static_cast<SHORT>(m_pos.y / CVisibilityMap::SQUARE_SIZEY)
+        * m_pArea->m_visibility.m_nWidth + m_pos.x / CVisibilityMap::SQUARE_SIZEX);
+    if (!m_pArea->m_visibility.IsTileVisible(tileIndex)) {
+        return;
+    }
+    CPoint searchPos(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX, m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    if (m_pArea->m_search.GetMobileCost(searchPos, m_terrainTable, 3, TRUE) == CPathSearch::COST_IMPASSABLE) {
+        return;
+    }
+    if (m_mirror != 0) {
+        flags |= 0x200;
+    }
+    if (m_tinted != 0) {
+        flags |= 0x10000;
+    }
+    if (m_bExplodeCell2Active != 0) {
+        flags |= 0x4;
+    }
+
+    CInfinity* pInfinity = m_pArea->GetInfinity();
+    CRect rViewport(pInfinity->nCurrentX,
+        pInfinity->nCurrentY,
+        pInfinity->nCurrentX + pInfinity->rViewPort.Width(),
+        pInfinity->nCurrentY + pInfinity->rViewPort.Height());
+    CRect rFX;
+    CPoint ptRef;
+    // Deliberately measure the travel cell, not either explosion cell. This
+    // qualified non-virtual call is what 52D111 invokes with a NULL cell.
+    GetCellBounds(rFX, ptRef, NULL);
+
+    CPoint newPos = m_pos;
+    LONG zOffset;
+    if ((m_mirror == 0 || g_pBaldurChitin->cVideo.m_bIs3dAccelerated != 0)
+        && m_bExplodeCell2Active == 0) {
+        newPos.y -= m_posZ;
+        zOffset = 0;
+    } else {
+        zOffset = m_posZ;
+    }
+    if (m_useHeightOffset != 0) {
+        newPos.y += m_pArea->GetHeightOffset(m_pos, m_listType);
+    }
+
+    CRect rGCBounds(0, 0, 0, 0);
+    if (CGameSprite::DIR_N < m_direction) {
+        rGCBounds.left = (ptRef.x - rFX.right) + newPos.x + rFX.left;
+    } else {
+        rGCBounds.left = newPos.x - ptRef.x;
+    }
+    if (CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E) {
+        if ((m_mirror == 0 || g_pBaldurChitin->cVideo.m_bIs3dAccelerated != 0)
+            && m_bExplodeCell2Active == 0) {
+            rGCBounds.top = (rFX.top - rFX.bottom) + ptRef.y + newPos.y;
+        } else {
+            ptRef.y = (rFX.bottom - rFX.top) - ptRef.y;
+            rGCBounds.top = (newPos.y - m_posZ) - ptRef.y;
+        }
+        zOffset = -zOffset;
+    } else {
+        rGCBounds.top = newPos.y - ptRef.y;
+    }
+    rGCBounds.right = rGCBounds.left + rFX.Width();
+    rGCBounds.bottom = rGCBounds.top + rFX.Height();
+    if (!IntersectRect(&rViewport, &rGCBounds, &rViewport)) {
+        return;
+    }
+    if (m_tinted != 0 || m_mirror != 0) {
+        tintColor = m_pArea->GetTintColor(newPos, m_listType);
+    }
+    if (CGameSprite::DIR_N < m_direction) {
+        flags |= CInfinity::MIRROR_FX;
+    }
+    if (CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E) {
+        flags |= CInfinity::MIRROR_FX_UPDOWN;
+    }
+
+    // COPYFROMBACK is added only for FXPrep on this path. The following
+    // lock/render/clip/unlock/blit calls keep the original render flags.
+    pInfinity->FXPrep(rFX, CInfinity::FXPREP_COPYFROMBACK | flags, nSurface, newPos, ptRef);
+    if (pInfinity->FXLock(rFX, flags)) {
+        if (m_tinted != 0) {
+            m_explodeCell1.SetTintColor(tintColor);
+        }
+        if (m_bExplodeCell2Active != 0) {
+            pInfinity->FXRender(&m_explodeCell2, ptRef.x, ptRef.y, flags, 0);
+        }
+        pInfinity->FXRender(&m_explodeCell1, ptRef.x, ptRef.y - zOffset, flags, 0x80);
+        pInfinity->FXRenderClippingPolys(newPos.x, newPos.y, 0, ptRef, rGCBounds, FALSE, flags);
+        pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
+        pInfinity->FXBltFrom(nSurface, rFX, newPos.x, newPos.y, ptRef.x, ptRef.y, flags);
+    }
+}
+
+// Vtable slot 3.
 //
 // The base flying/linger tick -- the leaves override it with their
 // flame-trail variants. Flying: advance the cell, re-aim at the recorded
@@ -4331,6 +4995,7 @@ CProjectileExploding::CProjectileExploding(const CResRef& resRef)
 // run the strike pass every m_lingerPeriod ticks, and while charges remain
 // fire the pending delayed burst (one-shot) with the colour ranges matching
 // m_burstType and a hold of lingerPeriod * strikesLeft.
+// 0x52DD60
 void CProjectileExploding::AIUpdate()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
@@ -4341,20 +5006,23 @@ void CProjectileExploding::AIUpdate()
     if (m_nState == 0) {
         m_pVidCell->FrameAdvance();
 
-        LONG nDeltaX = m_targetX - m_pos.x;
-        LONG nDeltaY = m_targetY - m_pos.y;
+        DWORD nDeltaX = static_cast<DWORD>(m_targetX) - m_pos.x;
+        DWORD nDeltaY = static_cast<DWORD>(m_targetY) - m_pos.y;
         LONG nRadius = m_velocity + 1;
-        if ((nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX <= nRadius * nRadius) {
+        LONG nDistance = static_cast<LONG>(static_cast<DWORD>(
+            static_cast<LONG>(nDeltaY * nDeltaY * 16) / 9) + nDeltaX * nDeltaX);
+        if (nDistance <= nRadius * nRadius) {
             OnArrival();
             return;
         }
 
         AimAtPoint(m_targetX, m_targetY);
 
-        // Trailing sub-projectile (m_bSparkleTrail != 0) via the unrecovered
-        // factory 0x51AE40 -- omitted like the same documented stub in
-        // CProjectileTravelling::AIUpdate. (The original builds the 0xCA
-        // object from m_sparkleColor and adds it to the area, LIST_FRONT.)
+        if (m_bSparkleTrail != FALSE) {
+            CSparkleCluster* trail = new CSparkleCluster(m_sparkleColor,
+                CSparkleCluster::TYPE_TRAVEL, CSparkleCluster::DEFAULT_CONJURE_DURATION);
+            trail->AddToArea(m_pArea, m_pos, m_posZ, CGameObject::LIST_FRONT);
+        }
 
         m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
         return;
@@ -4567,7 +5235,7 @@ void CProjectileExploding::Fire(CGameArea* pArea, LONG source, LONG target,
     }
 
     CPoint ptSource;
-    GetProjectileSourcePosition(m_sourceId, ptSource);
+    GetStart(m_sourceId, ptSource, TRUE);
 
     if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
         != CGameObjectArray::SUCCESS) {
@@ -4692,10 +5360,12 @@ void CProjectileExplodingFlame::AIUpdate()
             // flame trail.
             m_pVidCell->FrameAdvance();
 
-            LONG nDeltaX = m_targetX - m_pos.x;
-            LONG nDeltaY = m_targetY - m_pos.y;
+            DWORD nDeltaX = static_cast<DWORD>(m_targetX) - m_pos.x;
+            DWORD nDeltaY = static_cast<DWORD>(m_targetY) - m_pos.y;
             LONG nRadius = m_velocity + 1;
-            if (nRadius * nRadius < (nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX) {
+            LONG nDistance = static_cast<LONG>(static_cast<DWORD>(
+                static_cast<LONG>(nDeltaY * nDeltaY * 16) / 9) + nDeltaX * nDeltaX);
+            if (nRadius * nRadius < nDistance) {
                 if (m_targetId == CGameObjectArray::INVALID_INDEX) {
                     AimAtPoint(m_targetX, m_targetY);
                 } else {
@@ -4731,8 +5401,8 @@ void CProjectileExplodingFlame::AIUpdate()
                         m_trailColorRanges,
                         sSoundName,
                         m_pArea,
-                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 4 / 3,
-                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 4 / 3),
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - static_cast<LONG>(static_cast<DWORD>(m_stepX) * 4) / 3,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - static_cast<LONG>(static_cast<DWORD>(m_stepY) * 4) / 3),
                         -m_posZ,
                         CPoint(0, 0),
                         0,
@@ -4759,8 +5429,8 @@ void CProjectileExplodingFlame::AIUpdate()
                         m_trailColorRanges,
                         sSoundName,
                         m_pArea,
-                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 2 / 3,
-                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 2 / 3),
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - static_cast<LONG>(static_cast<DWORD>(m_stepX) * 2) / 3,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - static_cast<LONG>(static_cast<DWORD>(m_stepY) * 2) / 3),
                         -m_posZ,
                         CPoint(0, 0),
                         0,
@@ -4768,9 +5438,11 @@ void CProjectileExplodingFlame::AIUpdate()
                         CGameTemporal::COLLISION_DESTROY);
                 }
 
-                // Trailing sub-projectile (+0xE2 != 0) via the unrecovered
-                // factory 0x51AE40 -- omitted like the same documented stub in
-                // CProjectileTravelling::AIUpdate.
+                if (m_bSparkleTrail != FALSE) {
+                    CSparkleCluster* trail = new CSparkleCluster(m_sparkleColor,
+                        CSparkleCluster::TYPE_TRAVEL, CSparkleCluster::DEFAULT_CONJURE_DURATION);
+                    trail->AddToArea(m_pArea, m_pos, m_posZ, CGameObject::LIST_FRONT);
+                }
 
                 m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
             } else {
@@ -4834,10 +5506,9 @@ CProjectileExplodingWeapon::CProjectileExplodingWeapon()
     m_childProjectileType = 0x4E;
 }
 
-// 0x52E4D0
-//
 // Same tick as CProjectileExplodingFlame::AIUpdate minus the live-target
 // homing: the missile only ever re-aims at the recorded target point.
+// 0x52E4D0
 void CProjectileExplodingWeapon::AIUpdate()
 {
     CString sSoundName("");
@@ -4847,10 +5518,12 @@ void CProjectileExplodingWeapon::AIUpdate()
         if (m_nState == 0) {
             m_pVidCell->FrameAdvance();
 
-            LONG nDeltaX = m_targetX - m_pos.x;
-            LONG nDeltaY = m_targetY - m_pos.y;
+            DWORD nDeltaX = static_cast<DWORD>(m_targetX) - m_pos.x;
+            DWORD nDeltaY = static_cast<DWORD>(m_targetY) - m_pos.y;
             LONG nRadius = m_velocity + 1;
-            if (nRadius * nRadius < (nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX) {
+            LONG nDistance = static_cast<LONG>(static_cast<DWORD>(
+                static_cast<LONG>(nDeltaY * nDeltaY * 16) / 9) + nDeltaX * nDeltaX);
+            if (nRadius * nRadius < nDistance) {
                 AimAtPoint(m_targetX, m_targetY);
 
                 m_trailTick = m_trailTick + 1;
@@ -4863,8 +5536,8 @@ void CProjectileExplodingWeapon::AIUpdate()
                         m_trailColorRanges,
                         sSoundName,
                         m_pArea,
-                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 4 / 3,
-                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 4 / 3),
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - static_cast<LONG>(static_cast<DWORD>(m_stepX) * 4) / 3,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - static_cast<LONG>(static_cast<DWORD>(m_stepY) * 4) / 3),
                         -m_posZ,
                         CPoint(0, 0),
                         0,
@@ -4891,8 +5564,8 @@ void CProjectileExplodingWeapon::AIUpdate()
                         m_trailColorRanges,
                         sSoundName,
                         m_pArea,
-                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - m_stepX * 2 / 3,
-                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - m_stepY * 2 / 3),
+                        CPoint(((m_pos.x + nJitterX - 2) << CGameSprite::EXACT_SCALE) - static_cast<LONG>(static_cast<DWORD>(m_stepX) * 2) / 3,
+                            ((m_pos.y + nJitterY - 2) << CGameSprite::EXACT_SCALE) - static_cast<LONG>(static_cast<DWORD>(m_stepY) * 2) / 3),
                         -m_posZ,
                         CPoint(0, 0),
                         0,
@@ -4900,9 +5573,11 @@ void CProjectileExplodingWeapon::AIUpdate()
                         CGameTemporal::COLLISION_DESTROY);
                 }
 
-                // Trailing sub-projectile (+0xE2 != 0) via the unrecovered
-                // factory 0x51AE40 -- omitted like the same documented stub in
-                // CProjectileTravelling::AIUpdate.
+                if (m_bSparkleTrail != FALSE) {
+                    CSparkleCluster* trail = new CSparkleCluster(m_sparkleColor,
+                        CSparkleCluster::TYPE_TRAVEL, CSparkleCluster::DEFAULT_CONJURE_DURATION);
+                    trail->AddToArea(m_pArea, m_pos, m_posZ, CGameObject::LIST_FRONT);
+                }
 
                 m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
             } else {
@@ -4994,7 +5669,7 @@ CProjectileSkullTrap::CProjectileSkullTrap(const CResRef& cMissileRef, const CRe
     m_bExplodeCell2Active = (cExplodeRef != "");
 }
 
-// 0x52F9E0 (vtable slot 3)
+// Vtable slot 3.
 //
 // Skull Trap tick. While flying (m_nState == 0): advance the cell, and once the
 // trap reaches its target point fire OnArrival; otherwise re-aim and keep the
@@ -5002,6 +5677,7 @@ CProjectileSkullTrap::CProjectileSkullTrap(const CResRef& cMissileRef, const CRe
 // m_lingerPeriod, runs an AreaEffect strike pass -- each landed strike spends a
 // charge and re-arms the timer; when the charges run out the trap removes
 // itself and is freed.
+// 0x52F9E0
 void CProjectileSkullTrap::AIUpdate()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
@@ -5012,20 +5688,23 @@ void CProjectileSkullTrap::AIUpdate()
     if (m_nState == 0) {
         m_pVidCell->FrameAdvance();
 
-        LONG nDeltaX = m_targetX - m_pos.x;
-        LONG nDeltaY = m_targetY - m_pos.y;
+        DWORD nDeltaX = static_cast<DWORD>(m_targetX) - m_pos.x;
+        DWORD nDeltaY = static_cast<DWORD>(m_targetY) - m_pos.y;
         LONG nRadius = m_velocity + 1;
-        if ((nDeltaY * nDeltaY * 16) / 9 + nDeltaX * nDeltaX <= nRadius * nRadius) {
+        LONG nDistance = static_cast<LONG>(static_cast<DWORD>(
+            static_cast<LONG>(nDeltaY * nDeltaY * 16) / 9) + nDeltaX * nDeltaX);
+        if (nDistance <= nRadius * nRadius) {
             OnArrival();
             return;
         }
 
         AimAtPoint(m_targetX, m_targetY);
 
-        // Trailing sub-projectile (m_bSparkleTrail != 0) via the unrecovered
-        // factory 0x51AE40 -- omitted like the same documented stub in
-        // CProjectileExploding::AIUpdate. (The original builds the 0xCA object
-        // from m_sparkleColor and adds it to the area.)
+        if (m_bSparkleTrail != FALSE) {
+            CSparkleCluster* trail = new CSparkleCluster(m_sparkleColor,
+                CSparkleCluster::TYPE_TRAVEL, CSparkleCluster::DEFAULT_CONJURE_DURATION);
+            trail->AddToArea(m_pArea, m_pos, m_posZ, CGameObject::LIST_FRONT);
+        }
 
         m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
         return;
@@ -5186,6 +5865,473 @@ CProjectileSparkle::CProjectileSparkle(SHORT nPaletteType)
 
     m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
     m_nTargetId = CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x531570
+CProjectileBoulder::CProjectileBoulder()
+    : CProjectileTravelling(CResRef("BOULDER"))
+{
+    m_pVidCell->SequenceSet(0);
+    m_tinted=TRUE; m_useHeightOffset=FALSE; m_mirror=FALSE; m_hasShadowCell=FALSE;
+    m_dirCount=16; m_fireSoundRef="";
+    m_velocity=static_cast<SHORT>(m_velocity*3/2);
+    m_callBackProjectile=CGameObjectArray::INVALID_INDEX;
+    field_17E=""; m_nTargetId=CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x531BE0
+CProjectileAxe::CProjectileAxe()
+    : CProjectileTravelling(CResRef("AXE"))
+{
+    m_pVidCell->SequenceSet(0);
+    m_tinted=TRUE; m_useHeightOffset=FALSE; m_mirror=FALSE; m_hasShadowCell=FALSE;
+    m_dirCount=16; m_fireSoundRef="";
+    m_velocity=static_cast<SHORT>(m_velocity*2);
+    m_callBackProjectile=CGameObjectArray::INVALID_INDEX;
+    field_17E=""; m_nTargetId=CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x531DF0
+CProjectileSpear::CProjectileSpear()
+    : CProjectileTravelling(CResRef("SPEAR"))
+{
+    m_pVidCell->SequenceSet(0);
+    m_tinted=TRUE; m_useHeightOffset=FALSE; m_mirror=FALSE; m_hasShadowCell=FALSE;
+    m_dirCount=16; m_fireSoundRef="";
+    m_velocity=static_cast<SHORT>(m_velocity*2);
+    m_callBackProjectile=CGameObjectArray::INVALID_INDEX;
+    field_17E=""; m_nTargetId=CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x532000
+CProjectileDagger::CProjectileDagger()
+    : CProjectileTravelling(CResRef("DAGGER"))
+{
+    m_pVidCell->SequenceSet(0);
+    auto* master=g_pBaldurChitin->GetObjectGame()->GetMasterBitmap();
+    m_palette.SetRange(5,0x1B,*master);
+    m_palette.SetRange(4,0x1E,*master);
+    m_pVidCell->SetPalette(m_palette);
+    m_tinted=TRUE; m_useHeightOffset=FALSE; m_mirror=FALSE; m_hasShadowCell=FALSE;
+    m_dirCount=16; m_fireSoundRef="";
+    m_velocity=static_cast<SHORT>(m_velocity*2);
+    m_callBackProjectile=CGameObjectArray::INVALID_INDEX;
+    field_17E=""; m_nTargetId=CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x532CA0
+CProjectileSPBRNHND::CProjectileSPBRNHND()
+    : CProjectileSprayLifetime(CResRef("SPBRNHND"))
+{
+    m_pVidCell->SequenceSet(0);
+    m_palette.SetRange(0,0x47,*g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_pVidCell->SetPalette(m_palette);
+    m_renderFlags|=CVIDCELL_BRIGHTEST;
+    m_tinted=FALSE; m_useHeightOffset=FALSE; m_mirror=FALSE; m_hasShadowCell=FALSE; m_dirCount=16;
+    m_fireSoundRef=""; m_animationLifetime=55;
+    m_callBackProjectile=CGameObjectArray::INVALID_INDEX;
+    field_17E=""; m_nTargetId=CGameObjectArray::INVALID_INDEX;
+    field_174=23; field_178=50;
+}
+
+namespace {
+// Native signed-WORD direction tables, 0x84D6B8..0x84D798.
+const SHORT SPRAY_VECTORS[8][16] = {
+    {-1000,-924,-707,-383,0,383,707,924,1000,924,707,383,0,-383,-707,-924},
+    {0,-383,-707,-924,-1000,-924,-707,-383,0,383,707,924,1000,924,707,383},
+    {0,-383,-707,-924,-1000,-924,-707,-383,0,383,707,924,1000,924,707,383},
+    {1000,924,707,383,0,-383,-707,-924,-1000,-924,-707,-383,0,383,707,924},
+    {1000,924,707,383,0,-383,-707,-924,-1000,-924,-707,-383,0,383,707,924},
+    {0,-383,-707,-924,-1000,-924,-707,-383,0,383,707,924,1000,924,707,383},
+    {0,383,707,924,1000,924,707,383,0,-383,-707,-924,-1000,-924,-707,-383},
+    {1000,924,707,383,0,-383,-707,-924,-1000,-924,-707,-383,0,383,707,924},
+};
+LONG SprayAdd(LONG a,LONG b) { return static_cast<LONG>(static_cast<DWORD>(a)+static_cast<DWORD>(b)); }
+LONG SprayProjection(LONG a,SHORT av,LONG b,SHORT bv,SHORT count) {
+    DWORD sum=static_cast<DWORD>(a)*static_cast<DWORD>(av)+static_cast<DWORD>(b)*static_cast<DWORD>(bv);
+    return static_cast<LONG>(sum*static_cast<DWORD>(count))/1000;
+}
+}
+
+// 0x533600
+void CProjectileSPBRNHND::SpawnSpray(const CPoint& origin, LONG count, SHORT facing, BOOL oneSide)
+{
+    CPoint left(SprayAdd(origin.x,static_cast<SHORT>(SprayProjection(14,SPRAY_VECTORS[0][facing],32,SPRAY_VECTORS[1][facing],1))),
+        SprayAdd(origin.y,static_cast<SHORT>(SprayProjection(14,SPRAY_VECTORS[2][facing],32,SPRAY_VECTORS[3][facing],1))));
+    CPoint right(SprayAdd(origin.x,static_cast<SHORT>(SprayProjection(14,SPRAY_VECTORS[4][facing],32,SPRAY_VECTORS[5][facing],1))),
+        SprayAdd(origin.y,static_cast<SHORT>(SprayProjection(14,SPRAY_VECTORS[6][facing],32,SPRAY_VECTORS[7][facing],1))));
+    auto* first=new CProjectileSprayCell(m_pVidCell->GetResRef(),m_animationLifetime,facing,m_palette);
+    first->m_bHasHeight=m_bHasHeight; first->AddVisualToArea(m_pArea,left,m_posZ);
+    if (!oneSide) {
+        auto* second=new CProjectileSprayCell(m_pVidCell->GetResRef(),m_animationLifetime,facing,m_palette);
+        second->m_bHasHeight=m_bHasHeight; second->AddVisualToArea(m_pArea,right,m_posZ);
+    }
+    if (static_cast<SHORT>(count)-1>0) {
+        LONG next=SprayAdd(count,-1);
+        SpawnSpray(left,next,facing,TRUE);
+        if (!oneSide) SpawnSpray(right,next,facing,FALSE);
+    }
+}
+
+// 0x532F00
+void CProjectileSPBRNHND::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)nType;
+    m_sourceId=source; m_targetId=target; m_pArea=pArea;
+    auto* objects=g_pBaldurChitin->GetObjectGame()->GetObjectArray(); CGameObject* caster; BYTE rc;
+    do { rc=objects->GetShare(source,CGameObjectArray::THREAD_ASYNCH,&caster,INFINITE); }
+    while (rc==CGameObjectArray::SHARED || rc==CGameObjectArray::DENIED);
+    if (rc!=CGameObjectArray::SUCCESS) return;
+    CPoint start; GetStart(source,start,TRUE);
+    LONG dx=static_cast<LONG>(static_cast<DWORD>(targetPos.x)-static_cast<DWORD>(start.x));
+    LONG dy=static_cast<LONG>(static_cast<DWORD>(targetPos.y)-static_cast<DWORD>(start.y));
+    if (dx<-10) start.x=SprayAdd(start.x,-10); else if (dx>10) start.x=SprayAdd(start.x,10);
+    if (dy<-10) start.y=SprayAdd(start.y,-10); else if (dy>10) start.y=SprayAdd(start.y,10);
+    if (objects->Add(&m_id,this,INFINITE)!=CGameObjectArray::SUCCESS) {
+        delete this; objects->ReleaseShare(source,CGameObjectArray::THREAD_ASYNCH,INFINITE); return;
+    }
+    CGameObject::AddToArea(pArea,start,nHeight,CGameObject::LIST_FRONT);
+    PlaySound(m_fireSoundRef,m_loopFireSound,FALSE);
+    m_pos=start; m_targetX=targetPos.x; m_targetY=targetPos.y;
+    m_posAccumX=static_cast<LONG>(static_cast<DWORD>(start.x)<<10);
+    m_posAccumY=static_cast<LONG>(static_cast<DWORD>(start.y)<<12)/3;
+    CPoint scaledStart(start.x,static_cast<LONG>(static_cast<DWORD>(start.y)*4)/3);
+    CPoint scaledTarget(targetPos.x,static_cast<LONG>(static_cast<DWORD>(targetPos.y)*4)/3);
+    m_facing=CGameSprite::GetDirection(scaledStart,scaledTarget);
+    DWORD x=static_cast<DWORD>(start.x)-static_cast<DWORD>(targetPos.x),y=static_cast<DWORD>(start.y)-static_cast<DWORD>(targetPos.y);
+    LONG metric=static_cast<LONG>(x*x+y*y);
+    LONG count=static_cast<LONG>(static_cast<LONGLONG>(sqrt(static_cast<double>(metric))))/32;
+    SpawnSpray(m_pos,count,m_facing,FALSE);
+    SHORT n=static_cast<SHORT>(count),f=m_facing;
+    CPoint polygon[3]={m_pos,m_pos,m_pos};
+    polygon[1].x=SprayAdd(SprayAdd(m_pos.x,SprayProjection(14,SPRAY_VECTORS[0][f],32,SPRAY_VECTORS[1][f],n)),
+        SprayProjection(field_174,SPRAY_VECTORS[0][f],field_178,SPRAY_VECTORS[1][f],n));
+    polygon[1].y=SprayAdd(SprayAdd(m_pos.y,SprayProjection(14,SPRAY_VECTORS[2][f],32,SPRAY_VECTORS[3][f],n)),
+        SprayProjection(field_174,SPRAY_VECTORS[2][f],field_178,SPRAY_VECTORS[3][f],n));
+    polygon[2].x=SprayAdd(SprayAdd(m_pos.x,SprayProjection(14,SPRAY_VECTORS[4][f],32,SPRAY_VECTORS[5][f],n)),
+        SprayProjection(SprayAdd(field_174,field_178),SPRAY_VECTORS[4][f],0,0,n));
+    polygon[2].y=SprayAdd(SprayAdd(m_pos.y,SprayProjection(14,SPRAY_VECTORS[6][f],32,SPRAY_VECTORS[7][f],n)),
+        SprayProjection(SprayAdd(field_174,field_178),SPRAY_VECTORS[6][f],0,0,n));
+    CRect bounds(min(polygon[0].x,min(polygon[1].x,polygon[2].x)),min(polygon[0].y,min(polygon[1].y,polygon[2].y)),
+        max(polygon[0].x,max(polygon[1].x,polygon[2].x)),max(polygon[0].y,max(polygon[1].y,polygon[2].y)));
+    CTypedPtrList<CPtrList,LONG*> targets;
+    pArea->GetAllInPoly(bounds,polygon,3,CAIObjectType::ANYONE,pArea->m_visibleTerrainTable,targets,TRUE);
+    POSITION pos=targets.GetHeadPosition();
+    while (pos) {
+        LONG id=reinterpret_cast<LONG>(targets.GetNext(pos)); CGameObject* object;
+        if (objects->GetShare(id,CGameObjectArray::THREAD_ASYNCH,&object,INFINITE)!=CGameObjectArray::SUCCESS) continue;
+        if (object->GetObjectType() & CGameObject::TYPE_AIBASE) {
+            POSITION effect=m_effectList.GetHeadPosition();
+            while (effect) g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageAddEffect(m_effectList.GetNext(effect)->Copy(),source,id),FALSE);
+        }
+        objects->ReleaseShare(id,CGameObjectArray::THREAD_ASYNCH,INFINITE);
+    }
+    objects->ReleaseShare(source,CGameObjectArray::THREAD_ASYNCH,INFINITE);
+    DeliverEffects();
+}
+
+// 0x533A50
+void CProjectileSprayLifetime::AIUpdate()
+{
+    auto* game=g_pBaldurChitin->GetObjectGame();
+    if (game->m_nTimeStop!=0 && game->m_nTimeStopCaster!=m_id) return;
+    m_animationLifetime=static_cast<SHORT>(m_animationLifetime-1);
+    m_pVidCell->FrameAdvance();
+    if (m_animationLifetime<=0) {
+        RemoveFromArea();
+        if (game->GetObjectArray()->Delete(m_id,CGameObjectArray::THREAD_ASYNCH,NULL,INFINITE)==CGameObjectArray::SUCCESS) delete this;
+    }
+}
+
+// 0x533AE0
+void CProjectileSprayCell::AddVisualToArea(CGameArea* area, const CPoint& point, LONG height)
+{
+    m_pArea=area;
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id,this,INFINITE)!=CGameObjectArray::SUCCESS) {
+        delete this; return;
+    }
+    CGameObject::AddToArea(area,point,height,CGameObject::LIST_FRONT);
+    m_sound.Stop();
+    if (m_fireSoundRef!="") {
+        m_sound.SetResRef(m_fireSoundRef,TRUE,TRUE);
+        if (m_loopFireSound) m_sound.SetLoopingFlag(TRUE);
+        m_sound.SetChannel(15,reinterpret_cast<DWORD>(m_pArea));
+        m_sound.Play(m_pos.x,m_pos.y,0,FALSE);
+    }
+}
+
+// 0x535320
+CProjectilePhaseBAM::CProjectilePhaseBAM(const CString& visual, const CString& sound, const CString& palette, DWORD flags, BYTE transparency)
+{
+    m_visualBase=visual;
+    m_vidCell.SetResRef(CResRef(visual+"2"),FALSE,TRUE,TRUE);
+    m_hasPalette=!palette.IsEmpty();
+    if (m_hasPalette) {
+        m_bitmap.SetResRef(CResRef(palette),TRUE,TRUE);
+        m_bitmap.m_bDoubleSize=FALSE;
+    }
+    m_vidCell.SequenceSet(0);
+    m_vidCell.FrameSet(0);
+    m_fireSoundRef=CResRef(sound);
+    m_translucency=transparency;
+    m_phase=0;
+    m_renderFlags=flags;
+}
+
+// 0x5357B0
+void CProjectilePhaseBAM::AIUpdate()
+{
+    auto* game=g_pBaldurChitin->GetObjectGame();
+    if (game->m_nTimeStop!=0 && game->m_nTimeStopCaster!=m_id) return;
+    switch (m_phase) {
+    case 0:
+        if (m_vidCell.IsEndOfSequence(FALSE)) {
+            m_vidCell.SetResRef(CResRef(m_visualBase+"1"),FALSE,TRUE,TRUE);
+            m_vidCell.SequenceSet(0);
+            m_vidCell.FrameSet(0);
+            ++m_phase;
+        } else m_vidCell.FrameAdvance();
+        break;
+    case 1: case 2: case 3:
+        if (m_vidCell.IsEndOfSequence(FALSE)) {
+            m_vidCell.FrameSet(0);
+            ++m_phase;
+        }
+        m_vidCell.FrameAdvance();
+        break;
+    case 4:
+        if (m_vidCell.IsEndOfSequence(FALSE)) {
+            m_vidCell.SetResRef(CResRef(m_visualBase+"2"),FALSE,TRUE,TRUE);
+            m_vidCell.SequenceSet(0);
+            m_vidCell.FrameSet(m_vidCell.GetSequenceLength(m_vidCell.GetCurrentSequenceId(),FALSE)-1);
+            ++m_phase;
+        } else m_vidCell.FrameAdvance();
+        break;
+    case 5:
+        if (m_vidCell.m_nCurrentFrame==0) {
+            OnArrival();
+            return;
+        }
+        m_vidCell.m_nCurrentFrame=static_cast<SHORT>(static_cast<USHORT>(m_vidCell.m_nCurrentFrame)-1);
+        break;
+    }
+    m_sound.SetCoordinates(m_pos.x,m_pos.y,m_posZ);
+}
+
+// 0x535A40
+void CProjectilePhaseBAM::Render(CGameArea* area, CVidMode* mode, int surface)
+{
+    (void)area;
+    UTIL_ASSERT(mode!=NULL);
+    SHORT tileX=static_cast<SHORT>(m_pos.x/CVisibilityMap::SQUARE_SIZEX);
+    SHORT tileY=static_cast<SHORT>(m_pos.y/CVisibilityMap::SQUARE_SIZEY);
+    SHORT tile=static_cast<SHORT>(static_cast<DWORD>(tileY)*static_cast<DWORD>(m_pArea->m_visibility.m_nWidth)
+        +static_cast<DWORD>(tileX));
+    if (!m_pArea->m_visibility.IsTileVisible(tile)) return;
+    auto* infinity=m_pArea->GetInfinity();
+    CRect viewport(infinity->nCurrentX,infinity->nCurrentY,
+        static_cast<LONG>(static_cast<DWORD>(infinity->nCurrentX)+static_cast<DWORD>(infinity->rViewPort.Width())),
+        static_cast<LONG>(static_cast<DWORD>(infinity->nCurrentY)+static_cast<DWORD>(infinity->rViewPort.Height())));
+    CPoint pos(m_pos.x,static_cast<LONG>(static_cast<DWORD>(m_pArea->GetHeightOffset(m_pos,m_listType))
+        +static_cast<DWORD>(m_pos.y)-static_cast<DWORD>(m_posZ)));
+    CPoint reference; CSize size;
+    m_vidCell.GetCurrentCenterPoint(reference,FALSE);
+    m_vidCell.GetCurrentFrameSize(size,FALSE);
+    CRect fx(0,0,size.cx,size.cy);
+    CRect bounds(static_cast<LONG>(static_cast<DWORD>(pos.x)-static_cast<DWORD>(reference.x)),
+        static_cast<LONG>(static_cast<DWORD>(pos.y)-static_cast<DWORD>(reference.y)),0,0);
+    bounds.right=static_cast<LONG>(static_cast<DWORD>(bounds.left)+static_cast<DWORD>(size.cx));
+    bounds.bottom=static_cast<LONG>(static_cast<DWORD>(bounds.top)+static_cast<DWORD>(size.cy));
+    CRect intersection; intersection.IntersectRect(bounds,viewport);
+    if (intersection.IsRectEmpty()) return;
+    DWORD flags=m_renderFlags!=0?m_renderFlags|CInfinity::FXPREP_COPYFROMBACK:CInfinity::FXPREP_CLEARFILL|1;
+    infinity->FXPrep(fx,flags,surface,pos,reference);
+    if (infinity->FXLock(fx,flags)) {
+        if (m_hasPalette) {
+            m_bitmap.pRes->Demand();
+            int count=m_bitmap.pRes->GetColorCount();
+            m_vidCell.SetPalette(m_bitmap.pRes->GetColorTable(),count,CVidPalette::TYPE_RESOURCE);
+            infinity->FXRender(&m_vidCell,reference.x,reference.y,flags,m_translucency);
+            m_bitmap.pRes->Release();
+        } else infinity->FXRender(&m_vidCell,reference.x,reference.y,flags,m_translucency);
+        infinity->FXRenderClippingPolys(pos.x,pos.y,0,reference,bounds,FALSE,flags);
+        infinity->FXUnlock(flags,NULL,CPoint(0,0));
+        infinity->FXBltFrom(surface,fx,pos.x,pos.y,reference.x,reference.y,flags);
+    }
+}
+
+// 0x535D20
+void CProjectilePhaseBAM::Fire(CGameArea* area, LONG source, LONG target, CPoint point, LONG height, SHORT kind)
+{
+    (void)point; (void)height; (void)kind;
+    m_sourceId=source;
+    m_targetId=target;
+    m_pArea=area;
+    DeliverEffects();
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id,this,INFINITE)!=CGameObjectArray::SUCCESS) {
+        delete this;
+        return;
+    }
+    CPoint pos;
+    GetStart(target,pos,FALSE);
+    pos.y=static_cast<LONG>(static_cast<DWORD>(pos.y)-1);
+    CGameObject::AddToArea(area,pos,0,LIST_FRONT);
+    m_sound.Stop();
+    if (m_fireSoundRef!=CResRef("")) {
+        m_sound.SetResRef(m_fireSoundRef,TRUE,TRUE);
+        if (m_loopFireSound) m_sound.SetLoopingFlag(TRUE);
+        m_sound.SetChannel(15,reinterpret_cast<DWORD>(m_pArea));
+        m_sound.Play(m_pos.x,m_pos.y,0,FALSE);
+    }
+}
+
+// 0x533CB0
+CProjectileFollowUp::CProjectileFollowUp(USHORT childType, CResRef resRef, SHORT remaining, SHORT interval, BOOL keepSource, CAIObjectType type)
+    : CProjectileTravelling(resRef)
+{
+    m_launchHeight=0;
+    m_launchKind=0;
+    m_checkLOS=FALSE;
+    m_delay=0;
+    m_pVidCell->SequenceSet(0);
+    m_childType=childType;
+    m_remainingShots=remaining;
+    m_interval=interval;
+    m_keepSource=keepSource;
+    m_ready=FALSE;
+    m_targetType.Set(type);
+    m_nextProjectile=CProjectile::DecodeProjectile(static_cast<USHORT>(m_childType+1),NULL,0);
+    m_callBackProjectile=CGameObjectArray::INVALID_INDEX;
+    field_17E="";
+    m_nTargetId=CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x534600
+CProjectileMAGMISS::CProjectileMAGMISS(SHORT count, USHORT unused)
+    : CProjectileFollowUp(0x16,CResRef("MAGMISS"),count,300,TRUE,CAIObjectType::ANYONE)
+{
+    (void)unused;
+    m_mirrorMinX=10;
+    m_mirrorMinY=7;
+    m_tinted=FALSE;
+    m_useHeightOffset=FALSE;
+    m_mirror=TRUE;
+    m_leafRenderParam=0x80;
+    m_hasShadowCell=FALSE;
+    m_dirCount=1;
+    m_fireSoundRef="";
+    m_callBackProjectile=CGameObjectArray::INVALID_INDEX;
+    field_17E="";
+    m_nTargetId=CGameObjectArray::INVALID_INDEX;
+    CAIObjectType type;
+    type.m_nEnemyAlly=CAIObjectType::EA_GOODCUTOFF;
+    m_targetType.Set(type);
+    m_checkLOS=TRUE;
+}
+
+// 0x533F40
+void CProjectileFollowUp::Fire(CGameArea* area, LONG source, LONG target, CPoint point, LONG height, SHORT kind)
+{
+    m_sourceId=source; m_targetId=target; m_targetX=point.x; m_targetY=point.y; m_facing=0;
+    POSITION pos=m_effectList.GetHeadPosition();
+    while (pos) {
+        auto* copy=m_effectList.GetNext(pos)->Copy(); copy->m_slotNum=m_nextProjectile->m_projectileType;
+        m_nextProjectile->m_effectList.AddTail(copy);
+    }
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id,this,INFINITE)!=CGameObjectArray::SUCCESS) {
+        delete this; return;
+    }
+    CGameObject::AddToArea(area,point,height,CGameObject::LIST_FRONT);
+    PlaySound(m_fireSoundRef,m_loopFireSound,FALSE);
+    m_pArea=area; m_nextProjectile->m_callBackProjectile=m_id; m_launchHeight=height; m_ready=FALSE;
+    m_nextProjectile->Fire(area,source,target,point,height,kind);
+    m_nextProjectile=CProjectile::DecodeProjectile(static_cast<USHORT>(m_childType+1),NULL,0);
+    m_nextProjectile->m_nSpellLevel=m_nSpellLevel; m_nextProjectile->m_casterResRef=m_casterResRef;
+    m_remainingShots=static_cast<SHORT>(m_remainingShots-1); m_delay=m_interval;
+}
+
+// 0x534140
+void CProjectileFollowUp::AIUpdate()
+{
+    auto* game=g_pBaldurChitin->GetObjectGame(); auto* objects=game->GetObjectArray();
+    if ((game->m_nTimeStop!=0 && game->m_nTimeStopCaster!=m_id) || !m_ready) return;
+    if (m_delay>0) { --m_delay; return; }
+    BYTE rc;
+    if (m_remainingShots>0) {
+        m_nextProjectile->m_callBackProjectile=m_id; CGameObject* previous;
+        do { rc=objects->GetShare(m_targetId,CGameObjectArray::THREAD_ASYNCH,&previous,INFINITE); }
+        while (rc==CGameObjectArray::SHARED || rc==CGameObjectArray::DENIED);
+        if (rc!=CGameObjectArray::SUCCESS) { RemoveSelf(); return; }
+        if (previous->m_pArea!=m_pArea) {
+            LONG oldTarget=m_targetId; RemoveSelf(); objects->ReleaseShare(oldTarget,CGameObjectArray::THREAD_ASYNCH,INFINITE); return;
+        }
+        SHORT range=static_cast<SHORT>(static_cast<DWORD>(m_pArea->m_visibility.m_nSearchRangeH)<<5);
+        LONG next;
+        if (previous->GetVertListType()==CGameObject::LIST_FRONT)
+            next=m_pArea->GetNearest(m_targetId,m_targetType,range,CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE,m_checkLOS,TRUE,FALSE,0,FALSE);
+        else {
+            CPoint point=previous->GetPos();
+            next=m_pArea->FindObjectNear(point.x,point.y,m_targetType,range,CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE,m_checkLOS,TRUE,FALSE,FALSE);
+        }
+        objects->ReleaseShare(m_targetId,CGameObjectArray::THREAD_ASYNCH,INFINITE);
+        if (next!=CGameObjectArray::INVALID_INDEX) {
+            if (!m_keepSource) m_sourceId=m_targetId;
+            m_targetId=next; CGameObject* target;
+            do { rc=objects->GetShare(m_targetId,CGameObjectArray::THREAD_ASYNCH,&target,INFINITE); }
+            while (rc==CGameObjectArray::SHARED || rc==CGameObjectArray::DENIED);
+            if (rc!=CGameObjectArray::SUCCESS) return;
+            CPoint point=target->GetPos(); m_targetX=point.x; m_targetY=point.y;
+            objects->ReleaseShare(m_targetId,CGameObjectArray::THREAD_ASYNCH,INFINITE);
+            POSITION pos=m_effectList.GetHeadPosition();
+            while (pos) {
+                auto* copy=m_effectList.GetNext(pos)->Copy(); copy->m_slotNum=m_nextProjectile->m_projectileType;
+                m_nextProjectile->m_effectList.AddTail(copy);
+            }
+            m_ready=FALSE; m_nextProjectile->Fire(m_pArea,m_sourceId,m_targetId,point,m_launchHeight,m_launchKind);
+            m_nextProjectile=CProjectile::DecodeProjectile(static_cast<USHORT>(m_childType+1),NULL,0);
+            m_nextProjectile->m_nSpellLevel=m_nSpellLevel; m_nextProjectile->m_casterResRef=m_casterResRef;
+            m_remainingShots=static_cast<SHORT>(m_remainingShots-1); m_delay=m_interval; return;
+        }
+    }
+    if (m_callBackProjectile!=CGameObjectArray::INVALID_INDEX) {
+        CGameObject* parent;
+        do { rc=objects->GetDeny(m_callBackProjectile,CGameObjectArray::THREAD_ASYNCH,&parent,INFINITE); }
+        while (rc==CGameObjectArray::SHARED || rc==CGameObjectArray::DENIED);
+        if (rc!=CGameObjectArray::SUCCESS) return;
+        static_cast<CProjectile*>(parent)->CallBack();
+        objects->ReleaseDeny(m_callBackProjectile,CGameObjectArray::THREAD_ASYNCH,INFINITE);
+    }
+    RemoveFromArea();
+    if (objects->Delete(m_id,CGameObjectArray::THREAD_ASYNCH,NULL,INFINITE)==CGameObjectArray::SUCCESS) delete this;
+}
+
+// 0x533DE0
+void CProjectileFollowUp::CallBack()
+{
+    m_ready=TRUE;
+}
+
+// 0x532260
+CProjectileAcidBlob::CProjectileAcidBlob()
+    : CProjectileTravelling(CResRef("ACIDBLOB"))
+{
+    m_pVidCell->SequenceSet(0);
+    m_palette.SetRange(0,CVIDPALETTE_ACID,*g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
+    m_pVidCell->SetPalette(m_palette);
+    m_tinted=TRUE; m_useHeightOffset=FALSE; m_mirror=FALSE; m_hasShadowCell=FALSE;
+    m_dirCount=16; m_fireSoundRef="";
+    m_callBackProjectile=CGameObjectArray::INVALID_INDEX;
+    field_17E=""; m_nTargetId=CGameObjectArray::INVALID_INDEX;
+}
+
+// 0x52B150
+void CProjectileTravelling::SetRange(USHORT range, USHORT value)
+{
+    // Native binds the shared color buffer and snapshots range metadata
+    // first. Reversing these calls changes the cell's cached range values.
+    m_pVidCell->SetPalette(m_palette);
+    m_palette.SetRange(range,value,*g_pBaldurChitin->GetObjectGame()->GetMasterBitmap());
 }
 
 // 0x5295D0
@@ -5441,14 +6587,13 @@ void CProjectileSPMAGMIS::PrimeAndFireSubMissile(CProjectileTravelling* pMissile
     pMissile->Fire(pArea, source, target, targetPos, 0, nType);
 }
 
-// 0x52B190 (vtable slot 19 -- Render)
-//
 // Tile-based draw of a travelling projectile: visibility/passability gates,
 // field-driven blit flags (mirror/tint/shadow), the directional-sequence
 // pick, then the CInfinity FX pipeline. Facings past CGameSprite::DIR_N
 // mirror the blit horizontally; the DIR_W..DIR_E window mirrors vertically
 // and flips the draw rect. m_paletteSwap swaps the cell palette from the
 // travel-palette bitmap around the main cell draw (sparkle streams).
+// 0x52B190 (vtable slot 19 -- Render)
 void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
     (void)pArea;
@@ -5465,7 +6610,8 @@ void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSu
     }
 
     // Tile-visibility gate (32x32 visibility tiles).
-    LONG tileIndex = (m_pos.y / 32) * m_pArea->m_visibility.m_nWidth + (m_pos.x / 32);
+    SHORT tileIndex = static_cast<SHORT>(static_cast<SHORT>(m_pos.y / CVisibilityMap::SQUARE_SIZEY)
+        * m_pArea->m_visibility.m_nWidth + m_pos.x / CVisibilityMap::SQUARE_SIZEX);
     if (!m_pArea->m_visibility.IsTileVisible(tileIndex)) {
         return;
     }
@@ -5586,16 +6732,17 @@ void CProjectileTravelling::Render(CGameArea* pArea, CVidMode* pVidMode, int nSu
 
 // -----------------------------------------------------------------------------
 
-// 0x578110
-//
 // The shared CProjectileTravelling state (heap cell from the resref, range
 // palette, velocity 0x14, lifetime 0x7FFF, render flags 0x20000, zeroed
 // motion fields) is identical in the binary and comes from the base ctor;
 // only the differences are written here. field_17E = "" transcribes the
 // binary's explicit CString assignment of the nil string.
+// 0x578110
 IcewindCProjectileTravellingVFX::IcewindCProjectileTravellingVFX(const CResRef& resRef)
     : CProjectileTravelling(resRef)
 {
+    // 0x578206: this family initializes the trail flag in its inlined base.
+    m_bSparkleTrail = FALSE;
     // Default projectile terrain-cost table (.data 0x8A8154): terrain types
     // 0, 10 and 13 are impassable, everything else costs 5.
     m_terrainTable[0] = CPathSearch::COST_IMPASSABLE;
@@ -5622,36 +6769,125 @@ IcewindCProjectileTravellingVFX::IcewindCProjectileTravellingVFX(const CResRef& 
 }
 
 // 0x578AB0 (vtable slot 3)
-// The family's flight tick is a verbatim copy of CProjectileTravelling::
-// AIUpdate (0x52B900): cell frame advance, 16x12-cell then radius
-// (velocity+1, y weighted 16/9) arrival tests into the OnArrival virtual,
-// lifetime countdown into RemoveSelf, AimAtPoint homing (point target when
-// m_targetId is INVALID_INDEX), trailing sub-projectile, sound follow.
-// Delegating shares that recovered body and its documented partial stubs
-// (pause-gate, live-target height interpolation, trailing factory).
 void IcewindCProjectileTravellingVFX::AIUpdate()
 {
-    CProjectileTravelling::AIUpdate();
+    // Time Stop gate (0x578ABE–0x578AEB): during Time Stop, only the
+    // caster's own projectiles continue to tick.  The check reads
+    // CInfGame::m_nTimeStop and m_nTimeStopCaster at +0x4B40/+0x4B44.
+    CInfGame* pGame = g_pBaldurChitin->m_pObjectGame;
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+
+    m_pVidCell->FrameAdvance();
+
+    // Arrival: target and position share the same 16-unit x and 12-unit y cell.
+    int posX = m_pos.x;
+    if (m_targetX / 16 == posX / 16
+        && m_targetY / 12 == m_pos.y / 12) {
+        OnArrival();
+        return;
+    }
+
+    // Arrival within the per-tick travel radius (velocity + 1); y weighted 16/9.
+    DWORD dy = static_cast<DWORD>(m_targetY) - static_cast<DWORD>(m_pos.y);
+    DWORD dx = static_cast<DWORD>(m_targetX) - static_cast<DWORD>(posX);
+    LONG dist = static_cast<LONG>(static_cast<DWORD>(static_cast<LONG>(dy * dy * 16) / 9) + dx * dx);
+    int radius = m_velocity + 1;
+    if (dist <= radius * radius) {
+        OnArrival();
+        return;
+    }
+    if (m_flightDistSq == 0) {
+        OnArrival();
+        return;
+    }
+
+    // Lifetime countdown.
+    SHORT life = m_lifetime;
+    m_lifetime = static_cast<SHORT>(life - 1);
+    if (life == 0) {
+        RemoveSelf();
+        return;
+    }
+
+    if (m_targetId == CGameObjectArray::INVALID_INDEX) {
+        AimAtPoint(m_targetX, m_targetY);
+    } else {
+        // Homing branch (0x578C1E–0x578E0D): share the live target, verify
+        // it is still in the same area, read its current position, then
+        // interpolate the projectile height toward the target and aim.
+        CGameObject* pTarget;
+        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+        if (rc != CGameObjectArray::SUCCESS) {
+            RemoveSelf();
+            return;
+        }
+
+        // Save the target id before RemoveSelf can delete this (0x578C7D).
+        if (m_pArea != pTarget->m_pArea) {
+            LONG targetId = m_targetId;
+            RemoveSelf();
+            g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(targetId,
+                CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return;
+        }
+
+        CPoint ptLive = pTarget->GetPos();
+
+        // Height interpolation. When m_hasDrift is
+        // false (plain Magic Missile), linearly step the projectile height
+        // toward the target using the stored delta-Z and distance metric.
+        // With drift, the binary queries height but restores the old m_posZ.
+        if (m_hasDrift == 0) {
+            SHORT stepDeltaZ = static_cast<SHORT>(
+                static_cast<LONG>(static_cast<DWORD>(m_nDeltaZ) * static_cast<DWORD>(dist)) / m_flightDistSq);
+            m_posZ = static_cast<LONG>(static_cast<DWORD>(m_posZ)
+                + static_cast<DWORD>(static_cast<int>(stepDeltaZ) - m_nDeltaZLast));
+            m_nDeltaZLast = stepDeltaZ;
+        } else if (pTarget->GetObjectType() == CGameObject::TYPE_SPRITE) {
+            BYTE rcDeny;
+            do {
+                rcDeny = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
+            } while (rcDeny == CGameObjectArray::SHARED);
+            if (rcDeny == CGameObjectArray::SUCCESS) {
+                CGameSprite* pTargetSprite = static_cast<CGameSprite*>(pTarget);
+                CRect rHeight;
+                CPoint ptRef;
+                pTargetSprite->GetAnimation()->CalculateFxRect(rHeight, ptRef, pTargetSprite->m_posZ);
+                g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
+                    CGameObjectArray::THREAD_ASYNCH, INFINITE);
+                LONG targetHeight = static_cast<LONG>(static_cast<DWORD>(rHeight.bottom) - static_cast<DWORD>(rHeight.top)) >> 1;
+                if (m_posZ != targetHeight) {
+                    LONG oldHeight = m_posZ;
+                    m_posZ = static_cast<LONG>(static_cast<DWORD>(m_posZ) + ((m_nDeltaZ < 0) ? 1u : 0xFFFFFFFFu));
+                    // The original restores EAX at 0x578DDA after either step.
+                    m_posZ = oldHeight;
+                }
+            }
+        }
+
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+
+        AimAtPoint(ptLive.x, ptLive.y);
+    }
+
+    if (m_bSparkleTrail != FALSE) {
+        CSparkleCluster* trail = new CSparkleCluster(m_sparkleColor,
+            CSparkleCluster::TYPE_TRAVEL, CSparkleCluster::DEFAULT_CONJURE_DURATION);
+        trail->AddToArea(m_pArea, m_pos, m_posZ, CGameObject::LIST_FRONT);
+    }
+
+    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
 }
 
-// 0x5791D0 (vtable slot 27 -- the IcewindCProjectileBAM family's own launch)
-//
-// NOT the base CProjectileTravelling::Fire (that is a different vtable target):
-// this is the VFX family's launch. It diverges from the base in the ways that
-// drive the on-screen result:
-//   * the projectile enters the area at the source's CAST height
-//     (DetermineHeight), so the BAM renders at the caster's body -- the base
-//     adds at ground level (posZ 0), which drops the visual to the feet and, in
-//     isometric projection, shifts it down/forward of the caster's hands;
-//   * the launch origin snaps back to the source centre when the target lands
-//     within ~3 search cells of it (a near / self cast);
-//   * a non-creature (point) target forces m_flightDistSq to the non-zero
-//     in-flight marker 1 and the launch delta-Z to 0.
-// The per-tick integrator (AIUpdate / AimAtPoint) is the base's, shared by the
-// family's delegating overrides.
-//
-// The trailing-object factory FUN_00554d20 remains a documented stub — all
-// recovered projectile leaves carry field_17E="" so the branch is dead.
+// VFX-family launch uses DetermineHeight for the source, then creates the
+// optional VEF controller through the same trailing branch as the base Fire.
+// Its own flight and aiming virtuals preserve the native family's call sites.
+// 0x5791D0 (vtable slot 27)
 void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG target, CPoint targetPos, LONG nHeight, SHORT nType)
 {
     (void)nHeight;
@@ -5668,17 +6904,14 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
     // when the target is a sprite — see 0x5792BD–0x57931B.
     CPoint ptTarget;
     BOOL bTargetCreature = FALSE;
-    CRect rHeight(0x20, 0x32, 0x40, 0x40);
-    CPoint ptRef(0, 0);
+    CRect rHeight(0, 0, 0x40, 0x40);
+    CPoint ptRef(0x20, 0x32);
     if (m_targetId == CGameObjectArray::INVALID_INDEX) {
         ptTarget = targetPos;
     } else {
         CGameObject* pTarget;
-        BYTE rc;
-        do {
-            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
-                CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
-        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_targetId,
+            CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
         if (rc != CGameObjectArray::SUCCESS) {
             return;
         }
@@ -5688,13 +6921,13 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
             // The original upgrades to an exclusive lock (GetDeny) to read the
             // live animation height rect, then releases back to the shared lock
             // for the remainder of the target block (0x57929E–0x57931B).
-            CGameSprite* pTargetSprite = static_cast<CGameSprite*>(pTarget);
             BYTE rcDeny;
             do {
                 rcDeny = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_targetId,
                     CGameObjectArray::THREAD_ASYNCH, &pTarget, INFINITE);
-            } while (rcDeny == CGameObjectArray::SHARED || rcDeny == CGameObjectArray::DENIED);
+            } while (rcDeny == CGameObjectArray::SHARED);
             if (rcDeny == CGameObjectArray::SUCCESS) {
+                CGameSprite* pTargetSprite = static_cast<CGameSprite*>(pTarget);
                 pTargetSprite->GetAnimation()->CalculateFxRect(rHeight, ptRef, pTargetSprite->m_posZ);
                 g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_targetId,
                     CGameObjectArray::THREAD_ASYNCH, INFINITE);
@@ -5712,11 +6945,8 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
     BOOL bSourceCreature = FALSE;
     {
         CGameObject* pSource;
-        BYTE rc;
-        do {
-            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
-                CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
-        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        BYTE rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetShare(m_sourceId,
+            CGameObjectArray::THREAD_ASYNCH, &pSource, INFINITE);
         if (rc != CGameObjectArray::SUCCESS) {
             return;
         }
@@ -5730,50 +6960,28 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
     // Launch origin: the facing-adjusted source point, snapped to the source
     // centre when the target lands within ~3 search cells (a near / self cast).
     CPoint ptLaunch;
-    GetProjectileSourcePosition(m_sourceId, ptLaunch);
+    GetStart(m_sourceId, ptLaunch, TRUE);
     if (bSourceCreature) {
         int cellDX = ptTarget.x / 16 - ptLaunch.x / 16;   // 16-wide search cells
         int cellDY = ptTarget.y / 12 - ptLaunch.y / 12;   // 12-tall search cells
-        if (cellDX * cellDX + cellDY * cellDY < 3) {
+        if (static_cast<LONG>(static_cast<DWORD>(cellDX) * static_cast<DWORD>(cellDX)
+            + static_cast<DWORD>(cellDY) * static_cast<DWORD>(cellDY)) < 3) {
             ptLaunch = ptSourceCenter;
         }
     }
 
-    // Trailing VFX object: when field_17E carries a resource name the
-    // original creates a trailing game-object (a sprite or VFX that follows
-    // the projectile) through the factory at 0x554D20, stores its id in
-    // m_nTargetId, and dispatches a CMessageProjectileTrailingVFX (vtable
-    // 0x84D328) to attach it — see 0x5794CF–0x5796BC.
-    //
-    // The factory (0x554D20, ~190 bytes of asm):
-    //   Constructs a CResRef from this->field_17E, looks it up in the DIMM
-    //   key table (type 0x3FC), creates a CGameObject, registers it in the
-    //   object array and area at the launch position, seeds its subpixel
-    //   position (+0x28E/+0x292), and returns its id.  The message carries
-    //   the launch parameters (position, height, type, flight distance) and
-    //   is delivered via CMessageHandler::AddMessage; after dispatch the
-    //   target object's fields at +0x82 (projectile type) and +0x9A |= 1
-    //   (the "active" flag) are updated.
-    //
-    // The recovered leaves (cone/spray/Chromatic Orb/Sparkle) all carry an
-    // empty field_17E, so the branch is never taken. Recover the full
-    // factory when a leaf that sets field_17E is needed.
-    if (m_nTargetId == CGameObjectArray::INVALID_INDEX && !field_17E.IsEmpty()) {
-        // STUB: m_nTargetId = CreateTrailingObject(pArea, ptLaunch, nLaunchHeight,
-        //       m_targetId, ptTarget, nHeight, nType);
-        // → 0x554D20.  Currently unrecovered; the branch is dead for
-        //   all recovered projectile leaves (field_17E stays "").
-
+    // The factory and message use the original point argument, even when
+    // the projectile resolves a live target position for its own flight.
+    if (!field_17E.IsEmpty()) {
+        m_nTargetId = CVisualEffect::Load(field_17E, pArea, ptLaunch,
+            m_targetId, targetPos, nLaunchHeight);
+        CString areaName;
+        pArea->m_resRef.CopyToString(areaName);
         CMessageProjectileTrailingVFX* pMsg = new CMessageProjectileTrailingVFX(
-            m_targetId, m_flightDistSq, CResRef(field_17E),
-            ptLaunch.x, ptLaunch.y, nLaunchHeight, nType,
-            static_cast<SHORT>(nLaunchHeight));
-
+            CResRef(field_17E), areaName, ptLaunch, targetPos,
+            static_cast<SHORT>(nLaunchHeight), m_id, m_targetId);
         g_pBaldurChitin->GetMessageHandler()->AddMessage(pMsg, FALSE);
 
-        // Post-dispatch: mark the trailing object with the projectile type
-        // and the "active" flag (0x579621–0x5796A8). The original also
-        // pauses until the object is available (GetDeny loop).
         CGameObject* pTrailingObj;
         BYTE rcMsg;
         do {
@@ -5781,9 +6989,9 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
                 m_nTargetId, CGameObjectArray::THREAD_ASYNCH, &pTrailingObj, INFINITE);
         } while (rcMsg == CGameObjectArray::SHARED || rcMsg == CGameObjectArray::DENIED);
         if (rcMsg == CGameObjectArray::SUCCESS) {
-            // The binary writes the WORD at projectile+0x70 (m_projectileType)
-            // to the trailing object at +0x82, and sets bit 0 of +0x9A.
-            // These are currently unrecovered fields on the trailing object.
+            CVisualEffect* effect = static_cast<CVisualEffect*>(pTrailingObj);
+            effect->m_nSpeed = m_velocity;
+            effect->m_flags |= 1;
             g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(
                 m_nTargetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
         }
@@ -5791,21 +6999,22 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
 
     // Flight distance^2 (y weighted 16/9) -- AIUpdate's arrival metric; drives
     // the distance-based lifetime when armed.
-    int dx = ptTarget.x - ptLaunch.x;
-    int dy = ptTarget.y - ptLaunch.y;
-    m_flightDistSq = dx * dx + (dy * dy * 16) / 9;
+    DWORD dx = static_cast<DWORD>(ptTarget.x) - static_cast<DWORD>(ptLaunch.x);
+    DWORD dy = static_cast<DWORD>(ptTarget.y) - static_cast<DWORD>(ptLaunch.y);
+    m_flightDistSq = static_cast<LONG>(dx * dx
+        + static_cast<DWORD>(static_cast<LONG>(dy * dy * 16) / 9));
     if (m_distLifetime != 0) {
-        m_lifetime = static_cast<SHORT>(
-            static_cast<int>(sqrt(static_cast<double>(m_flightDistSq))) / m_velocity + 1);
+        SHORT distance = static_cast<SHORT>(static_cast<int>(
+            sqrt(static_cast<double>(m_flightDistSq)) + 0.5));
+        m_lifetime = static_cast<SHORT>(distance / m_velocity + 1);
     }
 
     // A point / non-creature target overwrites the metric with the in-flight
     // marker 1 and launches flat; a creature target keeps the real distance and
-    // refines the launch delta-Z from its animation height rect (the bottom
-    // edge minus the reference point's y, halved — 0x57974E–0x579760).
+    // refines delta-Z from the animation rectangle's arithmetic half-height.
     SHORT nDeltaZ;
     if (bTargetCreature) {
-        nDeltaZ = static_cast<SHORT>(nLaunchHeight - (rHeight.bottom - ptRef.y) / 2);
+        nDeltaZ = static_cast<SHORT>(nLaunchHeight - ((rHeight.bottom - rHeight.top) >> 1));
     } else {
         m_flightDistSq = 1;
         nDeltaZ = 0;
@@ -5813,35 +7022,106 @@ void IcewindCProjectileTravellingVFX::Fire(CGameArea* pArea, LONG source, LONG t
     m_nDeltaZ = nDeltaZ;
     m_nDeltaZLast = nDeltaZ;
 
-    // Register (assigns m_id), then add to the area AT THE CAST HEIGHT -- the
-    // difference from the base launch, which adds at ground level (posZ 0).
-    g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE);
-    AddToArea(pArea, ptLaunch, nLaunchHeight, 0);
+    // Registration must succeed before the qualified base area insertion.
+    if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        delete this;
+        return;
+    }
+    CGameObject::AddToArea(pArea, ptLaunch, nLaunchHeight, 0);
 
-    PlaySound(m_fireSoundRef, FALSE, FALSE);
+    PlaySound(m_fireSoundRef, m_loopFireSound, FALSE);
 
     // Subpixel launch position (1/1024 fixed point), target point, initial facing.
-    m_posAccumX = ptLaunch.x << 10;
-    m_posAccumY = (ptLaunch.y << 12) / 3;
+    m_posAccumX = static_cast<LONG>(static_cast<DWORD>(ptLaunch.x) << 10);
+    m_posAccumY = static_cast<LONG>(static_cast<DWORD>(ptLaunch.y) << 12) / 3;
     m_targetX = ptTarget.x;
     m_targetY = ptTarget.y;
     m_facing = GetDirection(ptTarget);
 }
 
 // 0x578ED0 (vtable slot 33)
-// UNIMPLEMENTED: the family's own flight aiming; delegate to the recovered
-// CProjectileTravelling integrator until it is recovered.
 void IcewindCProjectileTravellingVFX::AimAtPoint(int x, int y)
 {
-    CProjectileTravelling::AimAtPoint(x, y);
+    m_facing = GetDirection(CPoint(x, y));
+
+    // Velocity-scaled unit step (1/1024 fixed point).
+    int dx = static_cast<LONG>(static_cast<DWORD>(x) - static_cast<DWORD>(m_pos.x));
+    LONG targetY = static_cast<LONG>(static_cast<DWORD>(y) * 4) / 3;
+    LONG sourceY = static_cast<LONG>(static_cast<DWORD>(m_pos.y) * 4) / 3;
+    int dyScaled = static_cast<LONG>(static_cast<DWORD>(targetY) - static_cast<DWORD>(sourceY));
+    // __ftol converts to a QWORD; the caller uses its low DWORD, including
+    // the zero low half of x87's integer-indefinite result after a NaN.
+    int dist = static_cast<int>(static_cast<LONGLONG>(
+        sqrt(static_cast<double>(static_cast<LONG>(static_cast<DWORD>(dx) * static_cast<DWORD>(dx)
+            + static_cast<DWORD>(dyScaled) * static_cast<DWORD>(dyScaled)))) + 0.5));
+    if (dist == 0) {
+        m_stepX = 1;
+        m_stepY = 1;
+    } else {
+        m_stepX = static_cast<LONG>((static_cast<DWORD>(dx) << 10) * static_cast<DWORD>(m_velocity)) / dist;
+        m_stepY = static_cast<LONG>((static_cast<DWORD>(dyScaled) << 10) * static_cast<DWORD>(m_velocity)) / dist;
+        m_targetX = x;
+        m_targetY = y;
+
+        // Fold in the per-tick carry, then a random spread within the band.
+        m_stepX = static_cast<LONG>(static_cast<DWORD>(m_stepX) + static_cast<DWORD>(m_driftX));
+        m_stepY = static_cast<LONG>(static_cast<DWORD>(m_stepY) + static_cast<DWORD>(m_driftY));
+        int spreadX = static_cast<LONG>(static_cast<DWORD>(m_jitterMaxX) - static_cast<DWORD>(m_jitterMinX));
+        int spreadY = static_cast<LONG>(static_cast<DWORD>(m_jitterMaxY) - static_cast<DWORD>(m_jitterMinY));
+        if (spreadX > 0) {
+            m_stepX = static_cast<LONG>(static_cast<DWORD>(m_stepX)
+                + static_cast<DWORD>(m_jitterMinX) + static_cast<DWORD>(rand() % spreadX));
+        }
+        if (spreadY > 0) {
+            m_stepY = static_cast<LONG>(static_cast<DWORD>(m_stepY)
+                + static_cast<DWORD>(m_jitterMinY) + static_cast<DWORD>(rand() % spreadY));
+        }
+    }
+
+    // Advance the subpixel position by the step.
+    m_posAccumX = static_cast<LONG>(static_cast<DWORD>(m_posAccumX) + static_cast<DWORD>(m_stepX));
+    m_posAccumY = static_cast<LONG>(static_cast<DWORD>(m_posAccumY) + static_cast<DWORD>(m_stepY));
+
+    // Bleed each carry down by one modulus per tick (zero once exhausted).
+    if (m_driftX < 0) {
+        m_driftX = (m_driftX <= -m_driftDecay) ? m_driftX + m_driftDecay : 0;
+    } else if (m_driftX > 0) {
+        m_driftX = (m_driftX >= m_driftDecay) ? m_driftX - m_driftDecay : 0;
+    }
+    if (m_driftY < 0) {
+        m_driftY = (m_driftY <= -m_driftDecay) ? m_driftY + m_driftDecay : 0;
+    } else if (m_driftY > 0) {
+        m_driftY = (m_driftY >= m_driftDecay) ? m_driftY - m_driftDecay : 0;
+    }
+
+    // Decode the subpixel position back to the cell position (undo the 1/1024
+    // fixed point and, for y, the 4/3 iso scale).
+    m_pos.x = m_posAccumX >> 10;
+    m_pos.y = (static_cast<LONG>(static_cast<DWORD>(m_posAccumY) * 3) / 4) >> 10;
+
+    // Keep the attached object (m_nTargetId) at the projectile's height.
+    if (m_nTargetId != CGameObjectArray::INVALID_INDEX) {
+        CGameObject* pObj;
+        BYTE rc;
+        do {
+            rc = g_pBaldurChitin->GetObjectGame()->GetObjectArray()->GetDeny(m_nTargetId,
+                CGameObjectArray::THREAD_ASYNCH, &pObj, INFINITE);
+        } while (rc == CGameObjectArray::SHARED || rc == CGameObjectArray::DENIED);
+        if (rc != CGameObjectArray::SUCCESS) {
+            return;
+        }
+        pObj->m_posZ = m_posZ;
+        g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseDeny(m_nTargetId,
+            CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
 }
 
-// 0x578480 (vtable slot 19)
-//
-// The family draw: unlike CProjectileTravelling::Render the blit flags come
-// from the attached visual effect (copy-from-back arms the translucent 0x200
-// path), the area tint is applied when tinting or copy-from-back is on, and
-// the east/north facings mirror through the m_bMirror* gates.
+// Flags and transparency come from the attached visual effect. Area tint is
+// fetched for tint/copy-from-back, but assigned only for tint == 1. The north
+// facing gate toggles the horizontal mirror bit independently of sequence
+// folding; the travelling base's tint/mirror/GetRenderFlags are not used.
+// 0x578480
 void IcewindCProjectileTravellingVFX::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
     (void)pArea;
@@ -5854,7 +7134,8 @@ void IcewindCProjectileTravellingVFX::Render(CGameArea* pArea, CVidMode* pVidMod
     COLORREF tintColor = RGB(0xFF, 0xFF, 0xFF);
 
     // Tile-visibility gate (32x32 visibility tiles).
-    LONG tileIndex = (m_pos.y / 32) * m_pArea->m_visibility.m_nWidth + (m_pos.x / 32);
+    SHORT tileIndex = static_cast<SHORT>(static_cast<SHORT>(m_pos.y / CVisibilityMap::SQUARE_SIZEY)
+        * m_pArea->m_visibility.m_nWidth + m_pos.x / CVisibilityMap::SQUARE_SIZEX);
     if (!m_pArea->m_visibility.IsTileVisible(tileIndex)) {
         return;
     }
@@ -5973,11 +7254,388 @@ void IcewindCProjectileTravellingVFX::Render(CGameArea* pArea, CVidMode* pVidMod
     }
 }
 
-// 0x578970
-//
+std::vector<CPoint> IcewindCProjectileScorcher::m_offsets;
+BYTE IcewindCProjectileScorcher::m_offsetsInitialized = 0;
+
+// 0x57BBC0
+void IcewindCProjectileScorcher::InitializeOffsets()
+{
+    if (m_offsetsInitialized != TRUE) {
+        const size_t count = 16;
+        if (m_offsets.size() < count) {
+            CPoint point;
+            m_offsets.insert(m_offsets.end(), count - m_offsets.size(), point);
+        } else if (count < m_offsets.size()) {
+            m_offsets.erase(m_offsets.begin() + count, m_offsets.end());
+        }
+        m_offsets[12] = CPoint(0, -20);
+        m_offsets[11] = CPoint(-10, -18);
+        m_offsets[10] = CPoint(-19, -14);
+        m_offsets[9] = CPoint(-25, -8);
+        m_offsets[8] = CPoint(-27, 0);
+        m_offsets[7] = CPoint(-25, 8);
+        m_offsets[6] = CPoint(-19, 14);
+        m_offsets[5] = CPoint(-10, 18);
+        m_offsets[4] = CPoint(0, 20);
+        m_offsets[3] = CPoint(10, 18);
+        m_offsets[2] = CPoint(19, 14);
+        m_offsets[1] = CPoint(25, 8);
+        m_offsets[0] = CPoint(-20, 0);
+        m_offsets[15] = CPoint(-24, 8);
+        m_offsets[14] = CPoint(-19, 14);
+        m_offsets[13] = CPoint(-10, 18);
+        m_offsetsInitialized = TRUE;
+    }
+}
+
+// 0x57C510
+IcewindCProjectileChainLightning::IcewindCProjectileChainLightning(const std::set<LONG>& struckTargets)
+    : IcewindCProjectileTravellingVFX(CResRef("CLightT")), m_struckTargets(struckTargets)
+{
+    // This copies target history, not a projectile. Cell, sound and launch
+    // state are rebuilt from the VFX base rather than copied from the parent.
+    m_pVidCell->SequenceSet(0);
+    m_dirCount = 16;
+    m_fireSoundRef = "TRA_09";
+    // Native WORD shift doubles the base speed (20), retaining 16-bit wrap.
+    m_velocity = static_cast<SHORT>(static_cast<USHORT>(m_velocity) << 1);
+    m_visualEffect.SetCopyFromBack(TRUE);
+    // The base enables both height gates; the chain carrier clears both.
+    m_bHasHeight = FALSE;
+    m_useHeightOffset = 0;
+}
+
+// 0x57C7B0
+void IcewindCProjectileChainLightning::DeliverEffects()
+{
+    m_struckTargets.insert(m_targetId);
+    CGameObjectArray* objects = g_pBaldurChitin->GetObjectGame()->GetObjectArray();
+    CGameObject* current;
+    if (objects->GetShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, &current, INFINITE)
+        == CGameObjectArray::SUCCESS) {
+        CGameArea* area = current->m_pArea;
+        UTIL_ASSERT(area != NULL);
+        objects->ReleaseShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        LONG target = 0;
+        BYTE nearest = 0;
+        for (;;) {
+            LONG previous = target;
+            CAIObjectType type(CAIObjectType::ANYONE);
+            target = area->GetNearest(m_targetId, type, 0x7FFF, m_pArea->m_visibleTerrainTable,
+                TRUE, TRUE, TRUE, nearest, FALSE);
+            if (target == previous || target == CGameObjectArray::INVALID_INDEX || nearest > 20) {
+                CProjectile::DeliverEffects();
+                return;
+            }
+            ++nearest;
+            if (m_struckTargets.find(target) == m_struckTargets.end()) {
+                break;
+            }
+        }
+        auto* child = new IcewindCProjectileChainLightning(m_struckTargets);
+        CGameObject* next;
+        if (objects->GetShare(target, CGameObjectArray::THREAD_ASYNCH, &next, INFINITE)
+            == CGameObjectArray::SUCCESS) {
+            CPoint position = next->GetPos();
+            LONG id = next->m_id;
+            objects->ReleaseShare(target, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            POSITION effectPosition = m_effectList.GetHeadPosition();
+            while (effectPosition != NULL) {
+                CGameEffect* effect = m_effectList.GetNext(effectPosition)->Copy();
+                if (effect->m_effectID == CGAMEEFFECT_DAMAGE) {
+                    if (m_struckTargets.size() == 1) {
+                        effect->m_numDice >>= 1;
+                    }
+                    if (static_cast<BYTE>(effect->m_casterLevel) <= m_struckTargets.size()) {
+                        // Native abort leaves this unowned copy allocated.
+                        delete child;
+                        CProjectile::DeliverEffects();
+                        return;
+                    }
+                }
+                child->AddEffect(effect);
+            }
+            child->Fire(m_pArea, m_id, id, position, m_posZ, 0);
+        } else {
+            delete child;
+        }
+    }
+    CProjectile::DeliverEffects();
+}
+
+// 0x57AEB0
+IcewindCProjectileScorcher::IcewindCProjectileScorcher()
+    : IcewindCProjectileTravellingVFX(CResRef("AScorcT"))
+{
+    m_tickCount = 0;
+    m_strikePeriod = 3;
+    m_clearPeriod = 60;
+    m_deltaZ = 0;
+    m_bGlow = FALSE;
+    m_strikeTarget = 0;
+    InitializeOffsets();
+    m_pVidCell->FrameSet(0);
+    m_useHeightOffset = 0;
+    m_hasShadowCell = 0;
+    m_dirCount = 16;
+    m_fireSoundRef = "TRA_M04";
+    CSize size;
+    m_pVidCell->GetFrameSize(0, 0, size, FALSE);
+    m_velocity = static_cast<SHORT>(static_cast<LONG>(static_cast<DWORD>(size.cy) * 3) / 4);
+    m_callBackProjectile = -1;
+    field_17E = "";
+    m_nTargetId = -1;
+    m_nSegments = 0;
+    m_lifeSpan = 110;
+    m_bHasHeight = TRUE;
+    m_useHeightOffset = 1;
+}
+
+// 0x57B210
+void IcewindCProjectileScorcher::AIUpdate()
+{
+    m_tickCount = static_cast<LONG>(static_cast<DWORD>(m_tickCount) + 1);
+    CInfGame* game = g_pBaldurChitin->GetObjectGame();
+    if (game->m_nTimeStop != 0 && game->m_nTimeStopCaster != m_id) {
+        return;
+    }
+    if (m_lifeSpan == 0) {
+        RemoveFromArea();
+        if (game->GetObjectArray()->Delete(m_id, CGameObjectArray::THREAD_ASYNCH, NULL, INFINITE)
+            == CGameObjectArray::SUCCESS) {
+            delete this;
+        }
+        return;
+    }
+    --m_lifeSpan;
+    m_pVidCell->FrameAdvance();
+    if (m_targetId == CGameObjectArray::INVALID_INDEX) {
+        m_deltaZ = 0;
+    } else {
+        CGameObject* target;
+        BYTE rc = game->GetObjectArray()->GetShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, &target, INFINITE);
+        if (rc != CGameObjectArray::SUCCESS) {
+            RemoveSelf();
+            return;
+        }
+        if (m_pArea != target->m_pArea) {
+            LONG targetId = m_targetId;
+            RemoveSelf();
+            game->GetObjectArray()->ReleaseShare(targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+            return;
+        }
+        CPoint position = target->GetPos();
+        m_targetX = position.x;
+        m_targetY = position.y;
+        m_deltaZ = static_cast<LONG>(static_cast<DWORD>(target->m_posZ) - static_cast<DWORD>(m_posZ));
+        game->GetObjectArray()->ReleaseShare(m_targetId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    }
+    CGameObject* source;
+    BYTE rc;
+    do {
+        rc = game->GetObjectArray()->GetDeny(m_sourceId, CGameObjectArray::THREAD_ASYNCH, &source, INFINITE);
+    } while (rc == CGameObjectArray::SHARED);
+    if (rc != CGameObjectArray::SUCCESS) {
+        return;
+    }
+    CPoint targetPoint(m_targetX, m_targetY);
+    if (source->GetObjectType() == CGameObject::TYPE_SPRITE) {
+        CGameSprite* sprite = static_cast<CGameSprite*>(source);
+        m_facing = sprite->GetDirection(targetPoint);
+        sprite->SetDirection(m_facing);
+    } else {
+        m_facing = GetDirection(targetPoint);
+    }
+    UpdateDirectionSequence(NULL);
+    game->GetObjectArray()->ReleaseDeny(m_sourceId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    GetStart(m_sourceId, m_pos, TRUE);
+    if (m_tickCount % m_clearPeriod == 1) {
+        m_struckTargets.clear();
+    }
+    if (m_tickCount % m_strikePeriod == 1) {
+        if (m_struckTargets.find(static_cast<DWORD>(m_strikeTarget)) == m_struckTargets.end()) {
+            Strike(m_strikeTarget, TRUE);
+            m_struckTargets.insert(static_cast<DWORD>(m_strikeTarget));
+        }
+        GatherTargets();
+    }
+    m_posAccumX = static_cast<LONG>(static_cast<DWORD>(m_pos.x) << CGameSprite::EXACT_SCALE);
+    m_posAccumY = static_cast<LONG>((static_cast<DWORD>(m_pos.y) << CGameSprite::EXACT_SCALE) << 2) / 3;
+    LONG targetY = static_cast<LONG>(static_cast<DWORD>(m_targetY) << 2) / 3;
+    LONG sourceY = static_cast<LONG>(static_cast<DWORD>(m_pos.y) << 2) / 3;
+    LONG dy = static_cast<LONG>(static_cast<DWORD>(targetY) - static_cast<DWORD>(sourceY));
+    LONG dx = static_cast<LONG>(static_cast<DWORD>(m_targetX) - static_cast<DWORD>(m_pos.x));
+    LONG distanceSquared = static_cast<LONG>(static_cast<DWORD>(dx) * static_cast<DWORD>(dx)
+        + static_cast<DWORD>(dy) * static_cast<DWORD>(dy));
+    LONG distance = static_cast<LONG>(static_cast<LONGLONG>(sqrt(static_cast<double>(distanceSquared)) + 0.5));
+    if (distance == 0) {
+        m_lifeSpan = 0;
+        m_nSegments = 0;
+    } else {
+        LONG rounded = static_cast<LONG>(static_cast<DWORD>(m_velocity) + static_cast<DWORD>(distance) - 1);
+        m_nSegments = static_cast<BYTE>(rounded / m_velocity);
+        m_stepX = static_cast<LONG>(static_cast<DWORD>(dx) << CGameSprite::EXACT_SCALE) / m_nSegments;
+        m_stepY = static_cast<LONG>(static_cast<DWORD>(dy) << CGameSprite::EXACT_SCALE) / m_nSegments;
+    }
+    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+}
+
+// 0x57B1D0
+void IcewindCProjectileScorcher::Fire(CGameArea* pArea, LONG source, LONG target,
+    CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    IcewindCProjectileTravellingVFX::Fire(pArea, source, target, targetPos, nHeight, nType);
+    m_strikeTarget = target;
+    DeliverEffects();
+}
+
+// 0x799CA0
+void IcewindCProjectileScorcher::DeliverEffects()
+{
+}
+
+// 0x57BE80
+void IcewindCProjectileScorcher::GatherTargets()
+{
+    const CPoint& offset = m_offsets[m_facing];
+    CPoint polygon[4] = {
+        CPoint(m_pos.x + offset.x, m_pos.y + offset.y),
+        CPoint(m_pos.x - offset.x, m_pos.y - offset.y),
+        CPoint(m_targetX - offset.x, m_targetY - offset.y),
+        CPoint(m_targetX + offset.x, m_targetY + offset.y)
+    };
+    CRect bounds(polygon[0], polygon[0]);
+    for (INT i = 1; i < 4; ++i) {
+        bounds.left = min(bounds.left, polygon[i].x);
+        bounds.top = min(bounds.top, polygon[i].y);
+        bounds.right = max(bounds.right, polygon[i].x);
+        bounds.bottom = max(bounds.bottom, polygon[i].y);
+    }
+    CTypedPtrList<CPtrList, LONG*> targets(10);
+    m_pArea->GetAllInPoly(bounds, polygon, 4, CAIObjectType::ANYONE,
+        m_pArea->m_visibleTerrainTable, targets, TRUE);
+    POSITION position = targets.GetHeadPosition();
+    while (position != NULL) {
+        LONG target = reinterpret_cast<LONG>(targets.GetNext(position));
+        if (m_struckTargets.find(static_cast<DWORD>(target)) == m_struckTargets.end()
+            && target != m_sourceId) {
+            Strike(target, FALSE);
+            m_struckTargets.insert(static_cast<DWORD>(target));
+        }
+    }
+}
+
+// 0x57C1D0
+void IcewindCProjectileScorcher::Strike(LONG target, BYTE initial)
+{
+    CGameObjectArray* objects = g_pBaldurChitin->GetObjectGame()->GetObjectArray();
+    CGameObject* victim;
+    if (objects->GetShare(target, CGameObjectArray::THREAD_ASYNCH, &victim, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        return;
+    }
+    if ((victim->GetObjectType() & CGameObject::TYPE_AIBASE) == 0) {
+        objects->ReleaseShare(target, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return;
+    }
+    if (victim->GetObjectType() == CGameObject::TYPE_SPRITE
+        && static_cast<BYTE>(IsTargetImmune(static_cast<CGameSprite*>(victim))) == TRUE) {
+        CGameEffect::FeedBackImmuneToResource(static_cast<CGameSprite*>(victim), m_casterResRef);
+        objects->ReleaseShare(target, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return;
+    }
+    CGameObject* source;
+    if (objects->GetShare(m_sourceId, CGameObjectArray::THREAD_ASYNCH, &source, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        objects->ReleaseShare(target, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+        return;
+    }
+    CPoint origin;
+    GetStart(m_sourceId, origin, TRUE);
+    if (m_pArea->CheckLOS(origin, victim->GetPos(), m_terrainTable, FALSE)) {
+        std::list<CGameEffect*> effects = BuildSubSpellEffects(static_cast<CGameSprite*>(source),
+            CResRef(initial == TRUE ? "EffAS1" : "EffAS2"), 1);
+        for (CGameEffect* effect : effects) {
+            effect->m_sourceRes = CResRef("SpWi217");
+            g_pBaldurChitin->GetMessageHandler()->AddMessage(
+                new CMessageAddEffect(effect, m_sourceId, target), FALSE);
+        }
+    }
+    objects->ReleaseShare(target, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    objects->ReleaseShare(m_sourceId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+}
+
+// 0x57B780
+void IcewindCProjectileScorcher::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
+{
+    // __FILE__: C:\Projects\Icewind2\src\Baldur\IcewindCProjectiles.cpp
+    // __LINE__: 207
+    UTIL_ASSERT(pVidMode != NULL);
+
+    CInfinity* pInfinity = m_pArea->GetInfinity();
+    DWORD flags = 0x200;
+    if (CGameSprite::DIR_N < m_direction) {
+        flags |= CInfinity::MIRROR_FX;
+    }
+    if (CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E) {
+        flags |= CInfinity::MIRROR_FX_UPDOWN;
+    }
+    CRect viewport(pInfinity->nCurrentX, pInfinity->nCurrentY,
+        pInfinity->nCurrentX + pInfinity->rViewPort.Width(),
+        pInfinity->nCurrentY + pInfinity->rViewPort.Height());
+    CPoint point(m_pos.x, m_pos.y - m_posZ + m_pArea->GetHeightOffset(m_pos, m_listType));
+    CPoint reference;
+    CSize size;
+    m_pVidCell->GetCurrentCenterPoint(reference, FALSE);
+    m_pVidCell->GetCurrentFrameSize(size, FALSE);
+    CRect bounds;
+    bounds.SetRect(0, 0, size.cx, size.cy);
+    for (BYTE index = 0; index < m_nSegments; ++index) {
+        SHORT tile = static_cast<SHORT>(static_cast<SHORT>(point.y / CVisibilityMap::SQUARE_SIZEY)
+            * m_pArea->m_visibility.m_nWidth + point.x / CVisibilityMap::SQUARE_SIZEX);
+        if (!m_pArea->m_visibility.IsTileVisible(tile)) {
+            continue;
+        }
+        CRect gcBounds;
+        gcBounds.left = CGameSprite::DIR_N < m_direction
+            ? reference.x - bounds.right + point.x + bounds.left : point.x - reference.x;
+        gcBounds.top = CGameSprite::DIR_W < m_direction && m_direction < CGameSprite::DIR_E
+            ? bounds.top - bounds.bottom + reference.y + point.y : point.y - reference.y;
+        gcBounds.right = gcBounds.left + bounds.Width();
+        gcBounds.bottom = gcBounds.top + bounds.Height();
+        CRect intersection;
+        IntersectRect(&intersection, &gcBounds, &viewport);
+        if (IsRectEmpty(&intersection)) {
+            continue;
+        }
+        flags |= CInfinity::FXPREP_COPYFROMBACK;
+        pInfinity->FXPrep(bounds, flags, nSurface, point, reference);
+        if (pInfinity->FXLock(bounds, flags)) {
+            pInfinity->FXRender(m_pVidCell, reference.x, reference.y, flags, 0);
+            pInfinity->FXRenderClippingPolys(point.x, point.y, 0, reference, gcBounds, FALSE, flags);
+            pInfinity->FXUnlock(flags, NULL, CPoint(0, 0));
+            pInfinity->FXBltFrom(nSurface, bounds, point.x, point.y, reference.x, reference.y, flags);
+        }
+        INT step = index + 1;
+        point.x = static_cast<LONG>(static_cast<DWORD>(m_stepX) * step + static_cast<DWORD>(m_posAccumX))
+            >> CGameSprite::EXACT_SCALE;
+        LONG scaledY = static_cast<LONG>((static_cast<DWORD>(m_stepY) * step + static_cast<DWORD>(m_posAccumY)) * 3);
+        point.y = ((scaledY / 4) >> CGameSprite::EXACT_SCALE) - m_posZ
+            + m_pArea->GetHeightOffset(m_pos, m_listType);
+        if (m_deltaZ > 0) {
+            point.y -= step < m_deltaZ ? step : m_deltaZ;
+        } else if (m_deltaZ < 0) {
+            LONG delta = static_cast<LONG>(0u - static_cast<DWORD>(m_deltaZ));
+            point.y = static_cast<LONG>(static_cast<DWORD>(point.y)
+                + static_cast<DWORD>(step < delta ? step : delta));
+        }
+    }
+}
+
 // Bounding box and reference point for the draw: the cell alone, or, with a
 // shadow cell, the union of the flying cell (lifted by m_posZ) and the
 // ground shadow.
+// 0x578970
 void IcewindCProjectileTravellingVFX::GetCellBounds(CRect& rBounds, CPoint& ptRef, CVidCell* pCell)
 {
     CSize size;
@@ -6025,12 +7683,11 @@ void IcewindCProjectileTravellingVFX::GetCellBounds(CRect& rBounds, CPoint& ptRe
     }
 }
 
-// 0x579860
-//
 // Facing -> animation sequence. Like CProjectileTravelling::
 // UpdateDirectionSequence but mirror-aware: with m_bMirrorNorth the BAM has
 // no north-half sequences (5..8), so those facings fold onto the south ones
-// (3..0) and Render flips the blit vertically through the MIRROR_FX toggle.
+// (3..0); Render independently toggles the horizontal MIRROR_FX bit.
+// 0x579860
 void IcewindCProjectileTravellingVFX::UpdateDirectionSequence(CVidCell* pCell)
 {
     if (pCell == NULL) {
@@ -6295,7 +7952,7 @@ void IcewindCProjectileSpellHit::Render(CGameArea* pArea, CVidMode* pVidMode, in
 // -----------------------------------------------------------------------------
 
 // 0x56F820 (vtable slot 27). The launch. Records the source/target/area, shares
-// the caster to read the launch origin (GetProjectileSourcePosition) and the
+// the caster to read the launch origin (GetStart) and the
 // drop height (DetermineHeight), and pulls the lifetime (m_lifetime) from the
 // trailing effect on m_effectList through DetermineLifetime. A homing shot starts
 // at that origin; a non-homing one (m_bHasTravelCell == 0) starts on the target so it
@@ -6336,7 +7993,7 @@ void IcewindCProjectileSpellHit::Fire(CGameArea* pArea, LONG source, LONG target
     }
 
     CPoint ptLaunch;
-    GetProjectileSourcePosition(m_sourceId, ptLaunch);
+    GetStart(m_sourceId, ptLaunch, TRUE);
     if (m_bHasTravelCell == 0) {
         ptLaunch = targetPos;
     }
@@ -6378,7 +8035,7 @@ void IcewindCProjectileSpellHit::Fire(CGameArea* pArea, LONG source, LONG target
 
 // -----------------------------------------------------------------------------
 
-// 0x56FAF0 (vtable slot 3). The spell-hit family's per-tick update. Frozen by
+// The spell-hit family's per-tick update (vtable slot 3). Frozen by
 // Time Stop unless this projectile belongs to the time-stop caster. While
 // travelling (m_bDetonated == 0) it flies toward the target point: snapping there
 // instantly when m_bHasTravelCell is clear, otherwise homing in by m_velocity per tick
@@ -6387,6 +8044,7 @@ void IcewindCProjectileSpellHit::Fire(CGameArea* pArea, LONG source, LONG target
 // its two vid cells, runs a strike pass every m_strikeCountdown ticks (gather the due
 // victims, strike each), loops its area sound, and removes itself when the
 // m_lifetime lifetime expires.
+// 0x56FAF0
 void IcewindCProjectileSpellHit::AIUpdate()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
@@ -6404,14 +8062,18 @@ void IcewindCProjectileSpellHit::AIUpdate()
 
         m_pVidCell->FrameAdvance();
 
-        int dy = m_targetY - m_pos.y;
-        int dx = m_targetX - m_pos.x;
+        DWORD dy = static_cast<DWORD>(m_targetY) - m_pos.y;
+        DWORD dx = static_cast<DWORD>(m_targetX) - m_pos.x;
         int radius = m_velocity + 1;
-        if (radius * radius < (dy * dy * 16) / 9 + dx * dx) {
+        LONG distance = static_cast<LONG>(static_cast<DWORD>(
+            static_cast<LONG>(dy * dy * 16) / 9) + dx * dx);
+        if (radius * radius < distance) {
             AimAtPoint(m_targetX, m_targetY);
-            // Trailing sparkle sub-emitter (m_bSparkleTrail) via the unrecovered
-            // factory 0x51AE40 -- omitted like the same documented stub in
-            // CProjectileTravelling::AIUpdate.
+            if (m_bSparkleTrail != FALSE) {
+                CSparkleCluster* trail = new CSparkleCluster(m_sparkleColor,
+                    CSparkleCluster::TYPE_TRAVEL, CSparkleCluster::DEFAULT_CONJURE_DURATION);
+                trail->AddToArea(m_pArea, m_pos, m_posZ, CGameObject::LIST_FRONT);
+            }
             m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
             return;
         }
@@ -6427,7 +8089,8 @@ void IcewindCProjectileSpellHit::AIUpdate()
         m_cell2.FrameAdvance();
     }
 
-    if (--m_strikeCountdown < 1) {
+    m_strikeCountdown = static_cast<LONG>(static_cast<DWORD>(m_strikeCountdown) - 1);
+    if (m_strikeCountdown < 1) {
         std::list<LONG> due = GatherTargets();
         Strike(due);
         m_strikeCountdown = m_strikePeriod;
@@ -6439,7 +8102,8 @@ void IcewindCProjectileSpellHit::AIUpdate()
         m_sound2.Play(m_pos.x, m_pos.y, 0, 0);
     }
 
-    if (--m_lifetime < 1) {
+    m_lifetime = static_cast<LONG>(static_cast<DWORD>(m_lifetime) - 1);
+    if (m_lifetime < 1) {
         RemoveSelf();
     }
 }
@@ -8266,6 +9930,207 @@ void CProjectileLightningBolt::AIUpdate()
     }
 }
 
+// 0x57D390
+CProjectileReboundingBolt::CProjectileReboundingBolt()
+    : IcewindCProjectileTravellingVFX(CResRef("LightnT"))
+{
+    m_nBounces = -1;
+    m_pVidCell->SequenceSet(0);
+    m_renderFlags |= 8;
+    m_tinted = 0;
+    m_useHeightOffset = 0;
+    m_hasShadowCell = 0;
+    m_dirCount = 16;
+    m_fireSoundRef = "TRA_09b";
+    m_velocity = static_cast<SHORT>(static_cast<USHORT>(m_velocity) << 1);
+    m_nDuration = 60;
+    m_callBackProjectile = CGameObjectArray::INVALID_INDEX;
+    field_17E = _T("");
+    m_nTargetId = CGameObjectArray::INVALID_INDEX;
+    m_visualEffect.SetCopyFromBack(TRUE);
+    m_targetMap.m_pOwner = this;
+    m_targetMap.m_strikeInterval = 33;
+    m_targetMap.m_servicePeriod = 2;
+    m_targetMap.m_nRange = 50;
+}
+
+// 0x57D9F0 (vtable 0x85101C, slot 3; stale export: CProjectileBAM::MoveUpdate)
+void CProjectileReboundingBolt::AIUpdate()
+{
+    CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
+    if (pGame->m_nTimeStop != 0 && pGame->m_nTimeStopCaster != m_id) {
+        return;
+    }
+    auto remove = [&]() {
+        RemoveFromArea();
+        if (pGame->GetObjectArray()->Delete(m_id, CGameObjectArray::THREAD_ASYNCH,
+                NULL, INFINITE) == CGameObjectArray::SUCCESS) {
+            delete this;
+        }
+    };
+    if (m_nDuration == 0) {
+        remove();
+        return;
+    }
+    m_nDuration = static_cast<LONG>(static_cast<DWORD>(m_nDuration) - 1);
+    m_pVidCell->FrameAdvance();
+
+    CPoint oldGrid(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+        m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    auto screenY = [](LONG exact) {
+        LONG scaled = static_cast<LONG>(static_cast<DWORD>(exact) * 3);
+        return (scaled / 4) >> CGameSprite::EXACT_SCALE;
+    };
+    m_posAccumX = static_cast<LONG>(static_cast<DWORD>(m_posAccumX) + m_stepX);
+    m_posAccumY = static_cast<LONG>(static_cast<DWORD>(m_posAccumY) + m_stepY);
+    m_pos.x = m_posAccumX >> CGameSprite::EXACT_SCALE;
+    m_pos.y = screenY(m_posAccumY);
+    if (m_pos.x < 0 || m_pos.y < 0
+        || m_pos.x >= m_pArea->GetInfinity()->nAreaX
+        || m_pos.y >= m_pArea->GetInfinity()->nAreaY) {
+        remove();
+        return;
+    }
+
+    CPoint grid(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+        m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+    if (grid != oldGrid) {
+        SHORT terrain;
+        auto blocked = [&](const CPoint& point) {
+            BYTE cost = m_pArea->m_search.GetLOSCost(point, m_terrainTable, terrain, FALSE);
+            return cost == CPathSearch::COST_IMPASSABLE || terrain == 8;
+        };
+        auto reverseX = [&]() {
+            m_posAccumX = static_cast<LONG>(static_cast<DWORD>(m_posAccumX)
+                - static_cast<DWORD>(m_stepX) * 2);
+            m_stepX = static_cast<LONG>(0U - static_cast<DWORD>(m_stepX));
+            m_pos.x = m_posAccumX >> CGameSprite::EXACT_SCALE;
+        };
+        auto reverseY = [&]() {
+            m_posAccumY = static_cast<LONG>(static_cast<DWORD>(m_posAccumY)
+                - static_cast<DWORD>(m_stepY) * 2);
+            m_stepY = static_cast<LONG>(0U - static_cast<DWORD>(m_stepY));
+            m_pos.y = screenY(m_posAccumY);
+        };
+        if (blocked(grid)) {
+            if (m_nBounces > 0 && --m_nBounces < 1) {
+                remove();
+                return;
+            }
+            LONG absX = m_stepX < 0 ? static_cast<LONG>(0U - static_cast<DWORD>(m_stepX)) : m_stepX;
+            LONG absY = m_stepY < 0 ? static_cast<LONG>(0U - static_cast<DWORD>(m_stepY)) : m_stepY;
+            if (absX >= absY) {
+                LONG previousX = static_cast<LONG>(static_cast<DWORD>(m_posAccumX)
+                    - static_cast<DWORD>(m_stepX) * 2);
+                CPoint candidate((previousX >> CGameSprite::EXACT_SCALE)
+                        / CPathSearch::GRID_SQUARE_SIZEX,
+                    m_pos.y / CPathSearch::GRID_SQUARE_SIZEY);
+                if (blocked(candidate)) {
+                    reverseY();
+                    if (blocked(CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                            m_pos.y / CPathSearch::GRID_SQUARE_SIZEY))) {
+                        reverseX();
+                    }
+                } else {
+                    reverseX();
+                }
+            } else {
+                LONG previousY = static_cast<LONG>(static_cast<DWORD>(m_posAccumY)
+                    - static_cast<DWORD>(m_stepY) * 2);
+                CPoint candidate(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                    screenY(previousY) / CPathSearch::GRID_SQUARE_SIZEY);
+                if (blocked(candidate)) {
+                    reverseX();
+                    // Native Y-major fallback checks only cost here, ignoring
+                    // terrain == 8 (0x57DE8A), unlike the X-major fallback.
+                    if (m_pArea->m_search.GetLOSCost(
+                            CPoint(m_pos.x / CPathSearch::GRID_SQUARE_SIZEX,
+                                m_pos.y / CPathSearch::GRID_SQUARE_SIZEY),
+                            m_terrainTable, terrain, FALSE) == CPathSearch::COST_IMPASSABLE) {
+                        reverseY();
+                    }
+                } else {
+                    reverseY();
+                }
+            }
+            CPoint next(static_cast<LONG>(static_cast<DWORD>(m_posAccumX) + m_stepX)
+                    >> CGameSprite::EXACT_SCALE,
+                screenY(static_cast<LONG>(static_cast<DWORD>(m_posAccumY) + m_stepY)));
+            m_facing = GetDirection(next);
+            m_targetX = next.x;
+            m_targetY = next.y;
+        }
+        if (m_bSparkleTrail != FALSE) {
+            CSparkleCluster* trail = new CSparkleCluster(m_sparkleColor,
+                CSparkleCluster::TYPE_TRAVEL, CSparkleCluster::DEFAULT_CONJURE_DURATION);
+            trail->AddToArea(m_pArea, m_pos, m_posZ, CGameObject::LIST_FRONT);
+        }
+    }
+    m_targetMap.Service();
+    m_sound.SetCoordinates(m_pos.x, m_pos.y, m_posZ);
+}
+
+// 0x57D700
+void CProjectileReboundingBolt::Fire(CGameArea* pArea, LONG source, LONG target,
+    CPoint targetPos, LONG nHeight, SHORT nType)
+{
+    (void)nType;
+    // Unlike ordinary missiles, +0x72 is the THIRD argument. The launch
+    // origin comes from the second; the third supplies the zero-distance fallback.
+    m_sourceId = target;
+    m_targetId = CGameObjectArray::INVALID_INDEX;
+    m_pArea = pArea;
+    CGameObjectArray* objects = g_pBaldurChitin->GetObjectGame()->GetObjectArray();
+    CGameObject* object;
+    if (objects->GetShare(source, CGameObjectArray::THREAD_ASYNCH, &object, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        return;
+    }
+    CPoint launch;
+    GetStart(source, launch, TRUE);
+    objects->ReleaseShare(source, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    if (objects->Add(&m_id, this, INFINITE) != CGameObjectArray::SUCCESS) {
+        delete this;
+        return;
+    }
+    if (objects->GetShare(m_sourceId, CGameObjectArray::THREAD_ASYNCH, &object, INFINITE)
+        != CGameObjectArray::SUCCESS) {
+        return;
+    }
+    CPoint fallback = object->GetPos();
+    fallback.y = static_cast<LONG>(static_cast<DWORD>(fallback.y) << 2) / 3;
+    objects->ReleaseShare(m_sourceId, CGameObjectArray::THREAD_ASYNCH, INFINITE);
+    field_17C = 1;
+    CGameObject::AddToArea(pArea, launch, nHeight, CGameObject::LIST_FRONT);
+    PlaySound(m_fireSoundRef, m_loopFireSound, FALSE);
+    m_posAccumX = static_cast<LONG>(static_cast<DWORD>(launch.x) << CGameSprite::EXACT_SCALE);
+    m_posAccumY = static_cast<LONG>(static_cast<DWORD>(launch.y)
+        << (CGameSprite::EXACT_SCALE + 2)) / 3;
+    m_facing = GetDirection(targetPos);
+    LONG targetY = static_cast<LONG>(static_cast<DWORD>(targetPos.y) << 2) / 3;
+    LONG launchY = static_cast<LONG>(static_cast<DWORD>(m_pos.y) << 2) / 3;
+    LONG dx = static_cast<LONG>(static_cast<DWORD>(targetPos.x) - m_pos.x);
+    LONG dy = static_cast<LONG>(static_cast<DWORD>(targetY) - launchY);
+    auto distance = [](LONG x, LONG y) {
+        LONG squared = static_cast<LONG>(static_cast<DWORD>(x) * x + static_cast<DWORD>(y) * y);
+        return static_cast<LONG>(sqrt(static_cast<double>(squared)) + 0.5);
+    };
+    LONG length = distance(dx, dy);
+    if (length == 0) {
+        dx = static_cast<LONG>(static_cast<DWORD>(targetPos.x) - fallback.x);
+        dy = static_cast<LONG>(static_cast<DWORD>(targetY) - fallback.y);
+        length = distance(dx, dy);
+        if (length == 0) {
+            m_nDuration = 0;
+            return;
+        }
+    }
+    m_stepX = static_cast<LONG>((static_cast<DWORD>(dx) << CGameSprite::EXACT_SCALE)
+        * static_cast<LONG>(m_velocity)) / length;
+    m_stepY = static_cast<LONG>((static_cast<DWORD>(dy) << CGameSprite::EXACT_SCALE)
+        * static_cast<LONG>(m_velocity)) / length;
+}
+
 // 0x580B30 (vtable slot 27)
 // Push the picked target point out to m_beamRange past it along the caster->
 // target heading, so the bolt overshoots its mark and rakes the full line, then
@@ -8420,7 +10285,7 @@ void CProjectileCone::Fire(CGameArea* pArea, LONG source, LONG target, CPoint ta
     m_sourceId = source;
     m_pArea = pArea;
 
-    // Caster must exist; GetProjectileSourcePosition re-shares it to read the
+    // Caster must exist; GetStart re-shares it to read the
     // facing-adjusted launch point into m_casterPos.
     CGameObject* pCaster;
     BYTE rc;
@@ -8432,7 +10297,7 @@ void CProjectileCone::Fire(CGameArea* pArea, LONG source, LONG target, CPoint ta
         return;
     }
 
-    GetProjectileSourcePosition(m_sourceId, m_casterPos);
+    GetStart(m_sourceId, m_casterPos, TRUE);
     g_pBaldurChitin->GetObjectGame()->GetObjectArray()->ReleaseShare(m_sourceId,
         CGameObjectArray::THREAD_ASYNCH, INFINITE);
 
@@ -8671,20 +10536,46 @@ IcewindCSpellHitEmissionRanged::IcewindCSpellHitEmissionRanged()
 }
 
 // =============================================================================
-// IcewindCSpellHitVisual -- the on-ground detonation visual (SCAFFOLD).
-// Layout is recovered (see CProjectile.h); the bodies below are faithful stubs.
-// The base CGameObject and the typed sub-objects (m_cell, m_palette, m_sound,
-// m_visualEffect) are still constructed/destroyed; the real work -- BAM load,
-// radial velocity table, CGameObjectArray::Add + AddToArea, frame advance and
-// render -- is recovered in a later pass.
+// IcewindCSpellHitVisual -- the on-ground detonation visual.
 // =============================================================================
 
-// 0x56BF30. Builds the on-ground detonation animation: loads the explosion BAM
+namespace {
+// VC6 TString copy/Tidy inlined four times in 56BF30/56CF00. These descriptors
+// retain their POD layout because the projectile's visual slots alias them.
+void CopyGroundHitName(char*& target, INT& length, INT& capacity,
+    const char* source, INT sourceLength, INT sourceCapacity)
+{
+    if (sourceLength == 0) return;
+    if (static_cast<BYTE>(source[-1]) < 0xFE) {
+        target = const_cast<char*>(source);
+        length = sourceLength;
+        capacity = sourceCapacity;
+        target[-1] = static_cast<char>(static_cast<BYTE>(target[-1]) + 1);
+    } else {
+        capacity = sourceLength | 0x1F;
+        char* block = new char[capacity + 2];
+        block[0] = 0;
+        target = block + 1;
+        memcpy(target, source, sourceLength);
+        target[sourceLength] = 0;
+        length = sourceLength;
+    }
+}
+
+LONG GroundHitAdd(LONG a, LONG b) { return static_cast<LONG>(static_cast<DWORD>(a) + static_cast<DWORD>(b)); }
+LONG GroundHitSub(LONG a, LONG b) { return static_cast<LONG>(static_cast<DWORD>(a) - static_cast<DWORD>(b)); }
+LONG GroundHitMul(LONG a, LONG b) { return static_cast<LONG>(static_cast<DWORD>(a) * static_cast<DWORD>(b)); }
+LONG GroundHitShift(LONG a) { return static_cast<LONG>(static_cast<DWORD>(a) << (CGameSprite::EXACT_SCALE & 31)); }
+LONG GroundHitIso(LONG a) { return GroundHitMul(a, 3) / 4; }
+}
+
+// Builds the on-ground detonation animation: loads the explosion BAM
 // into m_cell from the first emission slot, copies the other two emission slots
 // in, then rasterises two quarter-circle arcs (CVidMode::GetEllipseArcPixelList)
 // and stores, for every cell of the radial fan, the velocity vector normalised
 // to the launch speed -- replicated across the four quadrants -- before
 // registering the object and adding it to the area.
+// 0x56BF30
 IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& emission0,
     const IcewindCSpellHitEmission& emission1, const IcewindCSpellHitEmissionRanged& emission2,
     CGameArea* pArea, const CPoint& pos, SHORT nRange, BYTE nVelocity, BYTE a8, SHORT nDuration)
@@ -8703,32 +10594,53 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
     if (emission0.m_resref0Len == 0) {
         m_bamLoaded = 0;
     } else {
-        m_cell.SetResRef(CResRef(emission0.m_resref0), FALSE, TRUE, TRUE);
+        m_cell.SetResRef(CResRef(CString(emission0.m_resref0)), FALSE, TRUE, TRUE);
         m_bamLoaded = 1;
     }
 
     m_visualEffect = emission0.m_visualEffect;
-    m_emission1 = emission1;
-    m_emission2 = emission2;
+    CopyGroundHitName(m_emission1.m_resref0, m_emission1.m_resref0Len, m_emission1.m_resref0Cap,
+        emission1.m_resref0, emission1.m_resref0Len, emission1.m_resref0Cap);
+    CopyGroundHitName(m_emission1.m_resref1, m_emission1.m_resref1Len, m_emission1.m_resref1Cap,
+        emission1.m_resref1, emission1.m_resref1Len, emission1.m_resref1Cap);
+    m_emission1.m_visualEffect = emission1.m_visualEffect;
+    m_emission1.m_animMode = emission1.m_animMode;
+    m_emission1.m_maxMovingSpawn = emission1.m_maxMovingSpawn;
+    CopyGroundHitName(m_emission2.m_resref0, m_emission2.m_resref0Len, m_emission2.m_resref0Cap,
+        emission2.m_resref0, emission2.m_resref0Len, emission2.m_resref0Cap);
+    CopyGroundHitName(m_emission2.m_resref1, m_emission2.m_resref1Len, m_emission2.m_resref1Cap,
+        emission2.m_resref1, emission2.m_resref1Len, emission2.m_resref1Cap);
+    m_emission2.m_visualEffect = emission2.m_visualEffect;
+    m_emission2.m_cellPool = emission2.m_cellPool;
+    m_emission2.m_lastCellIndex = emission2.m_lastCellIndex;
+    m_emission2.m_respawnFlag = emission2.m_respawnFlag;
+    m_emission2.m_animMode = emission2.m_animMode;
+    m_emission2.m_animFlag36 = emission2.m_animFlag36;
+    m_emission2.m_densityBase = emission2.m_densityBase;
+    m_emission2.m_emitPeriod = emission2.m_emitPeriod;
+    m_emission2.m_densityRampDiv = emission2.m_densityRampDiv;
+    m_emission2.m_cloudFlag = emission2.m_cloudFlag;
 
     m_cell.SequenceSet(0);
     m_cell.FrameSet(0);
     field_7E = 0;
     field_80 = 0;
     m_fanCells = NULL;
+    m_fanVel = NULL;
 
     // Allocate the per-cell pixel-run buffer sized for the full radius.
-    int nRadius = (nRange - 1) / 16;
+    int nRadius = (nRange - 1) / CPathSearch::GRID_SQUARE_SIZEX;
     m_coverHalfW = nRadius + 1;
     m_coverHalfH = nRadius + 1;
-    m_coverageMap = malloc((nRadius + 2 + nRadius + 1) * (nRadius + 2 + nRadius + 1));
+    m_coverageMap = ::operator new((nRadius * 2 + 3) * (nRadius * 2 + 3), std::nothrow);
     if (m_coverageMap == NULL) {
+        delete this;
         return;
     }
 
     // Rasterise the two arcs (half-radius major/minor axes); each call appends a
     // run-length terminator and returns the run count.
-    int nHalf = (nRange - 1) / 32 + 1;
+    int nHalf = (nRange - 1) / (2 * CPathSearch::GRID_SQUARE_SIZEX) + 1;
     m_coverHalfW = nHalf;
     m_coverHalfH = nHalf;
     CBaldurEngine* pEngine = g_pBaldurChitin->GetActiveEngine();
@@ -8743,16 +10655,18 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
     m_arcLen2 = nRun2 + 1;
     static_cast<BYTE*>(m_coverageMap)[m_arcLen1 + nRun2] = 1;
 
-    m_coverHalfW = (nRange - 1) / 16 + 1;
+    m_coverHalfW = (nRange - 1) / CPathSearch::GRID_SQUARE_SIZEX + 1;
     m_coverHalfH = m_coverHalfW;
 
     // Velocity table: 16 bytes per cell, four quadrants.
-    m_fanCells = malloc((m_arcLen2 + m_arcLen1) * 0x40);
+    m_fanCells = ::operator new((m_arcLen2 + m_arcLen1) * 0x40, std::nothrow);
     if (m_fanCells == NULL) {
+        delete this;
         return;
     }
-    m_fanVel = malloc((m_arcLen2 + m_arcLen1) * 4);
+    m_fanVel = ::operator new((m_arcLen2 + m_arcLen1) * 4, std::nothrow);
     if (m_fanVel == NULL) {
+        delete this;
         return;
     }
     memset(m_fanVel, 0, (m_arcLen2 + m_arcLen1) * 4);
@@ -8763,14 +10677,14 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
     LONG nStride = m_arcLen1 + m_arcLen2;
 
     LONG nCenterX = pos.x;
-    LONG nIsoY = (pos.y << 2) / 3;
+    LONG nIsoY = static_cast<LONG>(static_cast<DWORD>(pos.y) << 2) / 3;
     LONG nCursorX = nCenterX;
-    LONG nCursorY = nRange + nIsoY;
+    LONG nCursorY = GroundHitAdd(nRange, nIsoY);
 
     for (SHORT i = 0; i < m_arcLen1; ++i) {
-        LONG dx = nCursorX - nCenterX;
-        LONG dy = nCursorY - nIsoY;
-        LONG dist = static_cast<LONG>(sqrt(static_cast<double>(dx * dx + dy * dy)));
+        LONG dx = GroundHitSub(nCursorX, nCenterX);
+        LONG dy = GroundHitSub(nCursorY, nIsoY);
+        LONG dist = static_cast<LONG>(sqrt(static_cast<double>(GroundHitAdd(GroundHitMul(dx, dx), GroundHitMul(dy, dy)))) + 0.5);
         LONG i0 = i;
         LONG i1 = nStride + i;
         LONG i2 = i + nStride * 2;
@@ -8783,7 +10697,7 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
         pVel[i1 * 4] = 0;
         pVel[i2 * 4] = 0;
         pVel[i3 * 4] = 0;
-        LONG vx = (dx << 10) * nVelocity / dist;
+        LONG vx = GroundHitMul(GroundHitShift(dx), nVelocity) / dist;
         pVel[i0 * 4 + 3] = vx;
         pVel[i1 * 4 + 3] = vx;
         if (vx == 0) {
@@ -8792,21 +10706,21 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
         }
         pVel[i2 * 4 + 3] = -vx;
         pVel[i3 * 4 + 3] = -vx;
-        LONG vy = (dy << 10) * nVelocity / dist;
+        LONG vy = GroundHitMul(GroundHitShift(dy), nVelocity) / dist;
         pVel[i0 * 4 + 2] = vy;
         pVel[i1 * 4 + 2] = -vy;
         pVel[i2 * 4 + 2] = vy;
         pVel[i3 * 4 + 2] = -vy;
-        nCursorX += 16 * 2;
-        nCursorY -= pArc[i] * 12 * 2;
+        nCursorX = GroundHitAdd(nCursorX, CPathSearch::GRID_SQUARE_SIZEX * 2);
+        nCursorY = GroundHitSub(nCursorY, pArc[i] * CPathSearch::GRID_SQUARE_SIZEY * 2);
     }
 
-    nCursorX = nRange + nCenterX;
+    nCursorX = GroundHitAdd(nRange, nCenterX);
     nCursorY = nIsoY;
     for (SHORT i = 0; i < m_arcLen2; ++i) {
-        LONG dy = nCursorY - nIsoY;
-        LONG dx = nCursorX - nCenterX;
-        LONG dist = static_cast<LONG>(sqrt(static_cast<double>(dx * dx + dy * dy)));
+        LONG dy = GroundHitSub(nCursorY, nIsoY);
+        LONG dx = GroundHitSub(nCursorX, nCenterX);
+        LONG dist = static_cast<LONG>(sqrt(static_cast<double>(GroundHitAdd(GroundHitMul(dx, dx), GroundHitMul(dy, dy)))) + 0.5);
         LONG j0 = m_arcLen1 + i;
         LONG j1 = m_arcLen2 + m_arcLen1 * 2 + i;
         LONG j2 = i + nStride * 2 + m_arcLen1;
@@ -8819,12 +10733,12 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
         pVel[j1 * 4] = 0;
         pVel[j2 * 4] = 0;
         pVel[j3 * 4] = 0;
-        LONG vx = (dx << 10) * nVelocity / dist;
+        LONG vx = GroundHitMul(GroundHitShift(dx), nVelocity) / dist;
         pVel[j0 * 4 + 3] = vx;
         pVel[j1 * 4 + 3] = vx;
         pVel[j2 * 4 + 3] = -vx;
         pVel[j3 * 4 + 3] = -vx;
-        LONG vy = (dy << 10) * nVelocity / dist;
+        LONG vy = GroundHitMul(GroundHitShift(dy), nVelocity) / dist;
         pVel[j0 * 4 + 2] = vy;
         pVel[j1 * 4 + 2] = -vy;
         pVel[j2 * 4 + 2] = vy;
@@ -8833,35 +10747,68 @@ IcewindCSpellHitVisual::IcewindCSpellHitVisual(const IcewindCSpellHitEmission& e
             pFlag[j1] = 2;
             pFlag[j3] = 2;
         }
-        nCursorX -= pArc[m_arcLen1 + i] * 16 * 2;
-        nCursorY += 12 * 2;
+        nCursorX = GroundHitSub(nCursorX, pArc[m_arcLen1 + i] * CPathSearch::GRID_SQUARE_SIZEX * 2);
+        nCursorY = GroundHitAdd(nCursorY, CPathSearch::GRID_SQUARE_SIZEY * 2);
     }
 
     memcpy(m_terrainTable, CGameObject::DEFAULT_VISIBLE_TERRAIN_TABLE, sizeof(m_terrainTable));
 
     if (g_pBaldurChitin->GetObjectGame()->GetObjectArray()->Add(&m_id, this, INFINITE)
         == CGameObjectArray::SUCCESS) {
-        AddToArea(pArea, pos, 0, 0 /* DAT_0084C50C */);
+        CGameObject::AddToArea(pArea, pos, 0, CGameObject::LIST_FRONT);
+    } else {
+        delete this;
     }
 }
 
 // 0x56CEE0 (vtable slot 0 -- MSVC scalar-deleting wrapper; body at 0x56CF00).
-// Frees the three malloc'd fan buffers; the CVidCell, CVidPalette, CSound, the
+// Frees the three fan buffers and four retained TString buffers. CVidCell,
+// CVidPalette, CSound, the
 // IcewindCVisualEffect, the two emission descriptors and the CGameObject base all
 // destruct automatically.
+// 0x56CF00
 IcewindCSpellHitVisual::~IcewindCSpellHitVisual()
 {
-    free(m_coverageMap);
-    free(m_fanCells);
-    free(m_fanVel);
+    ::operator delete(m_coverageMap);
+    ::operator delete(m_fanCells);
+    ::operator delete(m_fanVel);
+    if (m_emission2.m_resref1) {
+        BYTE count = static_cast<BYTE>(m_emission2.m_resref1[-1]);
+        if (count == 0 || count == 0xFF) delete[] (m_emission2.m_resref1 - 1);
+        else m_emission2.m_resref1[-1] = static_cast<char>(count - 1);
+    }
+    m_emission2.m_resref1 = NULL;
+    m_emission2.m_resref1Len = m_emission2.m_resref1Cap = 0;
+    if (m_emission2.m_resref0) {
+        BYTE count = static_cast<BYTE>(m_emission2.m_resref0[-1]);
+        if (count == 0 || count == 0xFF) delete[] (m_emission2.m_resref0 - 1);
+        else m_emission2.m_resref0[-1] = static_cast<char>(count - 1);
+    }
+    m_emission2.m_resref0 = NULL;
+    m_emission2.m_resref0Len = m_emission2.m_resref0Cap = 0;
+    if (m_emission1.m_resref1) {
+        BYTE count = static_cast<BYTE>(m_emission1.m_resref1[-1]);
+        if (count == 0 || count == 0xFF) delete[] (m_emission1.m_resref1 - 1);
+        else m_emission1.m_resref1[-1] = static_cast<char>(count - 1);
+    }
+    m_emission1.m_resref1 = NULL;
+    m_emission1.m_resref1Len = m_emission1.m_resref1Cap = 0;
+    if (m_emission1.m_resref0) {
+        BYTE count = static_cast<BYTE>(m_emission1.m_resref0[-1]);
+        if (count == 0 || count == 0xFF) delete[] (m_emission1.m_resref0 - 1);
+        else m_emission1.m_resref0[-1] = static_cast<char>(count - 1);
+    }
+    m_emission1.m_resref0 = NULL;
+    m_emission1.m_resref0Len = m_emission1.m_resref0Cap = 0;
 }
 
-// 0x56D0A0 (vtable slot 3). Each tick advances the detonation and expands the
+// Each tick advances the detonation and expands the
 // radial fan: every live cell drifts by its velocity, bounces off / dies on walls
 // (CSearchBitmap::GetLOSCost) per the mode byte, and spawns IcewindCSpellHit
 // particles -- stationary m_emission2 cells at an age-ramped probability (recorded
 // into the shared cell pool), and moving m_emission1 cells once per fresh coverage
 // pixel. The visual expires once the fan has settled and the BAM sequence ends.
+// 0x56D0A0
 void IcewindCSpellHitVisual::AIUpdate()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
@@ -8870,7 +10817,7 @@ void IcewindCSpellHitVisual::AIUpdate()
     }
 
     BOOL bSettled = TRUE;
-    m_age++;
+    m_age = GroundHitAdd(m_age, 1);
     m_frameCount--;
 
     if (m_bamLoaded == 1) {
@@ -8899,12 +10846,12 @@ void IcewindCSpellHitVisual::AIUpdate()
             BYTE* pFlags = static_cast<BYTE*>(m_fanVel);
             if (pFlags[i] != 2) {
                 LONG* pCell = reinterpret_cast<LONG*>(static_cast<BYTE*>(m_fanCells) + i * 0x10);
-                pCell[1] += pCell[3];   // pos.y += vel.y
-                pCell[0] += pCell[2];   // pos.x += vel.x
+                pCell[1] = GroundHitAdd(pCell[1], pCell[3]); // fixed X
+                pCell[0] = GroundHitAdd(pCell[0], pCell[2]); // unsquashed fixed Y
 
-                int nTileY = (((pCell[0] * 3 / 4) >> CGameSprite::EXACT_SCALE) + m_pos.y)
+                int nTileY = GroundHitAdd(GroundHitIso(pCell[0]) >> (CGameSprite::EXACT_SCALE & 31), m_pos.y)
                     / CPathSearch::GRID_SQUARE_SIZEY;
-                int nTileX = ((pCell[1] >> CGameSprite::EXACT_SCALE) + m_pos.x)
+                int nTileX = GroundHitAdd(pCell[1] >> (CGameSprite::EXACT_SCALE & 31), m_pos.x)
                     / CPathSearch::GRID_SQUARE_SIZEX;
 
                 SHORT nTableIndex;
@@ -8918,15 +10865,15 @@ void IcewindCSpellHitVisual::AIUpdate()
                     }
                     if (m_collision == CGameTemporal::COLLISION_REBOUND) {
                         // Reverse the velocity on whichever axis crossed the wall.
-                        if ((((pCell[1] - pCell[3]) >> CGameSprite::EXACT_SCALE) + m_pos.x)
+                        if (GroundHitAdd(GroundHitSub(pCell[1], pCell[3]) >> (CGameSprite::EXACT_SCALE & 31), m_pos.x)
                                 / CPathSearch::GRID_SQUARE_SIZEX != nTileX) {
-                            pCell[1] += pCell[3] * -2;
-                            pCell[3] = -pCell[3];
+                            pCell[1] = GroundHitSub(pCell[1], GroundHitMul(pCell[3], 2));
+                            pCell[3] = GroundHitSub(0, pCell[3]);
                         }
-                        if ((((pCell[0] - pCell[2]) * 3 / 4 >> CGameSprite::EXACT_SCALE) + m_pos.y)
+                        if (GroundHitAdd(GroundHitIso(GroundHitSub(pCell[0], pCell[2])) >> (CGameSprite::EXACT_SCALE & 31), m_pos.y)
                                 / CPathSearch::GRID_SQUARE_SIZEY != nTileY) {
-                            pCell[0] += pCell[2] * -2;
-                            pCell[2] = -pCell[2];
+                            pCell[0] = GroundHitSub(pCell[0], GroundHitMul(pCell[2], 2));
+                            pCell[2] = GroundHitSub(0, pCell[2]);
                         }
                     } else {
                         bRender = FALSE;
@@ -8945,12 +10892,12 @@ void IcewindCSpellHitVisual::AIUpdate()
                     // density probability that ramps with age.
                     if (m_emission2.m_resref0Len != 0) {
                         if (m_emitCooldown < 1) {
-                            int nThreshold = m_age * m_age / m_emission2.m_densityRampDiv + m_emission2.m_densityBase;
+                            int nThreshold = GroundHitAdd(GroundHitMul(m_age, m_age) / m_emission2.m_densityRampDiv, m_emission2.m_densityBase);
                             if (m_frameCount < 2) {
-                                nThreshold *= 2;
+                                nThreshold = GroundHitMul(nThreshold, 2);
                             }
-                            CPoint ptSpawn((m_pos.x << CGameSprite::EXACT_SCALE) + pCell[1],
-                                (m_pos.y << CGameSprite::EXACT_SCALE) + pCell[0] * 3 / 4);
+                            CPoint ptSpawn(GroundHitAdd(GroundHitShift(m_pos.x), pCell[1]),
+                                GroundHitAdd(GroundHitShift(m_pos.y), GroundHitIso(pCell[0])));
                             int nRand = rand() % 10000;
                             IcewindCSpellHitCell cell = { ptSpawn.x, ptSpawn.y, 0 };
                             if (nThreshold < nRand) {
@@ -8975,10 +10922,11 @@ void IcewindCSpellHitVisual::AIUpdate()
                     BYTE nCount = pCoverage[nPixIdx];
                     pCoverage[nPixIdx] = nCount + 1;
                     if (nCount == 0 && pFlags[i] == 0) {
-                        if (m_emission1.m_resref0Len != 0 && ++m_movingSpawnCount <= m_emission1.m_maxMovingSpawn) {
-                            CPoint ptSpawn((m_pos.x << CGameSprite::EXACT_SCALE) + pCell[1],
-                                (m_pos.y << CGameSprite::EXACT_SCALE) + pCell[0] * 3 / 4);
-                            CPoint ptVel(pCell[3], pCell[2] * 3 / 4);
+                        if (m_emission1.m_resref0Len != 0
+                            && (m_movingSpawnCount = GroundHitAdd(m_movingSpawnCount, 1)) <= m_emission1.m_maxMovingSpawn) {
+                            CPoint ptSpawn(GroundHitAdd(GroundHitShift(m_pos.x), pCell[1]),
+                                GroundHitAdd(GroundHitShift(m_pos.y), GroundHitIso(pCell[0])));
+                            CPoint ptVel(pCell[3], GroundHitIso(pCell[2]));
                             new IcewindCSpellHitParticle(m_emission1, m_pArea, ptSpawn, 0, ptVel,
                                 static_cast<SHORT>(m_frameCount), 0, m_collision);
                         }
@@ -8997,9 +10945,13 @@ void IcewindCSpellHitVisual::AIUpdate()
         if (m_bamLoaded == 1) {
             if (m_cell.IsEndOfSequence(FALSE)) {
                 RemoveFromArea();
+                // The native epilogue rereads the freed object's BAM flag.
+                // Successful RemoveFromArea deletes this; nothing can advance.
+                return;
             }
         } else {
             RemoveFromArea();
+            return;
         }
     }
 
@@ -9010,6 +10962,7 @@ void IcewindCSpellHitVisual::AIUpdate()
 
 // 0x56D9B0 (vtable slot 18). Removes the visual from the area and the global
 // object array, then deletes itself (same shape as the particle's RemoveFromArea).
+// 0x56D9B0
 void IcewindCSpellHitVisual::RemoveFromArea()
 {
     CGameObject::RemoveFromArea();
@@ -9028,6 +10981,7 @@ void IcewindCSpellHitVisual::RemoveFromArea()
 // 0x56D730 (vtable slot 19). Draws the detonation BAM's current frame at the
 // impact point through the CInfinity FX pipeline, gated on tile visibility, a
 // loaded BAM (m_bamLoaded) and the sequence not having finished.
+// 0x56D730
 void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
     CRect rFX;
@@ -9038,19 +10992,19 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
     CInfinity* pInfinity;
 
     (void)pArea;
-    (void)pVidMode;   // binary asserts pVidMode != NULL here; UtilAssert omitted (it kills the game)
+    UTIL_ASSERT(pVidMode != NULL);
 
     // Skip if the impact tile is off-screen or no detonation BAM was loaded. The
     // point is clamped to the area bounds before the visibility lookup.
     LONG nVisX = m_pos.x < 0 ? 0 : m_pos.x;
     LONG nAreaW = m_pArea->GetInfinity()->nAreaX;
-    if (nVisX > nAreaW - 1) {
-        nVisX = nAreaW - 1;
+    if (nVisX > GroundHitSub(nAreaW, 1)) {
+        nVisX = GroundHitSub(nAreaW, 1);
     }
     LONG nVisY = m_pos.y < 0 ? 0 : m_pos.y;
     LONG nAreaH = m_pArea->GetInfinity()->nAreaY;
-    if (nVisY > nAreaH - 1) {
-        nVisY = nAreaH - 1;
+    if (nVisY > GroundHitSub(nAreaH, 1)) {
+        nVisY = GroundHitSub(nAreaH, 1);
     }
     if (!m_pArea->m_visibility.IsTileVisible(m_pArea->m_visibility.PointToTile(CPoint(nVisX, nVisY)))
         || m_bamLoaded == 0) {
@@ -9065,12 +11019,12 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
     rFX.SetRect(0, 0, frameSize.cx, frameSize.cy);
 
     newPos.x = m_pos.x;
-    newPos.y = m_pArea->GetHeightOffset(m_pos, m_listType) + m_pos.y;
+    newPos.y = GroundHitAdd(m_pArea->GetHeightOffset(m_pos, m_listType), m_pos.y);
 
-    rGCBounds.left = newPos.x - ptReference.x;
-    rGCBounds.top = newPos.y - ptReference.y;
-    rGCBounds.right = rGCBounds.left + rFX.Width();
-    rGCBounds.bottom = rGCBounds.top + rFX.Height();
+    rGCBounds.left = GroundHitSub(newPos.x, ptReference.x);
+    rGCBounds.top = GroundHitAdd(GroundHitSub(newPos.y, ptReference.y), m_posZ);
+    rGCBounds.right = GroundHitAdd(rGCBounds.left, frameSize.cx);
+    rGCBounds.bottom = GroundHitAdd(rGCBounds.top, frameSize.cy);
 
     DWORD dwPrepFlags = m_visualEffect.m_dwFlags | CInfinity::FXPREP_COPYFROMBACK;
 
@@ -9078,7 +11032,9 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
     pInfinity->FXPrep(rFX, dwPrepFlags, nSurface, newPos, ptReference);
     if (pInfinity->FXLock(rFX, dwPrepFlags)) {
         pInfinity->FXRender(&m_cell, ptReference.x, ptReference.y, m_visualEffect.m_dwFlags, 0);
-        pInfinity->FXRenderClippingPolys(newPos.x, newPos.y - m_posZ, m_posZ, ptReference, rGCBounds,
+        rGCBounds.top = GroundHitSub(rGCBounds.top, m_posZ);
+        rGCBounds.bottom = GroundHitSub(rGCBounds.bottom, m_posZ);
+        pInfinity->FXRenderClippingPolys(newPos.x, GroundHitSub(newPos.y, m_posZ), m_posZ, ptReference, rGCBounds,
             FALSE, m_visualEffect.m_dwFlags);
         pInfinity->FXUnlock(dwPrepFlags, NULL, CPoint(0, 0));
         pInfinity->FXBltFrom(nSurface, rFX, newPos.x, newPos.y, ptReference.x, ptReference.y,
@@ -9086,9 +11042,10 @@ void IcewindCSpellHitVisual::Render(CGameArea* pArea, CVidMode* pVidMode, int nS
     }
 }
 
-// 0x56DF00. The m_emission1 sibling of the 0x56E280 ctor: same particle setup
+// The m_emission1 sibling of the ranged ctor: same particle setup
 // from the plainer IcewindCSpellHitEmission, which carries no shared cell object
 // (m_cellPool..m_hasCloud are cleared rather than copied from the descriptor).
+// 0x56DF00
 IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmission& descriptor,
     CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
     BYTE mode9)
@@ -9100,7 +11057,7 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
     m_animTick = 0;
 
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
-    m_animation.m_animation = new IcewindCGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
+    m_animation.m_animation = new IcewindCGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing % 16));
 
     // 0x56DFD7 / 0x56E34F: the binary routes m_resref1 through CString(LPCSTR), which
     // substitutes "" (DAT_008485bc) for a NULL/empty slot. CResRef(const char*) is not
@@ -9121,28 +11078,32 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
         == CGameObjectArray::SUCCESS) {
         CPoint scaledPos(pos.x >> (CGameSprite::EXACT_SCALE & 0x1F),
             pos.y >> (CGameSprite::EXACT_SCALE & 0x1F));
-        AddToArea(pArea, scaledPos, a5, CGameObject::LIST_FRONT);
+        CGameObject::AddToArea(pArea, scaledPos, a5, CGameObject::LIST_FRONT);
+    } else {
+        delete this;
     }
-    // else: registration failed -> the binary self-deletes via vtable slot 0;
-    // omitted here (matches the IcewindCSpellHitVisual ctor).
 }
 
-// 0x56E280. Builds one travelling particle of the detonation fan from the
+// Builds one travelling particle of the detonation fan from the
 // parent's m_emission2 descriptor (the 0x56DF00 sibling builds it from the
 // plainer m_emission1). Loads the impact sound, seeds the particle's motion
 // state from the launch parameters, registers the object and adds it to the
 // area, taking a reference on the descriptor's shared cell object.
+// 0x56E280
 IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissionRanged& descriptor,
     CGameArea* pArea, const CPoint& pos, int a5, const CPoint& velocity, SHORT a7, BYTE mode8,
     BYTE mode9)
 {
+    // A failed registration destroys the partially built particle before it
+    // acquires a pool reference.
+    m_cellPool = NULL;
     m_animTick = 0;
 
     // Build the per-particle detonation animation for this launch direction
     // (CGameSprite::GetDirection from the origin to the launch velocity gives the
     // 16-way facing). The embedded CGameAnimation installs its own vtable.
     SHORT nFacing = CGameSprite::GetDirection(CPoint(0, 0), velocity);
-    m_animation.m_animation = new IcewindCGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing & 0xF));
+    m_animation.m_animation = new IcewindCGameAnimationTypeEffect(descriptor, static_cast<WORD>(nFacing % 16));
 
     // 0x56DFD7 / 0x56E34F: the binary routes m_resref1 through CString(LPCSTR), which
     // substitutes "" (DAT_008485bc) for a NULL/empty slot. CResRef(const char*) is not
@@ -9163,18 +11124,18 @@ IcewindCSpellHitParticle::IcewindCSpellHitParticle(const IcewindCSpellHitEmissio
         == CGameObjectArray::SUCCESS) {
         CPoint scaledPos(pos.x >> (CGameSprite::EXACT_SCALE & 0x1F),
             pos.y >> (CGameSprite::EXACT_SCALE & 0x1F));
-        AddToArea(pArea, scaledPos, a5, CGameObject::LIST_FRONT);
+        CGameObject::AddToArea(pArea, scaledPos, a5, CGameObject::LIST_FRONT);
 
         // Take a counted reference on the descriptor's shared cell pool and copy
         // its trailing parameters.
         m_cellPool = descriptor.m_cellPool;
-        m_cellPool->m_refCount++;
+        m_cellPool->m_refCount = GroundHitAdd(m_cellPool->m_refCount, 1);
         m_cellIndex = descriptor.m_lastCellIndex;
         m_respawnFromPool = static_cast<BYTE>(descriptor.m_respawnFlag);
         m_hasCloud = static_cast<BYTE>(descriptor.m_cloudFlag);
+    } else {
+        delete this;
     }
-    // else: registration failed -> the binary self-deletes via vtable slot 0;
-    // omitted here (matches the IcewindCSpellHitVisual ctor).
 }
 
 // 0x56E260 (vtable slot 0 -- MSVC emits the scalar-deleting wrapper there; the
@@ -9196,10 +11157,11 @@ IcewindCSpellHitParticle::~IcewindCSpellHitParticle()
     // in ~CGameAnimation when the member dtor then runs on the freed pointer.
 }
 
-// 0x56E650 (vtable slot 3). Drives the particle: drift along m_posDelta, then on
+// Drives the particle: drift along m_posDelta, then on
 // crossing a search-grid cell bounce off / die on / pass through walls
 // (CSearchBitmap::GetLOSCost), expiring after m_duration ticks or when the
 // animation sequence ends, and advance the frame. Mirrors CGameTemporal::AIUpdate.
+// 0x56E650
 void IcewindCSpellHitParticle::AIUpdate()
 {
     CInfGame* pGame = g_pBaldurChitin->GetObjectGame();
@@ -9207,7 +11169,7 @@ void IcewindCSpellHitParticle::AIUpdate()
         return;
     }
 
-    m_animTick++;
+    m_animTick = GroundHitAdd(m_animTick, 1);
 
     if (m_duration == 0) {
         // Lives until the animation sequence runs out.
@@ -9216,7 +11178,7 @@ void IcewindCSpellHitParticle::AIUpdate()
             return;
         }
     } else {
-        m_duration--;
+        m_duration = static_cast<SHORT>(static_cast<USHORT>(m_duration) - 1);
         if (m_duration == 0) {
             RemoveFromArea();
             return;
@@ -9226,10 +11188,10 @@ void IcewindCSpellHitParticle::AIUpdate()
     int nOldCellX = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
     int nOldCellY = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
 
-    m_posExact.x += m_posDelta.x;
-    m_posExact.y += m_posDelta.y;
-    m_pos.x = m_posExact.x >> CGameSprite::EXACT_SCALE;
-    m_pos.y = m_posExact.y >> CGameSprite::EXACT_SCALE;
+    m_posExact.x = GroundHitAdd(m_posExact.x, m_posDelta.x);
+    m_posExact.y = GroundHitAdd(m_posExact.y, m_posDelta.y);
+    m_pos.x = m_posExact.x >> (CGameSprite::EXACT_SCALE & 31);
+    m_pos.y = m_posExact.y >> (CGameSprite::EXACT_SCALE & 31);
 
     int nNewCellX = m_pos.x / CPathSearch::GRID_SQUARE_SIZEX;
     int nNewCellY = m_pos.y / CPathSearch::GRID_SQUARE_SIZEY;
@@ -9247,15 +11209,15 @@ void IcewindCSpellHitParticle::AIUpdate()
             if (m_collision == CGameTemporal::COLLISION_REBOUND) {
                 CPoint ptOld(m_posExact);
                 if (nOldCellX != nNewCellX) {
-                    m_posExact.x += -m_posDelta.x * 2;
-                    m_pos.x = m_posExact.x >> CGameSprite::EXACT_SCALE;
-                    m_posDelta.x = -m_posDelta.x;
+                    m_posExact.x = GroundHitSub(m_posExact.x, GroundHitMul(m_posDelta.x, 2));
+                    m_pos.x = m_posExact.x >> (CGameSprite::EXACT_SCALE & 31);
+                    m_posDelta.x = GroundHitSub(0, m_posDelta.x);
                 }
 
                 if (nOldCellY != nNewCellY) {
-                    m_posExact.y += -m_posDelta.y * 2;
-                    m_pos.y = m_posExact.y >> CGameSprite::EXACT_SCALE;
-                    m_posDelta.y = -m_posDelta.y;
+                    m_posExact.y = GroundHitSub(m_posExact.y, GroundHitMul(m_posDelta.y, 2));
+                    m_pos.y = m_posExact.y >> (CGameSprite::EXACT_SCALE & 31);
+                    m_posDelta.y = GroundHitSub(0, m_posDelta.y);
                 }
 
                 SHORT nDirection = CGameSprite::GetDirection(ptOld, m_posExact);
@@ -9314,17 +11276,18 @@ void IcewindCSpellHitParticle::AIUpdate()
             m_cellIndex = nIndex;
             m_posExact.x = m_cellPool->m_cells[nIndex].x;
             m_posExact.y = m_cellPool->m_cells[nIndex].y;
-            m_pos.x = m_posExact.x >> CGameSprite::EXACT_SCALE;
-            m_pos.y = m_posExact.y >> CGameSprite::EXACT_SCALE;
+            m_pos.x = m_posExact.x >> (CGameSprite::EXACT_SCALE & 31);
+            m_pos.y = m_posExact.y >> (CGameSprite::EXACT_SCALE & 31);
         }
     }
 
     m_animation.IncrementFrame();
 }
 
-// 0x56ECF0 (vtable slot 18). Removes the particle from the area and the global
+// Removes the particle from the area and the global
 // object array, then deletes itself. Mirrors CGameTemporal::RemoveFromArea with a
 // trailing self-delete.
+// 0x56ECF0
 void IcewindCSpellHitParticle::RemoveFromArea()
 {
     CGameObject::RemoveFromArea();
@@ -9340,13 +11303,15 @@ void IcewindCSpellHitParticle::RemoveFromArea()
     delete this;
 }
 
-// 0x56EA90 (vtable slot 19). Draws the particle's detonation animation through
+// Draws the particle's detonation animation through
 // CInfinity, gated on m_animationRunning, the impact point being in-bounds and
 // its tile being visible. Mirrors CGameTemporal::Render with an extra position
 // bounds guard.
+// 0x56EA90
 void IcewindCSpellHitParticle::Render(CGameArea* pArea, CVidMode* pVidMode, int nSurface)
 {
-    (void)pArea;   // binary asserts pVidMode != NULL here (ObjAnimation.cpp:0x162); UtilAssert omitted
+    (void)pArea;
+    UTIL_ASSERT(pVidMode != NULL);
 
     if (!m_animationRunning) {
         return;
@@ -9357,8 +11322,8 @@ void IcewindCSpellHitParticle::Render(CGameArea* pArea, CVidMode* pVidMode, int 
 
     CInfinity* pInfinity = &m_pArea->m_cInfinity;
 
-    LONG nTileIndex = (m_pos.y / CVisibilityMap::SQUARE_SIZEY) * m_pArea->m_visibility.m_nWidth
-        + m_pos.x / CVisibilityMap::SQUARE_SIZEX;
+    SHORT nTileIndex = static_cast<SHORT>((m_pos.y / CVisibilityMap::SQUARE_SIZEY) * m_pArea->m_visibility.m_nWidth
+        + m_pos.x / CVisibilityMap::SQUARE_SIZEX);
     if (!m_pArea->m_visibility.IsTileVisible(nTileIndex)) {
         return;
     }
@@ -9370,15 +11335,15 @@ void IcewindCSpellHitParticle::Render(CGameArea* pArea, CVidMode* pVidMode, int 
 
     CRect rView(pInfinity->nCurrentX,
         pInfinity->nCurrentY,
-        pInfinity->nCurrentX + (pInfinity->rViewPort.right - pInfinity->rViewPort.left),
-        pInfinity->nCurrentY + (pInfinity->rViewPort.bottom - pInfinity->rViewPort.top));
+        GroundHitAdd(pInfinity->nCurrentX, GroundHitSub(pInfinity->rViewPort.right, pInfinity->rViewPort.left)),
+        GroundHitAdd(pInfinity->nCurrentY, GroundHitSub(pInfinity->rViewPort.bottom, pInfinity->rViewPort.top)));
 
     CRect rFx;
     CPoint ptReference;
     m_animation.CalculateFxRect(rFx, ptReference, m_posZ);
 
     CPoint ptNewPos(m_pos.x, m_pos.y);
-    ptNewPos.y += m_pArea->GetHeightOffset(m_pos, CGameObject::LIST_BACK);
+    ptNewPos.y = GroundHitAdd(ptNewPos.y, m_pArea->GetHeightOffset(m_pos, CGameObject::LIST_BACK));
 
     CRect rGCBounds;
     m_animation.CalculateGCBoundsRect(rGCBounds, ptNewPos, ptReference, m_posZ,
@@ -9389,9 +11354,9 @@ void IcewindCSpellHitParticle::Render(CGameArea* pArea, CVidMode* pVidMode, int 
         return;
     }
 
-    CPoint ptTint(m_pos.x, m_pos.y + m_posZ);
+    CPoint ptTint(ptNewPos.x, GroundHitAdd(ptNewPos.y, m_posZ));
     COLORREF rgbTintColor = m_pArea->GetTintColor(ptTint, m_listType);
 
     m_animation.Render(pInfinity, pVidMode, nSurface, rFx, ptNewPos, ptReference,
-        0x20000, rgbTintColor, rDest, FALSE, bFadeOut, m_posZ, 0);
+        0x20000, rgbTintColor, rGCBounds, FALSE, bFadeOut, m_posZ, 0);
 }

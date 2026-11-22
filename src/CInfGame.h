@@ -143,6 +143,8 @@ public:
 };
 #pragma pack(pop)
 
+// The native game object also uses IE's two-byte member packing.
+#pragma pack(push, 2)
 class CInfGame {
 public:
     static const SHORT KILL_INNOCENT;
@@ -183,7 +185,7 @@ public:
     void ValidateCache();
     LONG CachingRequirements(const CString& areaName);
     BOOL CacheResFileWithResource(const CString& areaName);
-    LONG ImportCharacter(const CString& sFileName, INT nIndex);
+    LONG ImportCharacter(CString sFileName, INT nIndex);
     CString GetDirSounds();
     void CharacterExport(LONG nCharacterId, CString sFileName);
     CGameArea* LoadArea(CString areaName, BYTE nTravelScreenImageToUse, BOOLEAN bProgressBarRequired, BOOLEAN bProgressBarInPlace);
@@ -544,6 +546,7 @@ public:
     /* 50D8 */ BOOL field_50D8;
     /* 50DC */ unsigned char field_50DC;
 };
+#pragma pack(pop)
 
 class CGameFile : public CResHelper<CResGame, 1013> {
 public:

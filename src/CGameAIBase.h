@@ -45,7 +45,6 @@ public:
 
     CGameAIBase();
     /* 0000 */ ~CGameAIBase() override;
-    /* 0028 */ BOOLEAN CanSaveGame(STRREF& strError) override;
     /* 002C */ BOOLEAN CompressTime(DWORD deltaTime) override;
     /* 0048 */ void RemoveFromArea() override;
     /* 0064 */ BOOL EvaluateStatusTrigger(const CAITrigger& trigger) override;
@@ -57,14 +56,6 @@ public:
     /* 0080 */ virtual void DoAction();
     /* 0084 */ virtual SHORT ExecuteAction();
     /* 0088 */ virtual void InsertAction(const CAIAction& action);
-    // TODO: Incomplete. Slot 0x008C is NOT ProcessAI. The binary puts an
-    // unrecovered wrapper there (0x45C730, COMDAT-folded across 11 classes,
-    // ~736 bytes) which drives CheckTimers / GetNextAction / rand and only
-    // then calls ProcessAI. ProcessAI itself (0x45CA10) is NOT virtual at all:
-    // it appears in no vtable and is called directly from
-    // CGameAIBase::InsertResponse and CGameSprite::ApplyTriggers.
-    // Declared virtual here so the slot stays occupied and the vtable below
-    // does not shift; fixing it properly means recovering 0x45C730 first.
     /* 008C */ virtual void ProcessAI();
     /* 0090 */ virtual void SetCurrAction(const CAIAction& action);
     /* 0094 */ virtual void SetScript(SHORT level, CAIScript* script);
@@ -77,6 +68,7 @@ public:
     /* 00B0 */ virtual void AutoPause(DWORD type);
     /* 00B4 */ virtual BOOL GetCanSeeInvisible();
 
+    void ProcessScripts(); // Nonvirtual script selector at 0x45CA10.
     void CheckTimers(LONG cycles);
     BOOL CanSee(CGameObject* pObject, BOOL bIncludeDead);
     void ClearTriggers();
