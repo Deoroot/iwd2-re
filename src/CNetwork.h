@@ -28,6 +28,7 @@ typedef struct cnetworkwindow_queueentry_st {
     DWORD dwSize;
 } CNETWORKWINDOW_QUEUEENTRY;
 
+#pragma pack(push, 2)
 class CNetworkWindow {
 public:
     static const DWORD DEFAULT_PACKET_TIMEOUT;
@@ -80,6 +81,26 @@ public:
     /* 0080 */ DWORD m_nPlayerTimeout;
     /* 0084 */ DWORD m_nNoMessageTimeout;
 };
+#pragma pack(pop)
+
+// CNetworkWindow::CNetworkWindow (0x7A1E50) builds the two lists at +0x2E and
+// +0x4A (0x7A1E71, 0x7A1E81) and zeroes WORD +0xC (0x7A1EB8), BYTE +0x66
+// (0x7A1EBC), DWORD +0x68 (0x7A1EBF), BYTE +0x6C, WORD +0x6E, BYTE +0x70,
+// DWORDs +0x72/+0x76 (0x7A1ECC, 0x7A1ECF), BYTEs +0x7A/+0x7B, DWORDs +0x7C,
+// +0x80, +0x84 (0x7A1ED8..0x7A1EE1).  CNetworkWindow::Initialize (0x7A2770)
+// clears the queue entries' pData/dwSize at +0x16/+0x1A and +0x26/+0x2A
+// (0x7A27F0..0x7A27F9), so the entries start at +0xE and +0x1E.  CNetwork's
+// ctor runs the vector ctor with element size `push 0x88` (0x7A410A).
+static_assert(offsetof(CNetworkWindow, m_pOutgoingBuffers) == 0x0E, "CNetworkWindow::m_pOutgoingBuffers");
+static_assert(offsetof(CNetworkWindow, m_pIncomingBuffers) == 0x1E, "CNetworkWindow::m_pIncomingBuffers");
+static_assert(offsetof(CNetworkWindow, m_lQueueIncomingMessages) == 0x2E, "CNetworkWindow::m_lQueueIncomingMessages");
+static_assert(offsetof(CNetworkWindow, m_lQueueOutgoingMessages) == 0x4A, "CNetworkWindow::m_lQueueOutgoingMessages");
+static_assert(offsetof(CNetworkWindow, m_pbTimeOutSet) == 0x66, "CNetworkWindow::m_pbTimeOutSet");
+static_assert(offsetof(CNetworkWindow, m_pnTimeOut) == 0x68, "CNetworkWindow::m_pnTimeOut");
+static_assert(offsetof(CNetworkWindow, m_nPacketTimeout) == 0x72, "CNetworkWindow::m_nPacketTimeout");
+static_assert(offsetof(CNetworkWindow, m_nNextEvent) == 0x7C, "CNetworkWindow::m_nNextEvent");
+static_assert(offsetof(CNetworkWindow, m_nNoMessageTimeout) == 0x84, "CNetworkWindow::m_nNoMessageTimeout");
+static_assert(sizeof(CNetworkWindow) == 0x88, "vector ctor element size 0x88 at 0x7A410A");
 
 class CNetwork {
 public:
