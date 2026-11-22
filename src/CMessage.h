@@ -637,6 +637,7 @@ public:
     /* 00FC */ BOOLEAN m_bCompressContainer;
 };
 
+#pragma pack(push, 2)
 class CMessageContainerItems : public CMessage {
 public:
     CMessageContainerItems(CGameContainer* pContainer, LONG caller, LONG target);
@@ -649,6 +650,13 @@ public:
     /* 000C */ SHORT m_nItems;
     /* 000E */ CItem** m_pItems;
 };
+#pragma pack(pop)
+
+// CMessageContainerItems::CMessageContainerItems (0x4FB3C0): the count is a
+// WORD at +0xC (0x4FB40A) and the new'd array pointer goes to +0xE (0x4FB425);
+// CGameContainer::CompressContainer allocates it with `push 0x12` (0x480250).
+static_assert(offsetof(CMessageContainerItems, m_pItems) == 0x0E, "CMessageContainerItems::m_pItems");
+static_assert(sizeof(CMessageContainerItems) == 0x12, "operator new(0x12) at 0x480250");
 
 class CMessageContainerStatus : public CMessage {
 public:
