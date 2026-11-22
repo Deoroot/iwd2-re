@@ -352,6 +352,56 @@ const GetControl = new NativeFunction(ptr(%(getcontrol)#x), 'pointer',
 const user32 = Process.getModuleByName('user32.dll');
 const SetCursorPos = new NativeFunction(user32.getExportByName('SetCursorPos'),
                                         'int', ['int', 'int'], 'stdcall');
+// Keys go the same way: keybd_event changes the async key state the engine
+// polls (CChitin::AsynchronousUpdate), focus or not.  --key jobs replay the
+// primitive steps key_steps() built: ['d',vk] / ['u',vk] / ['w',ticks] /
+// ['c',text] (text to the clipboard as CF_TEXT, for CUIControlEdit's CTRL+V).
+const kernel32 = Process.getModuleByName('kernel32.dll');
+const keybd_event = new NativeFunction(user32.getExportByName('keybd_event'), 'void',
+                                       ['uint8', 'uint8', 'uint32', 'pointer'], 'stdcall');
+const MapVirtualKeyA = new NativeFunction(user32.getExportByName('MapVirtualKeyA'),
+                                          'uint32', ['uint32', 'uint32'], 'stdcall');
+const OpenClipboard = new NativeFunction(user32.getExportByName('OpenClipboard'),
+                                         'int', ['pointer'], 'stdcall');
+const EmptyClipboard = new NativeFunction(user32.getExportByName('EmptyClipboard'),
+                                          'int', [], 'stdcall');
+const SetClipboardData = new NativeFunction(user32.getExportByName('SetClipboardData'),
+                                            'pointer', ['uint32', 'pointer'], 'stdcall');
+const CloseClipboard = new NativeFunction(user32.getExportByName('CloseClipboard'),
+                                          'int', [], 'stdcall');
+const GlobalAlloc = new NativeFunction(kernel32.getExportByName('GlobalAlloc'),
+                                       'pointer', ['uint32', 'size_t'], 'stdcall');
+const GlobalLock = new NativeFunction(kernel32.getExportByName('GlobalLock'),
+                                      'pointer', ['pointer'], 'stdcall');
+const GlobalUnlock = new NativeFunction(kernel32.getExportByName('GlobalUnlock'),
+                                        'int', ['pointer'], 'stdcall');
+let keyJob = null;
+function setClipboardText(text) {
+  if (!OpenClipboard(NULL)) return false;
+  EmptyClipboard();
+  const h = GlobalAlloc(2 /* GMEM_MOVEABLE */, text.length + 1);
+  const p = GlobalLock(h);
+  p.writeAnsiString(text);
+  GlobalUnlock(h);
+  const ok = !SetClipboardData(1 /* CF_TEXT */, h).isNull();
+  CloseClipboard();
+  return ok;
+}
+function runKeyJob() {
+  if (keyJob.wait > 0) { keyJob.wait--; return; }
+  const s = keyJob.steps.shift();
+  if (s === undefined) {
+    send({ tag: 'drive', step: 'keyDone', key: keyJob.label });
+    keyJob = null;
+    return;
+  }
+  if (s[0] === 'w') { keyJob.wait = s[1]; return; }
+  if (s[0] === 'c') {
+    send({ tag: 'drive', step: 'clipboard', ok: setClipboardText(s[1]), text: s[1] });
+    return;
+  }
+  keybd_event(s[1], MapVirtualKeyA(s[1], 0), s[0] === 'u' ? 2 /* KEYEVENTF_KEYUP */ : 0, NULL);
+}
 const mouse_event = new NativeFunction(user32.getExportByName('mouse_event'), 'void',
                                        ['uint32', 'uint32', 'uint32', 'uint32', 'pointer'],
                                        'stdcall');
@@ -698,11 +748,21 @@ Interceptor.attach(ptr(%(uimgr_update)#x), {
     }
     // Post-load clicks belong to the world screen's own manager; they wait their
     // settle out between jobs so the bar has run an UpdateButtons in between.
+    if (keyJob !== null) {
+      if (worldThis === null || !this.mgr.equals(worldThis.add(%(uimgr_off)#x))) return;
+      runKeyJob();
+      return;
+    }
     if (worldThis !== null && postClicks.length !== 0) {
       if (!this.mgr.equals(worldThis.add(%(uimgr_off)#x))) return;
       if (++postSettled < POST_SETTLE) return;
       postSettled = 0;
       const c = postClicks.shift();
+      if (c[0] === 'K') {
+        keyJob = { steps: c[1].slice(), wait: 0, label: c[2] };
+        send({ tag: 'drive', step: 'postKey', key: c[2] });
+        return;
+      }
       const btn = c[2] === 'R' ? 'R' : 'L';
       send({ tag: 'drive', step: 'postClick', panel: c[0], ctrl: c[1], btn: btn });
       postJob(worldThis, c[0], c[1],
@@ -978,6 +1038,52 @@ class ClickAction(argparse.Action):
         ns.clicks = (getattr(ns, "clicks", None) or []) + [[panel, ctrl, button]]
 
 
+# Virtual keys a --key token may name; a single character stands for itself
+# (letters/digits are their own VK; '=' is VK_OEM_PLUS on the engine's list).
+KEY_NAMES = {"TAB": 0x09, "ENTER": 0x0D, "RETURN": 0x0D, "ESC": 0x1B,
+             "SPACE": 0x20, "CTRL": 0x11, "SHIFT": 0x10, "=": 0xBB}
+
+
+def key_steps(value: str) -> list:
+    """One --key token -> primitive steps the world-tick key job replays.
+
+    `^X` presses X with CTRL held, `X` presses X, `clip:TEXT` puts TEXT on the
+    clipboard as CF_TEXT (CUIControlEdit::OnKeyDown pastes it on CTRL+V,
+    0x4D7559), `wait:N` idles N manager ticks.  The engine sees keys only
+    through its GetAsyncKeyState poll (CChitin::AsynchronousUpdate), so every
+    edge is held for several ticks.
+    """
+    if value.startswith("clip:"):
+        return [["c", value[5:]]]
+    if value.startswith("wait:"):
+        return [["w", int(value[5:])]]
+    ctrl = value.startswith("^") and len(value) > 1
+    name = value[1:] if ctrl else value
+    vk = KEY_NAMES.get(name.upper())
+    if vk is None:
+        if len(name) != 1 or not name.isalnum():
+            raise ValueError(f"unknown key {value!r}")
+        vk = ord(name.upper())
+    steps = []
+    if ctrl:
+        steps += [["d", 0x11], ["w", 4]]
+    steps += [["d", vk], ["w", 5], ["u", vk], ["w", 4]]
+    if ctrl:
+        steps += [["u", 0x11], ["w", 4]]
+    return steps
+
+
+class KeyAction(argparse.Action):
+    """--key joins the --click/--rclick list, so keys and clicks keep one order."""
+
+    def __call__(self, parser, ns, value, option_string=None):
+        try:
+            steps = key_steps(value)
+        except ValueError as exc:
+            raise argparse.ArgumentError(self, str(exc))
+        ns.clicks = (getattr(ns, "clicks", None) or []) + [["K", steps, value]]
+
+
 def build_js(spec: dict, slot: int, settle: int, skip_movies: bool = True,
              clicks: list | None = None, click_settle: int = 60,
              load_name: str | None = None, load_index: int = -1,
@@ -1057,6 +1163,12 @@ def main() -> int:
                     help="the same with the RIGHT button.  --click and --rclick share "
                          "ONE ordered list and interleave in the order given, which is "
                          "what a route like `--click 1:4 --rclick 1:11` needs.")
+    ap.add_argument("--key", action=KeyAction, dest="clicks", default=None,
+                    metavar="KEY",
+                    help="press a key once the world engine is up, in the same ordered "
+                         "list as --click: 'Q', '=', 'ENTER', '^TAB' (CTRL held), "
+                         "'clip:TEXT' (TEXT to the clipboard, paste it with '^V'), "
+                         "'wait:N' (N manager ticks).")
     ap.add_argument("--click-settle", type=int, default=60,
                     help="manager ticks to wait before each --click")
     ap.add_argument("--hit", help="hook name that must fire, else NOT-EXERCISED")
